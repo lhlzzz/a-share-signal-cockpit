@@ -6,4 +6,4 @@
 - Local: `hermes-workspaces/xiaogu/`
 - PostgreSQL port: 5432
 
-**Do not create hermes-* repos.** This project maps to the existing GitHub repo above.
+Only this existing repo. Do not create hermes-* names.
