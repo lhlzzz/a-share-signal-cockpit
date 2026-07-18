@@ -1,9 +1,9 @@
 # Remote
 
 - Domain: A股
-- GitHub: https://github.com/lhlzzz/hermes-xiaogu (private)
+- GitHub: https://github.com/lhlzzz/a-share-signal-cockpit
 - Branch: main
 - Local: `hermes-workspaces/xiaogu/`
-- PostgreSQL port: 5432 (see portfolio-control/docs/DB_OWNERSHIP.md)
+- PostgreSQL port: 5432
 
-Portfolio control plane: https://github.com/lhlzzz/hermes-portfolio
+**Do not create hermes-* repos.** This project maps to the existing GitHub repo above.
