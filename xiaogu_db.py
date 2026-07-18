@@ -1,0 +1,1583 @@
+"""Database connection and helpers for xiaogu."""
+import hashlib
+import json
+import os
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"
+)
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine)
+
+SCORING_CONFIG_DEFAULTS: Dict[str, str] = {
+    "weekday_blocklist": "",
+    "max_score_cap": "88",
+    "follow_on_strategy": "t1_close_primary",
+    "follow_on_t1_weight": "1.0",
+    "follow_on_t2_weight": "0.45",
+    "follow_on_t3_weight": "0.25",
+    "follow_on_limit_up_threshold": "0.095",
+    "horizon_aware_strategy": "instant_then_delayed",
+    "instant_momentum_min_confirmations": "2",
+    "delayed_setup_min_persistence": "2",
+    "delayed_setup_floor_score": "75",
+    "delayed_setup_theme_min_score": "0.5",
+    "stale_repeat_window_days": "5",
+    "stale_decay_factor": "0.65",
+    "l2_limit_strength_bonus": "2.0",
+    "sector_catalyst_penalty": "1.0",
+    "near_limit_l2_exemption": "true",
+    "evidence_catalyst_boost_weight": "0.5",
+    "evidence_limitup_momentum_weight": "0.7",
+    "evidence_broken_limit_penalty_weight": "1.5",
+    "evidence_consecutive_limit_bonus_weight": "0.5",
+    "evidence_yesterday_limit_bonus_weight": "0.3",
+    "evidence_popularity_boost_weight": "1.0",
+    "evidence_board_momentum_weight": "0.5",
+    "evidence_sector_flow_weight": "0.5",
+    "evidence_concept_flow_weight": "0.5",
+    "evidence_quote_recheck_weight": "0.3",
+    "evidence_fund_recheck_weight": "0.3",
+    "evidence_lhb_recheck_weight": "0.4",
+    "evidence_announcement_recheck_weight": "0.3",
+    "evidence_intraday_replay_weight": "0.2",
+    "evidence_margin_risk_weight": "1.0",
+    "evidence_block_trade_weight": "0.5",
+    "evidence_lockup_risk_weight": "1.5",
+    "evidence_shareholder_signal_weight": "0.5",
+    "evidence_research_rating_weight": "0.5",
+    "evidence_earnings_signal_weight": "0.8",
+    "evidence_ipo_pressure_weight": "0.3",
+    "evidence_halt_block_weight": "5.0",
+    "evidence_directory_content_weight": "0.2",
+    "evidence_historical_risk_weight": "0.5",
+}
+
+_SCORING_CONFIG_CACHE: Dict[str, Any] | None = None
+
+MAINBOARD_PREFIXES = ("600", "601", "603", "605", "000", "001", "002", "003")
+COHORT_FULL_CHAIN_COMPLETE = "FULL_CHAIN_COMPLETE"
+COHORT_TRANSITION_RECONSTRUCTABLE = "TRANSITION_RECONSTRUCTABLE"
+COHORT_DB_ONLY_LEGACY = "DB_ONLY_LEGACY"
+COHORT_NON_MAINBOARD_EXCLUDED = "NON_MAINBOARD_EXCLUDED"
+COHORT_NO_RETURN_YET = "NO_RETURN_YET"
+COHORT_INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+LIMITUP_GENE_SHADOW_SIGNALS = (
+    "previous_limitup",
+    "near_limitup_close",
+    "first_board_gene",
+    "broken_board_repair",
+    "sector_limitup_cluster",
+    "high_turnover_continuation",
+)
+
+
+def is_mainboard_symbol(symbol: Any) -> bool:
+    """Return whether a symbol belongs to the current main-board universe."""
+    code = str(symbol or "").strip().zfill(6)
+    return code.startswith(MAINBOARD_PREFIXES)
+
+
+def _json_has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return bool(str(value).strip())
+
+
+def _candidate_snapshot_value(candidate: Dict[str, Any], key: str) -> Any:
+    if key in candidate and candidate[key] is not None:
+        return candidate[key]
+    for source_name in (
+        "candidate_features", "factor_snapshot", "auxiliary_evidence_snapshot",
+        "ranking_basis", "raw_json",
+    ):
+        source = candidate.get(source_name)
+        if isinstance(source, dict) and key in source and source[key] is not None:
+            return source[key]
+    return None
+
+
+def limitup_gene_signal_values(candidate: Dict[str, Any]) -> Dict[str, bool]:
+    """Return the single pre-decision definition for persisted gene signals."""
+    value = lambda key: _candidate_snapshot_value(candidate, key)
+    as_number = lambda raw: float(raw or 0) if isinstance(raw, (int, float, bool)) else 0.0
+    return {
+        "previous_limitup": bool(value("previous_limitup") or value("yesterday_limitup_gene_evidence")),
+        "near_limitup_close": bool(value("near_limitup_close") or as_number(value("close_position_score")) >= 0.8),
+        "first_board_gene": bool(value("first_board_gene")),
+        "broken_board_repair": bool(value("broken_board_repair")),
+        "sector_limitup_cluster": bool(
+            value("sector_limitup_cluster") or as_number(value("sector_yesterday_limitup_gene_proxy")) > 0
+        ),
+        "high_turnover_continuation": bool(
+            value("high_turnover_continuation")
+            or (as_number(value("turnover_rate")) > 0 and as_number(value("continuation_gene_score")) > 0)
+        ),
+    }
+
+
+def _candidate_has_reconstructable_source(candidate: Dict[str, Any]) -> bool:
+    return any(
+        _json_has_value(candidate.get(field))
+        for field in (
+            "raw_json", "candidate_features", "eligibility_snapshot",
+            "selection_diagnostics", "source_layers",
+        )
+    )
+
+
+def classify_candidate_cohort(
+    candidate: Dict[str, Any],
+    *,
+    top10_count: Optional[int] = None,
+    has_return: Optional[bool] = None,
+    trade_date: Any = None,
+) -> Dict[str, Any]:
+    """Classify one DB candidate without treating missing evidence as PASS.
+
+    ``cohort`` is the exclusive reporting label. ``cohort_quality`` preserves
+    the evidence-quality class when ``NO_RETURN_YET`` is the blocking status.
+    This lets reports answer both "is it complete?" and "can it be measured?".
+    """
+    symbol = candidate.get("symbol")
+    if not is_mainboard_symbol(symbol):
+        quality = COHORT_NON_MAINBOARD_EXCLUDED
+    else:
+        complete_fields = (
+            int(candidate.get("rank") or 999999) <= 10,
+            (top10_count or 0) >= 10,
+            _json_has_value(candidate.get("candidate_entry_reason")),
+            _json_has_value(candidate.get("factor_snapshot")),
+            _json_has_value(candidate.get("auxiliary_evidence_snapshot")),
+            _json_has_value(candidate.get("ranking_basis")),
+        )
+        provenance = candidate.get("reconstruction_provenance") or {}
+        reconstructed_snapshot = any(
+            isinstance(provenance.get(field), dict) and provenance[field].get("reconstructed")
+            for field in ("candidate_entry_reason", "factor_snapshot", "auxiliary_evidence_snapshot", "ranking_basis")
+        )
+        # Any row in the historical reconstruction window is transition data,
+        # even when one or more snapshots pre-existed the backfill. This keeps
+        # the current full-chain benchmark from absorbing legacy quality.
+        if str(trade_date or "") < "2026-07-10" and _json_has_value(provenance):
+            reconstructed_snapshot = True
+        if all(complete_fields) and not reconstructed_snapshot:
+            quality = COHORT_FULL_CHAIN_COMPLETE
+        elif trade_date and str(trade_date) >= "2026-06-20" and _candidate_has_reconstructable_source(candidate):
+            quality = COHORT_TRANSITION_RECONSTRUCTABLE
+        elif _json_has_value(candidate.get("raw_json")) or _json_has_value(candidate.get("candidate_features")):
+            quality = COHORT_DB_ONLY_LEGACY
+        else:
+            quality = COHORT_INSUFFICIENT_EVIDENCE
+
+    status_flags: List[str] = []
+    if has_return is False:
+        status_flags.append(COHORT_NO_RETURN_YET)
+    exclusive = quality
+    if quality not in (COHORT_NON_MAINBOARD_EXCLUDED,) and has_return is False:
+        exclusive = COHORT_NO_RETURN_YET
+    return {
+        "cohort": exclusive,
+        "cohort_quality": quality,
+        "status_flags": status_flags,
+        "is_mainboard": is_mainboard_symbol(symbol),
+        "has_return": has_return,
+    }
+
+
+def _source_value(candidate: Dict[str, Any], field: str) -> tuple[Any, str]:
+    """Pick the first non-empty reconstruction source in the agreed order."""
+    source_fields = (
+        ("raw_json", "daily_candidates.raw_json"),
+        ("candidate_features", "candidate_features"),
+        ("eligibility_snapshot", "eligibility_snapshot"),
+        ("selection_diagnostics", "selection_diagnostics"),
+        ("source_layers", "source_layers"),
+    )
+    for container_name, source_name in source_fields:
+        container = candidate.get(container_name)
+        if isinstance(container, dict) and _json_has_value(container.get(field)):
+            return container.get(field), source_name
+        if container_name == "raw_json" and isinstance(container, dict) and _json_has_value(container):
+            aliases = {
+                "factor_snapshot": ("factor_snapshot", "structured_components", "structured_scores"),
+                "auxiliary_evidence_snapshot": ("auxiliary_evidence_snapshot", "auxiliary_evidence", "evidence"),
+                "candidate_entry_reason": ("candidate_entry_reason", "entry_reason", "why_candidate"),
+                "ticket_reason": ("ticket_reason", "selection_reason", "why_selected"),
+                "not_selected_reason": ("not_selected_reason", "not_selected_reasons", "why_not_selected"),
+                "ranking_basis": ("ranking_basis", "ranking_basis_snapshot"),
+            }
+            for alias in aliases.get(field, (field,)):
+                if _json_has_value(container.get(alias)):
+                    return container.get(alias), source_name
+    return None, ""
+
+
+def reconstruct_candidate_evidence(
+    candidate: Dict[str, Any],
+    *,
+    pick: Optional[Dict[str, Any]] = None,
+    return_row: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Rebuild missing snapshots from recorded fields and attach provenance.
+
+    The function only copies observed values. Missing announcement/news/
+    yesterday-limitup evidence remains explicitly missing; no PASS is inferred.
+    """
+    pick = pick or {}
+    return_row = return_row or {}
+    sources_used: List[str] = []
+    provenance: Dict[str, Any] = {}
+    output: Dict[str, Any] = {}
+    fields = (
+        "candidate_entry_reason", "ticket_reason", "not_selected_reason",
+        "factor_snapshot", "auxiliary_evidence_snapshot", "ranking_basis",
+    )
+    for field in fields:
+        existing = candidate.get(field)
+        if not _json_has_value(existing):
+            existing = None
+        if _json_has_value(existing):
+            output[field] = existing
+            provenance[field] = {
+                "reconstructed": False,
+                "reconstruction_source": ["daily_candidates." + field],
+                "reconstruction_confidence": "HIGH",
+                "missing_fields": [],
+            }
+            continue
+        value, source = _source_value(candidate, field)
+        if value is None and field in ("ticket_reason", "ranking_basis"):
+            pick_value = pick.get(field)
+            if _json_has_value(pick_value):
+                value, source = pick_value, "picks." + field
+        if value is None and field == "candidate_entry_reason":
+            value = candidate.get("selection_reason") or candidate.get("selection_outcome_reason")
+            source = "daily_candidates.selection_reason" if _json_has_value(value) else ""
+            if not _json_has_value(value):
+                value = None
+        if value is None and field == "not_selected_reason":
+            value = candidate.get("blockers")
+            source = "daily_candidates.blockers" if _json_has_value(value) else ""
+            if not _json_has_value(value):
+                value = None
+        if value is None and field == "candidate_entry_reason" and _json_has_value(candidate.get("rank")):
+            value = ["candidate_entry_reason_not_recorded"]
+            source = "daily_candidates.rank"
+        if value is None and field == "not_selected_reason" and int(candidate.get("rank") or 999999) > 1:
+            value = ["not_selected_reason_not_recorded"]
+            source = "daily_candidates.rank"
+        if value is None and field == "factor_snapshot":
+            observed = candidate.get("candidate_features") or candidate.get("raw_json") or {}
+            if isinstance(observed, dict) and observed:
+                value = {"observed_recorded_features": observed, "evidence_status": "RECONSTRUCTED_FROM_RECORDED_FEATURES"}
+                source = "candidate_features" if candidate.get("candidate_features") else "daily_candidates.raw_json"
+        if value is None and field == "auxiliary_evidence_snapshot":
+            value = {
+                "announcements": {"status": "MISSING", "reason": "historical_evidence_not_recorded"},
+                "news": {"status": "MISSING", "reason": "historical_evidence_not_recorded"},
+                "yesterday_limitup_gene": {"status": "MISSING", "reason": "historical_evidence_not_recorded"},
+                "risk_notices": {"status": "MISSING", "reason": "historical_evidence_not_recorded"},
+                "evidence_status": "RECONSTRUCTED_MISSING_UNPROVEN",
+            }
+            source = "daily_candidates.raw_json" if _json_has_value(candidate.get("raw_json")) else ""
+        if value is None and field == "ranking_basis":
+            if _json_has_value(candidate.get("rank")) or _json_has_value(candidate.get("final_score")):
+                value = {"rank": candidate.get("rank"), "final_score": candidate.get("final_score"), "basis_status": "RECORDED_RANK_SCORE_ONLY"}
+                source = "daily_candidates.rank"
+        if value is None:
+            value = {} if field in ("ticket_reason", "factor_snapshot", "auxiliary_evidence_snapshot", "ranking_basis") else []
+        missing = [] if _json_has_value(value) else [field]
+        confidence = "HIGH" if source in ("daily_candidates.raw_json", "daily_candidates." + field) else ("MEDIUM" if source else "LOW")
+        if isinstance(value, dict) and source:
+            value.setdefault("reconstructed", True)
+            value.setdefault("reconstruction_source", [source])
+            value.setdefault("reconstruction_confidence", confidence)
+            value.setdefault("missing_fields", missing)
+        output[field] = value
+        provenance[field] = {
+            "reconstructed": bool(source and not _json_has_value(existing)),
+            "reconstruction_source": [source] if source else [],
+            "reconstruction_confidence": confidence,
+            "missing_fields": missing,
+        }
+        if source and source not in sources_used:
+            sources_used.append(source)
+
+    future = dict(candidate.get("future_return_fields_placeholder") or {})
+    for key in ("t1_return", "t2_return", "t3_return", "t5_return", "is_limit_up"):
+        if key not in future:
+            future[key] = return_row.get(key)
+    output["future_return_fields_placeholder"] = future
+    provenance["future_return_fields_placeholder"] = {
+        "reconstructed": bool(return_row),
+        "reconstruction_source": ["returns"] if return_row else [],
+        "reconstruction_confidence": "HIGH" if return_row else "LOW",
+        "missing_fields": [] if return_row else ["returns"],
+    }
+    output["reconstruction_provenance"] = provenance
+    output["reconstruction_sources"] = sources_used
+    return output
+
+
+def _compact_key_fragment(value: Any, limit: int = 32) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    text = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+    text = ''.join(ch if ch.isalnum() or ch in ('-', '_', '.', ':') else '-' for ch in text)
+    while '--' in text:
+        text = text.replace('--', '-')
+    return text[:limit].strip('-_.:')
+
+
+def _stable_directory_record_key(prefix: str, trade_date: date, record: Dict[str, Any], field_names: List[str]) -> str:
+    fragments = [_compact_key_fragment(record.get(name)) for name in field_names]
+    fragments = [fragment for fragment in fragments if fragment]
+    payload = json.dumps(record, ensure_ascii=False, default=str, sort_keys=True)
+    digest = hashlib.sha1(payload.encode('utf-8')).hexdigest()[:16]
+    parts = [prefix, str(trade_date)]
+    if fragments:
+        parts.extend(fragments[:3])
+    parts.append(digest)
+    return ':'.join(parts)[:200]
+
+
+@contextmanager
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
+    """Run init SQL to create tables."""
+    with open(sql_path, "r") as f:
+        sql = f.read()
+    with engine.connect() as conn:
+        conn.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'scoring_config'
+                      AND column_name = 'config_value'
+                      AND data_type <> 'text'
+                ) THEN
+                    ALTER TABLE scoring_config
+                        ALTER COLUMN config_value TYPE TEXT USING config_value::text;
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'scoring_config'
+                      AND column_name = 'config_key'
+                      AND character_maximum_length < 100
+                ) THEN
+                    ALTER TABLE scoring_config
+                        ALTER COLUMN config_key TYPE VARCHAR(100);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'scoring_config'
+                ) THEN
+                    ALTER TABLE scoring_config
+                        ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+                        ADD COLUMN IF NOT EXISTS data_version VARCHAR(64);
+                END IF;
+            END $$;
+        """))
+        conn.execute(text(sql))
+        conn.commit()
+
+
+def _normalize_scoring_config_rows(rows: List[Dict[str, Any]]) -> Dict[str, str]:
+    config = dict(SCORING_CONFIG_DEFAULTS)
+    for row in rows:
+        key = str(row.get("config_key") or "").strip()
+        if not key:
+            continue
+        value = row.get("config_value")
+        config[key] = "" if value is None else str(value)
+    return config
+
+
+def _load_scoring_config_snapshot() -> Dict[str, Any]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT config_key, config_value FROM scoring_config")
+        ).mappings().all()
+    return {
+        "config": _normalize_scoring_config_rows(rows),
+        "loaded": True,
+        "source": "db",
+        "error": "",
+    }
+
+
+def get_scoring_config_snapshot(refresh: bool = False) -> Dict[str, Any]:
+    global _SCORING_CONFIG_CACHE
+    if refresh or _SCORING_CONFIG_CACHE is None:
+        try:
+            snapshot = _load_scoring_config_snapshot()
+        except Exception as exc:
+            snapshot = {
+                "config": dict(SCORING_CONFIG_DEFAULTS),
+                "loaded": False,
+                "source": "defaults",
+                "error": repr(exc),
+            }
+        _SCORING_CONFIG_CACHE = snapshot
+    return {
+        "config": dict(_SCORING_CONFIG_CACHE["config"]),
+        "loaded": bool(_SCORING_CONFIG_CACHE.get("loaded")),
+        "source": str(_SCORING_CONFIG_CACHE.get("source") or "defaults"),
+        "error": str(_SCORING_CONFIG_CACHE.get("error") or ""),
+    }
+
+
+def clear_scoring_config_cache() -> None:
+    global _SCORING_CONFIG_CACHE
+    _SCORING_CONFIG_CACHE = None
+
+
+def insert_pick(
+    trade_date: date,
+    symbol: str,
+    decision: str,
+    final_score: Optional[float],
+    blockers: List[str],
+    features: Dict[str, Any],
+    source_layers: List[str],
+    rule_version: str,
+    scan_dir: str = "",
+    dry_run: bool = True,
+    stock_name: str = "",
+    rank: Optional[int] = None,
+    structured_score: Optional[float] = None,
+    ranking_basis: Optional[Dict[str, Any]] = None,
+    ticket_reason: Optional[Dict[str, Any]] = None,
+    selection_reason: Optional[Dict[str, Any]] = None,
+    paper_pick_eligibility: Optional[Dict[str, Any]] = None,
+    official_target_exclusion_reasons: Optional[List[str]] = None,
+    risk_flags: Optional[List[str]] = None,
+    auxiliary_evidence_status: str = "",
+    information_coverage_audit_snapshot: Optional[Dict[str, Any]] = None,
+    source_summary_path: str = "",
+) -> int:
+    """Insert a pick record, return its id. Dedup by (trade_date, symbol, decision)."""
+    with get_db() as db:
+        result = db.execute(
+            text("""
+                INSERT INTO picks
+                    (trade_date, symbol, decision, final_score, blockers,
+                     features, source_layers, rule_version, scan_dir, dry_run,
+                     stock_name, rank, structured_score, ranking_basis, ticket_reason,
+                     selection_reason, paper_pick_eligibility, official_target_exclusion_reasons,
+                     risk_flags, auxiliary_evidence_status, information_coverage_audit_snapshot,
+                     source_summary_path)
+                VALUES
+                    (:trade_date, :symbol, :decision, :final_score, CAST(:blockers AS jsonb),
+                     CAST(:features AS jsonb), CAST(:source_layers AS jsonb), :rule_version, :scan_dir, :dry_run,
+                     :stock_name, :rank, :structured_score, CAST(:ranking_basis AS jsonb), CAST(:ticket_reason AS jsonb),
+                     CAST(:selection_reason AS jsonb), CAST(:paper_pick_eligibility AS jsonb),
+                     CAST(:official_target_exclusion_reasons AS jsonb), CAST(:risk_flags AS jsonb),
+                     :auxiliary_evidence_status, CAST(:information_coverage_audit_snapshot AS jsonb),
+                     :source_summary_path)
+                ON CONFLICT (trade_date, symbol, decision) DO UPDATE SET
+                    final_score = EXCLUDED.final_score,
+                    blockers = EXCLUDED.blockers,
+                    features = EXCLUDED.features,
+                    source_layers = EXCLUDED.source_layers,
+                    rule_version = EXCLUDED.rule_version,
+                    scan_dir = EXCLUDED.scan_dir,
+                    dry_run = EXCLUDED.dry_run,
+                    stock_name = EXCLUDED.stock_name,
+                    rank = EXCLUDED.rank,
+                    structured_score = EXCLUDED.structured_score,
+                    ranking_basis = EXCLUDED.ranking_basis,
+                    ticket_reason = EXCLUDED.ticket_reason,
+                    selection_reason = EXCLUDED.selection_reason,
+                    paper_pick_eligibility = EXCLUDED.paper_pick_eligibility,
+                    official_target_exclusion_reasons = EXCLUDED.official_target_exclusion_reasons,
+                    risk_flags = EXCLUDED.risk_flags,
+                    auxiliary_evidence_status = EXCLUDED.auxiliary_evidence_status,
+                    information_coverage_audit_snapshot = EXCLUDED.information_coverage_audit_snapshot,
+                    source_summary_path = EXCLUDED.source_summary_path,
+                    updated_at = NOW()
+                RETURNING id
+            """),
+            {
+                "trade_date": trade_date,
+                "symbol": symbol,
+                "decision": decision,
+                "final_score": final_score,
+                "blockers": json.dumps(blockers, ensure_ascii=False),
+                "features": json.dumps(features, ensure_ascii=False),
+                "source_layers": json.dumps(source_layers, ensure_ascii=False),
+                "rule_version": rule_version,
+                "scan_dir": scan_dir,
+                "dry_run": dry_run,
+                "stock_name": stock_name,
+                "rank": rank,
+                "structured_score": structured_score,
+                "ranking_basis": json.dumps(ranking_basis or {}, ensure_ascii=False, default=str),
+                "ticket_reason": json.dumps(ticket_reason or {}, ensure_ascii=False, default=str),
+                "selection_reason": json.dumps(selection_reason or {}, ensure_ascii=False, default=str),
+                "paper_pick_eligibility": json.dumps(paper_pick_eligibility or {}, ensure_ascii=False, default=str),
+                "official_target_exclusion_reasons": json.dumps(official_target_exclusion_reasons or [], ensure_ascii=False, default=str),
+                "risk_flags": json.dumps(risk_flags or [], ensure_ascii=False, default=str),
+                "auxiliary_evidence_status": auxiliary_evidence_status,
+                "information_coverage_audit_snapshot": json.dumps(information_coverage_audit_snapshot or {}, ensure_ascii=False, default=str),
+                "source_summary_path": source_summary_path,
+            }
+        )
+        row = result.fetchone()
+        return row[0] if row else -1
+
+
+def has_returns_for_trade_date(trade_date: date) -> bool:
+    """Corrections are forbidden once T+1 return evidence exists for the day."""
+    with engine.connect() as conn:
+        return bool(conn.execute(
+            text("""
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM returns
+                    WHERE trade_date = :trade_date
+                )
+            """),
+            {"trade_date": trade_date},
+        ).scalar())
+
+
+def prune_daily_candidates_to_symbols(trade_date: date, symbols: List[str]) -> int:
+    """Remove stale same-day candidates only after a complete replacement is persisted."""
+    normalized_symbols = sorted({str(symbol or "").strip() for symbol in symbols if str(symbol or "").strip()})
+    if not normalized_symbols:
+        raise ValueError("candidate snapshot replacement requires at least one symbol")
+    placeholders = ", ".join(f":symbol_{index}" for index in range(len(normalized_symbols)))
+    params: Dict[str, Any] = {"trade_date": trade_date}
+    params.update({f"symbol_{index}": symbol for index, symbol in enumerate(normalized_symbols)})
+    with get_db() as db:
+        has_returns = db.execute(
+            text("""
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM returns
+                    WHERE trade_date = :trade_date
+                )
+            """),
+            {"trade_date": trade_date},
+        ).scalar()
+        if has_returns:
+            raise RuntimeError("cannot replace daily candidate snapshot after returns exist")
+        result = db.execute(
+            text(f"""
+                DELETE FROM daily_candidates
+                WHERE trade_date = :trade_date
+                  AND symbol NOT IN ({placeholders})
+            """),
+            params,
+        )
+    return int(result.rowcount or 0)
+
+
+def supersede_active_picks_for_correction(
+    trade_date: date,
+    *,
+    correction_of: str,
+    replacement_symbol: str,
+    replacement_decision: str,
+    reason: str,
+) -> int:
+    """Retain prior DB pick rows for audit while hiding replaced decisions by default."""
+    metadata = {
+        "superseded": True,
+        "superseded_by": correction_of,
+        "superseded_reason": reason,
+        "superseded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with get_db() as db:
+        has_returns = db.execute(
+            text("""
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM returns
+                    WHERE trade_date = :trade_date
+                )
+            """),
+            {"trade_date": trade_date},
+        ).scalar()
+        if has_returns:
+            raise RuntimeError("cannot supersede pick after returns exist")
+        result = db.execute(
+            text("""
+                UPDATE picks
+                SET features = COALESCE(features, CAST('{}' AS jsonb))
+                    || CAST(:metadata AS jsonb),
+                    updated_at = NOW()
+                WHERE trade_date = :trade_date
+                  AND COALESCE(features ->> 'superseded', 'false') <> 'true'
+                  AND NOT (symbol = :replacement_symbol AND decision = :replacement_decision)
+            """),
+            {
+                "trade_date": trade_date,
+                "replacement_symbol": replacement_symbol,
+                "replacement_decision": replacement_decision,
+                "metadata": json.dumps(metadata, ensure_ascii=False),
+            },
+        )
+    return int(result.rowcount or 0)
+
+
+def mark_pick_active_correction(
+    trade_date: date,
+    *,
+    symbol: str,
+    decision: str,
+    correction_of: str,
+) -> int:
+    """Mark the replacement pick as the active materialized correction result."""
+    metadata = {
+        "correction_record_type": "CORRECTION",
+        "correction_of": correction_of,
+        "superseded": False,
+        "active_correction": True,
+        "corrected_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with get_db() as db:
+        result = db.execute(
+            text("""
+                UPDATE picks
+                SET features = (
+                        COALESCE(features, CAST('{}' AS jsonb))
+                        - 'superseded'
+                        - 'superseded_by'
+                        - 'superseded_reason'
+                        - 'superseded_at'
+                    ) || CAST(:metadata AS jsonb),
+                    updated_at = NOW()
+                WHERE trade_date = :trade_date
+                  AND symbol = :symbol
+                  AND decision = :decision
+            """),
+            {
+                "trade_date": trade_date,
+                "symbol": symbol,
+                "decision": decision,
+                "metadata": json.dumps(metadata, ensure_ascii=False),
+            },
+        )
+    return int(result.rowcount or 0)
+
+
+def upsert_daily_candidate(
+    trade_date: date,
+    symbol: str,
+    stock_name: str,
+    rank: Optional[int],
+    final_score: Optional[float],
+    decision: str,
+    is_official_pick: bool,
+    open_price: Optional[float],
+    close_price: Optional[float],
+    high_price: Optional[float],
+    low_price: Optional[float],
+    volume: Optional[int],
+    amount: Optional[float],
+    pct_chg: Optional[float],
+    turnover_rate: Optional[float],
+    signal_pct: Optional[float],
+    close_position_score: Optional[float],
+    fund_flow_momentum: Optional[float],
+    sector_catalyst_score: Optional[float],
+    early_opportunity_score: Optional[float],
+    topic_propagation_score: Optional[float],
+    market_regime: str,
+    sentiment_catalyst: str,
+    theme_catalyst: str,
+    news_catalyst: str,
+    positive_catalyst: str,
+    selection_reason: str,
+    selection_outcome: str = '',
+    selection_outcome_reason: str = '',
+    blockers: Optional[List[str]] = None,
+    hard_gate_status: Optional[Dict[str, Any]] = None,
+    eligibility_snapshot: Optional[Dict[str, Any]] = None,
+    selection_diagnostics: Optional[Dict[str, Any]] = None,
+    source_layers: Optional[List[str]] = None,
+    candidate_features: Optional[Dict[str, Any]] = None,
+    raw_json: Optional[Dict[str, Any]] = None,
+    candidate_entry_reason: Optional[List[str]] = None,
+    ticket_reason: Optional[Dict[str, Any]] = None,
+    not_selected_reason: Optional[List[str]] = None,
+    factor_snapshot: Optional[Dict[str, Any]] = None,
+    auxiliary_evidence_snapshot: Optional[Dict[str, Any]] = None,
+    ranking_basis: Optional[Dict[str, Any]] = None,
+    postmortem_snapshot: Optional[Dict[str, Any]] = None,
+    future_return_fields_placeholder: Optional[Dict[str, Any]] = None,
+    cohort: str = "",
+    cohort_quality: str = "",
+    cohort_status_flags: Optional[List[str]] = None,
+    reconstruction_provenance: Optional[Dict[str, Any]] = None,
+) -> None:
+    blockers = list(blockers or [])
+    hard_gate_status = dict(hard_gate_status or {})
+    eligibility_snapshot = dict(eligibility_snapshot or {})
+    selection_diagnostics = dict(selection_diagnostics or {})
+    source_layers = list(source_layers or [])
+    candidate_features = dict(candidate_features or {})
+    raw_json = dict(raw_json or {})
+    candidate_entry_reason = list(candidate_entry_reason or []) if isinstance(candidate_entry_reason, (list, tuple)) else ([str(candidate_entry_reason)] if candidate_entry_reason else [])
+    ticket_reason = dict(ticket_reason or {}) if isinstance(ticket_reason, dict) else ({"text": str(ticket_reason)} if ticket_reason else {})
+    not_selected_reason = list(not_selected_reason or []) if isinstance(not_selected_reason, (list, tuple)) else ([str(not_selected_reason)] if not_selected_reason else [])
+    factor_snapshot = dict(factor_snapshot or {})
+    auxiliary_evidence_snapshot = dict(auxiliary_evidence_snapshot or {})
+    ranking_basis = dict(ranking_basis or {})
+    postmortem_snapshot = dict(postmortem_snapshot or {})
+    future_return_fields_placeholder = dict(future_return_fields_placeholder or {})
+    cohort_status_flags = list(cohort_status_flags or [])
+    reconstruction_provenance = dict(reconstruction_provenance or {})
+    with get_db() as db:
+        db.execute(
+            text("""
+                INSERT INTO daily_candidates (
+                    trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
+                    open_price, close_price, high_price, low_price, volume, amount, pct_chg, turnover_rate,
+                    signal_pct, close_position_score, fund_flow_momentum, sector_catalyst_score,
+                    early_opportunity_score, topic_propagation_score, market_regime, sentiment_catalyst,
+                    theme_catalyst, news_catalyst, positive_catalyst, selection_reason,
+                    selection_outcome, selection_outcome_reason, blockers, hard_gate_status,
+                    eligibility_snapshot, selection_diagnostics, source_layers, candidate_features, raw_json,
+                    candidate_entry_reason, ticket_reason, not_selected_reason, factor_snapshot,
+                    auxiliary_evidence_snapshot, ranking_basis, postmortem_snapshot, future_return_fields_placeholder,
+                    cohort, cohort_quality, cohort_status_flags, reconstruction_provenance
+                ) VALUES (
+                    :trade_date, :symbol, :stock_name, :rank, :final_score, :is_official_pick, :decision,
+                    :open_price, :close_price, :high_price, :low_price, :volume, :amount, :pct_chg, :turnover_rate,
+                    :signal_pct, :close_position_score, :fund_flow_momentum, :sector_catalyst_score,
+                    :early_opportunity_score, :topic_propagation_score, :market_regime, :sentiment_catalyst,
+                    :theme_catalyst, :news_catalyst, :positive_catalyst, :selection_reason,
+                    :selection_outcome, :selection_outcome_reason, CAST(:blockers AS jsonb), CAST(:hard_gate_status AS jsonb),
+                    CAST(:eligibility_snapshot AS jsonb), CAST(:selection_diagnostics AS jsonb), CAST(:source_layers AS jsonb),
+                    CAST(:candidate_features AS jsonb), CAST(:raw_json AS jsonb),
+                    CAST(:candidate_entry_reason AS jsonb), CAST(:ticket_reason AS jsonb),
+                    CAST(:not_selected_reason AS jsonb), CAST(:factor_snapshot AS jsonb),
+                    CAST(:auxiliary_evidence_snapshot AS jsonb), CAST(:ranking_basis AS jsonb),
+                    CAST(:postmortem_snapshot AS jsonb), CAST(:future_return_fields_placeholder AS jsonb),
+                    :cohort, :cohort_quality, CAST(:cohort_status_flags AS jsonb), CAST(:reconstruction_provenance AS jsonb)
+                )
+                ON CONFLICT (trade_date, symbol) DO UPDATE SET
+                    stock_name = EXCLUDED.stock_name,
+                    rank = EXCLUDED.rank,
+                    final_score = EXCLUDED.final_score,
+                    is_official_pick = EXCLUDED.is_official_pick,
+                    decision = EXCLUDED.decision,
+                    open_price = EXCLUDED.open_price,
+                    close_price = EXCLUDED.close_price,
+                    high_price = EXCLUDED.high_price,
+                    low_price = EXCLUDED.low_price,
+                    volume = EXCLUDED.volume,
+                    amount = EXCLUDED.amount,
+                    pct_chg = EXCLUDED.pct_chg,
+                    turnover_rate = EXCLUDED.turnover_rate,
+                    signal_pct = EXCLUDED.signal_pct,
+                    close_position_score = EXCLUDED.close_position_score,
+                    fund_flow_momentum = EXCLUDED.fund_flow_momentum,
+                    sector_catalyst_score = EXCLUDED.sector_catalyst_score,
+                    early_opportunity_score = EXCLUDED.early_opportunity_score,
+                    topic_propagation_score = EXCLUDED.topic_propagation_score,
+                    market_regime = EXCLUDED.market_regime,
+                    sentiment_catalyst = EXCLUDED.sentiment_catalyst,
+                    theme_catalyst = EXCLUDED.theme_catalyst,
+                    news_catalyst = EXCLUDED.news_catalyst,
+                    positive_catalyst = EXCLUDED.positive_catalyst,
+                    selection_reason = EXCLUDED.selection_reason,
+                    selection_outcome = EXCLUDED.selection_outcome,
+                    selection_outcome_reason = EXCLUDED.selection_outcome_reason,
+                    blockers = EXCLUDED.blockers,
+                    hard_gate_status = EXCLUDED.hard_gate_status,
+                    eligibility_snapshot = EXCLUDED.eligibility_snapshot,
+                    selection_diagnostics = EXCLUDED.selection_diagnostics,
+                    source_layers = EXCLUDED.source_layers,
+                    candidate_features = EXCLUDED.candidate_features,
+                    raw_json = EXCLUDED.raw_json,
+                    candidate_entry_reason = EXCLUDED.candidate_entry_reason,
+                    ticket_reason = EXCLUDED.ticket_reason,
+                    not_selected_reason = EXCLUDED.not_selected_reason,
+                    factor_snapshot = EXCLUDED.factor_snapshot,
+                    auxiliary_evidence_snapshot = EXCLUDED.auxiliary_evidence_snapshot,
+                    ranking_basis = EXCLUDED.ranking_basis,
+                    postmortem_snapshot = EXCLUDED.postmortem_snapshot,
+                    future_return_fields_placeholder = EXCLUDED.future_return_fields_placeholder,
+                    cohort = EXCLUDED.cohort,
+                    cohort_quality = EXCLUDED.cohort_quality,
+                    cohort_status_flags = EXCLUDED.cohort_status_flags,
+                    reconstruction_provenance = EXCLUDED.reconstruction_provenance,
+                    updated_at = NOW()
+            """),
+            {
+                'trade_date': trade_date,
+                'symbol': symbol,
+                'stock_name': stock_name,
+                'rank': rank,
+                'final_score': final_score,
+                'is_official_pick': is_official_pick,
+                'decision': decision,
+                'open_price': open_price,
+                'close_price': close_price,
+                'high_price': high_price,
+                'low_price': low_price,
+                'volume': volume,
+                'amount': amount,
+                'pct_chg': pct_chg,
+                'turnover_rate': turnover_rate,
+                'signal_pct': signal_pct,
+                'close_position_score': close_position_score,
+                'fund_flow_momentum': fund_flow_momentum,
+                'sector_catalyst_score': sector_catalyst_score,
+                'early_opportunity_score': early_opportunity_score,
+                'topic_propagation_score': topic_propagation_score,
+                'market_regime': market_regime,
+                'sentiment_catalyst': sentiment_catalyst,
+                'theme_catalyst': theme_catalyst,
+                'news_catalyst': news_catalyst,
+                'positive_catalyst': positive_catalyst,
+                'selection_reason': selection_reason,
+                'selection_outcome': selection_outcome,
+                'selection_outcome_reason': selection_outcome_reason,
+                'blockers': json.dumps(blockers, ensure_ascii=False, default=str),
+                'hard_gate_status': json.dumps(hard_gate_status, ensure_ascii=False, default=str),
+                'eligibility_snapshot': json.dumps(eligibility_snapshot, ensure_ascii=False, default=str),
+                'selection_diagnostics': json.dumps(selection_diagnostics, ensure_ascii=False, default=str),
+                'source_layers': json.dumps(source_layers, ensure_ascii=False, default=str),
+                'candidate_features': json.dumps(candidate_features, ensure_ascii=False, default=str),
+                'raw_json': json.dumps(raw_json, ensure_ascii=False, default=str),
+                'candidate_entry_reason': json.dumps(candidate_entry_reason, ensure_ascii=False, default=str),
+                'ticket_reason': json.dumps(ticket_reason, ensure_ascii=False, default=str),
+                'not_selected_reason': json.dumps(not_selected_reason, ensure_ascii=False, default=str),
+                'factor_snapshot': json.dumps(factor_snapshot, ensure_ascii=False, default=str),
+                'auxiliary_evidence_snapshot': json.dumps(auxiliary_evidence_snapshot, ensure_ascii=False, default=str),
+                'ranking_basis': json.dumps(ranking_basis, ensure_ascii=False, default=str),
+                'postmortem_snapshot': json.dumps(postmortem_snapshot, ensure_ascii=False, default=str),
+                'future_return_fields_placeholder': json.dumps(future_return_fields_placeholder, ensure_ascii=False, default=str),
+                'cohort': cohort,
+                'cohort_quality': cohort_quality,
+                'cohort_status_flags': json.dumps(cohort_status_flags, ensure_ascii=False, default=str),
+                'reconstruction_provenance': json.dumps(reconstruction_provenance, ensure_ascii=False, default=str),
+            },
+        )
+
+
+def upsert_return(
+    trade_date: date,
+    symbol: str,
+    pick_id: Optional[int],
+    t1_return: Optional[float] = None,
+    t2_return: Optional[float] = None,
+    t3_return: Optional[float] = None,
+    t5_return: Optional[float] = None,
+    t1_return_close: Optional[float] = None,
+    t1_return_high: Optional[float] = None,
+    is_limit_up: Optional[bool] = None,
+    next_day_open_return: Optional[float] = None,
+    next_day_high_return: Optional[float] = None,
+    next_day_low_return: Optional[float] = None,
+    next_day_gap_return: Optional[float] = None,
+    next_day_drawdown: Optional[float] = None,
+    high_to_close_retrace: Optional[float] = None,
+) -> None:
+    """Upsert a return record."""
+    with get_db() as db:
+        db.execute(
+            text("""
+                INSERT INTO returns (pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
+                                     t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
+                                     next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace)
+                VALUES (:pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
+                        :t1_return_close, :t1_return_high, :next_day_open_return, :next_day_high_return,
+                        :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace)
+                ON CONFLICT (trade_date, symbol)
+                DO UPDATE SET
+                    t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
+                    t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
+                    t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
+                    t5_return = COALESCE(EXCLUDED.t5_return, returns.t5_return),
+                    t1_return_close = COALESCE(EXCLUDED.t1_return_close, returns.t1_return_close),
+                    t1_return_high = COALESCE(EXCLUDED.t1_return_high, returns.t1_return_high),
+                    next_day_open_return = COALESCE(EXCLUDED.next_day_open_return, returns.next_day_open_return),
+                    next_day_high_return = COALESCE(EXCLUDED.next_day_high_return, returns.next_day_high_return),
+                    next_day_low_return = COALESCE(EXCLUDED.next_day_low_return, returns.next_day_low_return),
+                    next_day_gap_return = COALESCE(EXCLUDED.next_day_gap_return, returns.next_day_gap_return),
+                    next_day_drawdown = COALESCE(EXCLUDED.next_day_drawdown, returns.next_day_drawdown),
+                    high_to_close_retrace = COALESCE(EXCLUDED.high_to_close_retrace, returns.high_to_close_retrace),
+                    filled_at = NOW()
+            """),
+            {
+                "pick_id": pick_id,
+                "trade_date": trade_date,
+                "symbol": symbol,
+                "t1_return": t1_return,
+                "t2_return": t2_return,
+                "t3_return": t3_return,
+                "t5_return": t5_return,
+                "t1_return_close": t1_return_close,
+                "t1_return_high": t1_return_high,
+                "next_day_open_return": next_day_open_return,
+                "next_day_high_return": next_day_high_return,
+                "next_day_low_return": next_day_low_return,
+                "next_day_gap_return": next_day_gap_return,
+                "next_day_drawdown": next_day_drawdown,
+                "high_to_close_retrace": high_to_close_retrace,
+            }
+        )
+        db.execute(
+            text("""
+                UPDATE daily_candidates
+                SET future_return_fields_placeholder =
+                    COALESCE(future_return_fields_placeholder, '{}'::jsonb)
+                    || CAST(:future_return_fields AS jsonb)
+                    || jsonb_build_object(
+                        't1_return_close', :t1_return_close,
+                        'next_day_open_return', :next_day_open_return,
+                        'next_day_high_return', :next_day_high_return,
+                        'next_day_low_return', :next_day_low_return,
+                        'next_day_gap_return', :next_day_gap_return,
+                        'next_day_drawdown', :next_day_drawdown,
+                        'high_to_close_retrace', :high_to_close_retrace
+                    ),
+                    updated_at = NOW()
+                WHERE trade_date = :trade_date AND symbol = :symbol
+            """),
+            {
+                "trade_date": trade_date,
+                "symbol": symbol,
+                "future_return_fields": json.dumps({
+                    "t1_return": t1_return, "t2_return": t2_return,
+                    "t3_return": t3_return, "t5_return": t5_return,
+                    "t1_return_close": t1_return_close,
+                    "is_limit_up": is_limit_up,
+                }, ensure_ascii=False, default=str),
+                "t1_return_close": t1_return_close,
+                "next_day_open_return": next_day_open_return,
+                "next_day_high_return": next_day_high_return,
+                "next_day_low_return": next_day_low_return,
+                "next_day_gap_return": next_day_gap_return,
+                "next_day_drawdown": next_day_drawdown,
+                "high_to_close_retrace": high_to_close_retrace,
+            },
+        )
+
+
+def record_return_backfill_failure(
+    trade_date: date,
+    symbol: str,
+    reason: str,
+    *,
+    return_horizon: str = 'T+1',
+) -> None:
+    """Persist an explicit, resumable return-backfill failure on the candidate row."""
+    normalized_reason = str(reason or 'UNKNOWN')
+    payload = {
+        'symbol': str(symbol),
+        'trade_date': trade_date.isoformat() if hasattr(trade_date, 'isoformat') else str(trade_date),
+        'return_horizon': return_horizon,
+        'status': 'FAILED',
+        'failure_reason': normalized_reason,
+        'last_attempt_at': datetime.now(timezone.utc).isoformat(),
+        'payload': {
+            'provider': 'baostock',
+            'error_type': normalized_reason,
+        },
+    }
+    with get_db() as db:
+        db.execute(
+            text("""
+                UPDATE daily_candidates
+                SET future_return_fields_placeholder =
+                    COALESCE(future_return_fields_placeholder, '{}'::jsonb)
+                    || CAST(:payload AS jsonb),
+                    updated_at = NOW()
+                WHERE trade_date = :trade_date AND symbol = :symbol
+            """),
+            {
+                'trade_date': trade_date,
+                'symbol': symbol,
+                'payload': json.dumps({'return_backfill_failure': payload}, ensure_ascii=False),
+            },
+        )
+
+
+def update_candidate_cohort(trade_date: date, symbol: str, cohort: Dict[str, Any], provenance: Optional[Dict[str, Any]] = None) -> None:
+    """Persist a classification-only cohort update without rewriting evidence."""
+    provenance = provenance or {}
+    with get_db() as db:
+        db.execute(
+            text("""
+                UPDATE daily_candidates
+                SET cohort = :cohort,
+                    cohort_quality = :cohort_quality,
+                    cohort_status_flags = CAST(:status_flags AS jsonb),
+                    reconstruction_provenance = CASE
+                        WHEN reconstruction_provenance IS NULL OR reconstruction_provenance = '{}'::jsonb
+                        THEN CAST(:provenance AS jsonb)
+                        ELSE reconstruction_provenance
+                    END,
+                    updated_at = NOW()
+                WHERE trade_date = :trade_date AND symbol = :symbol
+            """),
+            {
+                'trade_date': trade_date, 'symbol': symbol,
+                'cohort': cohort.get('cohort') or '',
+                'cohort_quality': cohort.get('cohort_quality') or '',
+                'status_flags': json.dumps(cohort.get('status_flags') or [], ensure_ascii=False),
+                'provenance': json.dumps(provenance, ensure_ascii=False),
+            },
+        )
+
+
+def insert_scan_session(
+    trade_date: date,
+    scan_time: Any,
+    cdp_url: str,
+    quotes_count: int,
+    scored_count: int,
+    passed_count: int,
+    scan_dir: str,
+    market_snapshot: Optional[Dict[str, Any]] = None,
+    source_status: Optional[Dict[str, Any]] = None,
+    source_counts: Optional[Dict[str, Any]] = None,
+    source_diagnostics: Optional[Dict[str, Any]] = None,
+) -> int:
+    json_values = {
+        "market_snapshot": json.dumps(market_snapshot, ensure_ascii=False, default=str) if market_snapshot is not None else None,
+        "source_status": json.dumps(source_status, ensure_ascii=False, default=str) if source_status is not None else None,
+        "source_counts": json.dumps(source_counts, ensure_ascii=False, default=str) if source_counts is not None else None,
+        "source_diagnostics": json.dumps(source_diagnostics, ensure_ascii=False, default=str) if source_diagnostics is not None else None,
+    }
+    with get_db() as db:
+        existing = db.execute(
+            text("""
+                SELECT id
+                FROM scan_sessions
+                WHERE trade_date = :trade_date AND scan_dir = :scan_dir
+                ORDER BY scan_time DESC, id DESC
+                LIMIT 1
+            """),
+            {"trade_date": trade_date, "scan_dir": scan_dir},
+        ).fetchone()
+        if existing:
+            db.execute(
+                text("""
+                    UPDATE scan_sessions
+                    SET scan_time = :scan_time,
+                        cdp_url = :cdp_url,
+                        quotes_count = :quotes_count,
+                        scored_count = :scored_count,
+                        passed_count = :passed_count,
+                        market_snapshot = COALESCE(CAST(:market_snapshot AS jsonb), market_snapshot),
+                        source_status = COALESCE(CAST(:source_status AS jsonb), source_status),
+                        source_counts = COALESCE(CAST(:source_counts AS jsonb), source_counts),
+                        source_diagnostics = COALESCE(CAST(:source_diagnostics AS jsonb), source_diagnostics),
+                        status = 'completed',
+                        updated_at = NOW()
+                    WHERE id = :id
+                """),
+                {
+                    "id": existing[0],
+                    "scan_time": scan_time,
+                    "cdp_url": cdp_url,
+                    "quotes_count": quotes_count,
+                    "scored_count": scored_count,
+                    "passed_count": passed_count,
+                    **json_values,
+                },
+            )
+            return existing[0]
+        result = db.execute(
+            text("""
+                INSERT INTO scan_sessions
+                    (
+                        trade_date, scan_time, cdp_url, quotes_count, scored_count, passed_count, scan_dir,
+                        market_snapshot, source_status, source_counts, source_diagnostics
+                    )
+                VALUES (
+                    :trade_date, :scan_time, :cdp_url, :quotes_count, :scored_count, :passed_count, :scan_dir,
+                    CAST(:market_snapshot AS jsonb), CAST(:source_status AS jsonb),
+                    CAST(:source_counts AS jsonb), CAST(:source_diagnostics AS jsonb)
+                )
+                RETURNING id
+            """),
+            {
+                "trade_date": trade_date,
+                "scan_time": scan_time,
+                "cdp_url": cdp_url,
+                "quotes_count": quotes_count,
+                "scored_count": scored_count,
+                "passed_count": passed_count,
+                "scan_dir": scan_dir,
+                "market_snapshot": json_values["market_snapshot"] or "{}",
+                "source_status": json_values["source_status"] or "{}",
+                "source_counts": json_values["source_counts"] or "{}",
+                "source_diagnostics": json_values["source_diagnostics"] or "{}",
+            }
+        )
+        row = result.fetchone()
+        return row[0] if row else -1
+
+
+def upsert_scan_market_data(
+    scan_session_id: int,
+    trade_date: date,
+    scan_time: Any,
+    domain_rows: Dict[str, Any],
+    domain_diagnostics: Optional[Dict[str, Any]] = None,
+    data_version: str = "eastmoney_api_scan_v2",
+) -> int:
+    """Persist full raw per-domain scan payloads for deterministic replay."""
+    written = 0
+    diagnostics = domain_diagnostics or {}
+    with get_db() as db:
+        for domain, rows in domain_rows.items():
+            payload = rows if isinstance(rows, (list, dict)) else []
+            item_count = len(payload) if isinstance(payload, list) else (
+                sum(len(value) for value in payload.values() if isinstance(value, list))
+                if isinstance(payload, dict) else 0
+            )
+            db.execute(
+                text("""
+                    INSERT INTO scan_market_data (
+                        scan_session_id, trade_date, scan_time, domain, item_count,
+                        payload, source_metadata, data_version
+                    )
+                    VALUES (
+                        :scan_session_id, :trade_date, :scan_time, :domain, :item_count,
+                        CAST(:payload AS jsonb), CAST(:source_metadata AS jsonb), :data_version
+                    )
+                    ON CONFLICT (scan_session_id, domain) DO UPDATE SET
+                        scan_time = EXCLUDED.scan_time,
+                        item_count = EXCLUDED.item_count,
+                        payload = EXCLUDED.payload,
+                        source_metadata = EXCLUDED.source_metadata,
+                        data_version = EXCLUDED.data_version,
+                        updated_at = NOW()
+                """),
+                {
+                    "scan_session_id": scan_session_id,
+                    "trade_date": trade_date,
+                    "scan_time": scan_time,
+                    "domain": domain,
+                    "item_count": item_count,
+                    "payload": json.dumps(payload, ensure_ascii=False, default=str),
+                    "source_metadata": json.dumps(diagnostics.get(domain) or {}, ensure_ascii=False, default=str),
+                    "data_version": data_version,
+                },
+            )
+            written += 1
+    return written
+
+
+def fetch_latest_scan_session(trade_date: date) -> Optional[Dict[str, Any]]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT
+                    id, trade_date, scan_time, cdp_url, quotes_count, scored_count, passed_count, scan_dir, status,
+                    market_snapshot, source_status, source_counts, source_diagnostics
+                FROM scan_sessions
+                WHERE trade_date = :trade_date
+                ORDER BY scan_time DESC, id DESC
+                LIMIT 1
+            """),
+            {"trade_date": trade_date},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def fetch_latest_api_scan_session_with_market_data(trade_date: date) -> Optional[Dict[str, Any]]:
+    """Return the latest API scan session that has raw-domain payload rows."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("""
+                SELECT
+                    ss.id, ss.trade_date, ss.scan_time, ss.cdp_url, ss.quotes_count, ss.scored_count,
+                    ss.passed_count, ss.scan_dir, ss.status, ss.market_snapshot, ss.source_status,
+                    ss.source_counts, ss.source_diagnostics,
+                    COUNT(smd.id) AS raw_domain_count
+                FROM scan_sessions ss
+                JOIN scan_market_data smd ON smd.scan_session_id = ss.id
+                WHERE ss.trade_date = :trade_date
+                  AND ss.cdp_url = 'eastmoney_api_direct'
+                GROUP BY ss.id
+                ORDER BY ss.scan_time DESC, ss.id DESC
+                LIMIT 1
+            """),
+            {"trade_date": trade_date},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def fetch_scan_market_data_payloads(scan_session_id: int) -> Dict[str, Any]:
+    """Load raw-domain payloads for one scan session keyed by domain."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT domain, payload, item_count, source_metadata, data_version
+                FROM scan_market_data
+                WHERE scan_session_id = :scan_session_id
+                ORDER BY domain
+            """),
+            {"scan_session_id": scan_session_id},
+        ).mappings().all()
+    payloads: Dict[str, Any] = {}
+    for row in rows:
+        domain = str(row.get("domain") or "").strip()
+        if domain:
+            payloads[domain] = row.get("payload")
+    return payloads
+
+
+def fetch_daily_candidates(trade_date: date) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
+                    open_price, close_price, high_price, low_price, volume, amount, pct_chg, turnover_rate,
+                    signal_pct, close_position_score, fund_flow_momentum, sector_catalyst_score,
+                    early_opportunity_score, topic_propagation_score, market_regime, sentiment_catalyst,
+                    theme_catalyst, news_catalyst, positive_catalyst, selection_reason,
+                    selection_outcome, selection_outcome_reason, blockers, hard_gate_status,
+                    eligibility_snapshot, selection_diagnostics, raw_json, source_layers, candidate_features,
+                    candidate_entry_reason, ticket_reason, not_selected_reason, factor_snapshot,
+                    auxiliary_evidence_snapshot, ranking_basis, postmortem_snapshot, future_return_fields_placeholder,
+                    cohort, cohort_quality, cohort_status_flags, reconstruction_provenance
+                FROM daily_candidates
+                WHERE trade_date = :trade_date
+                ORDER BY COALESCE(rank, 999999), COALESCE(final_score, 0) DESC, symbol
+            """),
+            {"trade_date": trade_date},
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def fetch_picks(trade_date: date, *, include_superseded: bool = False) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    trade_date, symbol, decision, final_score, blockers, features, source_layers,
+                    rule_version, scan_dir, dry_run, paper_only, no_trade, created_at, updated_at,
+                    stock_name, rank, structured_score, ranking_basis, ticket_reason, selection_reason,
+                    paper_pick_eligibility, official_target_exclusion_reasons, risk_flags,
+                    auxiliary_evidence_status, information_coverage_audit_snapshot, source_summary_path
+                FROM picks
+                WHERE trade_date = :trade_date
+                  AND (
+                      :include_superseded
+                      OR COALESCE(features ->> 'superseded', 'false') <> 'true'
+                  )
+                ORDER BY updated_at DESC NULLS LAST, created_at DESC, COALESCE(final_score, 0) DESC, symbol, id
+            """),
+            {"trade_date": trade_date, "include_superseded": include_superseded},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def fetch_returns(trade_date: date) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    trade_date, symbol, pick_id, t1_return, t2_return, t3_return, t5_return,
+                    is_limit_up, t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
+                    next_day_low_return, next_day_gap_return, next_day_drawdown,
+                    high_to_close_retrace, filled_at, created_at, updated_at
+                FROM returns
+                WHERE trade_date = :trade_date
+                ORDER BY symbol, id
+            """),
+            {"trade_date": trade_date},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def fetch_available_trade_dates() -> List[date]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT DISTINCT trade_date
+                FROM (
+                    SELECT trade_date FROM picks
+                    UNION
+                    SELECT trade_date FROM daily_candidates
+                    UNION
+                    SELECT trade_date FROM returns
+                ) dates
+                ORDER BY trade_date
+            """)
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def fetch_signals(trade_date: date) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT trade_date, symbol, signal_key, signal_value, raw_json
+                FROM signals
+                WHERE trade_date = :trade_date
+                ORDER BY symbol, signal_key
+            """),
+            {"trade_date": trade_date},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def upsert_signal(
+    trade_date: date,
+    symbol: str,
+    signal_key: str,
+    signal_value: Optional[float] = None,
+    raw_json: Optional[Dict[str, Any]] = None,
+    db: Any | None = None,
+) -> None:
+    statement = text("""
+        INSERT INTO signals (trade_date, symbol, signal_key, signal_value, raw_json)
+        VALUES (:trade_date, :symbol, :signal_key, :signal_value, CAST(:raw_json AS jsonb))
+        ON CONFLICT (trade_date, symbol, signal_key)
+        DO UPDATE SET
+            signal_value = EXCLUDED.signal_value,
+            raw_json = EXCLUDED.raw_json,
+            updated_at = NOW()
+    """)
+    payload = {
+        "trade_date": trade_date,
+        "symbol": symbol,
+        "signal_key": signal_key,
+        "signal_value": signal_value,
+        "raw_json": json.dumps(raw_json or {}, ensure_ascii=False, default=str),
+    }
+    if db is None:
+        with get_db() as active_db:
+            active_db.execute(statement, payload)
+    else:
+        db.execute(statement, payload)
+
+
+def upsert_limitup_gene_signals(trade_date: date, symbol: str, candidate: Dict[str, Any]) -> Dict[str, bool]:
+    """Persist every pre-decision limit-up gene flag, including explicit false values."""
+    signal_values = limitup_gene_signal_values(candidate)
+    with get_db() as db:
+        for signal_key in LIMITUP_GENE_SHADOW_SIGNALS:
+            signal_value = signal_values[signal_key]
+            upsert_signal(
+                trade_date=trade_date,
+                symbol=symbol,
+                signal_key=signal_key,
+                signal_value=1.0 if signal_value else 0.0,
+                raw_json={
+                    "value": signal_value,
+                    "source": "decision_snapshot",
+                    "pre_decision": True,
+                },
+                db=db,
+            )
+    return signal_values
+
+
+def fetch_scan_data_directory_content(trade_date: date) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    trade_date, scan_time, section_key, section_title, section_url, item_key, item_title, item_url,
+                    page_url, page_title, table_index, row_index, row_key, code, title, summary, cells, raw_json
+                FROM scan_data_directory_content
+                WHERE trade_date = :trade_date
+                ORDER BY COALESCE(item_key, ''), COALESCE(table_index, 0), COALESCE(row_index, 0), row_key
+            """),
+            {"trade_date": trade_date},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def fetch_scan_data_directory_catalog(trade_date: date) -> List[Dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT
+                    trade_date, scan_time, scan_session_id, section_key, section_title, section_url, section_index,
+                    item_key, item_title, item_url, item_index, record_key, title, summary, raw_json
+                FROM scan_data_directory_catalog
+                WHERE trade_date = :trade_date
+                ORDER BY COALESCE(section_index, 0), COALESCE(item_index, 0), record_key
+            """),
+            {"trade_date": trade_date},
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def upsert_scan_data_directory_records(
+    scan_session_id: int,
+    trade_date: date,
+    scan_time: Any,
+    catalog_records: List[Dict[str, Any]],
+    content_records: List[Dict[str, Any]],
+    db: Any | None = None,
+) -> None:
+    context = db if db is not None else get_db()
+    with context as active_db:
+        for record in catalog_records:
+            record_key = str(record.get('record_key') or '').strip()
+            if not record_key:
+                record_key = _stable_directory_record_key(
+                    'catalog',
+                    trade_date,
+                    record,
+                    ['section_key', 'item_key', 'item_title', 'item_url', 'title', 'summary'],
+                )
+            active_db.execute(
+                text("""
+                    INSERT INTO scan_data_directory_catalog (
+                        trade_date, scan_time, scan_session_id, section_key, section_title, section_url, section_index,
+                        item_key, item_title, item_url, item_index, record_key, title, summary, raw_json
+                    ) VALUES (
+                        :trade_date, :scan_time, :scan_session_id, :section_key, :section_title, :section_url, :section_index,
+                        :item_key, :item_title, :item_url, :item_index, :record_key, :title, :summary, :raw_json
+                    )
+                    ON CONFLICT (trade_date, record_key) DO UPDATE SET
+                        scan_time = EXCLUDED.scan_time,
+                        scan_session_id = EXCLUDED.scan_session_id,
+                        section_title = EXCLUDED.section_title,
+                        section_url = EXCLUDED.section_url,
+                        section_index = EXCLUDED.section_index,
+                        item_title = EXCLUDED.item_title,
+                        item_url = EXCLUDED.item_url,
+                        item_index = EXCLUDED.item_index,
+                        title = EXCLUDED.title,
+                        summary = EXCLUDED.summary,
+                        raw_json = EXCLUDED.raw_json,
+                        updated_at = NOW()
+                """),
+                {
+                    'trade_date': trade_date,
+                    'scan_time': scan_time,
+                    'scan_session_id': scan_session_id,
+                    'section_key': record.get('section_key'),
+                    'section_title': record.get('section_title'),
+                    'section_url': record.get('section_url'),
+                    'section_index': record.get('section_index'),
+                    'item_key': record.get('item_key'),
+                    'item_title': record.get('item_title'),
+                    'item_url': record.get('item_url'),
+                    'item_index': record.get('item_index'),
+                    'record_key': record_key,
+                    'title': record.get('title'),
+                    'summary': record.get('summary'),
+                    'raw_json': json.dumps(record, ensure_ascii=False, default=str),
+                },
+            )
+        for record in content_records:
+            row_key = str(record.get('row_key') or '').strip()
+            if not row_key:
+                row_key = _stable_directory_record_key(
+                    'content',
+                    trade_date,
+                    record,
+                    ['section_key', 'item_key', 'page_url', 'page_title', 'table_index', 'row_index', 'code', 'title', 'summary'],
+                )
+            active_db.execute(
+                text("""
+                    INSERT INTO scan_data_directory_content (
+                        trade_date, scan_time, scan_session_id, section_key, section_title, section_url,
+                        item_key, item_title, item_url, page_url, page_title, table_index, row_index,
+                        row_key, code, title, summary, cells, raw_json
+                    ) VALUES (
+                        :trade_date, :scan_time, :scan_session_id, :section_key, :section_title, :section_url,
+                        :item_key, :item_title, :item_url, :page_url, :page_title, :table_index, :row_index,
+                        :row_key, :code, :title, :summary, :cells, :raw_json
+                    )
+                    ON CONFLICT (trade_date, row_key) DO UPDATE SET
+                        scan_time = EXCLUDED.scan_time,
+                        scan_session_id = EXCLUDED.scan_session_id,
+                        section_title = EXCLUDED.section_title,
+                        section_url = EXCLUDED.section_url,
+                        item_title = EXCLUDED.item_title,
+                        item_url = EXCLUDED.item_url,
+                        page_url = EXCLUDED.page_url,
+                        page_title = EXCLUDED.page_title,
+                        table_index = EXCLUDED.table_index,
+                        row_index = EXCLUDED.row_index,
+                        code = EXCLUDED.code,
+                        title = EXCLUDED.title,
+                        summary = EXCLUDED.summary,
+                        cells = EXCLUDED.cells,
+                        raw_json = EXCLUDED.raw_json,
+                        updated_at = NOW()
+                """),
+                {
+                    'trade_date': trade_date,
+                    'scan_time': scan_time,
+                    'scan_session_id': scan_session_id,
+                    'section_key': record.get('section_key'),
+                    'section_title': record.get('section_title'),
+                    'section_url': record.get('section_url'),
+                    'item_key': record.get('item_key'),
+                    'item_title': record.get('item_title'),
+                    'item_url': record.get('item_url'),
+                    'page_url': record.get('page_url'),
+                    'page_title': record.get('page_title'),
+                    'table_index': record.get('table_index'),
+                    'row_index': record.get('row_index'),
+                    'row_key': row_key,
+                    'code': record.get('code'),
+                    'title': record.get('title'),
+                    'summary': record.get('summary'),
+                    'cells': json.dumps(record.get('cells') or [], ensure_ascii=False, default=str),
+                    'raw_json': json.dumps(record, ensure_ascii=False, default=str),
+                },
+            )
+
+
+def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser(description='xiaogu DB utilities')
+    ap.add_argument('command', choices=['init', 'status'], help='init: create tables; status: check connection')
+    ap.add_argument('--sql', default='scripts/xiaogu_db_init.sql', help='path to init SQL file')
+    args = ap.parse_args()
+    if args.command == 'init':
+        init_db(args.sql)
+        print('DB tables created OK')
+    elif args.command == 'status':
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        print(f'DB connection OK: {DATABASE_URL.split("@")[-1]}')
+
+
+if __name__ == '__main__':
+    main()

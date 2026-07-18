@@ -1,0 +1,125 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "type": "stdio",
+      "command": "/root/.local/bin/codebase-memory-mcp",
+      "args": []
+    },
+    "understand-anything": {
+      "type": "stdio",
+      "command": "/root/.local/bin/understand-anything-mcp",
+      "args": []
+    },
+    "agentmemory": {
+      "type": "stdio",
+      "command": "/root/.local/bin/agentmemory",
+      "args": ["mcp"]
+    },
+    "cloakbrowser": {
+      "type": "stdio",
+      "command": "/root/.local/bin/cloakbrowser-mcp",
+      "args": []
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(mimo run *)",
+      "Bash(mimo models *)",
+      "Bash(mimo debug *)",
+      "Bash(mimo providers *)",
+      "Bash(mimo --help)",
+      "Bash(codex exec *)",
+      "Bash(pytest tests/*)",
+      "Bash(pytest /workspace/hermes-workspaces/xiaogu/tests/*)",
+      "Bash(command -v *)",
+      "Bash(git -C *)",
+      "Bash(npm view *)",
+      "Bash(pm2 describe *)",
+      "Bash(pm2 list)",
+      "Bash(pm2 status)",
+      "Bash(sqlite3 * .tables)",
+      "Bash(sqlite3 * .schema *)",
+      "Bash(sqlite3 * SELECT *)",
+      "Bash(rtk *)",
+      "Bash(/root/.local/bin/rtk *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-code-discovery-gate",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/karpathy-pre-edit",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/karpathy-reminder"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/agentmemory-task-start"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/karpathy-reminder"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/agentmemory-task-start"
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/karpathy-reminder"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/agentmemory-task-start"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/karpathy-reminder"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/agentmemory-task-start"
+          }
+        ]
+      }
+    ]
+  }
+}

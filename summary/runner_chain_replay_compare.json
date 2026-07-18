@@ -1,0 +1,297 @@
+{
+  "dates": [
+    "2026-05-19",
+    "2026-05-20",
+    "2026-05-21",
+    "2026-05-22",
+    "2026-05-23",
+    "2026-05-25",
+    "2026-05-26",
+    "2026-05-27",
+    "2026-05-28",
+    "2026-05-29",
+    "2026-06-01",
+    "2026-06-02",
+    "2026-06-03",
+    "2026-06-04",
+    "2026-06-05",
+    "2026-06-06",
+    "2026-06-10",
+    "2026-06-11",
+    "2026-06-12",
+    "2026-06-15",
+    "2026-06-16"
+  ],
+  "decision_summaries": [
+    {
+      "date": "2026-05-19",
+      "status": "bundle_unavailable",
+      "reason": "NO_SAME_DAY_VERIFIED_CANDIDATE_BUNDLE"
+    },
+    {
+      "date": "2026-05-20",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "300603",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-21",
+      "baseline_decision": "RESEARCH_CANDIDATE",
+      "baseline_symbol": "002709",
+      "new_decision": "RESEARCH_CANDIDATE",
+      "new_symbol": "002709",
+      "new_reason": "RESEARCH_BASKET_ONLY:QUALIFIED_CANDIDATE_FALSE;CANDIDATE_BLOCKED_main_board_score_too_low:85.9",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-22",
+      "status": "bundle_unavailable",
+      "reason": "NO_SAME_DAY_VERIFIED_CANDIDATE_BUNDLE"
+    },
+    {
+      "date": "2026-05-23",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "603601",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-25",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "002436",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-26",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "601615",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-27",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "002273",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-28",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "600237",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-05-29",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "000002",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-01",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "601898",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-02",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "603993",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-03",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "002171",
+      "new_decision": "PAPER_PICK",
+      "new_symbol": "002171",
+      "new_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-04",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "000700",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-05",
+      "baseline_decision": "RESEARCH_CANDIDATE",
+      "baseline_symbol": "000070",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "legacy_bundle"
+    },
+    {
+      "date": "2026-06-06",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "600031",
+      "new_decision": "PAPER_PICK",
+      "new_symbol": "601988",
+      "new_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    },
+    {
+      "date": "2026-06-10",
+      "baseline_decision": "RESEARCH_CANDIDATE",
+      "baseline_symbol": "601012",
+      "new_decision": "PAPER_PICK",
+      "new_symbol": "601166",
+      "new_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    },
+    {
+      "date": "2026-06-11",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "300435",
+      "new_decision": "PAPER_PICK",
+      "new_symbol": "600438",
+      "new_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    },
+    {
+      "date": "2026-06-12",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "601801",
+      "new_decision": "PAPER_PICK",
+      "new_symbol": "601328",
+      "new_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    },
+    {
+      "date": "2026-06-15",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "000921",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    },
+    {
+      "date": "2026-06-16",
+      "baseline_decision": "PAPER_PICK",
+      "baseline_symbol": "002401",
+      "new_decision": "NO_PICK",
+      "new_symbol": "NO_PICK",
+      "new_reason": "NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS",
+      "bundle_rebuild_mode": "rebuilt_from_same_day_scan"
+    }
+  ],
+  "fills": [
+    {
+      "date": "2026-06-03",
+      "symbol": "002171",
+      "status": "FILLED",
+      "t1_return": 0.027152831652443726,
+      "source": "live_scan",
+      "evidence_status": "PASS"
+    },
+    {
+      "date": "2026-06-06",
+      "symbol": "601988",
+      "status": "FILLED",
+      "t1_return": 0.01983471074380167,
+      "source": "live_scan",
+      "evidence_status": "PASS"
+    },
+    {
+      "date": "2026-06-10",
+      "symbol": "601166",
+      "status": "FILLED",
+      "t1_return": 0.004235044997353006,
+      "source": "live_scan",
+      "evidence_status": "PASS"
+    },
+    {
+      "date": "2026-06-11",
+      "symbol": "600438",
+      "status": "FILLED",
+      "t1_return": -0.035915492957746466,
+      "source": "live_scan",
+      "evidence_status": "PASS"
+    },
+    {
+      "date": "2026-06-12",
+      "symbol": "601328",
+      "status": "FILLED",
+      "t1_return": 0.0027972027972027374,
+      "source": "live_scan",
+      "evidence_status": "PASS"
+    }
+  ],
+  "baseline_metrics": null,
+  "new_metrics": null,
+  "baseline_chain_scorecard": {
+    "score": 88.2,
+    "status": "ACTIVE",
+    "status_is_recommendation_only": true,
+    "profitability": 1.0,
+    "stability": 0.8824,
+    "signal_quality": 0.6456,
+    "false_positive_rate": 0.4706,
+    "false_negative_rate": 0.0833,
+    "maintenance_cost": 0.0,
+    "evidence_health": 1.0,
+    "paper_pick_limitup_capture_evidence_count": 0,
+    "paper_pick_strong_limitup_capture_count": 0,
+    "paper_pick_limitup_capture_rate_pct": 0.0,
+    "paper_pick_summary": {
+      "trades": 17,
+      "wins": 15,
+      "win_rate_pct": 88.2353,
+      "avg_return_pct": 3.2088,
+      "profit_factor": 11.0078
+    }
+  },
+  "new_chain_scorecard": {
+    "score": 62.53,
+    "status": "RETIRED_CANDIDATE",
+    "status_is_recommendation_only": true,
+    "profitability": 0.8881,
+    "stability": 0.8,
+    "signal_quality": 0.3,
+    "false_positive_rate": 1.0,
+    "false_negative_rate": 0.0,
+    "maintenance_cost": 0.7368,
+    "evidence_health": 0.2632,
+    "paper_pick_limitup_capture_evidence_count": 0,
+    "paper_pick_strong_limitup_capture_count": 0,
+    "paper_pick_limitup_capture_rate_pct": 0.0,
+    "paper_pick_summary": {
+      "trades": 5,
+      "wins": 4,
+      "win_rate_pct": 80.0,
+      "avg_return_pct": 0.3621,
+      "profit_factor": 1.5041
+    }
+  },
+  "new_ledger_path": "/root/hermes/company-ai-system/workspaces/xiaogu/summary/runner_chain_replay_new_ledger.jsonl"
+}

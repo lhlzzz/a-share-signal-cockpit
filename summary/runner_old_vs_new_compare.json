@@ -1,0 +1,26 @@
+{
+  "old_version": {
+    "days_in_window": 0,
+    "filled_days": 0,
+    "pick_rate_pct": 0.0,
+    "win_count": 0,
+    "win_rate_pct": 0.0,
+    "avg_return_pct": 0.0,
+    "limitup_count": 0,
+    "limitup_rate_pct": 0.0
+  },
+  "new_version": {
+    "days_in_window": 0,
+    "filled_days": 0,
+    "pick_rate_pct": 0.0,
+    "win_count": 0,
+    "win_rate_pct": 0.0,
+    "avg_return_pct": 0.0,
+    "limitup_count": 0,
+    "limitup_rate_pct": 0.0
+  },
+  "old_available_days": 0,
+  "new_available_days": 0,
+  "both_available_days": 0,
+  "daily": []
+}

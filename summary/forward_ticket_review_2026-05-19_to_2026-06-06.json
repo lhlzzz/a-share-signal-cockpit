@@ -1,0 +1,1443 @@
+{
+  "range": {
+    "start": "2026-05-19",
+    "end": "2026-06-06"
+  },
+  "source_ledger": "/root/hermes/company-ai-system/workspaces/xiaogu/forward_paper_ledger_v0_1.jsonl",
+  "rows": [
+    {
+      "method": "historical_backtest_rule_v0_1:PAPER_PICK",
+      "date": "2026-05-19",
+      "asof_time": "00:13:37",
+      "symbol": "300603",
+      "name": "立昂技术",
+      "decision": "PAPER_PICK",
+      "entry_price": 11.38,
+      "signal_pct": 13.35,
+      "close_position_score": 0.729,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": 17,
+      "board": "chuangye",
+      "final_score": 78.4779,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": false,
+      "weak_close_risk": false,
+      "high_open_low_close_risk": false,
+      "candidate_source": "live_dual_source_scan_total_chain",
+      "candidate_bundle_path": "/root/hermes/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-05-19/2026-05-19_live_total_chain_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-19/001337_historical_backtest_rule_v0_1_NOPICK.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/tencent_fqkline/2026-05-19/300603_2026-05-18_2026-05-31.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 2,
+      "d1_return": 2.0210896309314466,
+      "result_exit_date": "2026-05-20",
+      "result_exit_close": 11.61,
+      "result_source": "tencent_ifzq_daily_qfq_kline",
+      "result_return_formula": "(exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "LOW_RETURN",
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "forward return 2.02% < 3.00%",
+        "no explicit limit-up evidence and forward high return 2.02% < 9.00%",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_1:PAPER_PICK",
+      "date": "2026-05-20",
+      "asof_time": "00:13:37",
+      "symbol": "300603",
+      "name": "立昂技术",
+      "decision": "PAPER_PICK",
+      "entry_price": 11.38,
+      "signal_pct": 13.35,
+      "close_position_score": 0.729,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": 17,
+      "board": "chuangye",
+      "final_score": 78.4779,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": false,
+      "weak_close_risk": false,
+      "high_open_low_close_risk": false,
+      "candidate_source": "live_dual_source_scan_total_chain",
+      "candidate_bundle_path": "/root/hermes/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-05-20/2026-05-20_live_total_chain_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-20/001337_historical_backtest_rule_v0_1_300603.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/tencent_fqkline/2026-05-20/300603_2026-05-19_2026-06-01.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 3,
+      "d1_return": -4.042179261862924,
+      "result_exit_date": "2026-05-21",
+      "result_exit_close": 10.92,
+      "result_source": "tencent_ifzq_daily_qfq_kline",
+      "result_return_formula": "(exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "LOSS",
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "forward return -4.04% < 0",
+        "no explicit limit-up evidence and forward high return -4.04% < 9.00%",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_2:RESEARCH_CANDIDATE",
+      "date": "2026-05-21",
+      "asof_time": "14:50:00",
+      "symbol": "002709",
+      "name": "天赐材料",
+      "decision": "RESEARCH_CANDIDATE",
+      "entry_price": 58.0,
+      "signal_pct": 6.54,
+      "close_position_score": null,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": 3,
+      "board": "main",
+      "final_score": null,
+      "structured_score": null,
+      "blocked_reasons": [
+        "main_board_score_too_low:85.9"
+      ],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "decision_reason": "RESEARCH_BASKET_ONLY:QUALIFIED_CANDIDATE_FALSE;CANDIDATE_BLOCKED_main_board_score_too_low:85.9;PRICE_GT_30;RECENT_T1_NONPROFIT_COOLDOWN_USER_CONFIRMED",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-21/145000_historical_backtest_rule_v0_2_002709.json",
+        "workspaces/xiaogu/data/forward_result_evidence/web/2026-05-21/002709_stockevents_2026-05-22.json",
+        "workspaces/xiaogu/data/forward_result_evidence/web/2026-05-21/002709_stockevents_websearch_2026-05-22.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 4,
+      "d1_return": 4.137931034482756,
+      "result_exit_date": "2026-05-22",
+      "result_exit_high": 61.0,
+      "result_exit_close": 60.51,
+      "result_source": "stockevents_app_public_web_search",
+      "result_return_formula": "(day_high-entry_price)/entry_price",
+      "review_tags": [
+        "RESEARCH_ONLY"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_2:NO_PICK",
+      "date": "2026-05-22",
+      "asof_time": "14:50:00",
+      "symbol": "",
+      "name": "",
+      "decision": "NO_PICK",
+      "entry_price": null,
+      "signal_pct": null,
+      "close_position_score": null,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": null,
+      "board": null,
+      "final_score": null,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": null,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": null,
+      "decision_reason": "NO_SAME_DAY_VERIFIED_CANDIDATE_BUNDLE",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-22/145000_historical_backtest_rule_v0_2_NO_PICK.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 9,
+      "review_tags": [
+        "NO_PICK_OBSERVATION"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_2:NO_PICK",
+      "date": "2026-05-23",
+      "asof_time": "14:50:00",
+      "symbol": "",
+      "name": "",
+      "decision": "NO_PICK",
+      "entry_price": null,
+      "signal_pct": null,
+      "close_position_score": null,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": null,
+      "board": null,
+      "final_score": null,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": null,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": null,
+      "decision_reason": "NO_SAME_DAY_VERIFIED_CANDIDATE_BUNDLE",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-23/145000_historical_backtest_rule_v0_2_NO_PICK.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 10,
+      "review_tags": [
+        "NO_PICK_OBSERVATION"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-23",
+      "asof_time": "14:50:00",
+      "symbol": "603601",
+      "name": "再升科技",
+      "decision": "PAPER_PICK",
+      "entry_price": 19.29,
+      "signal_pct": 6.4,
+      "close_position_score": null,
+      "turnover_rate": null,
+      "volume_ratio": null,
+      "net_inflow_main": null,
+      "rank": 5,
+      "board": "main",
+      "final_score": 92.82415999999999,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-23/145000_historical_backtest_rule_v0_3_603601.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/eastmoney/2026-05-23/603601_2026-05-22_2026-06-04.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 11,
+      "d1_return": 7.672369103162263,
+      "result_exit_date": "2026-05-25",
+      "result_exit_high": 20.77,
+      "result_exit_close": 19.88,
+      "result_source": "eastmoney_push2his_daily_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "no explicit limit-up evidence and forward high return 7.67% < 9.00%"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-25",
+      "asof_time": "15:59:00",
+      "symbol": "002436",
+      "name": "兴森科技",
+      "decision": "PAPER_PICK",
+      "entry_price": 38.12,
+      "signal_pct": 7.62,
+      "close_position_score": 0.971119,
+      "turnover_rate": 13.1,
+      "volume_ratio": 1.22,
+      "net_inflow_main": 598858064.0,
+      "rank": 1,
+      "board": "main",
+      "final_score": 36.515,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": null,
+      "decision_reason": "MANUAL_REGULATORY_HARD_BLOCK_APPLIED:601991_SERIOUS_ABNORMAL_VOLATILITY;600667_ABNORMAL_VOLATILITY;SELECT_002436_ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-25/155900_historical_backtest_rule_v0_3_002436.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/eastmoney/2026-05-25/002436_2026-05-24_2026-06-06.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 14,
+      "d1_return": 3.620146904512074,
+      "result_exit_date": "2026-05-26",
+      "result_exit_high": 39.5,
+      "result_exit_close": 38.29,
+      "result_source": "eastmoney_push2his_daily_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "no explicit limit-up evidence and forward high return 3.62% < 9.00%"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-26",
+      "asof_time": "14:50:19",
+      "symbol": "601615",
+      "name": "明阳智能",
+      "decision": "PAPER_PICK",
+      "entry_price": 18.81,
+      "signal_pct": 7.3,
+      "close_position_score": 0.902041,
+      "turnover_rate": 11.63,
+      "volume_ratio": 2.03,
+      "net_inflow_main": 420480352.0,
+      "rank": 6,
+      "board": "main",
+      "final_score": 108.38029999999999,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "decision_reason": "CORRECTION_REVOKE_STALE_JAN_ABNORMAL_BLOCK:ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-26/145019_historical_backtest_rule_v0_3_601615.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/eastmoney/2026-05-26/601615_2026-05-25_2026-06-07.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 17,
+      "d1_return": 4.518872939925579,
+      "result_exit_date": "2026-05-27",
+      "result_exit_high": 19.66,
+      "result_exit_close": 17.78,
+      "result_source": "eastmoney_push2his_daily_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "no explicit limit-up evidence and forward high return 4.52% < 9.00%"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-27",
+      "asof_time": "15:01:42",
+      "symbol": "002273",
+      "name": "水晶光电",
+      "decision": "PAPER_PICK",
+      "entry_price": 42.05,
+      "signal_pct": 7.0,
+      "close_position_score": 0.786082,
+      "turnover_rate": 9.2,
+      "volume_ratio": 1.2,
+      "net_inflow_main": 120141328.0,
+      "rank": 7,
+      "board": "main",
+      "final_score": 95.85363999999997,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-05-27/2026-05-27_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-27/150142_historical_backtest_rule_v0_3_002273.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/eastmoney/2026-05-27/002273_2026-05-26_2026-06-08.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/live_scan/2026-05-28/eastmoney_web_tabs_scan_v0_1/eastmoney_web_tabs_raw.jsonl"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 19,
+      "d1_return": 5.350772889417361,
+      "result_exit_date": "2026-05-28",
+      "result_exit_high": 44.3,
+      "result_exit_close": 43.73,
+      "result_source": "eastmoney_web_tabs_local_quote",
+      "result_return_formula": "(exit_high-entry_price)/entry_price",
+      "review_tags": [
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "no explicit limit-up evidence and forward high return 5.35% < 9.00%"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-28",
+      "asof_time": "14:50:00",
+      "symbol": "600237",
+      "name": "铜峰电子",
+      "decision": "PAPER_PICK",
+      "entry_price": 10.7,
+      "signal_pct": 7.75,
+      "close_position_score": 1.0,
+      "turnover_rate": 14.78,
+      "volume_ratio": 1.56,
+      "net_inflow_main": 134599927.0,
+      "rank": 27,
+      "board": "main",
+      "final_score": 34.675,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-05-28/2026-05-28_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "CORRECTION: user confirmed the valid 2026-05-28 paper pick is 600237 铜峰电子; supersedes the later 000039 record from the post-close rerun.",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-28/145000_historical_backtest_rule_v0_3_600237.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/tencent_fqkline/2026-05-28/600237_2026-05-27_2026-06-09.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 22,
+      "d1_return": 3.831775700934581,
+      "result_exit_date": "2026-05-29",
+      "result_exit_high": 11.11,
+      "result_exit_close": 10.6,
+      "result_source": "tencent_ifzq_daily_qfq_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "no explicit limit-up evidence and forward high return 3.83% < 9.00%"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-05-29",
+      "asof_time": "14:51:03",
+      "symbol": "000002",
+      "name": "万  科Ａ",
+      "decision": "PAPER_PICK",
+      "entry_price": 3.55,
+      "signal_pct": 7.25,
+      "close_position_score": 0.709677,
+      "turnover_rate": 4.49,
+      "volume_ratio": 3.93,
+      "net_inflow_main": 415679058.0,
+      "rank": 11,
+      "board": "main",
+      "final_score": 99.33819999999999,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-05-29/2026-05-29_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-05-29/145103_historical_backtest_rule_v0_3_000002.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/live_scan/2026-06-01/eastmoney_web_tabs_scan_v0_1/eastmoney_web_tabs_raw.jsonl"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 24,
+      "d1_return": -1.4084507042253471,
+      "result_exit_date": "2026-06-01",
+      "result_exit_high": 3.5,
+      "result_exit_close": 3.47,
+      "result_source": "eastmoney_web_tabs_local_quote",
+      "result_return_formula": "(exit_high-entry_price)/entry_price",
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "LOSS",
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "forward return -1.41% < 0",
+        "no explicit limit-up evidence and forward high return -1.41% < 9.00%",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-06-01",
+      "asof_time": "16:42:18",
+      "symbol": "601898",
+      "name": "中煤能源",
+      "decision": "PAPER_PICK",
+      "entry_price": 16.89,
+      "signal_pct": 7.72,
+      "close_position_score": 0.944,
+      "turnover_rate": 1.37,
+      "volume_ratio": 2.27,
+      "net_inflow_main": 70638899.0,
+      "rank": 11,
+      "board": "main",
+      "final_score": 33.6755,
+      "structured_score": null,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-01/2026-06-01_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-01/164218_historical_backtest_rule_v0_3_601898.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/tencent_fqkline/2026-06-01/601898_2026-05-31_2026-06-13.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 26,
+      "d1_return": 2.3090586145648344,
+      "result_exit_date": "2026-06-02",
+      "result_exit_high": 17.28,
+      "result_exit_close": 16.4,
+      "result_source": "tencent_ifzq_daily_qfq_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "LOW_RETURN",
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "forward return 2.31% < 3.00%",
+        "no explicit limit-up evidence and forward high return 2.31% < 9.00%",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-06-02",
+      "asof_time": "14:36:28",
+      "symbol": "603993",
+      "name": "洛阳钼业",
+      "decision": "PAPER_PICK",
+      "entry_price": 19.74,
+      "signal_pct": 7.17,
+      "close_position_score": 0.968254,
+      "turnover_rate": 1.79,
+      "volume_ratio": 1.4,
+      "net_inflow_main": 881257952.0,
+      "rank": 1,
+      "board": "main",
+      "final_score": 105.357,
+      "structured_score": 41.083,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-02/2026-06-02_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "ALL_FORWARD_PAPER_HARD_GATES_PASS",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-02/143628_historical_backtest_rule_v0_3_603993.json",
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_result_evidence/eastmoney/2026-06-02/603993_2026-06-01_2026-06-14.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 28,
+      "d1_return": 2.077001013171227,
+      "result_exit_date": "2026-06-03",
+      "result_exit_high": 20.15,
+      "result_exit_close": 19.89,
+      "result_source": "eastmoney_push2his_daily_kline",
+      "result_return_formula": "(exit_high-or-exit_close-entry_price)/entry_price",
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "LOW_RETURN",
+        "NO_LIMIT_UP_EVIDENCE"
+      ],
+      "review_reasons": [
+        "forward return 2.08% < 3.00%",
+        "no explicit limit-up evidence and forward high return 2.08% < 9.00%",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:NO_PICK",
+      "date": "2026-06-05",
+      "asof_time": "14:50:00",
+      "symbol": "002624",
+      "name": "完美世界",
+      "decision": "NO_PICK",
+      "entry_price": 13.92,
+      "signal_pct": 6.83,
+      "close_position_score": 0.801802,
+      "turnover_rate": 5.75,
+      "volume_ratio": 1.6,
+      "net_inflow_main": 143479243.0,
+      "rank": 20,
+      "board": "main",
+      "final_score": 71.63312,
+      "structured_score": 36.5,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-05/2026-06-05_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "HARD_GATE_NOT_ALL_PASS:SCAN_TOO_OLD_702.1M_GT_15M;EASTMONEY_REQUIRED_CDP_TABS_MISSING_quote_rank,fund_flow,watchlist,announcements,lhb,concept_industry,financials;EASTMONEY_ENHANCED_CDP_TABS_MISSING_limitup_pool,broken_limit_pool,consecutive_limit_pool,yesterday_limit_pool,popularity_rank,industry_board,sector_fund_flow,margin_trading,block_trades,lockup_expiry,shareholder_changes,research_reports,earnings_preview,ipo_calendar,trading_halts;EASTMONEY_ENHANCED_EVIDENCE_PACK_MISSING_broken_limit_risk,consecutive_limit_strength,yesterday_limit_strength,popularity_heat,sector_fund_flow,candidate_fund_recheck;EASTMONEY_EXPERIMENTAL_EVIDENCE_PACK_MISSING_margin_trading,block_trades,lockup_expiry,shareholder_changes,research_reports,earnings_preview,ipo_calendar,trading_halts;EASTMONEY_CANDIDATE_RECHECK_EVIDENCE_MISSING_candidate_fund_recheck",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-05/145000_historical_backtest_rule_v0_3_NO_PICK.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 31,
+      "review_tags": [
+        "NO_PICK_OBSERVATION"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:NO_PICK",
+      "date": "2026-06-05",
+      "asof_time": "15:00:00",
+      "symbol": "000070",
+      "name": "特发信息",
+      "decision": "NO_PICK",
+      "entry_price": 19.92,
+      "signal_pct": 7.5,
+      "close_position_score": 0.75,
+      "turnover_rate": 20.86,
+      "volume_ratio": 2.69,
+      "net_inflow_main": 974272640.0,
+      "rank": 9,
+      "board": "main",
+      "final_score": 114.01249999999999,
+      "structured_score": 42.083,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-05/2026-06-05_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "HARD_GATE_NOT_ALL_PASS:EASTMONEY_ENHANCED_EVIDENCE_PACK_MISSING_consecutive_limit_strength;ONE_LOT_COST_GT_ACCOUNT_AVAILABLE_CASH",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-05/150000_historical_backtest_rule_v0_3_NO_PICK.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 32,
+      "review_tags": [
+        "NO_PICK_OBSERVATION"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:RESEARCH_CANDIDATE",
+      "date": "2026-06-03",
+      "asof_time": "14:12:33",
+      "symbol": "600522",
+      "name": "中天科技",
+      "decision": "RESEARCH_CANDIDATE",
+      "entry_price": 45.53,
+      "signal_pct": 6.16,
+      "close_position_score": 0.594972,
+      "turnover_rate": 9.79,
+      "volume_ratio": 1.39,
+      "net_inflow_main": 298086160.0,
+      "rank": 1,
+      "board": "main",
+      "final_score": null,
+      "structured_score": null,
+      "blocked_reasons": [
+        "regulatory_hard_block:2026-05-09 中天科技:江苏中天科技股份有限公司股票交易异常波动的公告 中天科技 股票交易异常波动;2026-05-09 中天科技:江苏中天科技股份有限公司股票交易异常波动的公告 中天科技 股票交易异常波动;2026-05-09 中天科技:江苏中天科技股份有限公司股票交易异常波动的公告 中天科技 股票交易异常波动"
+      ],
+      "risk_penalty": null,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": "eastmoney_web_tabs_scan_v0_1_141020",
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/live_scan/2026-06-03/eastmoney_web_tabs_scan_v0_1_141020/eastmoney_web_tabs_scored.jsonl",
+      "decision_reason": "USER_CONFIRMED_ISSUED_TICKET_SOURCE_RUNNER_DRY_RUN_RESEARCH_CANDIDATE_2026_06_03_141233",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-03/141233_historical_backtest_rule_v0_3_600522.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 33,
+      "review_tags": [
+        "RESEARCH_ONLY"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-06-03",
+      "asof_time": "14:36:24",
+      "symbol": "002171",
+      "name": "楚江新材",
+      "decision": "PAPER_PICK",
+      "entry_price": 12.89,
+      "signal_pct": 7.69,
+      "close_position_score": 0.730769,
+      "turnover_rate": 7.93,
+      "volume_ratio": 1.99,
+      "net_inflow_main": 513053982.0,
+      "rank": 17,
+      "board": "main",
+      "final_score": 98.41846,
+      "structured_score": 48.833,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": "eastmoney_web_tabs_scan_v0_1_six_repo",
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-03/2026-06-03_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "USER_CONFIRMED_ISSUED_TICKET_SOURCE_RUNNER_DRY_RUN_PAPER_PICK_2026_06_03_143624",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-03/143624_historical_backtest_rule_v0_3_002171.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 34,
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "RESULT_PENDING"
+      ],
+      "review_reasons": [
+        "PAPER_PICK has no filled forward return yet",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:PAPER_PICK",
+      "date": "2026-06-04",
+      "asof_time": "14:38:23",
+      "symbol": "000700",
+      "name": "模塑科技",
+      "decision": "PAPER_PICK",
+      "entry_price": 17.83,
+      "signal_pct": 7.54,
+      "close_position_score": 0.698529,
+      "turnover_rate": 18.9,
+      "volume_ratio": 2.09,
+      "net_inflow_main": -158803760.0,
+      "rank": 7,
+      "board": "main",
+      "final_score": 101.81,
+      "structured_score": 31.0,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": "eastmoney_web_tabs_scan_v0_1_six_repo",
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-04/2026-06-04_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "USER_CONFIRMED_ISSUED_TICKET_SOURCE_SESSION_RUNNER_DRY_RUN_PAPER_PICK_2026_06_04",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-04/143823_historical_backtest_rule_v0_3_000700.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 35,
+      "review_tags": [
+        "CHASE_HIGH_RISK",
+        "RESULT_PENDING"
+      ],
+      "review_reasons": [
+        "PAPER_PICK has no filled forward return yet",
+        "entry candidate was already high/near close high while result is pending, low, or loss"
+      ]
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:RESEARCH_CANDIDATE",
+      "date": "2026-06-05",
+      "asof_time": "15:00:00",
+      "symbol": "000070",
+      "name": "特发信息",
+      "decision": "RESEARCH_CANDIDATE",
+      "entry_price": 19.92,
+      "signal_pct": 7.5,
+      "close_position_score": 0.75,
+      "turnover_rate": 20.86,
+      "volume_ratio": 2.69,
+      "net_inflow_main": 974272640.0,
+      "rank": 9,
+      "board": "main",
+      "final_score": 114.01249999999999,
+      "structured_score": 42.083,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": "eastmoney_web_tabs_scan_v0_1_six_repo",
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-05/2026-06-05_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "USER_CONFIRMED_ISSUED_TICKET_SOURCE_CLOSE_FIRST_CANDIDATE_OFFICIAL_NO_PICK_ALREADY_LEDGERED",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-05/150000_historical_backtest_rule_v0_3_000070.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 36,
+      "review_tags": [
+        "RESEARCH_ONLY"
+      ],
+      "review_reasons": []
+    },
+    {
+      "method": "historical_backtest_rule_v0_3:NO_PICK",
+      "date": "2026-06-06",
+      "asof_time": "14:50:00",
+      "symbol": "000070",
+      "name": "特发信息",
+      "decision": "NO_PICK",
+      "entry_price": 19.92,
+      "signal_pct": 7.5,
+      "close_position_score": 0.75,
+      "turnover_rate": 20.86,
+      "volume_ratio": 2.69,
+      "net_inflow_main": 974272640.0,
+      "rank": 9,
+      "board": "main",
+      "final_score": 114.01249999999999,
+      "structured_score": 38.333,
+      "blocked_reasons": [],
+      "risk_penalty": 0,
+      "broken_limit_risk": null,
+      "broken_limit_risk_flags": [],
+      "broken_limit_risk_reason": null,
+      "limitup_strength_tags": [],
+      "board_strength_tags": [],
+      "sealed_limit_up": null,
+      "weak_close_risk": null,
+      "high_open_low_close_risk": null,
+      "candidate_source": null,
+      "candidate_bundle_path": "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_candidate_bundles/2026-06-06/2026-06-06_eastmoney_web_tabs_v0_1_research_basket_candidate.json",
+      "decision_reason": "HARD_GATE_NOT_ALL_PASS:SCAN_TOO_OLD_31.3M_GT_15M;EASTMONEY_ENHANCED_CDP_TABS_MISSING_consecutive_limit_pool,industry_board",
+      "evidence_paths": [
+        "/root/hermes/company-ai-system/workspaces/xiaogu/data/forward_snapshots/2026-06-06/145000_historical_backtest_rule_v0_3_NO_PICK.json"
+      ],
+      "paper_only": true,
+      "no_trade": true,
+      "production_ready": false,
+      "decision_record_line": 37,
+      "review_tags": [
+        "NO_PICK_OBSERVATION"
+      ],
+      "review_reasons": []
+    }
+  ],
+  "scoreboard": {
+    "rule_version": "xiaogu_forward_judge_scoreboard_v0_1",
+    "generated_at": "2026-06-06T18:41:16",
+    "asof_ts": "2026-06-06T18:41:16",
+    "paper_only": true,
+    "no_trade": true,
+    "trade_action_allowed": false,
+    "decision": "PAPER_FORWARD_SCOREBOARD_READY",
+    "blockers": [],
+    "guardrails": [
+      "PAPER_ONLY",
+      "NO_TRADE",
+      "NO_BROKER_LOGIN",
+      "MODEL_SCORE_NOT_REAL_WIN_RATE",
+      "FORWARD_RETURNS_ONLY_FOR_WIN_RATE",
+      "TRACEABLE_EVIDENCE_REQUIRED_FOR_PROMOTION"
+    ],
+    "horizons": {
+      "d1": {
+        "return_field": "d1_return",
+        "overall": {
+          "trades": 11,
+          "wins": 9,
+          "win_rate_pct": 81.8182,
+          "avg_return_pct": 2.7353,
+          "profit_factor": 6.5202
+        },
+        "by_method": {
+          "historical_backtest_rule_v0_1:PAPER_PICK": {
+            "trades": 2,
+            "wins": 1,
+            "win_rate_pct": 50.0,
+            "avg_return_pct": -1.0105,
+            "profit_factor": 0.5
+          },
+          "historical_backtest_rule_v0_2:RESEARCH_CANDIDATE": {
+            "trades": 1,
+            "wins": 1,
+            "win_rate_pct": 100.0,
+            "avg_return_pct": 4.1379,
+            "profit_factor": "INF"
+          },
+          "historical_backtest_rule_v0_3:PAPER_PICK": {
+            "trades": 8,
+            "wins": 7,
+            "win_rate_pct": 87.5,
+            "avg_return_pct": 3.4964,
+            "profit_factor": 20.8598
+          }
+        }
+      },
+      "d20": {
+        "return_field": "d20_return",
+        "overall": {
+          "trades": 0,
+          "wins": 0,
+          "win_rate_pct": null,
+          "avg_return_pct": null,
+          "profit_factor": null
+        },
+        "by_method": {}
+      },
+      "d60": {
+        "return_field": "d60_return",
+        "overall": {
+          "trades": 0,
+          "wins": 0,
+          "win_rate_pct": null,
+          "avg_return_pct": null,
+          "profit_factor": null
+        },
+        "by_method": {}
+      },
+      "d120": {
+        "return_field": "d120_return",
+        "overall": {
+          "trades": 0,
+          "wins": 0,
+          "win_rate_pct": null,
+          "avg_return_pct": null,
+          "profit_factor": null
+        },
+        "by_method": {}
+      },
+      "d250": {
+        "return_field": "d250_return",
+        "overall": {
+          "trades": 0,
+          "wins": 0,
+          "win_rate_pct": null,
+          "avg_return_pct": null,
+          "profit_factor": null
+        },
+        "by_method": {}
+      }
+    },
+    "evidence_traceability": {
+      "rows_total": 20,
+      "rows_with_evidence": 20,
+      "traceability_required_before_weight_promotion": true
+    },
+    "forward_review": {
+      "review_tags_are_observation_only": true,
+      "classification_thresholds": {
+        "low_return_pct": 3.0,
+        "limit_up_return_pct": 9.0,
+        "chase_signal_pct": 7.0,
+        "chase_close_position_score": 0.7
+      },
+      "rows_total": 20,
+      "by_decision": {
+        "NO_PICK": 5,
+        "PAPER_PICK": 12,
+        "RESEARCH_CANDIDATE": 3
+      },
+      "tag_counts": {
+        "CHASE_HIGH_RISK": 7,
+        "LOSS": 2,
+        "LOW_RETURN": 3,
+        "NO_LIMIT_UP_EVIDENCE": 10,
+        "NO_PICK_OBSERVATION": 5,
+        "RESEARCH_ONLY": 3,
+        "RESULT_PENDING": 2
+      },
+      "paper_pick_return_summary": {
+        "trades": 10,
+        "wins": 8,
+        "win_rate_pct": 80.0,
+        "avg_return_pct": 2.595,
+        "profit_factor": 5.761
+      },
+      "problem_rows": [
+        {
+          "date": "2026-05-19",
+          "symbol": "300603",
+          "name": "立昂技术",
+          "decision": "PAPER_PICK",
+          "d1_return": 2.0210896309314466,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "LOW_RETURN",
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "forward return 2.02% < 3.00%",
+            "no explicit limit-up evidence and forward high return 2.02% < 9.00%",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 2
+        },
+        {
+          "date": "2026-05-20",
+          "symbol": "300603",
+          "name": "立昂技术",
+          "decision": "PAPER_PICK",
+          "d1_return": -4.042179261862924,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "LOSS",
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "forward return -4.04% < 0",
+            "no explicit limit-up evidence and forward high return -4.04% < 9.00%",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 3
+        },
+        {
+          "date": "2026-05-23",
+          "symbol": "603601",
+          "name": "ååç§æ",
+          "decision": "PAPER_PICK",
+          "d1_return": 7.672369103162263,
+          "review_tags": [
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "no explicit limit-up evidence and forward high return 7.67% < 9.00%"
+          ],
+          "decision_record_line": 11
+        },
+        {
+          "date": "2026-05-25",
+          "symbol": "002436",
+          "name": "兴森科技",
+          "decision": "PAPER_PICK",
+          "d1_return": 3.620146904512074,
+          "review_tags": [
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "no explicit limit-up evidence and forward high return 3.62% < 9.00%"
+          ],
+          "decision_record_line": 14
+        },
+        {
+          "date": "2026-05-26",
+          "symbol": "601615",
+          "name": "明阳智能",
+          "decision": "PAPER_PICK",
+          "d1_return": 4.518872939925579,
+          "review_tags": [
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "no explicit limit-up evidence and forward high return 4.52% < 9.00%"
+          ],
+          "decision_record_line": 17
+        },
+        {
+          "date": "2026-05-27",
+          "symbol": "002273",
+          "name": "水晶光电",
+          "decision": "PAPER_PICK",
+          "d1_return": 5.350772889417361,
+          "review_tags": [
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "no explicit limit-up evidence and forward high return 5.35% < 9.00%"
+          ],
+          "decision_record_line": 19
+        },
+        {
+          "date": "2026-05-28",
+          "symbol": "600237",
+          "name": "铜峰电子",
+          "decision": "PAPER_PICK",
+          "d1_return": 3.831775700934581,
+          "review_tags": [
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "no explicit limit-up evidence and forward high return 3.83% < 9.00%"
+          ],
+          "decision_record_line": 22
+        },
+        {
+          "date": "2026-05-29",
+          "symbol": "000002",
+          "name": "万  科Ａ",
+          "decision": "PAPER_PICK",
+          "d1_return": -1.4084507042253471,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "LOSS",
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "forward return -1.41% < 0",
+            "no explicit limit-up evidence and forward high return -1.41% < 9.00%",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 24
+        },
+        {
+          "date": "2026-06-01",
+          "symbol": "601898",
+          "name": "中煤能源",
+          "decision": "PAPER_PICK",
+          "d1_return": 2.3090586145648344,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "LOW_RETURN",
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "forward return 2.31% < 3.00%",
+            "no explicit limit-up evidence and forward high return 2.31% < 9.00%",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 26
+        },
+        {
+          "date": "2026-06-02",
+          "symbol": "603993",
+          "name": "洛阳钼业",
+          "decision": "PAPER_PICK",
+          "d1_return": 2.077001013171227,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "LOW_RETURN",
+            "NO_LIMIT_UP_EVIDENCE"
+          ],
+          "review_reasons": [
+            "forward return 2.08% < 3.00%",
+            "no explicit limit-up evidence and forward high return 2.08% < 9.00%",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 28
+        },
+        {
+          "date": "2026-06-03",
+          "symbol": "002171",
+          "name": "楚江新材",
+          "decision": "PAPER_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "RESULT_PENDING"
+          ],
+          "review_reasons": [
+            "PAPER_PICK has no filled forward return yet",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 34
+        },
+        {
+          "date": "2026-06-04",
+          "symbol": "000700",
+          "name": "模塑科技",
+          "decision": "PAPER_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "RESULT_PENDING"
+          ],
+          "review_reasons": [
+            "PAPER_PICK has no filled forward return yet",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 35
+        }
+      ],
+      "pending_rows": [
+        {
+          "date": "2026-06-03",
+          "symbol": "002171",
+          "name": "楚江新材",
+          "decision": "PAPER_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "RESULT_PENDING"
+          ],
+          "review_reasons": [
+            "PAPER_PICK has no filled forward return yet",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 34
+        },
+        {
+          "date": "2026-06-04",
+          "symbol": "000700",
+          "name": "模塑科技",
+          "decision": "PAPER_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "CHASE_HIGH_RISK",
+            "RESULT_PENDING"
+          ],
+          "review_reasons": [
+            "PAPER_PICK has no filled forward return yet",
+            "entry candidate was already high/near close high while result is pending, low, or loss"
+          ],
+          "decision_record_line": 35
+        }
+      ],
+      "no_pick_rows": [
+        {
+          "date": "2026-05-22",
+          "symbol": "",
+          "name": null,
+          "decision": "NO_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "NO_PICK_OBSERVATION"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 9
+        },
+        {
+          "date": "2026-05-23",
+          "symbol": "",
+          "name": null,
+          "decision": "NO_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "NO_PICK_OBSERVATION"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 10
+        },
+        {
+          "date": "2026-06-05",
+          "symbol": "002624",
+          "name": "完美世界",
+          "decision": "NO_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "NO_PICK_OBSERVATION"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 31
+        },
+        {
+          "date": "2026-06-05",
+          "symbol": "000070",
+          "name": "特发信息",
+          "decision": "NO_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "NO_PICK_OBSERVATION"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 32
+        },
+        {
+          "date": "2026-06-06",
+          "symbol": "000070",
+          "name": "特发信息",
+          "decision": "NO_PICK",
+          "d1_return": null,
+          "review_tags": [
+            "NO_PICK_OBSERVATION"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 37
+        }
+      ],
+      "research_rows": [
+        {
+          "date": "2026-05-21",
+          "symbol": "002709",
+          "name": "天赐材料",
+          "decision": "RESEARCH_CANDIDATE",
+          "d1_return": 4.137931034482756,
+          "review_tags": [
+            "RESEARCH_ONLY"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 4
+        },
+        {
+          "date": "2026-06-03",
+          "symbol": "600522",
+          "name": "中天科技",
+          "decision": "RESEARCH_CANDIDATE",
+          "d1_return": null,
+          "review_tags": [
+            "RESEARCH_ONLY"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 33
+        },
+        {
+          "date": "2026-06-05",
+          "symbol": "000070",
+          "name": "特发信息",
+          "decision": "RESEARCH_CANDIDATE",
+          "d1_return": null,
+          "review_tags": [
+            "RESEARCH_ONLY"
+          ],
+          "review_reasons": [],
+          "decision_record_line": 36
+        }
+      ]
+    },
+    "model_score_fields_seen": [],
+    "model_scores_used_as_win_rate": false
+  },
+  "known_data_quality_issues": [
+    "2026-06-06 is weekend; local live_scan snapshots must not be used as T+1 exit rows.",
+    "Several early evidence sources store close-only result evidence; NO_LIMIT_UP_EVIDENCE means no confirmed limit-up evidence in ledger/result evidence, not proof that the stock never touched limit-up intraday."
+  ],
+  "upgrade_goal": "increase PAPER_PICK limit-up hit rate and forward return by separating observation tags from hard trading gates, then promoting only repeated evidence-backed tags later."
+}

@@ -1,0 +1,23 @@
+name: xiaogu-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m compileall -q xiaogu_api.py xiaogu_db.py
+      - run: pytest tests/test_db_backfill.py -q
+      - run: |
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from xiaogu_api import app
+          assert TestClient(app).get("/demo/cockpit").status_code == 200
+          PY

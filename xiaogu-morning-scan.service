@@ -1,0 +1,13 @@
+[Unit]
+Description=早盘扫描出票
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/workspace/hermes-workspaces/xiaogu/run_morning_scan.sh
+WorkingDirectory=/workspace/hermes-workspaces/xiaogu
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

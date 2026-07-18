@@ -1,0 +1,11 @@
+# xiaogu 每日扫描定时任务配置
+# 安装方法: crontab crontab_config.txt
+
+# 早盘扫描 - 每个交易日 9:35 (开盘后5分钟)
+35 9 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh morning >> logs/morning_scan.log 2>&1
+
+# 尾盘扫描 - 每个交易日 14:50 (收盘前10分钟)
+50 14 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh afternoon >> logs/afternoon_scan.log 2>&1
+
+# 完整出票流程 - 每个交易日 14:55 (尾盘出票)
+55 14 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_pipeline.sh >> logs/daily_pipeline.log 2>&1
