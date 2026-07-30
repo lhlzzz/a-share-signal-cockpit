@@ -69,6 +69,23 @@ def iter_jsonl(path: Path):
                 continue
 
 
+def _ledger_decisions_and_fills(path: Path) -> Tuple[int, Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+    """Count decisions without loading the full ledger into memory."""
+    decision_count = 0
+    fills: Dict[str, Dict[str, Any]] = {}
+    samples: List[Dict[str, Any]] = []
+    for row in iter_jsonl(path):
+        record_type = row.get('record_type')
+        if record_type in ('DECISION', 'CORRECTION'):
+            decision_count += 1
+            if len(samples) < 10:
+                samples.append(row)
+        elif record_type == 'RESULT_FILL':
+            key = f"{row.get('date')}:{row.get('symbol')}"
+            fills[key] = row
+    return decision_count, fills, samples
+
+
 def _safe_date(value: Any) -> Optional[datetime.date]:
     if not value:
         return None
@@ -471,20 +488,20 @@ def migrate_history(
     }
 
     if ledger_path and ledger_path.exists():
-        rows = load_jsonl(ledger_path)
-        decisions = [r for r in rows if r.get('record_type') in ('DECISION', 'CORRECTION')]
-        fills = {f"{r.get('date')}:{r.get('symbol')}": r for r in rows if r.get('record_type') == 'RESULT_FILL'}
-        summary['ledger_decisions'] = len(decisions)
-        summary['total_decisions'] = len(decisions)
+        decision_count, fills, samples = _ledger_decisions_and_fills(ledger_path)
+        summary['ledger_decisions'] = decision_count
+        summary['total_decisions'] = decision_count
         if dry_run:
-            summary['inserted_picks'] = len(decisions)
-            for d in decisions[:10]:
+            summary['inserted_picks'] = decision_count
+            for d in samples:
                 key = f"{d.get('date')}:{d.get('symbol') or ''}"
                 fill = fills.get(key)
                 print(f"DRY ledger {d.get('date')} {d.get('symbol')} {d.get('decision')} fill={bool(fill)}")
         else:
             with get_db() as db:
-                for d in decisions:
+                for d in iter_jsonl(ledger_path):
+                    if d.get('record_type') not in ('DECISION', 'CORRECTION'):
+                        continue
                     date_str = d.get('date')
                     symbol = d.get('symbol') or ''
                     decision = d.get('decision') or 'UNKNOWN'
@@ -591,8 +608,8 @@ def migrate_history(
 
     entry_price_cache: Dict[Tuple[str, str], float] = {}
     try:
-        rows = load_jsonl(ledger_path) if ledger_path and ledger_path.exists() else []
-        entry_price_cache = _ledger_entry_price_lookup(rows)
+        rows = iter_jsonl(ledger_path) if ledger_path and ledger_path.exists() else ()
+        entry_price_cache = _ledger_entry_price_lookup_from_iter(rows)
     except Exception:
         entry_price_cache = {}
 

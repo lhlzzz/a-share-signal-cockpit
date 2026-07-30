@@ -1,3 +1,12 @@
-下一步 1：已新增 `L11_LOW_POSITION_AMBUSH` 低位潜伏池，可捕获高振幅+高换手+低位的主力洗盘信号。下一次盘中用 CDP 9333 跑 fresh scan 验证新池在真实数据下的出票效果。
-下一步 2：已修复 3 个 bug：(1) RESEARCH_BASKET_SIZE 3→8；(2) official_target_exclusion_reasons 移除 research-only 排除；(3) load_candidate_bundle 传入 asof_time 避免 SCAN_TOO_OLD。
-下一步 3：保持 PAPER_ONLY / NO_TRADE / ALLOW_TRADE=False，继续每日复盘 T+1 收益与出票稳定性。
+当前交付（2026-07-30）：
+- A 股运营看板已接入 `/dashboard/` 与 `/api/dashboard/overview`，只读 PostgreSQL 纸面结果。
+- 最新验证：2026-07-30 runner dry-run 为 `NO_PICK`；不因“需要出票”强行放行，当前阻断为辅助证据不完整与缺少直接催化确认。
+- 历史 ledger 已通过迁移脚本补入缺失的 10 条记录，第二次运行幂等（新增 0、跳过 0）。
+- 全量测试 `451 passed, 2 skipped`；保留 Scrapy/Twisted pending-task 警告作为验证风险。
+- 浏览器上下文无法访问 localhost，已完成 `/health`、`/dashboard/`、`/api/dashboard/overview` HTTP smoke；未伪造截图通过。
+
+持续规则：
+- 当日涨停/封死不可交易标的不得进入可交易候选池。
+- T 日下跌票不直接排除，必须通过 T+1 获利证据门。
+- `@sszcw` 只作软上下文与解释排序，不强制出票。
+- 保持 PAPER_ONLY / NO_TRADE / ALLOW_TRADE=False，继续每日复盘 T+1 收益与出票稳定性。

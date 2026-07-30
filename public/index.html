@@ -1,12 +1,366 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A-share Signal Cockpit</title>
-<style>body{margin:0;background:#f4f7f6;color:#12242b;font:16px/1.5 system-ui,sans-serif}main{width:min(1100px,calc(100% - 32px));margin:auto;padding:32px 0 72px}.kicker{color:#b34435;font:700 .8rem ui-monospace,monospace;text-transform:uppercase}h1{font-size:clamp(2.8rem,8vw,6rem);line-height:.9;margin:14px 0}p{max-width:62ch;color:#52636a}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#cbd6d4;border:1px solid #cbd6d4;margin:34px 0}.card{background:#fff;padding:20px}.card strong{font-size:1.8rem;display:block}.flow{display:flex;flex-wrap:wrap;gap:10px}.flow span,a{border:1px solid #9eafb0;padding:9px 12px;background:#fff;text-decoration:none;color:inherit}.warn{border-left:4px solid #b34435;padding:12px 16px;background:#fff}.command{font-family:ui-monospace,monospace;background:#172b31;color:#e9f1ef;padding:16px;overflow:auto}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style></head>
-<body><main><div class="kicker">Research only / no execution</div><h1>A-share Signal Cockpit</h1><p>Daily market ingestion, multi-factor scoring, candidate selection, forward validation, and an API that makes a paper-pick decision inspectable.</p>
-<div class="grid"><div class="card"><strong>Ingest</strong>Eastmoney quotes, fund flow, and candidate evidence.</div><div class="card"><strong>Score</strong>Rule gates and factor score decide PAPER_PICK or NO_PICK.</div><div class="card"><strong>Validate</strong>Forward return fill and effectiveness reporting close the loop.</div></div>
-<h2>Operator view</h2><div class="flow"><span>Scanner</span><span>Runner</span><span>Recorder</span><span>Return filler</span><span>PostgreSQL</span><span>FastAPI</span></div>
-<h2>Demo and evidence</h2><p>Run the API in demo mode for a fixed candidate with score breakdown, risk flag, data sources, and a research-only label. Existing records can be queried through the explain endpoint without changing scoring logic.</p>
-<pre class="command">DEMO_MODE=1 uvicorn xiaogu_api:app --reload
-GET /demo/cockpit
-GET /explain/{trade_date}/{symbol}</pre>
-<p class="warn"><strong>Limit:</strong> This project is for research and paper evaluation only. It does not provide investment advice or automate trading.</p>
-<p><a href="../../portfolio/index.html">Back to portfolio</a> <a href="../README.md">README</a></p></main></body></html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>xiaogu / A股出票控制台</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #090d11;
+  --panel: #11181e;
+  --panel-2: #151f26;
+  --line: #27343d;
+  --text: #edf4f5;
+  --muted: #8b9aa2;
+  --muted-2: #60717a;
+  --teal: #67dfca;
+  --teal-dim: #153630;
+  --red: #ff776c;
+  --red-dim: #3d211f;
+  --green: #77d69d;
+  --amber: #f2bd68;
+  --blue: #86b8ff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+body { font: 13px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 20px 0 42px; }
+.topbar { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.mark { width: 35px; height: 35px; display: grid; place-items: center; border: 1px solid #456269; color: var(--teal); font: 800 13px ui-monospace, monospace; }
+.brand-copy strong { display: block; font-size: 15px; letter-spacing: .02em; }
+.brand-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+.top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.status, .tag { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); background: var(--panel); color: var(--amber); font: 10px ui-monospace, monospace; letter-spacing: .06em; }
+.status { color: var(--teal); border-color: #31584f; background: #11231f; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.toolbar { display: flex; align-items: center; gap: 7px; }
+.date-input { width: 128px; height: 34px; padding: 0 9px; color: var(--text); background: var(--panel); border: 1px solid var(--line); }
+.icon-btn { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 18px; }
+.icon-btn:hover { color: var(--text); border-color: #52656f; background: var(--panel-2); }
+.server-time { color: var(--muted); font: 10px ui-monospace, monospace; }
+.strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; margin: 18px 0; border: 1px solid var(--line); background: var(--line); }
+.strip-cell { min-height: 72px; padding: 12px 14px; background: var(--panel); }
+.label { color: var(--muted-2); font: 10px ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+.value { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; font: 700 19px ui-monospace, monospace; }
+.value small { color: var(--muted); font: 11px system-ui, sans-serif; }
+.positive { color: var(--teal) !important; }
+.up { color: var(--red) !important; }
+.down { color: var(--green) !important; }
+.warning { color: var(--amber) !important; }
+.muted { color: var(--muted) !important; }
+.layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .72fr); gap: 14px; align-items: start; }
+.stack { display: grid; gap: 14px; }
+.panel { min-width: 0; border: 1px solid var(--line); background: var(--panel); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { margin: 0; font-size: 14px; letter-spacing: -.02em; }
+.panel-head span { color: var(--muted); font: 10px ui-monospace, monospace; }
+.hero { border-top: 2px solid var(--teal); }
+.hero-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px; border-bottom: 1px solid var(--line); }
+.hero-kicker { color: var(--teal); font: 10px ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; }
+.hero h1 { margin: 8px 0 4px; font-size: 28px; letter-spacing: -.04em; }
+.hero p { margin: 0; color: var(--muted); }
+.hero-score { text-align: right; }
+.hero-score strong { display: block; font: 700 32px ui-monospace, monospace; }
+.hero-score span { color: var(--muted); font: 10px ui-monospace, monospace; }
+.hero-body { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); }
+.hero-metric { min-height: 66px; padding: 12px 14px; background: var(--panel); }
+.hero-metric strong { display: block; margin-top: 6px; font: 600 13px ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-metric small { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.empty { padding: 34px 16px; text-align: center; color: var(--muted-2); }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; min-width: 720px; border-collapse: collapse; }
+th { padding: 10px 12px; color: var(--muted-2); text-align: left; border-bottom: 1px solid var(--line); font: 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+td { padding: 11px 12px; border-bottom: 1px solid #202b32; color: #cbd5d8; white-space: nowrap; font-size: 12px; }
+tr:last-child td { border-bottom: 0; }
+.asset { display: flex; align-items: center; gap: 8px; }
+.asset-code { color: var(--text); font: 600 12px ui-monospace, monospace; }
+.asset-name { color: var(--muted); font-size: 11px; }
+.rank { color: var(--amber); font: 700 12px ui-monospace, monospace; }
+.pill { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; font: 10px ui-monospace, monospace; }
+.pill-pick { color: var(--teal); background: var(--teal-dim); }
+.pill-no { color: var(--amber); background: #392c18; }
+.pill-candidate { color: var(--blue); background: #1b2b43; }
+.pill-partial { color: var(--amber); background: #392c18; }
+.pill-pass { color: var(--teal); background: var(--teal-dim); }
+.side-list { padding: 4px 15px 8px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px solid #202b32; }
+.row:last-child { border-bottom: 0; }
+.row span { color: var(--muted); }
+.row strong { color: var(--text); text-align: right; font: 11px ui-monospace, monospace; }
+.health { display: flex; align-items: center; gap: 7px; }
+.health.online { color: var(--teal); }
+.health.stale, .health.missing { color: var(--amber); }
+.source-list { max-height: 260px; overflow: auto; padding: 4px 15px 8px; }
+.source-row { display: grid; grid-template-columns: 1fr auto; gap: 9px; align-items: center; padding: 9px 0; border-bottom: 1px solid #202b32; }
+.source-row:last-child { border-bottom: 0; }
+.source-row strong { display: block; color: var(--text); font-size: 11px; }
+.source-row small { display: block; margin-top: 2px; color: var(--muted-2); font-size: 10px; }
+.source-state { font: 10px ui-monospace, monospace; }
+.outcome-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); }
+.outcome { min-height: 66px; padding: 12px 14px; background: var(--panel); }
+.outcome strong { display: block; margin-top: 6px; font: 600 13px ui-monospace, monospace; }
+.feed { max-height: 330px; overflow: auto; }
+.feed-row { display: grid; grid-template-columns: 82px 1fr auto; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #202b32; }
+.feed-row:last-child { border-bottom: 0; }
+.feed-date { color: var(--muted-2); font: 10px ui-monospace, monospace; }
+.feed-main strong { color: var(--text); font: 600 11px ui-monospace, monospace; }
+.feed-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.feed-return { text-align: right; font: 11px ui-monospace, monospace; }
+.foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted-2); font-size: 10px; }
+.foot strong { color: var(--amber); }
+@media (max-width: 1080px) {
+  .strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .shell { width: min(100% - 24px, 680px); padding-top: 10px; }
+  .topbar { align-items: flex-start; padding-bottom: 12px; }
+  .server-time { display: none; }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .strip-cell { min-height: 63px; }
+  .hero-head { flex-direction: column; }
+  .hero-score { text-align: left; }
+  .hero-score strong { font-size: 27px; }
+  .hero-body { grid-template-columns: repeat(2, 1fr); }
+  .foot { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">xg</div>
+      <div class="brand-copy">
+        <strong>xiaogu / A股出票控制台</strong>
+        <span>Eastmoney 公共行情 · T+1 获利证据 · PAPER_ONLY</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="status"><i class="dot"></i><span id="mode">仅模拟</span></div>
+      <span class="server-time" id="server-time">--</span>
+      <div class="toolbar">
+        <input class="date-input" id="date-input" type="date" aria-label="查看交易日">
+        <button class="icon-btn" id="refresh-btn" type="button" title="立即刷新" aria-label="立即刷新">↻</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="strip" aria-label="市场与链路状态">
+    <div class="strip-cell"><div class="label">扫描状态</div><div class="value" id="scan-status">读取中</div></div>
+    <div class="strip-cell"><div class="label">市场环境</div><div class="value" id="market-regime">--</div></div>
+    <div class="strip-cell"><div class="label">扫描行情</div><div class="value"><span id="quote-count">--</span><small>条</small></div></div>
+    <div class="strip-cell"><div class="label">T+1 胜率</div><div class="value"><span id="win-rate">--</span><small id="filled-count">未结算</small></div></div>
+    <div class="strip-cell"><div class="label">证据完整度</div><div class="value" id="completeness">--</div></div>
+  </section>
+
+  <section class="layout">
+    <div class="stack">
+      <article class="panel hero" id="pick-card"></article>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>可交易候选池 / Top10</h2>
+          <span id="candidate-caption">--</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>排名</th><th>标的</th><th>分数</th><th>T日</th><th>T+1</th><th>决策</th><th>辅助证据</th></tr></thead>
+            <tbody id="candidate-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>最近出票与 T+1</h2><span id="recent-count">--</span></div>
+        <div class="feed" id="recent-feed"></div>
+      </section>
+    </div>
+
+    <aside class="stack">
+      <section class="panel">
+        <div class="panel-head"><h2>当前决策</h2><span id="decision-date">--</span></div>
+        <div class="side-list" id="decision-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>候选池结果</h2><span>当前日期</span></div>
+        <div class="outcome-grid" id="outcome-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>运行健康度</h2><span>实时数据库</span></div>
+        <div class="side-list" id="health-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>证据源</h2><span id="source-count">--</span></div>
+        <div class="source-list" id="source-list"></div>
+      </section>
+    </aside>
+  </section>
+
+  <footer class="foot">
+    <span><strong>禁止自动下单</strong> · 看板只读取 scanner / runner / PostgreSQL 纸面结果。</span>
+    <span id="last-refresh">等待数据...</span>
+  </footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = (value, digits = 2) => value === null || value === undefined || value === '' ? '--' : Number(value).toFixed(digits);
+const signed = (value, digits = 2) => value === null || value === undefined ? '--' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(digits)}%`;
+const returnClass = (value) => Number(value || 0) >= 0 ? 'up' : 'down';
+const statusClass = (value) => String(value || '').toUpperCase() === 'PASS' || String(value || '').toLowerCase() === 'completed' ? 'positive' : 'warning';
+
+function decisionLabel(value) {
+  const map = { PAPER_PICK: 'PAPER_PICK', NO_PICK: 'NO_PICK', CANDIDATE: '候选', RESEARCH_CANDIDATE: '研究候选' };
+  return map[value] || value || '--';
+}
+
+function pickMarkup(data) {
+  const pick = data.decision?.paper_pick;
+  const latest = data.decision?.latest;
+  const shown = pick || latest || {};
+  const isPick = shown.decision === 'PAPER_PICK' && shown.symbol;
+  const title = isPick ? `${shown.symbol} ${shown.stock_name || ''}` : 'NO_PICK';
+  const subtitle = isPick ? '已通过当前正式出票门禁' : '当前窗口没有满足全部正式出票条件的标的';
+  const score = shown.final_score === null || shown.final_score === undefined ? '--' : num(shown.final_score);
+  return `
+    <div class="hero-head">
+      <div>
+        <div class="hero-kicker">实时 PAPER_PICK</div>
+        <h1 class="${isPick ? '' : 'warning'}">${esc(title)}</h1>
+        <p>${esc(subtitle)} · 决策日 ${esc(shown.trade_date || data.dates?.pick_date || '--')}</p>
+      </div>
+      <div class="hero-score"><strong>${score}</strong><span>FINAL SCORE</span></div>
+    </div>
+    <div class="hero-body">
+      <div class="hero-metric"><div class="label">排序</div><strong>${shown.rank ?? '--'}</strong><small>${isPick ? '正式票排名' : '最高记录'}</small></div>
+      <div class="hero-metric"><div class="label">T+1 收益</div><strong class="${returnClass(shown.t1_return)}">${signed(shown.t1_return, 2)}</strong><small>${shown.t1_return === null || shown.t1_return === undefined ? '等待回填' : '收盘口径'}</small></div>
+      <div class="hero-metric"><div class="label">辅助证据</div><strong>${esc(shown.auxiliary_evidence_status || '--')}</strong><small>新闻 / 公告 / 资金</small></div>
+      <div class="hero-metric"><div class="label">可交易约束</div><strong class="positive">已启用</strong><small>涨停封死不进池</small></div>
+    </div>`;
+}
+
+function candidateRows(rows) {
+  if (!rows?.length) return '<tr><td colspan="7"><div class="empty">当前日期没有持久化候选记录。</div></td></tr>';
+  return rows.slice(0, 10).map((row) => {
+    const decision = row.decision || 'CANDIDATE';
+    const outcome = row.selection_outcome || '';
+    const decisionClass = decision === 'PAPER_PICK' ? 'pill-pick' : (decision === 'NO_PICK' ? 'pill-no' : 'pill-candidate');
+    const aux = String(row.auxiliary_status || 'UNKNOWN').toUpperCase();
+    return `<tr>
+      <td class="rank">${row.rank ?? '--'}</td>
+      <td><div class="asset"><span class="asset-code">${esc(row.symbol || '--')}</span><span class="asset-name">${esc(row.stock_name || '')}</span></div></td>
+      <td>${num(row.final_score)}</td>
+      <td class="${returnClass(row.pct_chg)}">${signed(row.pct_chg, 2)}</td>
+      <td class="${returnClass(row.t1_return)}">${signed(row.t1_return, 2)}</td>
+      <td><span class="pill ${decisionClass}">${esc(decisionLabel(decision))}</span><small class="muted"> ${esc(outcome.replace('TOP10_NOT_SELECTED', ''))}</small></td>
+      <td><span class="pill ${aux === 'PASS' ? 'pill-pass' : 'pill-partial'}">${esc(aux)}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDecision(data) {
+  const latest = data.decision?.latest || {};
+  const paper = data.decision?.paper_pick;
+  $('decision-date').textContent = data.decision?.candidate_date || '--';
+  $('decision-list').innerHTML = `
+    <div class="row"><span>正式决策</span><strong class="${paper ? 'positive' : 'warning'}">${paper ? 'PAPER_PICK' : (latest.decision || 'NO_PICK')}</strong></div>
+    <div class="row"><span>正式标的</span><strong>${esc(paper ? `${paper.symbol} ${paper.stock_name || ''}` : '--')}</strong></div>
+    <div class="row"><span>候选日期</span><strong>${esc(data.decision?.candidate_date || '--')}</strong></div>
+    <div class="row"><span>扫描日期</span><strong>${esc(data.scan?.trade_date || '--')}</strong></div>`;
+}
+
+function renderOutcomes(rows) {
+  const map = {};
+  for (const row of rows || []) map[row.outcome] = Number(row.count || 0);
+  const items = [
+    ['可交易候选', map.CANDIDATE || 0],
+    ['前十未出票', map.TOP10_NOT_SELECTED || 0],
+    ['正式出票', map.OFFICIAL_PICK || 0],
+    ['完整池未选', map.FULL_POOL_NOT_SELECTED || 0],
+  ];
+  $('outcome-grid').innerHTML = items.map(([label, value]) => `<div class="outcome"><div class="label">${label}</div><strong>${value}</strong></div>`).join('');
+}
+
+function renderHealth(data) {
+  const scan = data.scan || {};
+  const scanStatus = scan.status === 'completed' && (scan.age_seconds === null || scan.age_seconds < 86400) ? 'online' : 'stale';
+  const source = data.market || {};
+  $('health-list').innerHTML = `
+    <div class="row"><span>Scanner</span><strong class="health ${scanStatus}"><i class="dot"></i>${scan.status || 'missing'} ${scan.age_seconds ?? '--'}s</strong></div>
+    <div class="row"><span>数据库</span><strong class="health online"><i class="dot"></i>在线</strong></div>
+    <div class="row"><span>行情证据</span><strong class="${statusClass(source.completeness)}">${esc(source.completeness || '--')}</strong></div>
+    <div class="row"><span>当前市场</span><strong>${esc(source.regime || '--')}</strong></div>`;
+}
+
+function renderSources(data) {
+  const rows = data.sources?.health || [];
+  $('source-count').textContent = `${rows.length} 个域`;
+  $('source-list').innerHTML = rows.length ? rows.map((row) => {
+    const state = String(row.status || '').toUpperCase();
+    const count = row.count === null || row.count === undefined ? '' : ` · ${row.count}`;
+    return `<div class="source-row"><div><strong>${esc(row.name)}</strong><small>${esc(row.source)}${count}</small></div><span class="source-state ${state === 'PASS' ? 'positive' : 'warning'}">${esc(state)}</span></div>`;
+  }).join('') : '<div class="empty">没有最新来源状态。</div>';
+}
+
+function renderRecent(rows) {
+  $('recent-count').textContent = `${rows?.length || 0} 条`;
+  if (!rows?.length) {
+    $('recent-feed').innerHTML = '<div class="empty">暂无历史出票。</div>';
+    return;
+  }
+  $('recent-feed').innerHTML = rows.map((row) => `<div class="feed-row">
+    <span class="feed-date">${esc(row.date || row.trade_date || '--')}</span>
+    <div class="feed-main"><strong>${esc(decisionLabel(row.decision))}</strong><span>${esc(`${row.symbol || '--'} ${row.stock_name || ''}`)} · score ${num(row.final_score)}</span></div>
+    <span class="feed-return ${returnClass(row.t1_return)}">${signed(row.t1_return, 2)}</span>
+  </div>`).join('');
+}
+
+async function refresh() {
+  const selected = $('date-input').value;
+  const query = selected ? `?date=${encodeURIComponent(selected)}` : '';
+  try {
+    const response = await fetch(`/api/dashboard/overview${query}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    $('mode').textContent = data.mode === 'PAPER_ONLY' ? '仅模拟' : '受限模式';
+    $('server-time').textContent = new Date(data.server_time).toLocaleTimeString('zh-CN', { hour12: false });
+    const scan = data.scan || {}, market = data.market || {}, perf = data.performance || {};
+    $('scan-status').textContent = scan.status === 'completed' ? '在线' : (scan.status || '缺失');
+    $('scan-status').className = `value ${scan.status === 'completed' ? 'positive' : 'warning'}`;
+    $('market-regime').textContent = market.regime || '--';
+    $('market-regime').className = `value ${String(market.regime).toLowerCase() === 'weak' ? 'warning' : 'positive'}`;
+    $('quote-count').textContent = Number(scan.quotes_count || 0).toLocaleString();
+    $('win-rate').textContent = perf.win_rate === null || perf.win_rate === undefined ? '--' : `${num(perf.win_rate, 1)}%`;
+    $('filled-count').textContent = `${perf.filled || 0} 已结算`;
+    $('completeness').textContent = market.completeness || '--';
+    $('completeness').className = `value ${statusClass(market.completeness)}`;
+    $('pick-card').innerHTML = pickMarkup(data);
+    $('candidate-caption').textContent = `${data.decision?.candidate_date || '--'} · ${data.decision?.candidate_count || 0} 条`;
+    $('candidate-table').innerHTML = candidateRows(data.candidates || []);
+    renderDecision(data);
+    renderOutcomes(data.decision?.pool_outcomes || []);
+    renderHealth(data);
+    renderSources(data);
+    renderRecent(data.recent_picks || []);
+    $('last-refresh').textContent = `最近刷新 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+  } catch (error) {
+    $('last-refresh').textContent = '数据刷新失败，等待重试';
+    console.error(error);
+  }
+}
+
+$('refresh-btn').addEventListener('click', refresh);
+$('date-input').addEventListener('change', refresh);
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

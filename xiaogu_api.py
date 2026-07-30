@@ -2,11 +2,14 @@
 """FastAPI service for xiaogu A-share system."""
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
+from fastapi.staticfiles import StaticFiles
 
 from scripts.xiaogu_ensure_database import ensure_database_ready
 
@@ -16,6 +19,7 @@ DATABASE_URL = os.environ.get(
 )
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+PUBLIC_DIR = Path(__file__).resolve().parent / "public"
 
 
 def ensure_api_database_ready() -> None:
@@ -43,12 +47,241 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+if PUBLIC_DIR.is_dir():
+    app.mount("/dashboard", StaticFiles(directory=PUBLIC_DIR, html=True), name="dashboard")
+
 
 def query_rows(sql: str, params: dict = {}) -> List[Dict[str, Any]]:
     with engine.connect() as conn:
         result = conn.execute(text(sql), params)
         cols = result.keys()
         return [dict(zip(cols, row)) for row in result.fetchall()]
+
+
+def _as_json_object(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            import json
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _iso(value: Any) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value or "")
+
+
+def _resolve_dashboard_dates(requested_date: Optional[str]) -> Dict[str, Optional[str]]:
+    if requested_date:
+        return {
+            "scan_date": requested_date,
+            "candidate_date": requested_date,
+            "pick_date": requested_date,
+        }
+    latest = query_rows("""
+        SELECT
+            (SELECT MAX(trade_date) FROM scan_sessions) AS scan_date,
+            (SELECT MAX(trade_date) FROM daily_candidates) AS candidate_date,
+            (SELECT MAX(trade_date) FROM picks) AS pick_date
+    """)
+    row = latest[0] if latest else {}
+    return {
+        "scan_date": _iso(row.get("scan_date")) or None,
+        "candidate_date": _iso(row.get("candidate_date")) or None,
+        "pick_date": _iso(row.get("pick_date")) or None,
+    }
+
+
+def _dashboard_return(value: Any) -> Optional[float]:
+    try:
+        return round(float(value), 4) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@app.get("/api/dashboard/overview")
+def get_dashboard_overview(
+    date: Optional[str] = Query(None, description="A-share trade date YYYY-MM-DD"),
+):
+    """Single read model for the A-share operator dashboard."""
+    dates = _resolve_dashboard_dates(date)
+    scan_date = dates["scan_date"]
+    candidate_date = dates["candidate_date"]
+    pick_date = dates["pick_date"]
+
+    session_rows = query_rows("""
+        SELECT id, trade_date, scan_time, quotes_count, scored_count, passed_count,
+               status, market_snapshot, source_status, source_counts,
+               source_diagnostics
+        FROM scan_sessions
+        WHERE (:scan_date IS NULL OR trade_date = CAST(:scan_date AS date))
+        ORDER BY trade_date DESC, scan_time DESC
+        LIMIT 1
+    """, {"scan_date": scan_date})
+    session = session_rows[0] if session_rows else {}
+    market_snapshot = _as_json_object(session.get("market_snapshot"))
+    source_status = _as_json_object(session.get("source_status"))
+    source_counts = _as_json_object(session.get("source_counts"))
+    source_diagnostics = _as_json_object(session.get("source_diagnostics"))
+    completeness = _as_json_object(source_status.get("source_completeness"))
+
+    candidate_rows = query_rows("""
+        SELECT
+            dc.trade_date, dc.symbol, dc.stock_name, dc.rank, dc.final_score,
+            dc.decision, dc.selection_outcome, dc.is_official_pick,
+            dc.pct_chg, dc.close_position_score, dc.market_regime,
+            dc.auxiliary_evidence_snapshot, dc.selection_reason,
+            dc.ticket_reason, dc.not_selected_reason,
+            COALESCE(r.t1_return_close, r.t1_return) AS t1_return,
+            r.t1_return_high, r.next_day_open_return,
+            r.next_day_high_return
+        FROM daily_candidates dc
+        LEFT JOIN returns r
+          ON r.trade_date = dc.trade_date AND r.symbol = dc.symbol
+        WHERE (:candidate_date IS NULL OR dc.trade_date = CAST(:candidate_date AS date))
+        ORDER BY dc.rank NULLS LAST, dc.final_score DESC NULLS LAST
+        LIMIT 20
+    """, {"candidate_date": candidate_date})
+
+    pool_rows = query_rows("""
+        SELECT COALESCE(selection_outcome, decision, 'UNKNOWN') AS outcome, COUNT(*) AS count
+        FROM daily_candidates
+        WHERE (:candidate_date IS NULL OR trade_date = CAST(:candidate_date AS date))
+        GROUP BY 1
+        ORDER BY count DESC
+    """, {"candidate_date": candidate_date})
+
+    pick_rows = query_rows("""
+        SELECT
+            p.id, p.trade_date, p.symbol, p.stock_name, p.decision,
+            p.final_score, p.rank, p.auxiliary_evidence_status,
+            p.ticket_reason, p.selection_reason, p.created_at,
+            COALESCE(r.t1_return_close, r.t1_return) AS t1_return,
+            r.t1_return_high
+        FROM picks p
+        LEFT JOIN returns r
+          ON r.trade_date = p.trade_date AND r.symbol = p.symbol
+        WHERE (:pick_date IS NULL OR p.trade_date = CAST(:pick_date AS date))
+          AND COALESCE(p.features ->> 'superseded', 'false') <> 'true'
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 20
+    """, {"pick_date": pick_date})
+
+    recent_picks = query_rows("""
+        SELECT
+            p.trade_date, p.symbol, p.stock_name, p.decision, p.final_score,
+            p.rank, COALESCE(r.t1_return_close, r.t1_return) AS t1_return
+        FROM picks p
+        LEFT JOIN returns r
+          ON r.trade_date = p.trade_date AND r.symbol = p.symbol
+        WHERE COALESCE(p.features ->> 'superseded', 'false') <> 'true'
+        ORDER BY p.trade_date DESC, p.created_at DESC
+        LIMIT 12
+    """)
+
+    paper_pick = next((row for row in pick_rows if row.get("decision") == "PAPER_PICK"), None)
+    latest_decision = pick_rows[0] if pick_rows else None
+    filled = [row for row in recent_picks if row.get("t1_return") is not None]
+    wins = [row for row in filled if float(row["t1_return"]) >= 0]
+    limit_ups = [row for row in filled if float(row["t1_return"]) >= 0.095]
+    average_t1 = (
+        round(sum(float(row["t1_return"]) for row in filled) / len(filled), 4)
+        if filled else None
+    )
+
+    scan_time = session.get("scan_time")
+    scan_age = None
+    if scan_time:
+        try:
+            scan_dt = scan_time if scan_time.tzinfo else scan_time.replace(tzinfo=timezone.utc)
+            scan_age = max(0, int((datetime.now(timezone.utc) - scan_dt.astimezone(timezone.utc)).total_seconds()))
+        except (AttributeError, TypeError, ValueError):
+            scan_age = None
+
+    source_health = []
+    for name, value in source_status.items():
+        if isinstance(value, dict):
+            source_health.append({
+                "name": name,
+                "status": value.get("status") or value.get("mode") or "UNKNOWN",
+                "source": value.get("source") or value.get("mode") or "",
+                "missing": value.get("missing_sources") or value.get("missing_domains") or value.get("flags") or [],
+                "count": source_counts.get(name),
+            })
+
+    return {
+        "mode": "PAPER_ONLY",
+        "trading_enabled": False,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "dates": dates,
+        "scan": {
+            "trade_date": _iso(session.get("trade_date")),
+            "scan_time": _iso(scan_time),
+            "age_seconds": scan_age,
+            "status": session.get("status") or "missing",
+            "quotes_count": session.get("quotes_count") or 0,
+            "scored_count": session.get("scored_count") or 0,
+            "passed_count": session.get("passed_count") or 0,
+        },
+        "market": {
+            "regime": market_snapshot.get("market_regime") or "UNKNOWN",
+            "big_up_count": market_snapshot.get("market_bigups"),
+            "passed_count": market_snapshot.get("passed_count"),
+            "source": _as_json_object(source_status.get("external_market")).get("source", "Eastmoney API"),
+            "completeness": completeness.get("status") or "UNKNOWN",
+            "missing": completeness.get("flags") or completeness.get("missing_sources") or [],
+        },
+        "decision": {
+            "latest": latest_decision,
+            "paper_pick": paper_pick,
+            "candidate_date": candidate_date,
+            "candidate_count": len(candidate_rows),
+            "pool_outcomes": pool_rows,
+        },
+        "candidates": [
+            {
+                **row,
+                "t1_return": _dashboard_return(row.get("t1_return")),
+                "t1_return_high": _dashboard_return(row.get("t1_return_high")),
+                "pct_chg": _dashboard_return(row.get("pct_chg")),
+                "auxiliary_status": (
+                    _as_json_object(row.get("auxiliary_evidence_snapshot")).get("status")
+                    or "UNKNOWN"
+                ),
+            }
+            for row in candidate_rows
+        ],
+        "performance": {
+            "filled": len(filled),
+            "wins": len(wins),
+            "limit_ups": len(limit_ups),
+            "win_rate": round(len(wins) / len(filled) * 100, 1) if filled else None,
+            "average_t1": average_t1,
+        },
+        "recent_picks": [
+            {
+                **row,
+                "t1_return": _dashboard_return(row.get("t1_return")),
+                "date": _iso(row.get("trade_date")),
+            }
+            for row in recent_picks
+        ],
+        "sources": {
+            "health": source_health,
+            "counts": source_counts,
+            "diagnostics": source_diagnostics,
+        },
+        "rules": {
+            "candidate_policy": "先过 T+1 获利证据门，再做 Top10 与 PAPER_PICK",
+            "limitup_policy": "当日涨停/封死不可交易标的不得进入可交易候选池",
+            "underwater_policy": "T 日下跌票不直接排除，必须通过 T+1 获利证据门",
+            "sszcw": "软上下文，仅作解释与排序辅助，不强制出票",
+        },
+    }
 
 
 @app.get("/health")
