@@ -124,12 +124,24 @@ def test_social_attachment_retains_valid_values_and_surfaces_collection_warning(
 def test_social_collectors_use_direct_public_pages_before_cdp(monkeypatch):
     import xiaogu_social_sentiment as social
 
-    guba_html = """
-        <div class="title">芯片利好，明天涨停</div>
-        <div class="title">资金回流，继续看多</div>
-    """
+    # Primary path is gbapi JSON (not captcha HTML). CDP must not be required.
+    api_payload = json.dumps(
+        {
+            'count': 2,
+            're': [
+                {'post_title': '芯片利好，明天涨停'},
+                {'post_title': '资金回流，继续看多'},
+            ],
+        },
+        ensure_ascii=False,
+    )
 
-    monkeypatch.setattr(social, '_fetch_public_text', lambda *_args, **_kwargs: guba_html)
+    def fake_fetch(url, *, timeout=15, direct=False, accept=''):
+        if 'gbapi.eastmoney.com' in url and 'Articlelist' in url:
+            return api_payload
+        pytest.fail(f'unexpected fetch url for primary path: {url}')
+
+    monkeypatch.setattr(social, '_fetch_public_text', fake_fetch)
     monkeypatch.setattr(
         social,
         'cdp_get_tabs',
@@ -140,6 +152,32 @@ def test_social_collectors_use_direct_public_pages_before_cdp(monkeypatch):
 
     assert guba['post_count'] == 2
     assert guba['positive_count'] == 2
+    assert guba.get('transport') == 'gbapi_articlelist'
+
+
+def test_social_collectors_fall_back_to_html_when_api_empty(monkeypatch):
+    import xiaogu_social_sentiment as social
+
+    guba_html = """
+        <div class="title">芯片利好，明天涨停</div>
+        <div class="title">资金回流，继续看多</div>
+    """
+
+    def fake_fetch(url, *, timeout=15, direct=False, accept=''):
+        if 'gbapi.eastmoney.com' in url:
+            return json.dumps({'count': 0, 're': []})
+        return guba_html
+
+    monkeypatch.setattr(social, '_fetch_public_text', fake_fetch)
+    monkeypatch.setattr(
+        social,
+        'cdp_get_tabs',
+        lambda: pytest.fail('html fallback should not request a CDP tab'),
+    )
+
+    guba = social.scrape_eastmoney_guba('600001')
+    assert guba['post_count'] == 2
+    assert guba.get('transport') == 'public_html'
 
 
 def test_collect_and_store_ignores_obsolete_external_sources(monkeypatch):
@@ -185,6 +223,35 @@ def test_daily_pipeline_defaults_social_provider_to_eastmoney_only():
     assert 'SOCIAL_SOURCES="${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba}"' in script
     assert 'SOCIAL_SOURCES="${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba,x}"' not in script
     assert all(key not in script for key in obsolete_env_keys)
+    # Gate detection must use compact status-file, not only rg on multi-MB JSON.
+    assert '--status-file' in script
+    assert 'social_gate=' in script
+    assert '--ensure-formal-top10' in script
+    assert '补采 social' in script or 'ensure-formal-top10' in script
+
+
+def test_daily_pipeline_hooks_sszcw_pre_pick_and_safe_self_evolve():
+    script = Path('daily_pipeline.sh').read_text(encoding='utf-8')
+    assert 'scripts/xiaogu_sszcw_market_context.py' in script
+    assert 'scripts/xiaogu_safe_self_evolve.py' in script
+    assert 'backfill_return_pick_ids' in script
+    # Chain auto-applies when gate READY (not a manual ops checklist)
+    assert '--apply-if-ready' in script
+    assert 'XIAOGU_SAFE_SELF_EVOLVE_DRY_RUN' in script
+    # Soft context must run before runner
+    assert script.index('xiaogu_sszcw_market_context.py') < script.index('xiaogu_forward_d1_1450_runner_v0_1.py')
+    # T1 validation path also owns self-evolve
+    assert script.index('--manual-return-backfill') < script.index('--apply-if-ready')
+    # Shadow profit candidates: main LIVE path after runner; T1 path refreshes with --with-returns
+    assert 'scripts/xiaogu_profit_candidates_shadow.py' in script
+    assert '--compare-official' in script
+    assert script.count('xiaogu_profit_candidates_shadow.py') >= 2
+    assert '--with-returns' in script
+    # Main LIVE path block: runner appears before the post-decision profit shadow step marker
+    live_marker = '[5.4/6] 影子获利候选'
+    assert live_marker in script
+    assert script.index('xiaogu_forward_d1_1450_runner_v0_1.py') < script.index(live_marker)
+    assert script.index(live_marker) < script.index('[5.5/6] 有界因子自进化')
 
 def test_forced_candidate_snapshot_archives_then_prunes_stale_rows(monkeypatch, tmp_path):
     import xiaogu_forward_d1_1450_runner_v0_1 as runner
@@ -267,7 +334,14 @@ def test_replay_daily_candidate_snapshots_uses_live_persist_owner(monkeypatch, t
         'date': '2026-07-13',
         'decision': 'PAPER_PICK',
         'reason': 'selected',
-        'bundle': {'paper_scoring_candidates': [{'code': '600100', 'name': '主板样本'}]},
+        'bundle': {
+            'full_candidate_pool': [
+                {'code': '600100', 'name': '主板样本', 'rank': 1},
+                {'code': '600101', 'name': '主板样本二', 'rank': 11},
+            ],
+            'paper_scoring_candidates': [{'code': '600100', 'name': '主板样本', 'rank': 1}],
+            'candidate_pool_exclusion_summary': {'target_count': 200, 'source_row_count': 2},
+        },
         'features': {'candidate_consumption_summary': {'official_result': {'symbol': '600100'}}},
     }
     payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
@@ -280,6 +354,13 @@ def test_replay_daily_candidate_snapshots_uses_live_persist_owner(monkeypatch, t
     monkeypatch.setattr(backfill, '_retry_payload_paths', lambda target_date='': [payload_path])
     monkeypatch.setattr(runner, 'persist_daily_candidate_snapshot', fake_persist)
 
+    dry_run_stats = backfill.replay_daily_candidate_snapshots(target_date='2026-07-13', dry_run=True)
+
+    assert dry_run_stats['payloads_found'] == 1
+    assert dry_run_stats['payloads_replayed'] == 0
+    assert dry_run_stats['details'][0]['candidate_count'] == 2
+    assert calls == []
+
     stats = backfill.replay_daily_candidate_snapshots(target_date='2026-07-13')
 
     assert stats['payloads_found'] == 1
@@ -291,6 +372,53 @@ def test_replay_daily_candidate_snapshots_uses_live_persist_owner(monkeypatch, t
         payload['features'],
         'PAPER_PICK',
         'selected',
+    )]
+
+
+def test_replay_daily_candidate_snapshots_falls_back_to_scan_summary(monkeypatch, tmp_path):
+    import scripts.xiaogu_db_backfill as backfill
+    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+
+    summary_path = tmp_path / '2026-07-17' / 'eastmoney_scan_afternoon' / 'eastmoney_web_tabs_summary_runner.json'
+    summary_path.parent.mkdir(parents=True)
+    summary_path.write_text(json.dumps({'source_time': '2026-07-17 13:58:16'}, ensure_ascii=False), encoding='utf-8')
+    bundle = {
+        'available': True,
+        'full_candidate_pool': [{'code': '600100', 'rank': 1}, {'code': '600101', 'rank': 11}],
+        'candidate_pool_exclusion_summary': {'target_count': 200, 'source_row_count': 2},
+    }
+    calls = []
+
+    def fake_bundle(path_arg, summary_arg):
+        assert path_arg == summary_path
+        assert summary_arg['source_time'] == '2026-07-17 13:58:16'
+        return bundle
+
+    def fake_persist(date_arg, bundle_arg, features_arg, decision_arg, reason_arg):
+        calls.append((date_arg, bundle_arg, features_arg, decision_arg, reason_arg))
+        return {'status': 'OK', 'written': 2}
+
+    monkeypatch.setattr(backfill, '_retry_payload_paths', lambda target_date='': [])
+    monkeypatch.setattr(backfill, '_summary_replay_paths', lambda target_date='': [summary_path])
+    monkeypatch.setattr(backfill, 'fetch_picks', lambda trade_date: [{'decision': 'PAPER_PICK', 'symbol': '600101'}])
+    monkeypatch.setattr(runner, '_bundle_from_scan_summary', fake_bundle)
+    monkeypatch.setattr(runner, 'persist_daily_candidate_snapshot', fake_persist)
+
+    dry_run = backfill.replay_daily_candidate_snapshots(target_date='2026-07-17', dry_run=True)
+    assert dry_run['details'][0]['source_kind'] == 'summary'
+    assert dry_run['details'][0]['candidate_count'] == 2
+    assert calls == []
+
+    stats = backfill.replay_daily_candidate_snapshots(target_date='2026-07-17')
+    assert stats['payloads_found'] == 1
+    assert stats['payloads_replayed'] == 1
+    assert stats['written'] == 2
+    assert calls == [(
+        '2026-07-17',
+        bundle,
+        {'candidate_consumption_summary': {'official_result': {'symbol': '600101', 'decision': 'PAPER_PICK', 'source': 'picks'}}},
+        'PAPER_PICK',
+        'replayed_from_scan_summary_with_db_pick',
     )]
 
 
@@ -584,6 +712,42 @@ def test_return_backfill_rejects_mismatched_validation_date():
     assert stats['expected_validation_trade_date'] == '2026-07-10'
 
 
+def test_eastmoney_realtime_ohlc_only_stamps_today(monkeypatch):
+    """Realtime quote must not be backdated onto non-today target dates (T+1 pollution)."""
+    import scripts.xiaogu_return_backfill as backfill
+    from datetime import date
+
+    today = date.today().isoformat()
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"data":{"f43":10.0,"f44":11.0,"f45":9.0,"f46":9.5}}'
+
+    calls = {'n': 0}
+
+    def fake_urlopen(*a, **k):
+        calls['n'] += 1
+        return FakeResp()
+
+    monkeypatch.setattr(backfill.urllib.request, 'urlopen', fake_urlopen)
+    monkeypatch.setattr(backfill, 'secid_for', lambda symbol: '1.600000')
+
+    # Non-today target: refuse without network.
+    assert backfill.fetch_eastmoney_realtime_ohlc('600000', '2026-07-21') is None
+    assert calls['n'] == 0
+
+    # Today target: allowed to fetch live OHLC.
+    row = backfill.fetch_eastmoney_realtime_ohlc('600000', today)
+    assert calls['n'] == 1
+    assert row == {'date': today, 'open': 9.5, 'high': 11.0, 'low': 9.0, 'close': 10.0}
+
+
 def test_estimate_sellable_profit_classifies_exit_strategies():
     """Verify sellable-profit rules distinguish key T+1 exit tactics."""
     import scripts.xiaogu_return_backfill as backfill
@@ -691,6 +855,13 @@ def test_upsert_return_persists_next_day_execution_metrics(monkeypatch):
 
     captured = {}
 
+    class FakeResult:
+        def fetchone(self):
+            return (42,)
+
+        def scalar(self):
+            return 0
+
     class FakeDb:
         def __enter__(self):
             return self
@@ -698,9 +869,12 @@ def test_upsert_return_persists_next_day_execution_metrics(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, query, params):
-            captured['sql'] = str(query)
-            captured['params'] = params
+        def execute(self, query, params=None):
+            sql = str(query)
+            if 'INSERT INTO returns' in sql or 'ON CONFLICT' in sql:
+                captured['sql'] = sql
+                captured['params'] = params
+            return FakeResult()
 
     monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
 
@@ -729,6 +903,9 @@ def test_upsert_return_persists_next_day_execution_metrics(monkeypatch):
     ):
         assert field in captured['sql']
         assert field in captured['params']
+    # pick_id is auto-resolved when caller passes None
+    assert captured['params']['pick_id'] == 42
+    assert 'COALESCE(EXCLUDED.pick_id, returns.pick_id)' in captured['sql']
 
 
 def test_return_backfill_cli_exposes_configurable_timeouts():
@@ -892,3 +1069,231 @@ def test_return_backfill_resume_skips_existing_success(monkeypatch):
 
     assert stats['skipped_existing_success_count'] == 1
     assert fetch_calls == []
+
+
+def test_resolve_pick_id_prefers_paper_pick(monkeypatch):
+    import xiaogu_db
+
+    class FakeResult:
+        def __init__(self, row):
+            self._row = row
+
+        def fetchone(self):
+            return self._row
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            assert params['symbol'] == '600001'
+            assert params['trade_date'] == date(2026, 7, 21)
+            return FakeResult((99,))
+
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+    assert xiaogu_db.resolve_pick_id(date(2026, 7, 21), '600001') == 99
+    assert xiaogu_db.resolve_pick_id(date(2026, 7, 21), '  ') is None
+
+
+def test_sszcw_market_context_soft_only_and_favors_defensive_rotation(tmp_path, monkeypatch):
+    import scripts.xiaogu_sszcw_market_context as sszcw
+
+    monkeypatch.setattr(sszcw, 'DATA_DIR', tmp_path / 'data_sszcw')
+    monkeypatch.setattr(sszcw, 'SUMMARY_DIR', tmp_path / 'summary')
+    monkeypatch.setattr(sszcw, 'LIVE_INBOX_PATH', tmp_path / 'data_sszcw' / 'live_inbox.jsonl')
+    # Seed-only soft path: do not depend on network scrapy live posts.
+    monkeypatch.setattr(sszcw, 'fetch_live_posts', lambda asof, limit=30: ([], []))
+    payload = sszcw.build_context(date(2026, 7, 22), days=5, seed=True, prefer_live=True)
+    paths = sszcw.write_outputs(payload, date(2026, 7, 22))
+
+    assert payload['selected_for_production'] is False
+    assert payload['production_mutation_allowed'] is False
+    assert payload['usage']['hard_gate'] is False
+    assert payload['usage']['force_pick'] is False
+    assert payload['usage']['soft_sector_bias'] is True
+    assert payload['post_count'] >= 1
+    assert any(theme in payload['favored_sectors'] for theme in ('有色', '油气', '贵金属', '电力', '煤炭', '医药'))
+    assert Path(paths['dated']).exists()
+    assert Path(paths['summary_latest']).exists()
+    # Seed must not pollute durable dated cache when only seed is available.
+    assert payload.get('used_seed_fallback') is True
+    assert not (tmp_path / 'data_sszcw' / 'posts_20260722.jsonl').exists()
+    assert (tmp_path / 'data_sszcw' / 'posts_seed_snapshot.jsonl').exists()
+
+
+def test_sszcw_live_inbox_counts_as_live_not_seed(tmp_path, monkeypatch):
+    import scripts.xiaogu_sszcw_market_context as sszcw
+
+    data_dir = tmp_path / 'data_sszcw'
+    data_dir.mkdir(parents=True)
+    inbox = data_dir / 'live_inbox.jsonl'
+    inbox.write_text(
+        json.dumps(
+            {
+                'id': 'inbox-1',
+                'created_at': '2026-07-22T12:00:00+08:00',
+                'text': '铜还会涨，像石油，黄金，有色这些与期货强关联。电力也在防守。',
+            },
+            ensure_ascii=False,
+        )
+        + '\n',
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(sszcw, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(sszcw, 'SUMMARY_DIR', tmp_path / 'summary')
+    monkeypatch.setattr(sszcw, 'LIVE_INBOX_PATH', inbox)
+    monkeypatch.setattr(sszcw, 'fetch_live_posts', lambda asof, limit=30: ([], []))
+    payload = sszcw.build_context(date(2026, 7, 22), days=5, seed=True, prefer_live=True)
+    # inbox source is counted as live (not seed); no X API needed.
+    assert payload['live_inbox_count'] == 1
+    assert payload['live_post_count'] >= 1
+    assert payload.get('used_seed_fallback') is False
+    assert payload.get('soft_context_source') == 'live'
+    assert payload['seed_post_count'] == 0
+    assert (data_dir / 'posts_20260722.jsonl').exists()
+
+
+def test_social_context_supports_multiple_verified_handles(tmp_path, monkeypatch):
+    import scripts.xiaogu_sszcw_market_context as sszcw
+
+    monkeypatch.setattr(sszcw, 'DATA_DIR', tmp_path / 'data_sszcw')
+    monkeypatch.setattr(sszcw, 'SUMMARY_DIR', tmp_path / 'summary')
+    monkeypatch.setattr(sszcw, 'LIVE_INBOX_PATH', tmp_path / 'data_sszcw' / 'live_inbox.jsonl')
+
+    requested = []
+
+    def fake_fetch_live_posts(asof, limit=40, handles=None):
+        requested.append(tuple(handles or []))
+        return (
+            [
+                {
+                    'id': '1',
+                    'created_at': '2026-07-28T10:00:00+08:00',
+                    'text': '电力防守，半导体风险。',
+                    'kind': 'post',
+                    'source': 'x_api:sszcw',
+                    'author_handle': 'sszcw',
+                },
+                {
+                    'id': '2',
+                    'created_at': '2026-07-28T10:05:00+08:00',
+                    'text': '有色还会涨。',
+                    'kind': 'reply',
+                    'source': 'x_api:naiyin04',
+                    'author_handle': 'naiyin04',
+                    'parent_text': '有色怎么看',
+                },
+                {
+                    'id': '3',
+                    'created_at': '2026-07-28T10:10:00+08:00',
+                    'text': '银行可以看稳一点。',
+                    'kind': 'reply',
+                    'source': 'x_api:andredavid90',
+                    'author_handle': 'andredavid90',
+                    'parent_text': '银行怎么走',
+                },
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(sszcw, 'fetch_live_posts', fake_fetch_live_posts)
+    payload = sszcw.build_context(
+        date(2026, 7, 28),
+        days=5,
+        seed=False,
+        prefer_live=True,
+        handles=('sszcw', 'naiyin04', 'andredavid90'),
+    )
+    assert requested == [('sszcw', 'naiyin04', 'andredavid90')]
+    assert payload['handle_count'] == 3
+    assert payload['handles'] == ['andredavid90', 'naiyin04', 'sszcw']
+    assert len(payload['accounts']) == 3
+    assert any(account['handle'] == 'naiyin04' for account in payload['accounts'])
+    assert '电力' in payload['favored_sectors'] or '有色' in payload['favored_sectors'] or '银行' in payload['favored_sectors']
+
+
+def test_social_context_scopes_requested_handle_before_analysis(tmp_path, monkeypatch):
+    import scripts.xiaogu_sszcw_market_context as sszcw
+
+    data_dir = tmp_path / 'data_sszcw'
+    data_dir.mkdir(parents=True)
+    (data_dir / 'posts_20260730.jsonl').write_text(
+        '\n'.join(
+            json.dumps(row, ensure_ascii=False)
+            for row in (
+                {
+                    'id': 'sszcw-1',
+                    'created_at': '2026-07-30T10:00:00+08:00',
+                    'text': '白酒还能涨一阵子。',
+                    'source': 'cdp_live',
+                    'author_handle': 'sszcw',
+                },
+                {
+                    'id': 'other-1',
+                    'created_at': '2026-07-30T10:01:00+08:00',
+                    'text': '半导体继续看多。',
+                    'source': 'cdp_live',
+                    'author_handle': 'naiyin04',
+                },
+            )
+        )
+        + '\n',
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(sszcw, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(sszcw, 'SUMMARY_DIR', tmp_path / 'summary')
+    monkeypatch.setattr(sszcw, 'LIVE_INBOX_PATH', data_dir / 'live_inbox.jsonl')
+    monkeypatch.setattr(sszcw, 'fetch_live_posts', lambda asof, limit=40, handles=None: ([], []))
+
+    payload = sszcw.build_context(
+        date(2026, 7, 30),
+        days=3,
+        seed=False,
+        prefer_live=False,
+        handles=('sszcw',),
+    )
+
+    assert payload['handles'] == ['sszcw']
+    assert payload['post_count'] == 1
+    assert all(row['author_handle'] == 'sszcw' for row in payload['excerpts'])
+
+
+def test_safe_self_evolve_proposes_only_when_gate_ready(monkeypatch, tmp_path):
+    import scripts.xiaogu_safe_self_evolve as evolve
+
+    monkeypatch.setattr(evolve, 'SUMMARY', tmp_path)
+    (tmp_path / 'daily_closure_latest.json').write_text(
+        json.dumps(
+            {
+                'cohort_gates': {
+                    'production_ranking_change_gate': {
+                        'status': 'READY_FOR_PROPOSAL',
+                        'selected_shadow_variant': 'limitup_gene_shadow_plus',
+                        'allowed_actions': ['apply_bounded_factor_weights'],
+                        'self_evolution': {'factor_weight_apply_allowed': True},
+                    },
+                    'limitup_capture_gate': {'primary_blocker': 'LIMITUP_GENE_UNDERWEIGHTED'},
+                    'shadow_ranking_replay': {'selected_candidate_variant': 'limitup_gene_shadow_plus'},
+                }
+            }
+        ),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(evolve, '_get_config_value', lambda key: 0.7)
+    closure = evolve._load_closure()
+    proposals = evolve.propose_nudges(closure)
+    assert proposals
+    assert proposals[0]['config_key'] == 'evidence_limitup_momentum_weight'
+    assert proposals[0]['direction'] == 'INCREASE'
+    assert evolve.should_apply_if_ready(evolve._gate(closure)) is True
+
+    (tmp_path / 'daily_closure_latest.json').write_text(
+        json.dumps({'cohort_gates': {'production_ranking_change_gate': {'status': 'LOCKED'}}}),
+        encoding='utf-8',
+    )
+    locked = evolve._load_closure()
+    assert evolve.propose_nudges(locked) == []
+    assert evolve.should_apply_if_ready(evolve._gate(locked)) is False

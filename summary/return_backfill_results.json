@@ -41,8 +41,8 @@
     "resume_enabled": true,
     "skip_existing_success": true
   },
-  "input_trade_date": "2026-07-16",
-  "validation_trade_date": "2026-07-17",
+  "input_trade_date": "2026-07-28",
+  "validation_trade_date": "2026-07-29",
   "rank2_to_rank6_return_coverage": 1.0,
   "return_backfill_timeout_gate": {
     "status": "PASS",
@@ -51,5 +51,10 @@
     "timeout_failure_ratio": 0.0,
     "threshold": 0.3,
     "fail_threshold": 0.6
+  },
+  "pick_id_backfill": {
+    "linked": 0,
+    "null_pick_id_remaining": 371,
+    "returns_total": 589
   }
 }

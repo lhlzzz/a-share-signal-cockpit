@@ -2,7 +2,7 @@
 # 早盘扫描出票启动脚本
 # 每天早上9:15运行
 
-cd /workspace/hermes-workspaces/xiaogu
+cd "${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 DATE=$(date +%Y-%m-%d)
 TIME="09:15"

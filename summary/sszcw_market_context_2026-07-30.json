@@ -1,0 +1,193 @@
+{
+  "asof": "2026-07-30",
+  "window_days": 3,
+  "source": "@sszcw",
+  "handles": [
+    "sszcw"
+  ],
+  "handle_count": 1,
+  "post_count": 9,
+  "original_post_count": 9,
+  "reply_post_count": 0,
+  "live_post_count": 5,
+  "seed_post_count": 0,
+  "cache_post_count": 4,
+  "soft_context_source": "live",
+  "soft_context_valid": true,
+  "high_confidence_allowed": true,
+  "theme_counts": {
+    "贵金属": 2,
+    "半导体": 1,
+    "白酒": 2
+  },
+  "favored_sectors": [
+    "贵金属"
+  ],
+  "risk_sectors": [
+    "半导体"
+  ],
+  "mainline_stage_hint": "BOUNCE",
+  "index_regime_hint": "UNKNOWN",
+  "market_stance": "DEFENSIVE_ROTATION",
+  "confidence": 1.0,
+  "excerpts": [
+    {
+      "date": "2026-07-30",
+      "text": "美股超跌反弹，然后再套，一模一样的剧本。 https://t.co/zsTFuKyKuk",
+      "text_len": 44,
+      "source_kind": "cache",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082830995171246481",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-30",
+      "text": "这个是高仿啊，大家千万别上当。 https://t.co/ucd1LzYKFL",
+      "text_len": 39,
+      "source_kind": "cache",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082814736337707109",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-30",
+      "text": "🌙 蔡神爷晚报 | 2026年7月30日 周四\n-\n🌍 国际要闻\n🇺🇸 美联储按兵不动，3张反对票主张加息 美联储维持利率不变，但罕见出现3张反对票要求加息25基点，鹰派信号明显。美股承压，道指跌超2%，光通信、存储板块领跌。\n🇯🇵 日本熊本7.1级地震，死亡人数升至34人 日本熊本县强震伤亡持续扩大，已致34人遇难，基础设施受损严重，引发国际社会高度关注。\n🇺🇸🇮🇱 特朗普与内塔尼亚胡再会，中东局势持续升温 美伊僵局下中东战火越烧越大，特朗普推进美沙核协议，恐引爆中东核军备竞赛。霍尔木兹海峡滞留船只或成生物\"超级传播\"源头。\n🇰🇷 韩国股市史无前例熔断后监管紧急开会 韩国监管在熔断后紧急磋商稳定措施，韩股\"去杠杆\"进程引发全球关注，7月出口却激增59%，股市暴跌与贸易繁荣严重背离。\n-\n💰 财经要闻\n📊 A股三大指数集体收跌，白酒与汽车板块逆市走强 沪指、深成指、创业板均收跌。茅台股价创3个月新高带动白酒板块回暖，汽车板块受出口\"有望破千万辆\"预期提振逆势拉升。银行股继续走强，工行、建行创历史新高。全天56只股涨停，爱丽家居8连板。\n📋 中央政治局会议定调下半年经济工作 会议分析研究当前经济形势，强调深化资本市场投融资综合改革，提升资本市场韧性和信心，聚焦扩大内需和房地产市场。九部门同步印发科技金融数据利用通知。\n📈 超4500亿元资金借道ETF入市 大量资金持续借道ETF流入A股，存储板块（兆易创新、德明利、江波龙等）午后深V反弹，但主力资金36.34亿流出中际旭创，科技股\"三度探底\"。\n🏦 央行2.1万亿逆回购护航跨月，\"给量不给价\" 央行通过隔夜逆回购释放流动性，但维持利率不变，释放稳健信号。\n-\n🔬 科技前沿\n💻 微软盘后涨超8%，全年资本支出不变 微软第四季度营收超预期，财报后盘前飙涨超10%，全年资本支出计划维持不变，稳定AI基建投入信号提振市场信心。\n🔥 三星Q2净利润超预期，半导体利润暴增逾250倍 三星营业利润同比暴增1814%，再创历史新高，预计下半年存储芯片需求将加速增长。SK海力士二季度业绩同样亮眼。\n🌍 欧盟拟投资114亿美元建7座AI超级工厂 欧盟加码AI基础设施布局，计划建设7座人工智能超级工厂，加入全球AI算力竞赛。\n🤖 Meta日线10连跌后财报再\"暴雷\" 扎克伯格强调\"卖算力换短期利润是愚蠢的\"，但市场用脚投票，Meta财报后股价再度下挫。\n-\n⚡ 突发事件\n🌧️ 西安遭遇暴雨 西安暴雨引发城市内涝，部分地区积水严重。\n🦠 刚果（金）埃博拉疫情已致超1500人死亡 本轮埃博拉疫情持续蔓延，死亡人数突破1500，世卫组织高度关注。\n-\n💡 蔡神爷晚间点评\n今日A股在外围扰动下收跌，但结构性机会分明：政策+业绩双主线正在成型。政治局会议明确\"深化资本市场改革\"和\"扩大内需\"，政策底信号清晰。白酒（茅台提价催化）、汽车（出口千万辆预期）、银行（高股息+创新高）构成防御反击三角。科技板块经历\"黑七月\"剧烈调整后，存储芯片率先深V反弹，但资金分歧加大，中际旭创遭36亿流出说明高位科技股仍需消化。美联储3张反对票的鹰派信号短期压制全球风险偏好，但微软、三星超预期财报证明AI产业景气度依然强劲。明日展望：关注政治局会议政策受益方向（消费、金融），高位题材谨慎追高。机会大于风险，但不急于重仓。\n-\n晚安，明天见 🌙",
+      "text_len": 1393,
+      "source_kind": "cache",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082806740262035710",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-30",
+      "text": "白酒还能涨一阵子，拿好了。",
+      "text_len": 13,
+      "source_kind": "cache",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082800804541714698",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-28",
+      "text": "本人在X上发布的任何内容，仅供参考与信息分享，不构成任何投资建议、推荐或要约。股票市场及证券投资存在较高风险，价格可能剧烈波动，投资者可能面临本金损失甚至全部损失的风险。过往业绩不代表未来表现，任何历史数据、分析、观点或预测均不应被视为对未来收益的保证。投资者应根据自身的财务状况、风险承受能力、投资目标与经验，独立做出投资决策，并自行承担全部投资风险与后果。在做出任何投资决定前，建议咨询具备资质的专业财务顾问、律师或相关机构。本内容的作者/发布者不对因使用或依赖本内容而导致的任何直接或间接损失承担责任。市场有风险，投资需谨慎。",
+      "text_len": 266,
+      "source_kind": "live",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2081913488356823237",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-29",
+      "text": "这不是涨了吗，还有SB鸡歪吗？ https://t.co/KRLbhXDomV",
+      "text_len": 39,
+      "source_kind": "live",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082353667655745567",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-29",
+      "text": "各个指数是不是到我说的位置就反弹了，怎么样，兄弟们！",
+      "text_len": 26,
+      "source_kind": "live",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082353367096103217",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-29",
+      "text": "香吗？ https://t.co/fxvnzNoAfE",
+      "text_len": 27,
+      "source_kind": "live",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082300435432718477",
+      "author_handle": "sszcw"
+    },
+    {
+      "date": "2026-07-29",
+      "text": "相差4个点，误差是允许的吧！ https://t.co/iYzmnIIV1T",
+      "text_len": 38,
+      "source_kind": "live",
+      "kind": "post",
+      "parent_text": null,
+      "id": "2082288421381578830",
+      "author_handle": "sszcw"
+    }
+  ],
+  "qa_pairs": [],
+  "qa_count": 0,
+  "stock_soft_from_replies": {
+    "soft_bullish_stocks": [],
+    "soft_bearish_stocks": [],
+    "bullish_counts": {},
+    "bearish_counts": {},
+    "note": "soft stock hints from sszcw replies only; not PAPER_PICK candidates"
+  },
+  "trusted_stock_predictions": {
+    "trusted_handles": [
+      "sszcw"
+    ],
+    "bullish_stocks": [],
+    "bearish_stocks": [],
+    "bullish_counts": {},
+    "bearish_counts": {},
+    "confidence": 1.0,
+    "policy": "Explicit @sszcw stock calls are trusted direct confirmation when matched by symbol/name; T+1 price/flow structure and hard gates remain required."
+  },
+  "accounts": [
+    {
+      "handle": "sszcw",
+      "source_label": "@sszcw",
+      "post_count": 9,
+      "original_post_count": 9,
+      "reply_post_count": 0,
+      "qa_count": 0,
+      "favored_sectors": [
+        "贵金属"
+      ],
+      "risk_sectors": [
+        "半导体"
+      ],
+      "market_stance": "DEFENSIVE_ROTATION",
+      "confidence": 1.0,
+      "soft_context_valid": true,
+      "high_confidence_allowed": true
+    }
+  ],
+  "selected_for_production": false,
+  "production_mutation_allowed": false,
+  "usage": {
+    "pre_pick": true,
+    "soft_sector_bias": true,
+    "reply_qa": true,
+    "hard_gate": false,
+    "force_pick": false,
+    "note": "quality-first soft context only; includes sszcw replies to market/stock questions; xiaogu gates still decide official PAPER_PICK; seed-only cannot high-confidence escape; trusted_stock_predictions may confirm only an explicitly matched @sszcw stock call after T+1 price/flow evidence passes"
+  },
+  "generated_at": "2026-07-30T22:34:28.083352+08:00",
+  "live_fetch_attempted": true,
+  "live_fetch_count": 5,
+  "live_inbox_count": 32,
+  "live_token_configured": true,
+  "live_fetch_errors": [
+    "sszcw:scrapy_empty"
+  ],
+  "used_seed_fallback": false,
+  "handles_requested": [
+    "sszcw"
+  ],
+  "pre_pick_refresh": true,
+  "pre_pick_window_days": 3,
+  "pre_pick_handles": [
+    "sszcw"
+  ],
+  "pre_pick_seed_allowed": false
+}

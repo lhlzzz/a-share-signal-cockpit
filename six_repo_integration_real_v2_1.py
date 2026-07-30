@@ -37,10 +37,43 @@ def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+# Noise statuses must never move the official score total (still visible in diagnostics).
+NOISE_CONTRIBUTION_STATUSES = frozenset({
+    'GUARD_ONLY',
+    'STRUCTURED_FALLBACK',
+    'STRUCTURED_FALLBACK_MIMO',
+    'PLACEHOLDER_OR_NO_EFFECT',
+    'BLOCKED',
+    'CONCEPT_ONLY',
+})
+
+
+def _contribution_is_noise(adapter: Dict[str, Any]) -> bool:
+    status = str(adapter.get('status') or '')
+    runtime_status = str(adapter.get('runtime_status') or '')
+    if status in NOISE_CONTRIBUTION_STATUSES:
+        return True
+    if status.startswith('STRUCTURED_FALLBACK') or runtime_status.startswith('STRUCTURED_FALLBACK'):
+        return True
+    try:
+        from xiaogu_native_repo_runtime_v0_1 import repo_contribution_status
+        contrib = str(repo_contribution_status(adapter) or '')
+    except Exception:
+        contrib = ''
+    if contrib in NOISE_CONTRIBUTION_STATUSES or contrib.startswith('STRUCTURED_FALLBACK'):
+        return True
+    # QuantDinger REAL_OUTPUT that is explicitly guard-only.
+    if adapter.get('repo_name') == 'QuantDinger' and contrib == 'GUARD_ONLY':
+        return True
+    return False
+
+
 def _score_delta(adapter: Dict[str, Any]) -> float:
     repo = adapter.get('repo_name')
     cap = adapter.get('score_cap') or SCORE_CAP_BY_REPO.get(repo, {'min': 0.0, 'max': 0.0})
     if adapter.get('status') != 'REAL_OUTPUT' or not adapter.get('score_eligible'):
+        return 0.0
+    if _contribution_is_noise(adapter):
         return 0.0
     return round(clamp(fnum(adapter.get('score_delta')), fnum(cap.get('min')), fnum(cap.get('max'))), 4)
 
@@ -57,7 +90,25 @@ def aggregate_four_repo_native_signals(candidate: Dict[str, Any]) -> Dict[str, A
     signal_breakdown_by_repo = {a['repo_name']: a.get('signals', {}) for a in adapters}
     evidence_paths_by_repo = {a['repo_name']: a.get('evidence_paths', []) for a in adapters}
     repo_contributions = {a['repo_name']: repo_contribution_from_adapter(a) for a in adapters}
+    # Mark noise contributions so selection_reason / summaries do not treat guard/fallback as active score.
+    for a in adapters:
+        name = a.get('repo_name')
+        if name in repo_contributions and _contribution_is_noise(a):
+            entry = dict(repo_contributions[name])
+            entry['score_delta'] = 0.0
+            entry['counts_toward_total'] = False
+            entry['noise'] = True
+            if 'GUARD' in str(entry.get('status') or '') or entry.get('status') == 'GUARD_ONLY':
+                entry['status'] = 'GUARD_ONLY'
+            repo_contributions[name] = entry
+        elif name in repo_contributions:
+            entry = dict(repo_contributions[name])
+            entry['counts_toward_total'] = True
+            entry['noise'] = False
+            repo_contributions[name] = entry
     repo_contribution_summary = repo_contribution_summary_text(repo_contributions)
+    scoring_repos = [a['repo_name'] for a in adapters if not _contribution_is_noise(a) and a.get('status') == 'REAL_OUTPUT' and a.get('score_eligible')]
+    noise_repos = [a['repo_name'] for a in adapters if _contribution_is_noise(a)]
 
     return {
         'adapters': adapters,
@@ -69,6 +120,9 @@ def aggregate_four_repo_native_signals(candidate: Dict[str, Any]) -> Dict[str, A
         'score_cap_by_repo': score_cap_by_repo,
         'repo_contributions': repo_contributions,
         'repo_contribution_summary': repo_contribution_summary,
+        'scoring_repos': scoring_repos,
+        'noise_repos': noise_repos,
+        'noise_excluded_from_total': True,
         'signal_breakdown_by_repo': signal_breakdown_by_repo,
         'evidence_paths_by_repo': evidence_paths_by_repo,
         'native_runtime_summary': {

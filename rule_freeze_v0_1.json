@@ -157,6 +157,9 @@
   "no_trade": true,
   "production_ready": false,
   "allow_forward_paper": true,
-  "allow_trade": false,
-  "status": "FROZEN_FOR_FORWARD_PAPER_ONLY"
+  "allow_trade": true,
+  "manual_paper_execution_allowed": true,
+  "auto_order": false,
+  "broker_connected": false,
+  "status": "FROZEN_FOR_MANUAL_EXECUTION_ONLY"
 }

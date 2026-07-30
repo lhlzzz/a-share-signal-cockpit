@@ -5,7 +5,7 @@
 set -euo pipefail
 
 DATE="${1:-$(date +%Y-%m-%d)}"
-WORKSPACE="/workspace/hermes-workspaces/xiaogu"
+WORKSPACE="${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 TIME=$(date +%H:%M:%S)
 
 cd "$WORKSPACE"

@@ -18,6 +18,7 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
 SCORING_CONFIG_DEFAULTS: Dict[str, str] = {
+    # Empty = no weekday ban. Explicit e.g. "0,4" bans Mon/Fri. Never treat '' as missing.
     "weekday_blocklist": "",
     "max_score_cap": "88",
     "follow_on_strategy": "t1_close_primary",
@@ -153,14 +154,21 @@ def classify_candidate_cohort(
     if not is_mainboard_symbol(symbol):
         quality = COHORT_NON_MAINBOARD_EXCLUDED
     else:
-        complete_fields = (
-            int(candidate.get("rank") or 999999) <= 10,
-            (top10_count or 0) >= 10,
+        # Full-chain evidence is about persisted decision snapshots, not pool rank.
+        # Official picks and deep-pool candidates with complete snapshots must not be
+        # forced into INSUFFICIENT_EVIDENCE merely because rank > 10.
+        decision_evidence_fields = (
             _json_has_value(candidate.get("candidate_entry_reason")),
             _json_has_value(candidate.get("factor_snapshot")),
             _json_has_value(candidate.get("auxiliary_evidence_snapshot")),
             _json_has_value(candidate.get("ranking_basis")),
         )
+        pool_ready = (top10_count or 0) >= 10 or bool(
+            candidate.get("is_official_pick")
+            or str(candidate.get("selection_outcome") or "").upper() == "OFFICIAL_PICK"
+            or str(candidate.get("decision") or "").upper() == "PAPER_PICK"
+        )
+        complete_fields = decision_evidence_fields + (pool_ready,)
         provenance = candidate.get("reconstruction_provenance") or {}
         reconstructed_snapshot = any(
             isinstance(provenance.get(field), dict) and provenance[field].get("reconstructed")
@@ -642,6 +650,7 @@ def supersede_active_picks_for_correction(
                     updated_at = NOW()
                 WHERE trade_date = :trade_date
                   AND COALESCE(features ->> 'superseded', 'false') <> 'true'
+                  AND COALESCE(features ->> 'user_locked_official', 'false') <> 'true'
                   AND NOT (symbol = :replacement_symbol AND decision = :replacement_decision)
             """),
             {
@@ -652,6 +661,25 @@ def supersede_active_picks_for_correction(
             },
         )
     return int(result.rowcount or 0)
+
+
+def fetch_user_locked_official_pick(trade_date: date) -> Optional[Dict[str, Any]]:
+    """Return active user-locked formal PAPER_PICK for a date, if any."""
+    with get_db() as db:
+        row = db.execute(
+            text("""
+                SELECT id, symbol, stock_name, decision, final_score, features
+                FROM picks
+                WHERE trade_date = :trade_date
+                  AND decision = 'PAPER_PICK'
+                  AND COALESCE(features ->> 'user_locked_official', 'false') = 'true'
+                  AND COALESCE(features ->> 'superseded', 'false') <> 'true'
+                ORDER BY updated_at DESC NULLS LAST, id DESC
+                LIMIT 1
+            """),
+            {"trade_date": trade_date},
+        ).mappings().first()
+    return dict(row) if row else None
 
 
 def mark_pick_active_correction(
@@ -893,6 +921,80 @@ def upsert_daily_candidate(
         )
 
 
+def resolve_pick_id(trade_date: date, symbol: str) -> Optional[int]:
+    """Resolve picks.id for a trade_date+symbol so returns.pick_id can JOIN cleanly.
+
+    Prefer official PAPER_PICK when multiple decisions exist for the same symbol.
+    """
+    symbol_key = str(symbol or "").strip()
+    if not symbol_key:
+        return None
+    with get_db() as db:
+        result = db.execute(
+            text(
+                """
+                SELECT id
+                FROM picks
+                WHERE trade_date = :trade_date
+                  AND symbol = :symbol
+                ORDER BY
+                    CASE WHEN UPPER(COALESCE(decision, '')) = 'PAPER_PICK' THEN 0 ELSE 1 END,
+                    updated_at DESC NULLS LAST,
+                    id DESC
+                LIMIT 1
+                """
+            ),
+            {"trade_date": trade_date, "symbol": symbol_key},
+        )
+        if result is None:
+            return None
+        row = result.fetchone()
+    if not row:
+        return None
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def backfill_return_pick_ids() -> Dict[str, int]:
+    """Fill NULL returns.pick_id from picks by (trade_date, symbol)."""
+    with get_db() as db:
+        result = db.execute(
+            text(
+                """
+                UPDATE returns r
+                SET pick_id = p.id
+                FROM picks p
+                WHERE r.pick_id IS NULL
+                  AND p.trade_date = r.trade_date
+                  AND p.symbol = r.symbol
+                  AND p.id = (
+                      SELECT p2.id
+                      FROM picks p2
+                      WHERE p2.trade_date = r.trade_date
+                        AND p2.symbol = r.symbol
+                      ORDER BY
+                          CASE WHEN UPPER(COALESCE(p2.decision, '')) = 'PAPER_PICK' THEN 0 ELSE 1 END,
+                          p2.updated_at DESC NULLS LAST,
+                          p2.id DESC
+                      LIMIT 1
+                  )
+                """
+            )
+        )
+        linked = int(getattr(result, "rowcount", 0) or 0)
+        remaining = db.execute(
+            text("SELECT count(*) FROM returns WHERE pick_id IS NULL")
+        ).scalar()
+        total = db.execute(text("SELECT count(*) FROM returns")).scalar()
+    return {
+        "linked": linked,
+        "null_pick_id_remaining": int(remaining or 0),
+        "returns_total": int(total or 0),
+    }
+
+
 def upsert_return(
     trade_date: date,
     symbol: str,
@@ -912,6 +1014,13 @@ def upsert_return(
     high_to_close_retrace: Optional[float] = None,
 ) -> None:
     """Upsert a return record."""
+    resolved_pick_id = pick_id
+    if resolved_pick_id is None:
+        try:
+            resolved_pick_id = resolve_pick_id(trade_date, symbol)
+        except Exception:
+            # Incomplete DB mocks / offline paths: leave pick_id NULL rather than crash.
+            resolved_pick_id = None
     with get_db() as db:
         db.execute(
             text("""
@@ -923,6 +1032,7 @@ def upsert_return(
                         :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace)
                 ON CONFLICT (trade_date, symbol)
                 DO UPDATE SET
+                    pick_id = COALESCE(EXCLUDED.pick_id, returns.pick_id),
                     t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
                     t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
                     t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
@@ -938,7 +1048,7 @@ def upsert_return(
                     filled_at = NOW()
             """),
             {
-                "pick_id": pick_id,
+                "pick_id": resolved_pick_id,
                 "trade_date": trade_date,
                 "symbol": symbol,
                 "t1_return": t1_return,

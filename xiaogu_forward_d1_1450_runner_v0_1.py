@@ -85,6 +85,15 @@ RESEARCH_BASKET_SIZE = 10  # 从3增加到10，扩大候选池
 NO_PICK_DIAGNOSTIC_CANDIDATE_LIMIT = 8
 MAX_SCAN_STALENESS_MINUTES = 120
 LEGACY_ONE_LOT_COST_CAP = 7000.0
+# Price neighborhood of the 70-yuan candidate cap; used to block edge chase via partial-aux exception.
+NEAR_PRICE_CAP_THRESHOLD = 65.0
+# Soft pre-pick market-direction context (@sszcw 5d + leader-chain alignment). Never hard-forces picks.
+PRE_PICK_MARKET_CONTEXT_PATHS = (
+    BASE / 'summary' / 'sszcw_market_context_latest.json',
+    BASE / 'data' / 'sszcw' / 'latest.json',
+)
+SSZCW_PRE_PICK_WINDOW_DAYS = 3
+SSZCW_PRE_PICK_HANDLES = ('sszcw',)
 MANUAL_AVAILABLE_CASH_VALUE = 7000.0
 MANUAL_AVAILABLE_CASH_ACCOUNT_MODE = 'manual_available_cash_7000'
 LEGACY_MANUAL_AVAILABLE_CASH_ACCOUNT_MODE = 'manual_available_cash_6800'
@@ -93,28 +102,23 @@ DEFAULT_ACCOUNT_SNAPSHOT_PATH = BASE / 'data' / 'account_snapshot' / 'latest.jso
 WEAK_MARKET_SHADOW_BREADTH_GATE = 20.0
 SCAN_SUMMARY_NAME = 'eastmoney_web_tabs_summary.json'
 SCAN_SUMMARY_RUNNER_NAME = 'eastmoney_web_tabs_summary_runner.json'
-REQUIRED_EASTMONEY_EVIDENCE_DOMAINS = ('announcements', 'risk_alerts', 'lhb', 'concept_industry', 'financials')
-REQUIRED_EASTMONEY_CDP_TAB_SOURCES = ('quote_rank', 'fund_flow', 'watchlist', 'announcements', 'lhb', 'concept_industry', 'financials')
-REQUIRED_EASTMONEY_DEFAULT_ENHANCED_CDP_TAB_SOURCES = (
-    'limitup_pool', 'broken_limit_pool', 'consecutive_limit_pool', 'yesterday_limit_pool',
-    'popularity_rank', 'industry_board', 'sector_fund_flow',
+# Evidence/gate constants + helpers live in xiaogu_forward_gates (single owner).
+# Re-export here so existing `from xiaogu_forward_d1_1450_runner_v0_1 import ...` keeps working.
+from xiaogu_forward_gates import (  # noqa: E402
+    REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS,
+    REQUIRED_EASTMONEY_CDP_TAB_SOURCES,
+    REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS,
+    REQUIRED_EASTMONEY_DEFAULT_ENHANCED_CDP_TAB_SOURCES,
+    REQUIRED_EASTMONEY_EVIDENCE_DOMAINS,
+    REQUIRED_EASTMONEY_EXPERIMENTAL_ENHANCED_CDP_TAB_SOURCES,
+    REQUIRED_EASTMONEY_EXPERIMENTAL_EVIDENCE_DOMAINS,
+    candidate_evidence_missing_flags,
+    is_v2_api_scan_source,
+    missing_coverage_items,
+    soft_no_pick_flag,
+    web_tabs_evidence_missing_flags,
 )
-REQUIRED_EASTMONEY_EXPERIMENTAL_ENHANCED_CDP_TAB_SOURCES = (
-    'margin_trading', 'block_trades', 'lockup_expiry', 'shareholder_changes',
-    'research_reports', 'earnings_preview', 'ipo_calendar', 'trading_halts',
-)
-REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS = (
-    'limitup_strength', 'broken_limit_risk', 'consecutive_limit_strength', 'yesterday_limit_strength',
-    'popularity_heat', 'industry_board', 'sector_fund_flow', 'candidate_quote_recheck',
-    'candidate_fund_recheck', 'candidate_lhb_recheck', 'candidate_announcement_recheck',
-)
-REQUIRED_EASTMONEY_EXPERIMENTAL_EVIDENCE_DOMAINS = (
-    'margin_trading', 'block_trades', 'lockup_expiry', 'shareholder_changes',
-    'research_reports', 'earnings_preview', 'ipo_calendar', 'trading_halts',
-)
-REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS = (
-    'candidate_quote_recheck', 'candidate_fund_recheck', 'candidate_lhb_recheck', 'candidate_announcement_recheck',
-)
+
 ALLOWED_A_SHARE_SOURCE_TOKENS = ('eastmoney_web_tabs', 'v2_scanner_api', 'eastmoney_api_scan_v2')
 API_A_SHARE_SOURCE_TOKENS = ('v2_scanner_api', 'eastmoney_api_scan_v2')
 DISALLOWED_GOVERNANCE_TOKENS = ('archive', 'backup', '.bak_', 'rollback', 'crypto', 'bitget', 'us_stock', 'yfinance', 'research_only', 'research-only', 'historical_validation')
@@ -136,8 +140,10 @@ LOCKED_SAFETY = {
     'paper_only': True,
     'no_trade': True,
     'production_ready': False,
-    'allow_trade': False,
+    'allow_trade': True,
+    'manual_paper_execution_allowed': True,
     'auto_order': False,
+    'broker_connected': False,
 }
 
 ROUTINE_REGULATORY_KEYWORDS = [
@@ -162,6 +168,7 @@ def clean_blocker_text(text: str, max_len: int = 200) -> str:
 
 
 SCORING_CONFIG_DEFAULTS = {
+    # Empty = no weekday ban. Explicit e.g. "0,4" bans Mon/Fri. Never treat '' as missing.
     'weekday_blocklist': '',
     'max_score_cap': '88',
     'follow_on_strategy': 't1_close_primary',
@@ -179,6 +186,11 @@ SCORING_CONFIG_DEFAULTS = {
     'l2_limit_strength_bonus': '2.0',
     'sector_catalyst_penalty': '1.0',
     'near_limit_l2_exemption': 'true',
+    # Production ranking evidence knobs (self_evolve + formal_sort/ranking_basis consume these).
+    # Defaults match xiaogu_db; hardcodes were tuned at these → scale 1.0 preserves prior behavior.
+    'evidence_catalyst_boost_weight': '0.5',
+    'evidence_limitup_momentum_weight': '0.7',
+    'evidence_broken_limit_penalty_weight': '1.5',
 }
 
 TRADE_MODE = 'afternoon_buy_next_day_sell'
@@ -306,25 +318,131 @@ def clear_scoring_config_cache() -> None:
     _cached_scoring_config_snapshot.cache_clear()
 
 
+def production_regime_from_row(row: Dict[str, Any] | None = None) -> str:
+    """Best-effort production_regime for ranking scales (no hard gate side effects)."""
+    if not isinstance(row, dict):
+        return 'sideways'
+    prod = str(row.get('production_regime') or '').lower().strip()
+    if prod:
+        return prod
+    for key in ('market_adaptive_context', 'market_context', 'regime_policy'):
+        nested = row.get(key)
+        if isinstance(nested, dict):
+            prod = str(nested.get('production_regime') or '').lower().strip()
+            if prod:
+                return prod
+            if key == 'regime_policy':
+                continue
+            # nested may carry market_regime only
+            mr = str(nested.get('market_regime') or '').lower().strip()
+            if mr:
+                return mr
+    mr = str(row.get('market_regime') or '').lower().strip()
+    if mr:
+        return mr
+    return 'sideways'
+
+
+def resolve_ranking_evidence_scales_for_row(row: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Load scoring_config + regime → scales used by ranking_basis and formal_candidate_sort_key.
+
+    self_evolve writes evidence_* weights into scoring_config; this is the production consumer.
+    """
+    from xiaogu_regime_policy import resolve_ranking_evidence_scales as _resolve_scales
+
+    scoring_config = get_scoring_config_snapshot()
+    config = scoring_config.get('config') if isinstance(scoring_config, dict) else {}
+    if not isinstance(config, dict):
+        config = dict(SCORING_CONFIG_DEFAULTS)
+    regime = production_regime_from_row(row)
+    scales = _resolve_scales(config, regime)
+    scales['scoring_config_source'] = (
+        str(scoring_config.get('source') or '') if isinstance(scoring_config, dict) else ''
+    )
+    return scales
+
+
 _LEDGER_CACHE = None
+# Ledger rows embed multi-MB feature payloads; never preload the whole 1GB+ file.
+_LEDGER_TAIL_BYTES = int(os.environ.get('XIAOGU_LEDGER_TAIL_BYTES', str(80 * 1024 * 1024)))
+
+
+def _iter_ledger_tail_records(max_bytes: int | None = None):
+    """Yield raw JSON objects from the end of the ledger without full-file load."""
+    if not LEDGER.exists():
+        return
+    limit = int(max_bytes if max_bytes is not None else _LEDGER_TAIL_BYTES)
+    with LEDGER.open('rb') as fh:
+        fh.seek(0, 2)
+        size = fh.tell()
+        fh.seek(max(0, size - max(1, limit)))
+        chunk = fh.read().decode('utf-8', 'replace')
+    # If we started mid-record, drop the partial prefix.
+    start = chunk.find('{"record_type"')
+    if start < 0:
+        return
+    chunk = chunk[start:]
+    for line in chunk.splitlines():
+        text = line.strip()
+        if not text or not text.startswith('{'):
+            continue
+        try:
+            yield json.loads(text)
+        except json.JSONDecodeError:
+            continue
+
 
 def _preload_ledger():
-    """预加载ledger到内存，避免多次读取大文件"""
+    """Memory-safe: index only recent DECISION/CORRECTION metadata from ledger tail."""
     global _LEDGER_CACHE
     if _LEDGER_CACHE is not None:
         return
     import gc
-    print(f'LEDGER: preloading {LEDGER.name} ({LEDGER.stat().st_size / 1024 / 1024:.0f}MB)...', file=sys.stderr, flush=True)
-    _LEDGER_CACHE = list(load_jsonl(LEDGER))
-    print(f'LEDGER: loaded {len(_LEDGER_CACHE)} rows', file=sys.stderr, flush=True)
+    size_mb = LEDGER.stat().st_size / 1024 / 1024 if LEDGER.exists() else 0.0
+    print(f'LEDGER: indexing tail of {LEDGER.name} ({size_mb:.0f}MB file)...', file=sys.stderr, flush=True)
+    rows = []
+    for row in _iter_ledger_tail_records():
+        record_type = str(row.get('record_type') or '').upper()
+        if record_type not in ('DECISION', 'CORRECTION', 'RESULT_FILL'):
+            continue
+        # Drop heavy feature payloads after extracting identity fields.
+        slim = {
+            'record_type': row.get('record_type'),
+            'date': row.get('date') or row.get('trade_date'),
+            'trade_date': row.get('trade_date') or row.get('date'),
+            'symbol': row.get('symbol'),
+            'decision': row.get('decision'),
+            'rule_version': row.get('rule_version'),
+            'asof_time': row.get('asof_time'),
+            'raw_data_snapshot_sha256': row.get('raw_data_snapshot_sha256') or row.get('snapshot_sha256'),
+            'snapshot_sha256': row.get('snapshot_sha256'),
+            'correction_of': row.get('correction_of'),
+            't1_return': row.get('t1_return'),
+            't2_return': row.get('t2_return'),
+            't3_return': row.get('t3_return'),
+            't5_return': row.get('t5_return'),
+        }
+        # Keep name/score if present without embedding full features_used.
+        if row.get('name') is not None:
+            slim['name'] = row.get('name')
+        if row.get('score') is not None:
+            slim['score'] = row.get('score')
+        features = row.get('features_used') if isinstance(row.get('features_used'), dict) else {}
+        if features:
+            for key in ('name', 'score', 'price', 'signal_pct'):
+                if key in features and key not in slim:
+                    slim[key] = features.get(key)
+        rows.append(slim)
+    _LEDGER_CACHE = rows
+    print(f'LEDGER: indexed {len(_LEDGER_CACHE)} tail decision/fill rows', file=sys.stderr, flush=True)
     gc.collect()
+
 
 def _cached_ledger_rows() -> Tuple[Dict[str, Any], ...]:
     global _LEDGER_CACHE
-    if _LEDGER_CACHE is not None:
-        return tuple(_LEDGER_CACHE)
-    _LEDGER_CACHE = list(load_jsonl(LEDGER))
-    return tuple(_LEDGER_CACHE)
+    if _LEDGER_CACHE is None:
+        _preload_ledger()
+    return tuple(_LEDGER_CACHE or ())
 
 
 def _ledger_decision_rows() -> List[Dict[str, Any]]:
@@ -728,10 +846,6 @@ def _candidate_lifecycle_profile(candidate: Dict[str, Any], bundle: Dict[str, An
     }
 
 
-def write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding='utf-8')
-
 
 def _json_safe_value(value: Any) -> Any:
     if isinstance(value, dict):
@@ -747,11 +861,6 @@ def _json_safe_value(value: Any) -> Any:
         return [_json_safe_value(item) for item in value]
     return value
 
-
-def write_json(path: Path, obj: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    safe_obj = _json_safe_value(obj)
-    path.write_text(json.dumps(safe_obj, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
 
 
 def fetch_url(url: str, timeout: int = 8) -> Tuple[bool, str]:
@@ -830,6 +939,11 @@ def _bundle_runtime_cache_id(bundle: Dict[str, Any] | None) -> str:
 def _candidate_runtime_cache_key(candidate: Dict[str, Any] | None) -> Tuple[Any, ...]:
     candidate = candidate if isinstance(candidate, dict) else {}
     details = candidate.get('structured_component_details') if isinstance(candidate.get('structured_component_details'), dict) else {}
+    aux_missing = candidate.get('mainboard_auxiliary_missing_domains')
+    if isinstance(aux_missing, (list, tuple, set)):
+        aux_missing_key = tuple(sorted(str(x) for x in aux_missing))
+    else:
+        aux_missing_key = (str(aux_missing or ''),)
     return (
         symbol_for(candidate),
         str(candidate.get('source_row_hash') or ''),
@@ -846,6 +960,20 @@ def _candidate_runtime_cache_key(candidate: Dict[str, Any] | None) -> Tuple[Any,
         str(candidate.get('source_time') or ''),
         str(candidate.get('runner_asof_time') or ''),
         str(candidate.get('name') or ''),
+        # Aux status is eligibility-critical; shallow copies that only flip
+        # mainboard_auxiliary_* must not reuse PARTIAL/PASS structured profiles.
+        str(
+            candidate.get('mainboard_auxiliary_evidence_status')
+            or candidate.get('auxiliary_evidence_status')
+            or details.get('mainboard_auxiliary_evidence_status')
+            or ''
+        ),
+        safe_float(
+            candidate.get('mainboard_auxiliary_confidence')
+            if candidate.get('mainboard_auxiliary_confidence') is not None
+            else details.get('mainboard_auxiliary_confidence')
+        ),
+        aux_missing_key,
     )
 
 
@@ -1388,10 +1516,14 @@ def single_target_card_status(
         fund_mom = safe_float(candidate.get('fund_flow_momentum') or candidate.get('candidate_features', {}).get('fund_flow_momentum')) or 0.0
         if sector_opp < 1.5 and fund_mom < 0.8:
             hard_blockers.append('CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION')
+    if str((paper_pick_eligibility.get('signals') or {}).get('buyability_hard_block') or ''):
+        hard_blockers.append('FINAL_PICK_MUST_BE_BUYABLE')
     if any('sector_opportunity_score' in str(mc) for mc in missing_conditions):
         pass
     if not can_afford_one_lot:
         hard_blockers.append('one_lot_cost>cap')
+    if any(str(flag).startswith('FINAL_PICK_MUST_BE_BUYABLE') for flag in flags):
+        hard_blockers.append('FINAL_PICK_MUST_BE_BUYABLE')
     if any(str(flag).startswith('DATA_GATE_NOT_PASS') for flag in flags):
         hard_blockers.append('DATA_GATE_NOT_PASS')
     if any(str(flag).startswith('XIAOCHAN_BLOCK') for flag in flags):
@@ -1540,8 +1672,10 @@ def build_single_target_card(
         'manual_trade_only': True,
         'paper_only': True,
         'no_trade': True,
-        'allow_trade': False,
+        'allow_trade': decision == 'PAPER_PICK',
+        'manual_paper_execution_allowed': decision == 'PAPER_PICK',
         'auto_order': False,
+        'broker_connected': False,
         'ledger_line_added': ledger_line_added,
         'source_time': normalized_source_time or candidate.get('source_time') or bundle.get('source_time'),
         'runner_asof_time': candidate.get('runner_asof_time') or bundle.get('_runner_asof_time') or bundle.get('runner_asof_time') or bundle.get('asof_time'),
@@ -2459,12 +2593,52 @@ def summarize_evaluation_reason_counts(evaluations: List[Dict[str, Any]]) -> Dic
 def build_daily_best_paper_watch(no_pick_diagnostics: Dict[str, Any]) -> Dict[str, Any] | None:
     if not isinstance(no_pick_diagnostics, dict):
         return None
-    card = no_pick_diagnostics.get('highest_score_candidate')
-    if not isinstance(card, dict) or not symbol_for(card):
-        ranked = no_pick_diagnostics.get('ranked_no_pick_candidates')
-        card = ranked[0] if isinstance(ranked, list) and ranked and isinstance(ranked[0], dict) else None
-    if not isinstance(card, dict) or not symbol_for(card):
-        card = no_pick_diagnostics.get('closest_to_pick_candidate')
+    # Prefer quality-proximity (escape / fewer blockers) over pure highest score so
+    # mid-stage quality tickets are not buried under sealed high-score chase names.
+    # selection_source is the labeled input that won (not card.diagnostic_role alone),
+    # so ties between identical-quality copies report highest_score when scores equal.
+    closest = no_pick_diagnostics.get('closest_to_pick_candidate')
+    highest = no_pick_diagnostics.get('highest_score_candidate')
+    ranked = no_pick_diagnostics.get('ranked_no_pick_candidates')
+    ranked0 = ranked[0] if isinstance(ranked, list) and ranked and isinstance(ranked[0], dict) else None
+
+    def _watch_card_quality(card: Dict[str, Any] | None) -> Tuple[int, float, int, float]:
+        if not isinstance(card, dict) or not symbol_for(card):
+            return (9, 1.0, 99, 9999.0)
+        signals = card.get('signals') if isinstance(card.get('signals'), dict) else {}
+        blockers = list(card.get('blockers') or [])
+        # Quality tier first: escape / strong-sector beats pure high-score chase.
+        # Within same tier: prefer higher score (so failed_limitup highest still
+        # remains the watch with promotion_blocked), then fewer blockers, then rank.
+        if signals.get('quality_daily_ticket_escape') or signals.get('sszcw_favored_quality_escape'):
+            quality = 0
+        elif signals.get('strong_sector_theme_partial_aux_exception'):
+            quality = 1
+        else:
+            quality = 2
+        score = float(safe_float(card.get('final_score') if card.get('final_score') is not None else card.get('score')) or 0.0)
+        rank = float(safe_float(card.get('rank')) or 9999.0)
+        return (quality, -score, len(blockers), rank)
+
+    labeled: List[Tuple[str, Dict[str, Any]]] = []
+    if isinstance(closest, dict) and symbol_for(closest):
+        labeled.append(('closest_to_pick_candidate', closest))
+    if isinstance(highest, dict) and symbol_for(highest):
+        labeled.append(('highest_score_candidate', highest))
+    if isinstance(ranked0, dict) and symbol_for(ranked0):
+        labeled.append(('ranked_no_pick_candidates', ranked0))
+    if not labeled:
+        return None
+    # Among equal quality keys, prefer highest_score label (stable with legacy tests).
+    source_priority = {
+        'highest_score_candidate': 0,
+        'closest_to_pick_candidate': 1,
+        'ranked_no_pick_candidates': 2,
+    }
+    selection_source, card = min(
+        labeled,
+        key=lambda item: (_watch_card_quality(item[1]), source_priority.get(item[0], 9)),
+    )
     if not isinstance(card, dict) or not symbol_for(card):
         return None
     return {
@@ -2473,7 +2647,7 @@ def build_daily_best_paper_watch(no_pick_diagnostics: Dict[str, Any]) -> Dict[st
         'not_official_paper_pick': True,
         'observation_only': True,
         'watch_status': 'DAILY_BEST_PAPER_WATCH',
-        'selection_source': str(card.get('diagnostic_role') or 'highest_score_candidate'),
+        'selection_source': selection_source,
         'symbol': symbol_for(card),
         'name': card.get('name'),
         'rank': card.get('rank'),
@@ -2488,9 +2662,19 @@ def build_daily_best_paper_watch(no_pick_diagnostics: Dict[str, Any]) -> Dict[st
         'positive_conditions': card.get('positive_conditions') or [],
         'why_not_official_pick': card.get('why_not_official_pick') or [],
         'signals': card.get('signals') if isinstance(card.get('signals'), dict) else {},
-        'selection_basis': no_pick_diagnostics.get('selection_basis') or [],
-        'explanation': 'Best current paper-watch candidate when official decision is NO_PICK; official gates and trading safety are unchanged.',
+        'selection_basis': [
+            'quality_escape / sszcw_favored first',
+            'blocker_count asc',
+            'score desc',
+            'prefer closest_to_pick over pure highest_score when quality closer',
+        ],
+        'explanation': (
+            'Paper-watch prefers quality-proximity (closest_to_pick / quality_escape) over raw highest score '
+            'when official decision is NO_PICK; official gates and trading safety are unchanged.'
+        ),
         **LOCKED_SAFETY,
+        'allow_trade': False,
+        'manual_paper_execution_allowed': False,
     }
 
 
@@ -2601,6 +2785,18 @@ def build_no_pick_candidate_diagnostics(
         diagnostics['daily_best_paper_watch']['observation_only'] = True
         diagnostics['daily_best_paper_watch']['watch_status'] = 'DAILY_BEST_PAPER_WATCH'
 
+    # P0: attach profit-shadow topN as observation-only when official is NO_PICK.
+    profit_shadow_watch = load_profit_shadow_watchlist(target_date, top_n=5)
+    diagnostics['profit_candidate_shadow_watch'] = profit_shadow_watch
+    if isinstance(diagnostics.get('daily_best_paper_watch'), dict):
+        diagnostics['daily_best_paper_watch']['profit_shadow_top'] = list(
+            profit_shadow_watch.get('candidates') or []
+        )
+        diagnostics['daily_best_paper_watch']['profit_shadow_mainline_tags'] = list(
+            profit_shadow_watch.get('mainline_tags') or []
+        )[:8]
+        diagnostics['daily_best_paper_watch']['profit_shadow_status'] = profit_shadow_watch.get('status')
+
     explanation_parts = [
         f"scan_passed_count={diagnostics['scan_passed_count']}" if diagnostics['scan_passed_count'] is not None else 'scan_passed_count=null',
         f"scan_scored_count={diagnostics['scan_scored_count']}" if diagnostics['scan_scored_count'] is not None else 'scan_scored_count=null',
@@ -2608,7 +2804,10 @@ def build_no_pick_candidate_diagnostics(
         f"ranked_no_pick_candidates_total={diagnostics['ranked_no_pick_candidates_total']}",
         f"ranked_no_pick_candidates_shown={diagnostics['ranked_no_pick_candidates_shown']}",
         f"ranked_no_pick_candidates_omitted={diagnostics['ranked_no_pick_candidates_omitted']}",
+        f"profit_shadow_watch_status={profit_shadow_watch.get('status')}",
+        f"profit_shadow_candidates={len(profit_shadow_watch.get('candidates') or [])}",
         'scan_passed_count is broader than paper_scoring_candidates_count; only formal basket candidates are ranked here',
+        'profit_candidate_shadow_watch is observation-only; official gates and trading safety are unchanged',
         'diagnostics visibility changed only; official gates and trading safety are unchanged',
     ]
     diagnostics['explanation'] = '; '.join(explanation_parts)
@@ -2852,47 +3051,6 @@ def blocked_score(reasons: Any) -> float:
     return max(scores) if scores else 0.0
 
 
-def scan_summary_paths(date: str) -> List[Path]:
-    matches = glob.glob(str(LIVE_SCAN_ROOT / date / '**' / SCAN_SUMMARY_NAME), recursive=True)
-    summaries = []
-    for path in sorted((Path(match) for match in matches), key=os.path.getmtime, reverse=True):
-        try:
-            summary = read_json(path)
-        except Exception:
-            continue
-        source = summary.get('pipeline_version') or summary.get('source')
-        if is_active_api_source(source):
-            summaries.append(path)
-    return summaries
-
-
-def summary_bundle_rows(summary: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
-    rows = summary.get(key)
-    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
-
-
-def summary_file_rows(summary_path: Path, summary: Dict[str, Any], file_key: str) -> List[Dict[str, Any]]:
-    files = summary.get('files') if isinstance(summary.get('files'), dict) else {}
-    raw_path = str(files.get(file_key) or '').strip()
-    if not raw_path:
-        return []
-    candidates = [Path(raw_path)]
-    for marker in (
-        '/workspace/hermes-workspaces/xiaogu/',
-        '/root/hermes/company-ai-system/workspaces/xiaogu/',
-    ):
-        if marker in raw_path:
-            candidates.append(BASE / raw_path.split(marker, 1)[1])
-    if not Path(raw_path).is_absolute():
-        candidates.append(summary_path.parent / raw_path)
-    for path in candidates:
-        try:
-            if path.exists():
-                return [row for row in load_jsonl(path) if isinstance(row, dict)]
-        except Exception:
-            continue
-    return []
-
 
 def symbol_for(candidate: Dict[str, Any]) -> str:
     symbol = candidate.get('symbol') or candidate.get('code') or ''
@@ -3097,125 +3255,9 @@ def normalized_source_time_for_candidate(row: Dict[str, Any], bundle: Dict[str, 
     return ''
 
 
-def missing_coverage_items(source_status: Dict[str, Any], section_name: str, missing_key: str, expected_items: Tuple[str, ...]) -> List[str]:
-    section = source_status.get(section_name, {}) if isinstance(source_status, dict) else {}
-    if not isinstance(section, dict) or not section:
-        return list(expected_items)
-    explicit_missing = section.get(missing_key)
-    if isinstance(explicit_missing, list):
-        missing = [str(item) for item in explicit_missing if item]
-        if section.get('status') != 'PASS' and not missing:
-            return list(expected_items)
-        return missing
-    if section.get('status') != 'PASS':
-        return list(expected_items)
-    return []
-
-
-def web_tabs_evidence_missing_flags(bundle: Dict[str, Any]) -> List[str]:
-    candidate_source = str(bundle.get('candidate_source', ''))
-    if 'eastmoney_web_tabs' not in candidate_source:
-        return []
-    is_four_repo_source = 'four_repo' in candidate_source
-    is_formal_web_tabs_source = 'eastmoney_web_tabs_scan_v0_1' in candidate_source
-    flags = []
-    source_status = bundle.get('source_status') or bundle.get('market_snapshot', {}).get('source_status') or {}
-    full_universe = bundle.get('full_universe_scan') or bundle.get('market_snapshot', {}).get('full_universe_scan') or {}
-    has_full_universe_status = bool(full_universe) or bundle.get('market_snapshot', {}).get('universe_quote_count') is not None
-    if has_full_universe_status:
-        quote_count = full_universe.get('quote_count') if isinstance(full_universe, dict) else None
-        if quote_count is None:
-            quote_count = bundle.get('market_snapshot', {}).get('universe_quote_count')
-        try:
-            quote_count_num = int(quote_count)
-        except (TypeError, ValueError):
-            quote_count_num = 0
-        coverage_status = full_universe.get('coverage_status') if isinstance(full_universe, dict) else None
-        if (coverage_status and coverage_status != 'PASS') or quote_count_num < 4000:
-            flags.append('FULL_UNIVERSE_SCAN_INCOMPLETE')
-    cdp_tabs_status = source_status.get('required_cdp_tabs', {}) if isinstance(source_status, dict) else {}
-    if cdp_tabs_status:
-        missing_tabs = cdp_tabs_status.get('missing_sources') or []
-        if cdp_tabs_status.get('status') != 'PASS' or missing_tabs:
-            flags.append('EASTMONEY_REQUIRED_CDP_TABS_MISSING_' + ','.join(str(source) for source in missing_tabs))
-    else:
-        tabs = bundle.get('eastmoney_web_tabs') or bundle.get('market_snapshot', {}).get('eastmoney_web_tabs') or []
-        if not tabs:
-            flags.append('EASTMONEY_REQUIRED_CDP_TABS_MISSING_legacy_no_visible_tabs')
-    missing = []
-    for domain in REQUIRED_EASTMONEY_EVIDENCE_DOMAINS:
-        status = source_status.get(domain, {}) if isinstance(source_status, dict) else {}
-        if status.get('status') not in ('PASS', 'PARTIAL'):
-            missing.append(domain)
-    if missing:
-        flags.append('EASTMONEY_FULL_EVIDENCE_PACK_MISSING_' + ','.join(missing))
-    default_enhanced_tabs_missing = missing_coverage_items(source_status, 'enhanced_cdp_tabs', 'missing_sources', REQUIRED_EASTMONEY_DEFAULT_ENHANCED_CDP_TAB_SOURCES)
-    if default_enhanced_tabs_missing:
-        if is_formal_web_tabs_source:
-            flags.append('EASTMONEY_ENHANCED_CDP_TABS_MISSING_' + ','.join(default_enhanced_tabs_missing))
-        else:
-            flags.append('EASTMONEY_DEFAULT_ENHANCED_CDP_TABS_MISSING_' + ','.join(default_enhanced_tabs_missing))
-    enhanced_missing = missing_coverage_items(source_status, 'enhanced_evidence_coverage', 'missing_domains', REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS)
-    if enhanced_missing:
-        flags.append('EASTMONEY_ENHANCED_EVIDENCE_PACK_MISSING_' + ','.join(enhanced_missing))
-    if not is_four_repo_source:
-        experimental_missing = missing_coverage_items(
-            source_status,
-            'experimental_evidence_coverage',
-            'missing_domains',
-            REQUIRED_EASTMONEY_EXPERIMENTAL_EVIDENCE_DOMAINS,
-        )
-        if experimental_missing:
-            flags.append('EASTMONEY_EXPERIMENTAL_EVIDENCE_PACK_MISSING_' + ','.join(experimental_missing))
-    return flags
-
-
-def soft_no_pick_flag(flag: str) -> bool:
-    text = str(flag or '')
-    return (
-        text.startswith('EASTMONEY_')
-        or text.startswith('FULL_UNIVERSE_QUOTE_COUNT_TOO_LOW')
-        or text.startswith('ZERO_QUOTE_READ')
-        or text.startswith('ZERO_FUND_FLOW_READ')
-        or text == 'SOURCE_COMPLETENESS_MISSING'
-        or text == 'DATA_SOURCE_INCOMPLETE'
-        or text == 'candidate_evidence_status!=PASS'
-        or text.startswith('buy_confirmation_below_threshold')
-        or text == 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION'
-        or text == 'OPPORTUNITY_HARD_BLOCK_CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION'
-    )
-
-
-def candidate_evidence_missing_flags(candidate: Dict[str, Any], bundle: Dict[str, Any]) -> List[str]:
-    candidate_source = str(bundle.get('candidate_source', ''))
-    if 'eastmoney_web_tabs' not in candidate_source:
-        return []
-    flags = []
-    status = candidate.get('candidate_evidence_status')
-    explicit_missing = candidate.get('candidate_evidence_missing_domains') or []
-    if explicit_missing:
-        flags.append('EASTMONEY_CANDIDATE_EVIDENCE_MISSING_' + ','.join(str(domain) for domain in explicit_missing))
-    else:
-        counts = candidate.get('candidate_evidence_domain_counts') or {}
-        if isinstance(counts, dict):
-            # risk_alerts empty = no risk = PASS (not missing)
-            OPTIONAL_EVIDENCE_DOMAINS = {'risk_alerts'}
-            missing = [domain for domain in REQUIRED_EASTMONEY_EVIDENCE_DOMAINS if domain not in OPTIONAL_EVIDENCE_DOMAINS and not counts.get(domain)]
-            if missing:
-                flags.append('EASTMONEY_CANDIDATE_EVIDENCE_MISSING_' + ','.join(missing))
-        elif status != 'PASS':
-            flags.append('EASTMONEY_CANDIDATE_EVIDENCE_MISSING')
-    enhanced_counts = candidate.get('enhanced_evidence_domain_counts') or {}
-    if isinstance(enhanced_counts, dict):
-        missing_recheck = [domain for domain in REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS if not enhanced_counts.get(domain)]
-    else:
-        explicit_enhanced_missing = candidate.get('enhanced_evidence_missing_domains') or []
-        missing_recheck = [domain for domain in REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS if domain in explicit_enhanced_missing]
-        if not explicit_enhanced_missing:
-            missing_recheck = list(REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS)
-    if missing_recheck:
-        flags.append('EASTMONEY_CANDIDATE_RECHECK_EVIDENCE_MISSING_' + ','.join(missing_recheck))
-    return flags
+# missing_coverage_items / web_tabs_evidence_missing_flags / soft_no_pick_flag /
+# candidate_evidence_missing_flags / is_v2_api_scan_source imported from
+# xiaogu_forward_gates (see import block near REQUIRED_EASTMONEY_*).
 
 
 def regulatory_hard_block_reason(candidate: Dict[str, Any], bundle: Dict[str, Any]) -> str:
@@ -3359,7 +3401,14 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
     risk_penalty = get('risk_penalty')
     xiaochan = get('xiaochan_gate_status', 'NOT_CALLED')
     asof_leakage_flag = bool(get('asof_leakage_flag', False))
+    # Prefer explicit flag; also infer from pct≈board so risk flags match buyability gate.
     sealed_limit_up = bool(get('sealed_limit_up', False))
+    if not sealed_limit_up:
+        try:
+            from xiaogu_forward_eligibility import _inferred_sealed_limit_up as _infer_seal
+            sealed_limit_up = bool(_infer_seal(candidate))
+        except Exception:
+            sealed_limit_up = False
     weak_close_risk = bool(get('weak_close_risk', False))
     high_open_low_close_risk = bool(get('high_open_low_close_risk', False))
     broken_limit_risk = bool(get('broken_limit_risk', False))
@@ -3508,6 +3557,9 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
         if eligibility_blocker in (paper_pick_eligibility.get('blockers') or []):
             flags.append(eligibility_blocker)
     stock_level_limitup_expectation_pass = bool((paper_pick_eligibility.get('signals') or {}).get('stock_level_limitup_expectation_pass'))
+    buyability_block_reason = str((paper_pick_eligibility.get('signals') or {}).get('buyability_hard_block') or '')
+    if buyability_block_reason:
+        flags.append(buyability_block_reason)
     filtered_blocked = [
         r for r in blocked_reasons
         if not (
@@ -3670,6 +3722,61 @@ def normalize_tag_list(tags: Any) -> List[str]:
     return normalized
 
 
+def candidate_theme_tag_set(row: Dict[str, Any]) -> Tuple[str, ...]:
+    """Stable fingerprint of candidate theme tags for hollow-pool detection (M5)."""
+    if not isinstance(row, dict):
+        return tuple()
+    details = row.get('structured_component_details') if isinstance(row.get('structured_component_details'), dict) else {}
+    values: List[Any] = []
+    for key in (
+        'theme_tags', 'predicted_sector', 'sector_opportunity_tags',
+        'industry_chain_tags', 'concept_tags', 'main_theme_tags',
+    ):
+        values.append(row.get(key))
+        values.append(details.get(key))
+    tags = normalize_tag_list([item for group in values for item in (group if isinstance(group, list) else [group])])
+    # Drop pure process/layer pseudo tags so only theme-like labels participate.
+    filtered = [
+        tag for tag in tags
+        if not str(tag).startswith('REPLAY_')
+        and str(tag).upper() not in {
+            'SECTOR_OPPORTUNITY', 'PASS', 'FAIL', 'PARTIAL', 'MISSING',
+            'L0_FULL_UNIVERSE', 'L7_INTRADAY_ALERT', 'FULL_UNIVERSE',
+        }
+        and not (str(tag).upper().startswith('L') and len(str(tag)) >= 2 and str(tag)[1].isdigit())
+    ]
+    return tuple(sorted(filtered))
+
+
+def detect_pool_hollow_theme_tags(rows: List[Dict[str, Any]], *, min_rows: int = 5, dominance: float = 0.80, min_tags: int = 3) -> Dict[str, Any]:
+    """Detect full-pool identical theme tags pollution. Diagnostic + soft ranking only."""
+    fingerprints: List[Tuple[str, ...]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        fingerprint = candidate_theme_tag_set(row)
+        if fingerprint:
+            fingerprints.append(fingerprint)
+    if len(fingerprints) < min_rows:
+        return {
+            'hollow': False,
+            'dominance_ratio': 0.0,
+            'dominant_tags': [],
+            'sample_count': len(fingerprints),
+            'reason': 'insufficient_nonempty_tag_rows',
+        }
+    dominant = max(set(fingerprints), key=fingerprints.count)
+    ratio = fingerprints.count(dominant) / max(1, len(fingerprints))
+    hollow = bool(ratio >= dominance and len(dominant) >= min_tags)
+    return {
+        'hollow': hollow,
+        'dominance_ratio': round(ratio, 4),
+        'dominant_tags': list(dominant),
+        'sample_count': len(fingerprints),
+        'reason': 'pool_identical_theme_tags' if hollow else 'ok',
+    }
+
+
 def normalize_vei_phase_d_tags(tags: Any) -> List[str]:
     return normalize_tag_list(tags)
 
@@ -3704,6 +3811,663 @@ def signal_stage_bucket(signal_pct: Any) -> str:
     if pct < 9:
         return 'high_7_to_9'
     return 'near_limit_9_plus'
+
+
+@lru_cache(maxsize=4)
+def load_pre_pick_market_context(trade_date: str = '') -> Dict[str, Any]:
+    """Load soft pre-pick market direction (sszcw 5d). Missing file => empty diagnostic."""
+    candidates = []
+    if trade_date:
+        candidates.append(BASE / 'summary' / f'sszcw_market_context_{trade_date}.json')
+        candidates.append(BASE / 'data' / 'sszcw' / f'market_context_{trade_date}.json')
+    candidates.extend(PRE_PICK_MARKET_CONTEXT_PATHS)
+    for path in candidates:
+        try:
+            if path.exists():
+                payload = read_json(path)
+                if isinstance(payload, dict) and payload:
+                    payload = dict(payload)
+                    payload['loaded_from'] = str(path)
+                    payload['selected_for_production'] = False
+                    return payload
+        except Exception:
+            continue
+    return {
+        'asof': trade_date or '',
+        'favored_sectors': [],
+        'risk_sectors': [],
+        'market_stance': 'MISSING',
+        'confidence': 0.0,
+        'selected_for_production': False,
+        'loaded_from': '',
+    }
+
+
+def ensure_pre_pick_market_context(trade_date: str = '') -> Dict[str, Any]:
+    """Refresh @sszcw immediately before issuance and return that snapshot.
+
+    The issuance path must not silently reuse yesterday's social context. Fetch
+    the last three days for @sszcw first, then let the builder merge live inbox
+    and non-seed cache. Seed data is deliberately excluded from this path.
+    """
+    trade_date = str(trade_date or '').strip()
+    context = load_pre_pick_market_context(trade_date)
+    if not trade_date:
+        return context
+    try:
+        from scripts.xiaogu_sszcw_market_context import build_context, write_outputs, _parse_date
+
+        asof = _parse_date(trade_date)
+        # Keep compatibility with older test doubles while production always
+        # requests a live three-day @sszcw refresh.
+        try:
+            payload = build_context(
+                asof,
+                days=SSZCW_PRE_PICK_WINDOW_DAYS,
+                seed=False,
+                prefer_live=True,
+                handles=SSZCW_PRE_PICK_HANDLES,
+            )
+        except TypeError:
+            try:
+                payload = build_context(
+                    asof,
+                    days=SSZCW_PRE_PICK_WINDOW_DAYS,
+                    seed=False,
+                    prefer_live=True,
+                )
+            except TypeError:
+                payload = build_context(
+                    asof,
+                    days=SSZCW_PRE_PICK_WINDOW_DAYS,
+                    seed=False,
+                )
+        payload = dict(payload) if isinstance(payload, dict) else {}
+        payload['pre_pick_refresh'] = True
+        payload['pre_pick_window_days'] = SSZCW_PRE_PICK_WINDOW_DAYS
+        payload['pre_pick_handles'] = list(SSZCW_PRE_PICK_HANDLES)
+        payload['pre_pick_seed_allowed'] = False
+        write_outputs(payload, asof)
+        load_pre_pick_market_context.cache_clear()
+        return load_pre_pick_market_context(trade_date)
+    except Exception as exc:
+        context = dict(context) if isinstance(context, dict) else {}
+        context['ensure_error'] = str(exc)
+        context['selected_for_production'] = False
+        context['soft_context_valid'] = False
+        return context
+
+
+@lru_cache(maxsize=128)
+def _historical_t1_return_map_for_date(trade_date: str) -> Dict[str, float]:
+    trade_date = str(trade_date or '')[:10]
+    if not trade_date:
+        return {}
+    try:
+        from xiaogu_db import fetch_returns
+    except Exception:
+        return {}
+    try:
+        rows = fetch_returns(dt.date.fromisoformat(trade_date))
+    except Exception:
+        return {}
+    return {
+        str(row.get('symbol') or '').zfill(6)[-6:]: float(row.get('t1_return'))
+        for row in rows or []
+        if str(row.get('symbol') or '').zfill(6)[-6:] and row.get('t1_return') is not None
+    }
+
+
+@lru_cache(maxsize=1)
+def load_soft_context_failure_mode_history() -> Dict[str, Any]:
+    """Load historical failure modes for soft pre-pick context from top10 knowledge assets.
+
+    The source of truth is historical top10 knowledge outputs joined to DB T+1 returns.
+    We only use it as a soft reality check, never as a hard gate.
+    """
+    failure_modes = {
+        'weak_market_requires_direct_confirmation': {'count': 0, 'wins': 0, 'returns': []},
+        'low_score_without_direct_catalyst_confirmation': {'count': 0, 'wins': 0, 'returns': []},
+    }
+    summary_dir = BASE / 'summary'
+    if not summary_dir.exists():
+        return {'status': 'MISSING', 'failure_modes': failure_modes, 'sample_count': 0}
+    summary_paths = sorted(summary_dir.glob('*_top10_knowledge.json'))
+    for path in summary_paths:
+        date_match = re.search(r'(\d{4}-\d{2}-\d{2})_top10_knowledge\.json$', path.name)
+        if not date_match:
+            continue
+        trade_date = date_match.group(1)
+        return_map = _historical_t1_return_map_for_date(trade_date)
+        try:
+            payload = read_json(path)
+        except Exception:
+            continue
+        rows = payload.get('top10') if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get('symbol') or '').zfill(6)[-6:]
+            t1 = row.get('t1_return')
+            if t1 is None and symbol:
+                t1 = return_map.get(symbol)
+            if t1 is None:
+                continue
+            try:
+                t1 = float(t1)
+            except Exception:
+                continue
+            reason_text = ' '.join([
+                str(row.get('selection_reason') or ''),
+                ' '.join(str(item) for item in (row.get('not_selected_reason') or []) if item),
+            ])
+            for mode in failure_modes:
+                if mode in reason_text:
+                    bucket = failure_modes[mode]
+                    bucket['count'] += 1
+                    bucket['wins'] += 1 if t1 > 0 else 0
+                    bucket['returns'].append(t1)
+    normalized: Dict[str, Any] = {}
+    total_samples = 0
+    for mode, bucket in failure_modes.items():
+        count = int(bucket['count'])
+        total_samples += count
+        avg_return = round(sum(bucket['returns']) / count, 6) if count else None
+        win_rate = round(bucket['wins'] / count, 4) if count else None
+        normalized[mode] = {
+            'count': count,
+            'wins': int(bucket['wins']),
+            'avg_return': avg_return,
+            'win_rate': win_rate,
+            'status': 'PASS' if count else 'INSUFFICIENT_SAMPLES',
+        }
+    return {
+        'status': 'PASS' if total_samples else 'EMPTY',
+        'sample_count': total_samples,
+        'failure_modes': normalized,
+        'source_count': len(summary_paths),
+    }
+
+
+def soft_context_failure_mode_reality_check(
+    row: Dict[str, Any],
+    context: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Convert historical soft-context failure modes into a bounded soft penalty."""
+    eligibility = row.get('paper_pick_eligibility') if isinstance(row.get('paper_pick_eligibility'), dict) else {}
+    blockers = [str(item) for item in (eligibility.get('blockers') or []) if item]
+    current_score = safe_float(row.get('final_score') if row.get('final_score') is not None else row.get('score')) or 0.0
+    market_regime = str(row.get('market_regime') or row.get('production_regime') or '')
+    if not blockers and market_regime == 'weak' and current_score < 70:
+        blockers.append('weak_market_requires_direct_confirmation')
+
+    history = load_soft_context_failure_mode_history()
+    failure_modes = history.get('failure_modes') if isinstance(history.get('failure_modes'), dict) else {}
+    penalty = 0.0
+    reasons: List[str] = []
+    for blocker, cap in (
+        ('weak_market_requires_direct_confirmation', 0.90),
+        ('low_score_without_direct_catalyst_confirmation', 0.60),
+    ):
+        if blocker not in blockers:
+            continue
+        stats = failure_modes.get(blocker) if isinstance(failure_modes.get(blocker), dict) else {}
+        count = int(stats.get('count') or 0)
+        avg_return = safe_float(stats.get('avg_return'))
+        win_rate = safe_float(stats.get('win_rate'))
+        if count < 5 or (avg_return is not None and avg_return > 0 and (win_rate is None or win_rate >= 0.5)):
+            continue
+        severity = 0.0
+        if avg_return is not None and avg_return < 0:
+            severity += min(1.0, abs(avg_return) * 12.0)
+        if win_rate is not None and win_rate < 0.5:
+            severity += min(1.0, (0.5 - win_rate) * 3.0)
+        severity = max(0.25, min(1.0, severity))
+        blocker_penalty = min(cap, 0.18 + severity * (0.48 if blocker == 'weak_market_requires_direct_confirmation' else 0.36))
+        penalty += blocker_penalty
+        reasons.append(
+            f'{blocker}:count={count},avg_return={avg_return if avg_return is not None else "n/a"},win_rate={win_rate if win_rate is not None else "n/a"}'
+        )
+
+    if penalty <= 0:
+        return {
+            'status': 'NEUTRAL',
+            'sample_count': int(history.get('sample_count') or 0),
+            'penalty': 0.0,
+            'reasons': [],
+            'history': history,
+        }
+
+    return {
+        'status': 'PASS',
+        'sample_count': int(history.get('sample_count') or 0),
+        'penalty': round(min(1.2, penalty), 4),
+        'reasons': reasons,
+        'history': history,
+    }
+
+
+# sszcw favored/risk theme synonyms so soft matching is not literal-token only.
+# e.g. 山金国际 tags=黄金 should hit favored 贵金属.
+SSZCW_THEME_SYNONYMS: Dict[str, Tuple[str, ...]] = {
+    '贵金属': ('贵金属', '黄金', '白银', '金银', '金矿', '有色金属'),
+    '油气': ('油气', '石油', '原油', '天然气', '油服', '海油', '炼化'),
+    '有色': ('有色', '有色金属', '铜', '铝', '锌', '铅', '锡', '小金属', '锂'),
+    '电力': ('电力', '火电', '水电', '电网', '发电'),
+    '煤炭': ('煤炭', '煤', '焦煤', '动力煤'),
+    '半导体': ('半导体', '芯片', '集成电路', '光刻'),
+}
+
+
+def candidate_theme_text(row: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for key in (
+        'sector_opportunity_tags', 'theme_tags', 'industry', 'sector', 'sector_name',
+        'name', 'stock_name', 'predicted_sector', 'main_theme',
+        'concept', 'concepts', 'concept_tags', 'industry_chain_tags',
+    ):
+        value = row.get(key)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value if item)
+        elif value:
+            parts.append(str(value))
+    details = row.get('structured_component_details') if isinstance(row.get('structured_component_details'), dict) else {}
+    for item in details.get('sector_opportunity_tags') or []:
+        if item:
+            parts.append(str(item))
+    research = row.get('research_signals') if isinstance(row.get('research_signals'), dict) else {}
+    sector_mapping = research.get('sector_mapping') if isinstance(research.get('sector_mapping'), dict) else {}
+    for item in sector_mapping.get('sectors') or []:
+        if item:
+            parts.append(str(item))
+    for item in (row.get('limitup_reason_evidence') or [])[:5]:
+        if isinstance(item, dict) and item.get('reason'):
+            parts.append(str(item.get('reason')))
+        elif item:
+            parts.append(str(item))
+    return ' '.join(parts)
+
+
+def sszcw_theme_token_hits(themes: List[str], text: str) -> List[str]:
+    """Match favored/risk themes with synonym expansion; preserve theme order."""
+    hits: List[str] = []
+    text = str(text or '')
+    for theme in themes:
+        theme = str(theme or '').strip()
+        if not theme:
+            continue
+        synonyms = SSZCW_THEME_SYNONYMS.get(theme, (theme,))
+        if any(token and token in text for token in synonyms):
+            hits.append(theme)
+    return hits
+
+
+def load_profit_shadow_watchlist(trade_date: str, top_n: int = 5) -> Dict[str, Any]:
+    """Observation-only profit shadow topN for NO_PICK days.
+
+    Prefer existing summary/profit_candidates_{date}.json (no recompute).
+    Never promotes to PAPER_PICK; official gates unchanged.
+    """
+    trade_date = str(trade_date or '')[:10]
+    empty = {
+        'status': 'MISSING',
+        'trade_date': trade_date,
+        'decision_class': 'PROFIT_CANDIDATE_SHADOW',
+        'not_official_paper_pick': True,
+        'observation_only': True,
+        'official_gates_unchanged': True,
+        'candidates': [],
+        'mainline_tags': [],
+        **LOCKED_SAFETY,
+    }
+    if not trade_date:
+        return empty
+    path = BASE / 'summary' / f'profit_candidates_{trade_date}.json'
+    payload: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            loaded = read_json(path)
+            if isinstance(loaded, dict):
+                payload = loaded
+        except Exception:
+            payload = {}
+    if not payload:
+        # Best-effort build without T+1 network when scan exists.
+        try:
+            from scripts.xiaogu_profit_candidates_shadow import run_for_date as _shadow_run
+
+            payload = _shadow_run(trade_date, top_n=top_n, with_returns=False) or {}
+        except Exception as exc:
+            empty['status'] = 'ERROR'
+            empty['error'] = f'{type(exc).__name__}:{exc}'
+            return empty
+    if not isinstance(payload, dict):
+        return empty
+    cands_out: List[Dict[str, Any]] = []
+    for row in list(payload.get('candidates') or [])[: max(1, int(top_n or 5))]:
+        if not isinstance(row, dict):
+            continue
+        sym = str(row.get('symbol') or row.get('code') or '').zfill(6)[-6:]
+        if not sym or not sym.isdigit():
+            continue
+        cands_out.append(
+            {
+                'symbol': sym,
+                'name': row.get('name') or row.get('stock_name'),
+                'profit_score': row.get('profit_score') or row.get('score'),
+                'signal_pct': row.get('signal_pct') or row.get('pct_chg'),
+                'from_limitup_pool': bool(row.get('from_limitup_pool') or row.get('limitup')),
+                'mainline_hits': list(row.get('mainline_hits') or [])[:6],
+                'ret_t1_close': (
+                    (row.get('t1') or {}).get('ret_t1_close')
+                    if isinstance(row.get('t1'), dict)
+                    else row.get('ret_t1_close')
+                ),
+                'observation_only': True,
+                'not_official_paper_pick': True,
+            }
+        )
+    mainline = payload.get('mainline') if isinstance(payload.get('mainline'), dict) else {}
+    tags = list(mainline.get('mainline_tags') or payload.get('mainline_tags') or [])[:12]
+    return {
+        'status': str(payload.get('status') or ('OK' if cands_out else 'EMPTY')),
+        'trade_date': trade_date,
+        'decision_class': 'PROFIT_CANDIDATE_SHADOW',
+        'not_official_paper_pick': True,
+        'observation_only': True,
+        'official_gates_unchanged': True,
+        'valid_for_conclusion': bool(payload.get('valid_for_conclusion')),
+        'source_path': str(path) if path.exists() else str(payload.get('output_path') or ''),
+        'mainline_tags': tags,
+        'candidates': cands_out,
+        'candidate_count': len(cands_out),
+        'selection_basis': list(payload.get('selection_basis') or [])[:8],
+        'explanation': (
+            'Profit-shadow watchlist for NO_PICK days; observation only; '
+            'does not change official PAPER_PICK gates or allow_trade.'
+        ),
+        **LOCKED_SAFETY,
+        'allow_trade': False,
+        'manual_paper_execution_allowed': False,
+    }
+
+
+def load_mainline_fund_flow_context(trade_date: str, top_n: int = 8) -> Dict[str, Any]:
+    """Day mainline tags from sector fund inflow (scan flow_*.jsonl or shadow summary).
+
+    Soft ranking evidence only — never a hard gate / never force-pick.
+    """
+    trade_date = str(trade_date or '')[:10]
+    empty = {
+        'trade_date': trade_date,
+        'mainline_tags': [],
+        'industry_top': [],
+        'concept_top': [],
+        'source': 'missing',
+        'soft_only': True,
+        'hard_gate': False,
+        'force_pick': False,
+    }
+    if not trade_date:
+        return empty
+
+    # Prefer already-built shadow mainline (same selection language as profit shadow).
+    shadow_path = BASE / 'summary' / f'profit_candidates_{trade_date}.json'
+    if shadow_path.exists():
+        try:
+            payload = read_json(shadow_path)
+            if isinstance(payload, dict):
+                mainline = payload.get('mainline') if isinstance(payload.get('mainline'), dict) else {}
+                tags = list(mainline.get('mainline_tags') or [])[: max(4, int(top_n or 8) * 2)]
+                if tags:
+                    return {
+                        'trade_date': trade_date,
+                        'mainline_tags': tags,
+                        'industry_top': list(mainline.get('industry_top') or [])[:top_n],
+                        'concept_top': list(mainline.get('concept_top') or [])[:top_n],
+                        'source': 'profit_candidates_shadow_summary',
+                        'soft_only': True,
+                        'hard_gate': False,
+                        'force_pick': False,
+                    }
+        except Exception:
+            pass
+
+    # Fallback: parse scan flow files directly.
+    try:
+        from scripts.xiaogu_profit_candidates_shadow import load_sector_flows, resolve_scan_dir
+
+        scan_dir = resolve_scan_dir(trade_date)
+        if scan_dir is None:
+            return empty
+        flows = load_sector_flows(scan_dir, top_n=top_n)
+        tags = list(flows.get('mainline_tags') or [])[: max(4, int(top_n or 8) * 2)]
+        return {
+            'trade_date': trade_date,
+            'mainline_tags': tags,
+            'industry_top': list(flows.get('industry_top') or [])[:top_n],
+            'concept_top': list(flows.get('concept_top') or [])[:top_n],
+            'source': 'scan_flow_industry_concept',
+            'soft_only': True,
+            'hard_gate': False,
+            'force_pick': False,
+        }
+    except Exception as exc:
+        empty['error'] = f'{type(exc).__name__}:{exc}'
+        return empty
+
+
+def soft_mainline_fund_bias(
+    row: Dict[str, Any],
+    mainline_ctx: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Soft ranking bias for candidates aligned with day fund-flow mainline.
+
+    Does not force PAPER_PICK. Caps boost so sealed chase cannot dominate alone.
+    """
+    trade_date = str(row.get('trade_date') or row.get('date') or '')
+    ctx = mainline_ctx if isinstance(mainline_ctx, dict) else load_mainline_fund_flow_context(trade_date)
+    tags = [str(t) for t in (ctx.get('mainline_tags') or []) if t]
+    text = candidate_theme_text(row)
+    hits = sszcw_theme_token_hits(tags, text) if tags else []
+    # Rank position among mainline tags (earlier industry tags weigh more).
+    rank_boost = 0.0
+    for i, tag in enumerate(tags[:8]):
+        if tag in hits:
+            rank_boost += max(0.0, 0.28 - 0.03 * i)
+    hit_boost = min(0.85, 0.22 * len(hits) + rank_boost)
+    signal_pct = float(safe_float(row.get('signal_pct')) or 0.0)
+    # Soft-dampen pure sealed extension unless also strong fund/theme (still soft).
+    if signal_pct >= 9.5 and hit_boost > 0:
+        hit_boost *= 0.72
+    return {
+        'mainline_tags': tags[:12],
+        'mainline_hits': hits,
+        'soft_boost': round(hit_boost, 4),
+        'source': str(ctx.get('source') or 'missing'),
+        'soft_only': True,
+        'hard_gate': False,
+        'force_pick': False,
+        'selected_for_production': False,
+    }
+
+
+def soft_sector_bias_from_pre_pick_context(row: Dict[str, Any], context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Elevated soft ranking bias from @sszcw 5d context. Not a hard gate / not force-pick.
+
+    Importance is intentionally high (method-grade rotation signal) but still soft:
+    hard gates, capital risk, and quality evidence still own official PAPER_PICK.
+
+    Soft context validity: seed-only / missing / insufficient posts cannot claim
+    high_confidence (prevents systematic PARTIAL+escape widen when context is wrong).
+    """
+    trade_date = str(row.get('trade_date') or row.get('date') or '')
+    context = context if isinstance(context, dict) else load_pre_pick_market_context(trade_date)
+    favored = [str(item) for item in (context.get('favored_sectors') or []) if item]
+    risk = [str(item) for item in (context.get('risk_sectors') or []) if item]
+    text = candidate_theme_text(row)
+    favored_hits = sszcw_theme_token_hits(favored, text)
+    risk_hits = sszcw_theme_token_hits(risk, text)
+    # Reply Q&A stock soft: if he answered bullish/bearish on this symbol/name, elevate soft bias.
+    # Still not a hard gate / not force-pick.
+    stock_soft = context.get('stock_soft_from_replies') if isinstance(context.get('stock_soft_from_replies'), dict) else {}
+    trusted_stock = context.get('trusted_stock_predictions') if isinstance(context.get('trusted_stock_predictions'), dict) else {}
+    symbol = str(row.get('symbol') or row.get('code') or '').zfill(6)[-6:]
+    name = str(row.get('stock_name') or row.get('name') or '')
+    reply_bull = [str(x) for x in (stock_soft.get('soft_bullish_stocks') or [])]
+    reply_bear = [str(x) for x in (stock_soft.get('soft_bearish_stocks') or [])]
+    reply_stock_bull_hit = bool(
+        (symbol and any(symbol in str(x) or str(x) == symbol for x in reply_bull))
+        or (name and any(name in str(x) or str(x) in name for x in reply_bull))
+    )
+    reply_stock_bear_hit = bool(
+        (symbol and any(symbol in str(x) or str(x) == symbol for x in reply_bear))
+        or (name and any(name in str(x) or str(x) in name for x in reply_bear))
+    )
+    trusted_bull = [str(x) for x in (trusted_stock.get('bullish_stocks') or [])]
+    trusted_bear = [str(x) for x in (trusted_stock.get('bearish_stocks') or [])]
+    trusted_stock_bull_hit = bool(
+        (symbol and any(symbol == str(x).zfill(6)[-6:] for x in trusted_bull))
+        or (name and any(name == str(x) or str(x) in name for x in trusted_bull))
+    )
+    trusted_stock_bear_hit = bool(
+        (symbol and any(symbol == str(x).zfill(6)[-6:] for x in trusted_bear))
+        or (name and any(name == str(x) or str(x) in name for x in trusted_bear))
+    )
+    confidence = float(safe_float(context.get('confidence')) or 0.0)
+    stance = str(context.get('market_stance') or '')
+    soft_source = str(context.get('soft_context_source') or context.get('source') or '')
+    live_posts = int(context.get('live_post_count') or 0)
+    seed_posts = int(context.get('seed_post_count') or 0)
+    cache_posts = int(context.get('cache_post_count') or 0)
+    post_count = int(context.get('post_count') or 0)
+    reply_posts = int(context.get('reply_post_count') or 0)
+    qa_count = int(context.get('qa_count') or 0)
+    # Explicit validity from builder when present; else recompute bounds.
+    # Older context JSON may lack soft_context_valid/post_count — still allow soft
+    # matching when stance+sectors present, but high-confidence needs live/cache.
+    if 'soft_context_valid' in context:
+        soft_context_valid = bool(context.get('soft_context_valid'))
+    else:
+        soft_context_valid = bool(
+            stance not in ('', 'MISSING', 'INSUFFICIENT_POSTS')
+            and (favored or risk)
+            and (post_count > 0 or confidence >= 0.60)
+        )
+    if 'high_confidence_allowed' in context:
+        high_confidence_allowed = bool(context.get('high_confidence_allowed'))
+    else:
+        # Seed-only cannot high-confidence; need live or cache posts.
+        # Unit/mock contexts often omit post counters: allow high-confidence when
+        # confidence>=0.60, soft_context_valid, and not seed-only (no live/cache).
+        high_confidence_allowed = bool(
+            soft_context_valid
+            and confidence >= 0.60
+            and (
+                live_posts > 0
+                or cache_posts > 0
+                or (
+                    post_count == 0
+                    and seed_posts == 0
+                    and stance not in ('', 'MISSING', 'INSUFFICIENT_POSTS')
+                )
+            )
+            and not (live_posts == 0 and seed_posts > 0 and cache_posts == 0)
+        )
+    # As-of drift: if context date far from trade_date, mark invalid for high-conf escape.
+    ctx_asof = str(context.get('asof') or '')[:10]
+    if trade_date and ctx_asof and trade_date[:10] != ctx_asof:
+        try:
+            d0 = dt.date.fromisoformat(trade_date[:10])
+            d1 = dt.date.fromisoformat(ctx_asof)
+            if abs((d0 - d1).days) > 1:
+                soft_context_valid = False
+                high_confidence_allowed = False
+        except ValueError:
+            pass
+    conf_scale = max(0.45, min(1.0, confidence if confidence > 0 else 0.45))
+    if not soft_context_valid:
+        conf_scale = min(conf_scale, 0.40)
+    # Elevate when sszcw is in a clear defensive / risk-off rotation call.
+    stance_mult = 1.0
+    if stance in ('DEFENSIVE_ROTATION', 'AVOID_CLIMAX_TECH'):
+        stance_mult = 1.25
+    elif stance == 'RISK_OFF_TECH_DEFENSIVE':
+        stance_mult = 1.40
+    elif stance in ('WATCH', 'NO_MAIN'):
+        stance_mult = 1.15
+    if not soft_context_valid:
+        stance_mult = min(stance_mult, 1.0)
+    # Per-hit weight raised so sszcw can overturn weak sector noise without hard-forcing.
+    boost = min(1.45, 0.55 * len(favored_hits) * conf_scale * stance_mult)
+    penalty = min(1.25, 0.50 * len(risk_hits) * conf_scale * stance_mult)
+    # Stock-level reply answers: smaller additive soft nudge (name/code match only).
+    if reply_stock_bull_hit and soft_context_valid:
+        boost = min(1.55, boost + 0.35 * conf_scale)
+    if reply_stock_bear_hit and soft_context_valid:
+        penalty = min(1.35, penalty + 0.35 * conf_scale)
+    # @sszcw explicit stock calls are trusted direct confirmation. They still
+    # need T+1 price/flow structure in the eligibility gate below.
+    if trusted_stock_bull_hit and soft_context_valid:
+        boost = min(1.75, boost + 0.75 * conf_scale)
+    if trusted_stock_bear_hit and soft_context_valid:
+        penalty = min(1.55, penalty + 0.75 * conf_scale)
+    if not soft_context_valid:
+        boost = min(boost, 0.35)
+        penalty = min(penalty, 0.35)
+    high_confidence_favored = bool(
+        favored_hits and confidence >= 0.60 and high_confidence_allowed and soft_context_valid
+    )
+    high_confidence_risk = bool(
+        risk_hits and confidence >= 0.60 and high_confidence_allowed and soft_context_valid
+    )
+    reality = soft_context_failure_mode_reality_check(row, context)
+    historical_failure_mode_penalty = float(safe_float(reality.get('penalty')) or 0.0)
+    historical_failure_mode_reasons = list(reality.get('reasons') or [])
+    if historical_failure_mode_penalty > 0:
+        boost = max(0.0, boost - historical_failure_mode_penalty)
+        penalty = min(1.35, penalty + historical_failure_mode_penalty)
+        if historical_failure_mode_penalty >= 0.45:
+            high_confidence_favored = False
+    return {
+        'favored_hits': favored_hits,
+        'risk_hits': risk_hits,
+        'soft_boost': round(boost, 4),
+        'soft_penalty': round(penalty, 4),
+        'net_soft_bias': round(boost - penalty, 4),
+        'confidence': round(confidence, 4),
+        'stance_mult': round(stance_mult, 3),
+        'high_confidence_favored': high_confidence_favored,
+        'high_confidence_risk': high_confidence_risk,
+        'soft_context_valid': soft_context_valid,
+        'soft_context_source': soft_source or ('seed' if seed_posts else 'unknown'),
+        'historical_failure_mode_penalty': round(historical_failure_mode_penalty, 4),
+        'historical_failure_mode_reasons': historical_failure_mode_reasons,
+        'historical_failure_mode_status': reality.get('status'),
+        'historical_failure_mode_sample_count': int(reality.get('sample_count') or 0),
+        'live_post_count': live_posts,
+        'seed_post_count': seed_posts,
+        'cache_post_count': cache_posts,
+        'reply_post_count': reply_posts,
+        'qa_count': qa_count,
+        'reply_stock_bull_hit': reply_stock_bull_hit,
+        'reply_stock_bear_hit': reply_stock_bear_hit,
+        'trusted_stock_bull_hit': trusted_stock_bull_hit,
+        'trusted_stock_bear_hit': trusted_stock_bear_hit,
+        'trusted_stock_confirmation': bool(
+            trusted_stock_bull_hit and not trusted_stock_bear_hit and soft_context_valid
+        ),
+        'trusted_stock_prediction_source': '@sszcw' if trusted_stock_bull_hit or trusted_stock_bear_hit else '',
+        'high_confidence_allowed': high_confidence_allowed,
+        'importance': 'elevated_sszcw_soft',
+        'market_stance': stance,
+        'index_regime_hint': str(context.get('index_regime_hint') or ''),
+        'selected_for_production': False,
+        'hard_gate': False,
+        'force_pick': False,
+    }
 
 
 def market_adaptive_context(row: Dict[str, Any], bundle: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -3798,7 +4562,7 @@ def market_adaptive_context(row: Dict[str, Any], bundle: Dict[str, Any] | None =
             and max_consecutive is not None and max_consecutive >= 5
         )
     )
-    return {
+    context = {
         'market_regime': market_regime,
         'market_follow_through_score': market_follow_through_score,
         'market_breadth_up_pct': market_breadth_up_pct,
@@ -3816,50 +4580,38 @@ def market_adaptive_context(row: Dict[str, Any], bundle: Dict[str, Any] | None =
         'broken_limit_pressure': broken_limit_pressure,
         'overheated_market': overheated_market,
     }
+    # Soft pre-pick context (sszcw) refines production_regime (climax / no_main).
+    soft = None
+    if isinstance(row, dict):
+        soft = row.get('pre_pick_market_context_soft') or row.get('soft_context')
+    if not isinstance(soft, dict) and isinstance(bundle, dict):
+        soft = bundle.get('pre_pick_market_context_soft') or bundle.get('soft_context')
+        snap = bundle.get('market_snapshot') if isinstance(bundle.get('market_snapshot'), dict) else {}
+        if not isinstance(soft, dict):
+            soft = snap.get('pre_pick_market_context_soft') or snap.get('soft_context')
+    try:
+        from xiaogu_regime_policy import attach_regime_to_context
+
+        attach_regime_to_context(context, soft if isinstance(soft, dict) else None)
+    except Exception:
+        context['production_regime'] = (
+            'strong' if market_regime == 'strong' else ('weak' if market_regime == 'weak' else 'sideways')
+        )
+    return context
 
 
 def market_adaptive_thresholds(candidate_stage: str, market_context: Dict[str, Any]) -> Dict[str, float]:
-    weak_acceptance_market = bool(market_context.get('weak_acceptance_market'))
-    supportive_market = bool(market_context.get('supportive_market')) and not weak_acceptance_market
-    overheated_market = bool(market_context.get('overheated_market'))
-    if candidate_stage == 'near_limit_9_plus':
-        return {
-            'component_min': 0.74 if weak_acceptance_market else (0.70 if overheated_market else (0.64 if supportive_market else 0.66)),
-            'buy_confirmation_min': 0.68 if (weak_acceptance_market or overheated_market) else (0.58 if supportive_market else 0.60),
-            'order_book_min': 0.56 if (weak_acceptance_market or overheated_market) else (0.48 if supportive_market else 0.50),
-            'dynamic_required_confirmations': 4 if supportive_market else 5,
-            'dynamic_close_position_min': 0.84,
-            'dynamic_fund_flow_min': 0.60 if (weak_acceptance_market or overheated_market) else (0.50 if supportive_market else 0.55),
-            'dynamic_time_series_min': 0.20 if (weak_acceptance_market or overheated_market) else 0.10,
-        }
-    if candidate_stage == 'high_7_to_9':
-        return {
-            'component_min': 0.70 if weak_acceptance_market else (0.66 if overheated_market else (0.55 if supportive_market else 0.60)),
-            'buy_confirmation_min': 0.68 if weak_acceptance_market else (0.62 if overheated_market else (0.55 if supportive_market else 0.60)),
-            'order_book_min': 0.55 if weak_acceptance_market else (0.52 if overheated_market else (0.48 if supportive_market else 0.50)),
-            'dynamic_required_confirmations': 3 if supportive_market else 4,
-            'dynamic_close_position_min': 0.76 if supportive_market else 0.78,
-            'dynamic_fund_flow_min': 0.55 if (weak_acceptance_market or overheated_market) else 0.45,
-            'dynamic_time_series_min': 0.20 if weak_acceptance_market else 0.10,
-        }
-    return {
-        'component_min': 0.60 if weak_acceptance_market else (0.58 if overheated_market else (0.52 if supportive_market else 0.55)),
-        'buy_confirmation_min': 0.62 if weak_acceptance_market else (0.60 if overheated_market else (0.55 if supportive_market else 0.60)),
-        'order_book_min': 0.52 if weak_acceptance_market else (0.50 if overheated_market else (0.46 if supportive_market else 0.48)),
-        'dynamic_required_confirmations': 3 if supportive_market else 4,
-        'dynamic_close_position_min': 0.65,
-        'dynamic_fund_flow_min': 0.50 if weak_acceptance_market else (0.45 if supportive_market else 0.48),
-        'dynamic_time_series_min': 0.15 if weak_acceptance_market else 0.10,
-    }
+    """Delegate to xiaogu_regime_policy (single owner for dynamic strategy gates)."""
+    from xiaogu_regime_policy import market_adaptive_thresholds as _regime_thresholds
+
+    return _regime_thresholds(candidate_stage, market_context if isinstance(market_context, dict) else {})
 
 
 def sector_gate_threshold_for_market(market_context: Dict[str, Any]) -> float:
-    market_regime = str(market_context.get('market_regime') or '')
-    if market_regime == 'weak':
-        return 0.2
-    if market_regime == 'neutral':
-        return 0.4
-    return 0.5
+    """Delegate to xiaogu_regime_policy sector gate table."""
+    from xiaogu_regime_policy import sector_gate_threshold_for_market as _regime_sector_gate
+
+    return float(_regime_sector_gate(market_context if isinstance(market_context, dict) else {}))
 
 
 def normalize_bundle_vei_tags(bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -3903,6 +4655,8 @@ def structured_signal_profile(row: Dict[str, Any], bundle: Dict[str, Any] | None
         elif bool((research_signals.get('a_share_risk_review') or {}).get('disqualified_for_paper_pick')):
             regulatory_hard_block = 'a_share_risk_review_disqualified'
     tags = normalize_tag_list(details.get('sector_opportunity_tags') or row.get('sector_opportunity_tags') or [])
+    # Defense-in-depth: strip historical REPLAY_* broadcast pollution from theme tags.
+    tags = [tag for tag in tags if not str(tag).startswith('REPLAY_')]
     vei_tags = normalize_vei_phase_d_tags((row.get('vei_phase_d_tags') or []) + inferred_vei_phase_d_tags(details))
     sector_opportunity_score = safe_float(details.get('sector_opportunity_score'))
     if sector_opportunity_score is None:
@@ -4736,7 +5490,7 @@ def candidate_capital_risk_profile(row: Dict[str, Any]) -> Dict[str, Any]:
     announcement_strength = safe_float(row.get('announcement_catalyst_score')) or 0.0
     news_strength = safe_float(row.get('news_catalyst_strength')) or 0.0
     sector_news_strength = safe_float(row.get('sector_news_catalyst_score')) or 0.0
-    continuation_gene = safe_float(row.get('continuation_gene_score')) or 0.0
+    continuation_gene = continuation_gene_evidence(row)['effective_score']
     direct_catalyst_strength = max(announcement_strength, news_strength)
     catalyst_strength = max(direct_catalyst_strength, sector_news_strength * 0.50)
     weak_limitup_confirmation = max(safe_float(row.get('limitup_reason_quality_score')) or 0.0, continuation_gene) < 0.45
@@ -4788,6 +5542,280 @@ def candidate_capital_risk_profile(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def continuation_gene_evidence(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Separate own continuation evidence from sector-only yesterday-limitup proxy.
+
+    Scanner v2 uses the same ``continuation_gene_score`` field for both
+    candidate-owned yesterday-limitup evidence and sector breadth proxy. A
+    proxy-only row must remain explainable context, not a positive stock-level
+    continuation signal in the profit-first rank.
+    """
+    raw_score = min(1.0, max(0.0, safe_float(row.get('continuation_gene_score')) or 0.0))
+    auxiliary = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
+    yesterday_gene = (
+        row.get('yesterday_limitup_gene_evidence')
+        if isinstance(row.get('yesterday_limitup_gene_evidence'), dict)
+        else auxiliary.get('yesterday_limitup_gene')
+        if isinstance(auxiliary.get('yesterday_limitup_gene'), dict)
+        else {}
+    )
+    one_word_gene = (
+        row.get('yesterday_one_word_limitup_gene_evidence')
+        if isinstance(row.get('yesterday_one_word_limitup_gene_evidence'), dict)
+        else auxiliary.get('yesterday_one_word_limitup_gene')
+        if isinstance(auxiliary.get('yesterday_one_word_limitup_gene'), dict)
+        else {}
+    )
+    previous_pct = safe_float(
+        row.get('prev_day_pct_chg')
+        if row.get('prev_day_pct_chg') is not None
+        else row.get('yesterday_pct_chg')
+    ) or 0.0
+    explicit_yesterday_missing = bool(
+        str(yesterday_gene.get('status') or '').strip().upper() == 'MISSING'
+        and not yesterday_gene.get('candidate_was_yesterday_limitup')
+        and not yesterday_gene.get('records')
+    )
+    own_yesterday_evidence = bool(
+        (
+            (row.get('previous_limitup') or row.get('was_yesterday_limitup'))
+            and not explicit_yesterday_missing
+        )
+        or yesterday_gene.get('candidate_was_yesterday_limitup')
+        or yesterday_gene.get('records')
+        or one_word_gene.get('candidate_was_yesterday_one_word_limitup')
+        or one_word_gene.get('records')
+        or previous_pct >= 9.5
+    )
+    sector_proxy = (
+        row.get('sector_yesterday_limitup_gene_proxy')
+        if isinstance(row.get('sector_yesterday_limitup_gene_proxy'), dict)
+        else auxiliary.get('sector_yesterday_limitup_gene_proxy')
+        if isinstance(auxiliary.get('sector_yesterday_limitup_gene_proxy'), dict)
+        else {}
+    )
+    proxy_status = str(sector_proxy.get('status') or '').strip().upper()
+    sector_matches = sector_proxy.get('sector_matches') or []
+    one_word_matches = sector_proxy.get('one_word_sector_matches') or []
+    sector_proxy_match_counts: Dict[str, int] = {}
+    for match in [*sector_matches, *one_word_matches]:
+        if not isinstance(match, dict):
+            continue
+        sector_name = str(match.get('sector') or '').strip().lower()
+        match_key = sector_name or f'unknown_{len(sector_proxy_match_counts)}'
+        match_count = max(1, int(safe_float(match.get('count')) or 1))
+        sector_proxy_match_counts[match_key] = max(
+            sector_proxy_match_counts.get(match_key, 0),
+            match_count,
+        )
+    sector_proxy_match_count = sum(sector_proxy_match_counts.values())
+    direct_limitup_reason = any(
+        isinstance(item, dict)
+        and not bool(item.get('proxy'))
+        and 'sector_proxy' not in str(item.get('source') or '').lower()
+        and str(item.get('reason') or item.get('text') or '').strip()
+        for item in (row.get('limitup_reason_evidence') or [])
+    )
+    proxy_declared = bool(
+        proxy_status == 'PROXY'
+        and (sector_matches or one_word_matches or safe_float(sector_proxy.get('continuation_gene_score')) is not None)
+    )
+    proxy_only = bool(
+        raw_score > 0.0
+        and proxy_declared
+        and not own_yesterday_evidence
+        and not direct_limitup_reason
+    )
+    effective_score = 0.0 if proxy_only else raw_score
+    return {
+        'raw_score': round(raw_score, 4),
+        'effective_score': round(effective_score, 4),
+        'own_yesterday_evidence': own_yesterday_evidence,
+        'direct_limitup_reason': direct_limitup_reason,
+        'proxy_declared': proxy_declared,
+        'proxy_only': proxy_only,
+        'sector_proxy_match_count': sector_proxy_match_count,
+        'source': 'sector_yesterday_limitup_proxy_only' if proxy_only else (
+            'candidate_yesterday_limitup' if own_yesterday_evidence else (
+                'direct_limitup_reason' if direct_limitup_reason else 'explicit_candidate_gene'
+            )
+        ),
+    }
+
+
+def classify_limitup_reason_evidence(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Classify limitup-reason evidence quality for eligibility hard paths.
+
+    DIRECT: non-proxy stock-level limitup_pool reason.
+    PROXY: only sector/limitup_pool_sector_proxy (or status PROXY without direct items).
+    GENE: no direct/proxy reason text but yesterday/continuation gene present.
+    MISSING: none of the above.
+
+    Pure PROXY may remain soft/diagnostic; it must not alone hard-pass
+    buy_confirmation or L2 near-limit exemption.
+    """
+    status = str(row.get('limitup_reason_status') or '').strip().upper()
+    evidence = row.get('limitup_reason_evidence') or []
+    if not isinstance(evidence, list):
+        evidence = []
+    has_direct = False
+    has_proxy = False
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get('source') or '').lower()
+        is_proxy_flag = bool(item.get('proxy'))
+        if is_proxy_flag or 'sector_proxy' in source or source.endswith('_proxy'):
+            has_proxy = True
+            continue
+        reason = str(item.get('reason') or item.get('text') or '').strip()
+        if reason or source in ('limitup_pool', 'limitup_reason', 'direct'):
+            has_direct = True
+    gene_evidence = continuation_gene_evidence(row)
+    continuation_gene = gene_evidence['effective_score']
+    yesterday_gene = row.get('yesterday_limitup_gene_evidence') if isinstance(row.get('yesterday_limitup_gene_evidence'), dict) else {}
+    has_gene = bool(
+        continuation_gene > 0.0
+        or yesterday_gene.get('candidate_was_yesterday_limitup')
+        or yesterday_gene.get('records')
+    )
+    if has_direct or status in ('PASS', 'OK', 'CONFIRMED', 'DIRECT'):
+        # Explicit DIRECT/PASS wins unless evidence is only proxy-marked.
+        if has_direct or (status in ('PASS', 'OK', 'CONFIRMED', 'DIRECT') and not has_proxy):
+            evidence_class = 'DIRECT'
+        elif has_proxy:
+            evidence_class = 'PROXY'
+        else:
+            evidence_class = 'DIRECT'
+    elif has_proxy or status == 'PROXY':
+        evidence_class = 'PROXY'
+    elif has_gene or status == 'GENE':
+        evidence_class = 'GENE'
+    else:
+        evidence_class = 'MISSING'
+    return {
+        'limitup_reason_evidence_class': evidence_class,
+        'limitup_reason_has_direct': has_direct,
+        'limitup_reason_has_proxy': has_proxy,
+        'limitup_reason_has_gene': has_gene,
+        'continuation_gene_evidence': gene_evidence,
+        'limitup_reason_status_normalized': status or 'MISSING',
+    }
+
+
+def limitup_reason_supports_hard_confirmation(
+    row: Dict[str, Any],
+    *,
+    limitup_reason_strength: float | None,
+    seal_order_strength: float | None = None,
+    order_book_pressure: float | None = None,
+    buy_confirmation_min: float = 0.60,
+    order_book_confirmation_min: float = 0.50,
+    news_catalyst_strength: float | None = None,
+    announcement_catalyst_score: float | None = None,
+) -> Dict[str, Any]:
+    """Whether limitup_reason_strength may count as a hard buy/L2 confirmation hit.
+
+    Pure PROXY strength alone is soft-only. PROXY may hard-confirm only when
+    paired with seal/order_book/direct news/announcement above threshold.
+    """
+    classification = classify_limitup_reason_evidence(row)
+    evidence_class = classification['limitup_reason_evidence_class']
+    strength_ok = limitup_reason_strength is not None and limitup_reason_strength >= buy_confirmation_min
+    companion_hits: List[str] = []
+    if seal_order_strength is not None and seal_order_strength >= buy_confirmation_min:
+        companion_hits.append(f'seal_order_strength>={buy_confirmation_min:.2f}')
+    if order_book_pressure is not None and order_book_pressure >= order_book_confirmation_min:
+        companion_hits.append(f'order_book_pressure>={order_book_confirmation_min:.2f}')
+    if (news_catalyst_strength or 0.0) >= 0.75:
+        companion_hits.append('news_catalyst_strength>=0.75')
+    if (announcement_catalyst_score or 0.0) >= 0.75:
+        companion_hits.append('announcement_catalyst_score>=0.75')
+    hard_allowed = False
+    soft_only = False
+    if not strength_ok:
+        hard_allowed = False
+    elif evidence_class == 'DIRECT':
+        hard_allowed = True
+    elif evidence_class == 'PROXY':
+        if companion_hits:
+            hard_allowed = True
+        else:
+            soft_only = True
+    else:
+        # GENE / MISSING: strength alone is not stock-level reason hard-pass.
+        soft_only = True
+    return {
+        **classification,
+        'limitup_reason_strength_meets_threshold': strength_ok,
+        'limitup_reason_hard_confirmation_allowed': hard_allowed,
+        'limitup_reason_soft_only': soft_only,
+        'limitup_reason_companion_hits': companion_hits,
+    }
+
+
+def strong_sector_theme_partial_aux_exception_allowed(
+    row: Dict[str, Any],
+    *,
+    board: str,
+    auxiliary_status_normalized: str,
+    research_panel_overall: str,
+    sector_gate_pass: bool,
+    main_theme_core_score: float,
+    main_theme_alignment_score: float,
+    sector_catalyst_score: float,
+    topic_propagation_score: float,
+    near_limit_up_risk: bool,
+    regulatory_block: str,
+    opportunity_block: str,
+    capital_risk_codes: Any,
+    price: float | None,
+    limitup_quality_block: str,
+    limitup_reason_evidence_class: str,
+    direct_catalyst_confirmation: bool,
+    news_catalyst_strength: float,
+    announcement_catalyst_score: float,
+) -> bool:
+    """Partial aux exception with production guardrails (M3).
+
+    Keeps legitimate strong-theme PARTIAL paths; blocks Haixing-style leaks:
+    near price cap, chase/quality block, pure PROXY reason, no stock catalyst.
+    """
+    if board != 'main':
+        return False
+    if auxiliary_status_normalized != 'PARTIAL':
+        return False
+    if research_panel_overall not in ('PARTIAL', 'PASS'):
+        return False
+    theme_strong = bool(
+        sector_gate_pass
+        or main_theme_core_score >= 0.70
+        or main_theme_alignment_score >= 0.70
+        or sector_catalyst_score >= 0.75
+        or topic_propagation_score >= 0.75
+    )
+    if not theme_strong:
+        return False
+    if near_limit_up_risk or regulatory_block or opportunity_block or capital_risk_codes:
+        return False
+    if price is not None and price >= NEAR_PRICE_CAP_THRESHOLD:
+        return False
+    quality_block = str(limitup_quality_block or '').strip().upper()
+    if quality_block:
+        return False
+    proxy_only = limitup_reason_evidence_class == 'PROXY'
+    if proxy_only and not direct_catalyst_confirmation:
+        return False
+    no_stock_catalyst = (
+        (main_theme_core_score or 0.0) == 0.0
+        and (news_catalyst_strength or 0.0) == 0.0
+        and (announcement_catalyst_score or 0.0) == 0.0
+    )
+    if no_stock_catalyst and not direct_catalyst_confirmation:
+        return False
+    return True
+
+
 def limitup_probability_proxy_components(
     row: Dict[str, Any],
     profile: Dict[str, Any] | None = None,
@@ -4797,21 +5825,28 @@ def limitup_probability_proxy_components(
     capital = row.get('capital_risk_profile') if isinstance(row.get('capital_risk_profile'), dict) else candidate_capital_risk_profile(row)
     auxiliary = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
     sector_proxy = row.get('sector_yesterday_limitup_gene_proxy') or auxiliary.get('sector_yesterday_limitup_gene_proxy') or {}
+    gene_evidence = continuation_gene_evidence(row)
     sector_gene = safe_float(sector_proxy.get('continuation_gene_score')) if isinstance(sector_proxy, dict) else None
-    sector_gene = sector_gene if sector_gene is not None else (safe_float(row.get('continuation_gene_score')) or 0.0)
+    sector_gene = 0.0 if (
+        gene_evidence['proxy_only']
+        and gene_evidence['sector_proxy_match_count'] < 3
+    ) else (
+        sector_gene if sector_gene is not None else gene_evidence['effective_score']
+    )
     positive = {
         'sector_yesterday_limitup_gene_proxy': min(1.0, sector_gene) * 0.13,
         'limitup_reason_strength': min(1.0, profile.get('limitup_reason_strength') or 0.0) * 0.10,
         'seal_order_strength': min(1.0, profile.get('seal_order_strength') or 0.0) * 0.10,
         'close_position_score': min(1.0, profile.get('close_position_score') or 0.0) * 0.08,
         'volume_ratio': min(1.0, (profile.get('volume_ratio') or 0.0) / 3.0) * 0.07,
-        'fund_flow_momentum': min(1.0, max(0.0, profile.get('fund_flow_momentum') or 0.0)) * 0.10,
+        'fund_flow_momentum': min(1.0, max(0.0, profile.get('fund_flow_momentum') or 0.0)) * 0.05,
         'time_series_momentum': min(1.0, max(0.0, profile.get('time_series_momentum') or 0.0)) * 0.06,
-        'confirmed_news_catalyst': min(1.0, profile.get('news_catalyst_strength') or 0.0) * 0.09,
-        'announcement_catalyst': min(1.0, profile.get('announcement_catalyst_score') or 0.0) * 0.08,
+        'confirmed_news_catalyst': min(1.0, profile.get('news_catalyst_strength') or 0.0) * 0.11,
+        'announcement_catalyst': min(1.0, profile.get('announcement_catalyst_score') or 0.0) * 0.10,
+        'sector_news_catalyst': min(1.0, profile.get('sector_news_catalyst_score') or 0.0) * 0.08,
         'low_position_catalyst_score': min(1.0, safe_float(row.get('low_position_catalyst_score')) or 0.0) * 0.09,
-        'main_theme_alignment_score': min(1.0, profile.get('main_theme_alignment_score') or 0.0) * 0.05,
-        'continuation_gene_score': min(1.0, safe_float(row.get('continuation_gene_score')) or 0.0) * 0.05,
+        'main_theme_alignment_score': min(1.0, profile.get('main_theme_alignment_score') or 0.0) * 0.12,
+        'continuation_gene_score': gene_evidence['effective_score'] * 0.14,
     }
     negative = {
         'failed_limitup_risk': min(1.0, capital.get('failed_limitup_risk') or 0.0) * 0.25,
@@ -4845,12 +5880,18 @@ def social_confirmation_profile(row: Dict[str, Any]) -> Dict[str, Any]:
     collection_status = str(row.get('social_signal_collection_status') or '').upper()
     collection_errors = list(row.get('social_signal_error') or [])
     reasons: List[str] = []
-    if quality == 'MISSING' or not source_layers:
+    has_layers = bool(source_layers) or quality in ('MEDIUM', 'HIGH', 'LOW') or collection_status == 'PASS'
+    if not has_layers and quality == 'MISSING':
         status = 'MISSING'
         reasons.append('social_signal_missing')
     elif (noise or 0.0) >= 0.70:
         status = 'NOISY'
         reasons.append('social_noise_risk_high')
+    elif (catalyst or 0.0) >= 0.60 and quality in ('MEDIUM', 'HIGH'):
+        # theme_strength_last30d is intentionally unused on eastmoney-only path;
+        # catalyst + quality is enough for soft confirmation.
+        status = 'PASS'
+        reasons.append('social_catalyst_confirmation')
     elif (catalyst or 0.0) >= 0.60 and (theme or 0.0) >= 0.50:
         status = 'PASS'
         reasons.append('social_theme_confirmation')
@@ -5002,41 +6043,102 @@ def shadow_risk_profile(
 
 
 def paper_pick_risk_explanation_gate(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Reject an unexplained broken-board/outflow/popularity-trap PAPER_PICK."""
+    """Reject unexplained broken-board/outflow/popularity-trap PAPER_PICK paths."""
     profile = structured_signal_profile(row)
     capital = row.get('capital_risk_profile') if isinstance(row.get('capital_risk_profile'), dict) else candidate_capital_risk_profile(row)
     proxy = limitup_probability_proxy_components(row)
-    triple_risk = bool(
-        (capital.get('failed_limitup_risk') or 0.0) > 0
-        and (capital.get('main_buy_outflow_pressure') or 0.0) > 0
-        and ((capital.get('high_popularity_trap_risk') or 0.0) > 0 or (capital.get('popularity_crowding_risk') or 0.0) >= 0.8)
+    failed_limitup = (capital.get('failed_limitup_risk') or 0.0) > 0
+    outflow = (capital.get('main_buy_outflow_pressure') or 0.0) > 0
+    high_popularity = (
+        (capital.get('high_popularity_trap_risk') or 0.0) > 0
+        or (capital.get('popularity_crowding_risk') or 0.0) >= 0.8
     )
+    triple_risk = bool(failed_limitup and outflow and high_popularity)
+    # 07-13 style: broken board + main outflow without strong catalyst/gene rebuttal.
+    dual_broken_outflow = bool(failed_limitup and outflow)
     strong_rebuttals = []
     if (profile.get('news_catalyst_strength') or 0.0) >= 0.75:
         strong_rebuttals.append('confirmed_news_catalyst_strong')
     if (profile.get('announcement_catalyst_score') or 0.0) >= 0.75:
         strong_rebuttals.append('announcement_catalyst_strong')
-    if (safe_float(row.get('continuation_gene_score')) or 0.0) >= 0.70:
+    if continuation_gene_evidence(row)['effective_score'] >= 0.70:
         strong_rebuttals.append('sector_yesterday_limitup_gene_proxy_strong')
     if proxy['limitup_probability_proxy'] >= 0.65 and proxy['limitup_proxy_status'] != 'BLOCKED':
         strong_rebuttals.append('limitup_probability_proxy_strong')
+    blocked = (triple_risk and not strong_rebuttals) or (dual_broken_outflow and not strong_rebuttals)
     return {
-        'status': 'PASS' if not triple_risk or strong_rebuttals else 'FAIL',
+        'status': 'FAIL' if blocked else 'PASS',
         'triple_risk': triple_risk,
+        'dual_broken_outflow_risk': dual_broken_outflow,
         'strong_rebuttals': strong_rebuttals,
-        'rule': 'failed_limitup + outflow + high_popularity requires explicit catalyst/risk rebuttal',
+        'rule': (
+            'failed_limitup + outflow (+ high_popularity) requires explicit catalyst/gene rebuttal; '
+            'dual broken-board+outflow also blocked without rebuttal'
+        ),
     }
 
 
 def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Explainable adjustments within the existing structured ranking basis."""
+    """Explainable adjustments within the existing structured ranking basis.
+
+    Objective (production ranking): expected next-day *profit*, not limit-up rate.
+    Limit-up / near-limit is a bonus only when continuation / mainline / catalyst
+    evidence supports forward edge. Bare chase-high and hot-fund shells are demoted.
+    """
     profile = structured_signal_profile(row)
     capital = row.get('capital_risk_profile') if isinstance(row.get('capital_risk_profile'), dict) else candidate_capital_risk_profile(row)
     auxiliary = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
     sector_proxy = row.get('sector_yesterday_limitup_gene_proxy') or auxiliary.get('sector_yesterday_limitup_gene_proxy') or {}
+    gene_evidence = continuation_gene_evidence(row)
     sector_proxy_score = safe_float(sector_proxy.get('continuation_gene_score')) if isinstance(sector_proxy, dict) else None
     if sector_proxy_score is None:
-        sector_proxy_score = safe_float(row.get('continuation_gene_score')) or 0.0
+        sector_proxy_score = gene_evidence['effective_score']
+    if (
+        gene_evidence['proxy_only']
+        and gene_evidence['sector_proxy_match_count'] < 3
+    ):
+        sector_proxy_score = 0.0
+    # Sector match without explicit gene score still counts as continuation structure.
+    # Strength must scale with match breadth: single-name (count=1) is noise (7/27 亨通型 FP),
+    # multi-name sector (≥3) is real board-width continuation (中利/贵金属型).
+    sector_proxy_status = str(sector_proxy.get('status') or '').strip().upper() if isinstance(sector_proxy, dict) else ''
+    sector_match_items = []
+    if isinstance(sector_proxy, dict):
+        for key in ('sector_matches', 'one_word_sector_matches'):
+            raw_matches = sector_proxy.get(key) or []
+            if isinstance(raw_matches, list):
+                sector_match_items.extend([m for m in raw_matches if isinstance(m, dict)])
+    sector_proxy_has_match = bool(sector_match_items)
+    sector_proxy_match_counts: Dict[str, int] = {}
+    for match in sector_match_items:
+        try:
+            sector_name = str(match.get('sector') or '').strip().lower()
+            match_key = sector_name or f'unknown_{len(sector_proxy_match_counts)}'
+            match_count = max(1, int(safe_float(match.get('count')) or 1))
+            sector_proxy_match_counts[match_key] = max(
+                sector_proxy_match_counts.get(match_key, 0),
+                match_count,
+            )
+        except (TypeError, ValueError):
+            match_key = f'unknown_{len(sector_proxy_match_counts)}'
+            sector_proxy_match_counts[match_key] = max(
+                sector_proxy_match_counts.get(match_key, 0),
+                1,
+            )
+    sector_proxy_match_count = sum(sector_proxy_match_counts.values())
+    proxy_only_narrow_sector_suppress = 0.0
+    if gene_evidence['proxy_only'] and sector_proxy_match_count < 3:
+        # Two or fewer sector matches are context, not board-width continuation.
+        proxy_only_narrow_sector_suppress = 1.25
+    # Floor by breadth only — never grant 0.55 on a lone sector hit.
+    if not gene_evidence['proxy_only'] and sector_proxy_has_match and (sector_proxy_score or 0.0) < 0.55:
+        if sector_proxy_match_count >= 3:
+            sector_proxy_score = max(float(sector_proxy_score or 0.0), 0.55)
+        elif sector_proxy_match_count >= 2:
+            sector_proxy_score = max(float(sector_proxy_score or 0.0), 0.40)
+        else:
+            # count=1: soft hint only; cannot mint profit_edge / strong_continuation alone.
+            sector_proxy_score = max(float(sector_proxy_score or 0.0), 0.22)
     capital_flow = auxiliary.get('capital_flow') if isinstance(auxiliary.get('capital_flow'), dict) else {}
     capital_flow_quality = 1.0 if capital_flow else (1.0 if isinstance(row.get('data_directory_capital_flow'), dict) and row.get('data_directory_capital_flow') else 0.0)
     news_evidence = auxiliary.get('news') if isinstance(auxiliary.get('news'), dict) else {}
@@ -5056,43 +6158,316 @@ def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
     risk_notice = min(1.0, profile.get('risk_notice_penalty') or 0.0)
     limitup_proxy = limitup_probability_proxy_components(row)
     risk_gate = paper_pick_risk_explanation_gate(row)
+    sector_heat = min(1.0, max(profile.get('sector_opportunity_score') or 0.0, 0.0))
+    theme_alignment = min(1.0, max(profile.get('main_theme_alignment_score') or 0.0, 0.0))
+    theme_core = min(1.0, max(profile.get('main_theme_core_score') or 0.0, 0.0))
+    signal_pct = profile.get('signal_pct') or safe_float(row.get('signal_pct')) or 0.0
+    # Profile may omit fund_flow_momentum on sparse rows; fall back to row/components.
+    fund_flow = (
+        profile.get('fund_flow_momentum')
+        if profile.get('fund_flow_momentum') is not None
+        else None
+    )
+    if fund_flow is None:
+        comps = row.get('structured_score_components') if isinstance(row.get('structured_score_components'), dict) else {}
+        fund_flow = safe_float(row.get('fund_flow_momentum'))
+        if fund_flow is None:
+            fund_flow = safe_float(comps.get('fund_flow_momentum'))
+    fund_flow = float(fund_flow or 0.0)
+    real_catalyst = max(confirmed_news, announcement, min(1.0, sector_proxy_score or 0.0), low_position)
+    sector_news = min(1.0, profile.get('sector_news_catalyst_score') or 0.0)
+    continuation_gene = gene_evidence['effective_score']
+    real_catalyst = max(real_catalyst, sector_news, continuation_gene * 0.5)
+    # High extension without catalyst/gene is a large-loss pathway (factor audit).
+    chase_high = 0.0
+    if signal_pct >= 7.0 and real_catalyst < 0.45 and (sector_proxy_score or 0.0) < 0.45:
+        chase_high = min(1.0, (signal_pct - 6.0) / 4.0)
+    if fund_flow >= 0.75 and real_catalyst < 0.45 and signal_pct >= 4.0:
+        chase_high = max(chase_high, min(1.0, fund_flow))
+    # Hollow theme-core (high core, weak catalyst/gene) must not dominate production.
+    hollow_theme = 0.0
+    if theme_core >= 0.60 and real_catalyst < 0.45 and (sector_proxy_score or 0.0) < 0.50:
+        hollow_theme = theme_core
+    # Pure PROXY limitup reason + edge (mt/ma≈0) + near price-cap: soft ranking suppress (M1/M2/M5).
+    limitup_class = classify_limitup_reason_evidence(row)
+    evidence_class = str(limitup_class.get('limitup_reason_evidence_class') or 'MISSING')
+    continuation_gene_support = limitup_class.get('limitup_reason_has_gene') or False
+    # Strong continuation requires breadth or own gene — bare PROXY+any match is FP bait.
+    strong_sector_proxy = bool(
+        (sector_proxy_score or 0.0) >= 0.55 and sector_proxy_match_count >= 3
+    )
+    strong_continuation_limitup = bool(
+        (
+            continuation_gene_support
+            and (
+                continuation_gene >= 0.55
+                or evidence_class == 'DIRECT'
+            )
+        )
+        or strong_sector_proxy
+        or continuation_gene >= 0.55
+    )
+    # Profit-edge evidence (July audit): continuation / sector gene / direct news —
+    # NOT bare theme_core, NOT bare fund_flow, NOT low_position alone.
+    # Weak single-name sector proxy (count=1) does not mint profit_edge by itself.
+    mainline_soft_early = soft_mainline_fund_bias(row)
+    mainline_boost_early = float(mainline_soft_early.get('soft_boost') or 0.0)
+    sector_proxy_for_edge = min(1.0, float(sector_proxy_score or 0.0))
+    if sector_proxy_match_count < 2 and continuation_gene < 0.25 and not confirmed_news:
+        sector_proxy_for_edge = min(sector_proxy_for_edge, 0.30)
+    profit_edge = max(
+        continuation_gene,
+        sector_proxy_for_edge if sector_proxy_match_count >= 2 or continuation_gene >= 0.20 else 0.0,
+        confirmed_news,
+        0.55 if strong_continuation_limitup else 0.0,
+    )
+    # Own gene / multi-name sector / mainline can absorb soft sector-news / announcement.
+    # Bare announcement alone must not manufacture profit_edge (7/27 亨通 announcement=1.0 FP).
+    if continuation_gene >= 0.25 or sector_proxy_match_count >= 2 or mainline_boost_early >= 0.20:
+        profit_edge = max(profit_edge, sector_news * 0.65, announcement * 0.40)
+    elif continuation_gene >= 0.15 or float(sector_proxy_score or 0.0) >= 0.35:
+        profit_edge = max(profit_edge, sector_news * 0.40, announcement * 0.20)
+    # Hot fund + high theme without profit-edge ≈ next-day mean reversion shell (e.g. 7/27 大金型).
+    hot_fund_no_profit = 0.0
+    if fund_flow >= 0.70 and profit_edge < 0.45 and continuation_gene < 0.35:
+        hot_fund_no_profit = min(1.15, fund_flow * 0.90)
+        if theme_core >= 0.70:
+            hot_fund_no_profit = min(1.25, hot_fund_no_profit + 0.30)
+        if signal_pct >= 5.0 and signal_pct < 9.5:
+            # Mid-extension fund shell (not sealed board): common July loss path.
+            hot_fund_no_profit = min(1.30, hot_fund_no_profit + 0.15)
+    price = safe_float(row.get('price'))
+    edge_proxy_penalty = 0.0
+    if evidence_class == 'PROXY' and real_catalyst < 0.45:
+        edge_proxy_penalty += 0.55
+        if theme_core <= 0.05 and theme_alignment <= 0.05:
+            edge_proxy_penalty += 0.35
+        if price is not None and price >= NEAR_PRICE_CAP_THRESHOLD:
+            edge_proxy_penalty += 0.45
+    # Pool-wide identical theme tags make alignment untrustworthy (M5). Soft only.
+    hollow_tags_signal = bool(
+        row.get('theme_tags_hollow')
+        or (isinstance(row.get('theme_tags_hollow_meta'), dict) and row.get('theme_tags_hollow_meta', {}).get('hollow'))
+    )
+    hollow_tags_penalty = 0.0
+    if hollow_tags_signal:
+        hollow_tags_penalty = 0.55
+        if theme_alignment >= 0.40 or theme_core >= 0.40:
+            hollow_tags_penalty += 0.35
+        if real_catalyst < 0.45:
+            hollow_tags_penalty += 0.25
+    # Already near/at limit without low-position setup is often next-day profit-taking.
+    # Full waive only for DIRECT catalyst or multi-name sector board-width.
+    # Own gene alone keeps residual suppress (7/15 大有 gene=0.7 near-limit still lost).
+    near_limit_extension = 0.0
+    if signal_pct >= 9.5 and low_position < 0.45:
+        near_limit_extension = min(1.0, 0.55 + max(0.0, theme_core - 0.5) * 0.5)
+        if evidence_class == 'DIRECT' and (continuation_gene >= 0.45 or strong_sector_proxy):
+            near_limit_extension = 0.0
+        elif strong_sector_proxy and continuation_gene >= 0.30:
+            near_limit_extension *= 0.12
+        elif continuation_gene >= 0.55:
+            # High gene near sealed board: residual only (not bare chase, not free pass).
+            near_limit_extension *= 0.28
+        elif continuation_gene_support or continuation_gene >= 0.30 or profit_edge >= 0.50:
+            near_limit_extension *= 0.40
+        elif mainline_boost_early >= 0.25:
+            near_limit_extension *= 0.45
+    # When tags are hollow, do not allow alignment boost to fake mainline quality.
+    alignment_boost_scale = 0.0 if hollow_tags_signal else 1.0
+    # scoring_config + regime: self_evolve weights actually move production ranking.
+    evidence_scales = resolve_ranking_evidence_scales_for_row(row)
+    limitup_scale = float(evidence_scales.get('limitup_scale') or 1.0)
+    catalyst_scale = float(evidence_scales.get('catalyst_scale') or 1.0)
+    broken_scale = float(evidence_scales.get('broken_scale') or 1.0)
+    # Profit-continuation soft: raise ranking only when edge evidence exists.
+    profit_continuation_soft = 0.0
+    if profit_edge >= 0.25 or strong_continuation_limitup:
+        profit_continuation_soft = min(
+            1.45,
+            continuation_gene * 0.55 * limitup_scale
+            + min(1.0, float(sector_proxy_score or 0.0)) * 0.35 * limitup_scale
+            + (0.28 if strong_continuation_limitup else 0.0)
+            + min(0.35, mainline_boost_early * 0.50),
+        )
     penalties = {
-        'failed_limitup_risk': (capital.get('failed_limitup_risk') or 0.0) * 0.85,
-        'main_buy_outflow_pressure': (capital.get('main_buy_outflow_pressure') or 0.0) * 0.75,
-        'popularity_crowding_risk': (capital.get('popularity_crowding_risk') or 0.0) * 0.45,
-        'high_popularity_trap_risk': (capital.get('high_popularity_trap_risk') or 0.0) * 0.85,
-        'weak_limitup_confirmation': 0.35 if capital.get('weak_limitup_confirmation') else 0.0,
+        'failed_limitup_risk': (capital.get('failed_limitup_risk') or 0.0) * 1.20 * broken_scale,
+        'main_buy_outflow_pressure': (capital.get('main_buy_outflow_pressure') or 0.0) * 1.15 * broken_scale,
+        'popularity_crowding_risk': (capital.get('popularity_crowding_risk') or 0.0) * 0.70,
+        'high_popularity_trap_risk': (capital.get('high_popularity_trap_risk') or 0.0) * 1.10,
+        'weak_limitup_confirmation': 0.45 if capital.get('weak_limitup_confirmation') else 0.0,
         'risk_notice_evidence': risk_notice * 0.60,
-        'high_popularity_trap_combo_penalty': 1.25 if risk_gate['status'] == 'FAIL' else 0.0,
+        'high_popularity_trap_combo_penalty': (1.60 * broken_scale) if risk_gate['status'] == 'FAIL' else 0.0,
+        'chase_high_without_catalyst': chase_high * 1.10,
+        'hollow_theme_core_without_catalyst': hollow_theme * 0.90,
+        'hollow_theme_tags_pollution': min(1.2, hollow_tags_penalty),
+        'near_limit_extension_without_low_position': near_limit_extension * 0.85,
+        'edge_proxy_near_cap_soft_suppress': min(1.5, edge_proxy_penalty),
+        'proxy_only_narrow_sector_gene': proxy_only_narrow_sector_suppress,
+        # Profit-first: hot money without continuation edge is not "strength".
+        'hot_fund_shell_without_profit_edge': hot_fund_no_profit * 1.05,
     }
+    pre_pick = soft_sector_bias_from_pre_pick_context(row)
+    # P2: under DEFENSIVE / RISK_OFF stances, pe≈0 hot-fund shells get extra soft demotion
+    # so utility/defensive survivors do not dominate formal rank / first_clean.
+    stance = str(
+        pre_pick.get('market_stance')
+        or (row.get('pre_pick_market_context_soft') or {}).get('market_stance')
+        or row.get('market_stance')
+        or ''
+    ).upper()
+    defensive_shell_extra = 0.0
+    if stance in ('DEFENSIVE_ROTATION', 'AVOID_CLIMAX_TECH', 'RISK_OFF_TECH_DEFENSIVE'):
+        if profit_edge < 0.15 and profit_continuation_soft < 0.20:
+            if hot_fund_no_profit >= 0.55:
+                defensive_shell_extra = min(1.15, 0.55 + hot_fund_no_profit * 0.35)
+            elif fund_flow >= 0.55 and theme_core >= 0.55 and continuation_gene < 0.25:
+                # Theme+fund shell with no profit edge (7/27 大金 / 电力大票 path).
+                defensive_shell_extra = min(0.95, 0.40 + fund_flow * 0.25 + theme_core * 0.15)
+            elif signal_pct < 3.0 and theme_core >= 0.40 and profit_edge < 0.10:
+                # Pure defensive low-elasticity names (电力大票) under defensive stance.
+                defensive_shell_extra = min(0.70, 0.35 + theme_core * 0.20)
+        if defensive_shell_extra > 0:
+            penalties['defensive_pe0_hot_fund_shell'] = round(defensive_shell_extra, 4)
+    # P1: day fund-flow mainline alignment (soft only; official gates unchanged).
+    mainline_soft = mainline_soft_early
     boosts = {
-        'confirmed_news_catalyst': confirmed_news * 0.50,
-        'announcement_catalyst': announcement * 0.45,
-        'sector_yesterday_limitup_gene_proxy': min(1.0, sector_proxy_score or 0.0) * 0.35,
-        'low_position_catalyst_score': low_position * 0.50,
+        'confirmed_news_catalyst': confirmed_news * 0.50 * catalyst_scale,
+        'announcement_catalyst': announcement * 0.45 * catalyst_scale,
+        'sector_yesterday_limitup_gene_proxy': min(1.0, sector_proxy_score or 0.0) * 0.75 * limitup_scale,
+        'low_position_catalyst_score': low_position * 0.90 * catalyst_scale,
+        'sector_news_catalyst_score': sector_news * 0.30 * catalyst_scale,
+        # July audit: continuation_gene was the strongest positive vs T+1; raise soft weight.
+        'continuation_gene_score': gene_evidence['effective_score'] * 0.55 * limitup_scale,
+        'sector_heat_opportunity': sector_heat * 0.35,
+        'main_theme_alignment_boost': theme_alignment * 0.35 * alignment_boost_scale,
         'capital_flow_evidence_quality': capital_flow_quality * 0.20,
-        'limitup_probability_proxy': limitup_proxy['limitup_probability_proxy'] * 0.30,
+        'limitup_probability_proxy': limitup_proxy['limitup_probability_proxy'] * 0.55 * limitup_scale,
+        # Elevated soft weight for @sszcw 5d favored sectors (still soft; hard gates own decision).
+        'pre_pick_favored_sector_soft': pre_pick['soft_boost'],
+        # Extra primary-dim-facing soft boost when high-confidence favored hit.
+        'pre_pick_sszcw_confidence_soft': (
+            min(0.55, 0.35 * float(pre_pick.get('confidence') or 0.0))
+            if pre_pick.get('high_confidence_favored') else 0.0
+        ),
+        # Day mainline fund-flow alignment (industry/concept net inflow top).
+        'mainline_fund_flow_soft': float(mainline_soft.get('soft_boost') or 0.0),
+        # Explicit profit-edge boost (gene/mainline/continuation) — not bare limit-up.
+        'profit_continuation_soft': round(profit_continuation_soft, 4),
     }
+    penalties['pre_pick_risk_sector_soft'] = pre_pick['soft_penalty']
+    if pre_pick.get('high_confidence_risk'):
+        penalties['pre_pick_sszcw_risk_confidence_soft'] = min(
+            0.50, 0.30 * float(pre_pick.get('confidence') or 0.0)
+        )
+    # Similar-loss soft demotion lives in formal_candidate_sort_key via
+    # similar_cases_boost (asymmetric weight). Expose meta here for explainability only.
+    similar_meta = row.get('similar_cases_meta') if isinstance(row.get('similar_cases_meta'), dict) else {}
+    if not similar_meta and row.get('similar_cases_boost') is not None:
+        similar_meta = {
+            'boost': float(safe_float(row.get('similar_cases_boost')) or 0.0),
+            'soft_only': True,
+            'hard_gate': False,
+            'force_pick': False,
+        }
     return {
         'boosts': {key: round(value, 4) for key, value in boosts.items()},
         'penalties': {key: round(value, 4) for key, value in penalties.items()},
         'boost_total': round(sum(boosts.values()), 4),
         'penalty_total': round(sum(penalties.values()), 4),
         'net_adjustment': round(sum(boosts.values()) - sum(penalties.values()), 4),
+        'profit_edge_score': round(float(profit_edge), 4),
+        'profit_objective': 'expected_t1_profit',
         **limitup_proxy,
         'paper_pick_risk_explanation_gate': risk_gate,
+        'pre_pick_market_context_soft': pre_pick,
+        'mainline_fund_flow_soft': mainline_soft,
+        'similar_cases_soft': similar_meta,
+        'continuation_gene_evidence': continuation_gene_evidence(row),
+        'ranking_evidence_scales': evidence_scales,
     }
 
 
+def ensure_leader_chain_main_theme(row: Dict[str, Any], bundle: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Fill main_theme_* when scanner left 0 so formal sort can compete on leader-chain.
+
+    Does not invent theme from pure price. Uses sector heat + fund + sszcw soft hits.
+    Writes leader_chain_score / main_theme_source onto the row copy return value.
+    """
+    out = dict(row) if isinstance(row, dict) else {}
+    core = safe_float(out.get('main_theme_core_score'))
+    align = safe_float(out.get('main_theme_alignment_score'))
+    details = out.get('structured_component_details') if isinstance(out.get('structured_component_details'), dict) else {}
+    if core is None:
+        core = safe_float(details.get('main_theme_core_score'))
+    if align is None:
+        align = safe_float(details.get('main_theme_alignment_score'))
+    sector_opp = safe_float(out.get('sector_opportunity_score'))
+    if sector_opp is None:
+        sector_opp = safe_float(details.get('sector_opportunity_score')) or 0.0
+    fund = safe_float((out.get('structured_score_components') or {}).get('fund_flow_momentum')) if isinstance(out.get('structured_score_components'), dict) else None
+    if fund is None:
+        fund = safe_float(out.get('fund_flow_momentum')) or 0.0
+    close_pos = safe_float(out.get('close_position_score')) or 0.0
+    vol = safe_float(out.get('volume_ratio')) or 0.0
+    signal_pct = safe_float(out.get('signal_pct')) or 0.0
+    pre = soft_sector_bias_from_pre_pick_context(out)
+    favored_hits = list(pre.get('favored_hits') or [])
+    mainline_soft = soft_mainline_fund_bias(out)
+    mainline_hits = list(mainline_soft.get('mainline_hits') or [])
+    # Leader-chain proxy when theme core hollow but sector/fund/sszcw/mainline real.
+    leader = 0.0
+    if (core or 0.0) < 0.15:
+        if sector_opp >= 0.35:
+            leader += min(0.40, sector_opp * 0.45)
+        if fund >= 0.35:
+            leader += min(0.30, fund * 0.35)
+        if close_pos >= 0.78 and vol >= 1.5:
+            leader += 0.12
+        if signal_pct >= 3.0:
+            leader += min(0.12, signal_pct / 40.0)
+        if favored_hits and pre.get('soft_context_valid'):
+            leader += min(0.25, 0.12 * len(favored_hits) * float(pre.get('confidence') or 0.5))
+        # Day fund-flow mainline hits: bounded soft leader lift (not hard gate).
+        if mainline_hits:
+            leader += min(0.28, 0.10 * len(mainline_hits) + float(mainline_soft.get('soft_boost') or 0.0) * 0.35)
+        leader = min(0.90, leader)
+    out['mainline_fund_flow_soft'] = mainline_soft
+    if (core or 0.0) <= 0.0 and leader > 0.0:
+        out['main_theme_core_score'] = round(leader, 4)
+        out['main_theme_alignment_score'] = round(
+            max(align or 0.0, min(1.0, leader * 0.85 + (0.15 if favored_hits else 0.0))),
+            4,
+        )
+        out['main_theme_source'] = 'leader_chain_proxy'
+        out['leader_chain_score'] = round(leader, 4)
+    else:
+        out['main_theme_core_score'] = core if core is not None else 0.0
+        out['main_theme_alignment_score'] = align if align is not None else 0.0
+        if leader > 0:
+            out['leader_chain_score'] = round(leader, 4)
+            if not out.get('main_theme_source'):
+                out['main_theme_source'] = 'scanner'
+        elif not out.get('main_theme_source'):
+            out['main_theme_source'] = 'scanner' if (core or 0) > 0 else 'missing'
+    return out
+
+
 def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
+    row = ensure_leader_chain_main_theme(row)
     profile = structured_signal_profile(row)
     signal_pct = profile['signal_pct'] or 0.0
     close_position = profile['close_position_score'] or 0.0
     volume_ratio = profile['volume_ratio'] or 0.0
     fund_flow = profile['fund_flow_momentum'] or 0.0
     time_series = profile['time_series_momentum'] or 0.0
-    main_theme_alignment = profile.get('main_theme_alignment_score') or 0.0
-    main_theme_core = profile.get('main_theme_core_score') or 0.0
+    main_theme_alignment = profile.get('main_theme_alignment_score') or safe_float(row.get('main_theme_alignment_score')) or 0.0
+    main_theme_core = profile.get('main_theme_core_score') or safe_float(row.get('main_theme_core_score')) or 0.0
+    leader_chain_score = safe_float(row.get('leader_chain_score')) or 0.0
+    # If profile still 0 but row has leader proxy, use it for formal primary dim.
+    if main_theme_core <= 0.0 and leader_chain_score > 0.0:
+        main_theme_core = leader_chain_score
+        main_theme_alignment = max(main_theme_alignment, leader_chain_score * 0.85)
     auxiliary_confidence = profile.get('mainboard_auxiliary_confidence') or 0.0
     auxiliary_catalyst = max(
         profile.get('announcement_catalyst_score') or 0.0,
@@ -5102,11 +6477,16 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
     )
     auxiliary_risk = profile.get('risk_notice_penalty') or 0.0
     capital_risk = row.get('capital_risk_profile') if isinstance(row.get('capital_risk_profile'), dict) else candidate_capital_risk_profile(row)
-    capital_risk_penalty = safe_float(capital_risk.get('risk_penalty_score')) or 0.0
     adjustment = ranking_basis_adjustment_components(row)
+    evidence_scales = adjustment.get('ranking_evidence_scales') if isinstance(adjustment.get('ranking_evidence_scales'), dict) else resolve_ranking_evidence_scales_for_row(row)
+    limitup_scale = float(evidence_scales.get('limitup_scale') or 1.0)
+    catalyst_scale = float(evidence_scales.get('catalyst_scale') or 1.0)
+    broken_scale = float(evidence_scales.get('broken_scale') or 1.0)
+    # broken_scale moves capital-risk soft ranking (not hard gates).
+    capital_risk_penalty = (safe_float(capital_risk.get('risk_penalty_score')) or 0.0) * 1.25 * broken_scale
     ranking_adjustment = adjustment['net_adjustment']
     limitup_proxy = adjustment['limitup_probability_proxy']
-    continuation_gene = safe_float(row.get('continuation_gene_score')) or 0.0
+    continuation_gene = continuation_gene_evidence(row)['effective_score']
     continuation_expectation = 0.0
     if signal_pct >= 6.0:
         continuation_expectation += min(2.0, signal_pct / 10.0)
@@ -5115,22 +6495,116 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
         if volume_ratio >= 2.0:
             continuation_expectation += 1.0
         if fund_flow >= 0.5:
-            continuation_expectation += 1.0
+            continuation_expectation += 0.35
         if time_series >= 0.2:
             continuation_expectation += 0.8
         if (profile['sector_opportunity_score'] or 0.0) >= 0.5:
             continuation_expectation += 0.8
+        if (profile['sector_news_catalyst_score'] or 0.0) >= 0.5:
+            continuation_expectation += 0.8
+        if continuation_gene >= 0.5:
+            continuation_expectation += 0.8
         if main_theme_alignment >= 0.5:
             continuation_expectation += 1.2
+    # ranking_adjustment must be able to overturn weak/hollow main_theme_core
+    # when capital risk penalties fire (e.g. 07-17 outflow without real catalyst).
+    risk_damped_theme_core = main_theme_core
+    hollow_theme_penalty = float((adjustment.get('penalties') or {}).get('hollow_theme_core_without_catalyst') or 0.0)
+    hollow_tags_penalty = float((adjustment.get('penalties') or {}).get('hollow_theme_tags_pollution') or 0.0)
+    chase_high_penalty = float((adjustment.get('penalties') or {}).get('chase_high_without_catalyst') or 0.0)
+    if capital_risk_penalty >= 0.35 and ranking_adjustment < 0:
+        risk_damped_theme_core = main_theme_core * max(0.0, 1.0 - min(1.0, capital_risk_penalty))
+    if hollow_theme_penalty > 0:
+        risk_damped_theme_core = min(risk_damped_theme_core, max(0.0, main_theme_core - hollow_theme_penalty))
+    if hollow_tags_penalty > 0:
+        # Hollow pool tags cannot inflate primary theme dimension.
+        risk_damped_theme_core = min(risk_damped_theme_core, max(0.0, main_theme_core - hollow_tags_penalty * 0.50))
+        main_theme_alignment = main_theme_alignment * max(0.0, 1.0 - min(1.0, hollow_tags_penalty))
+    if chase_high_penalty > 0 and ranking_adjustment < 0.20:
+        risk_damped_theme_core = risk_damped_theme_core * max(0.0, 1.0 - min(1.0, chase_high_penalty))
+    # Primary-dim gene absorption: day-best gene names can still lose on theme-only
+    # primary when second-dim gene is strong (07-14 001388). Bounded; risk/hard gates unchanged.
+    # gene_proxy_boost already carries limitup_scale from ranking_basis; continuation_gene needs scale here.
+    # Profit-first: raise gene absorb so continuation structure can overturn bare theme shells.
+    gene_proxy_boost = float((adjustment.get('boosts') or {}).get('sector_yesterday_limitup_gene_proxy') or 0.0)
+    profit_soft = float((adjustment.get('boosts') or {}).get('profit_continuation_soft') or 0.0)
+    hot_fund_shell = float((adjustment.get('penalties') or {}).get('hot_fund_shell_without_profit_edge') or 0.0)
+    defensive_shell = float((adjustment.get('penalties') or {}).get('defensive_pe0_hot_fund_shell') or 0.0)
+    # Combined soft shell pressure (hot fund + DEFENSIVE pe≈0 demotion).
+    shell_pressure = hot_fund_shell + defensive_shell
+    profit_edge = float(safe_float(adjustment.get('profit_edge_score')) or 0.0)
+    sector_news_catalyst = profile.get('sector_news_catalyst_score') or 0.0
+    primary_gene_absorb = (
+        continuation_gene * 0.45 * limitup_scale
+        + sector_news_catalyst * 0.12 * catalyst_scale
+        + gene_proxy_boost * 0.22
+        + profit_soft * 0.35
+    )
+    # Elevated @sszcw soft bias: extra primary/secondary weight so accurate rotation
+    # context ranks above weak tech/chase names without becoming a hard gate.
+    pre_pick_soft = adjustment.get('pre_pick_market_context_soft') if isinstance(adjustment.get('pre_pick_market_context_soft'), dict) else {}
+    pre_pick_net = float(safe_float(pre_pick_soft.get('net_soft_bias')) or 0.0)
+    # Invalid soft context must not systematically widen ranking.
+    if pre_pick_soft.get('soft_context_valid') is False:
+        pre_pick_net = max(-0.35, min(0.35, pre_pick_net * 0.35))
+    sszcw_primary = pre_pick_net * 0.55
+    sszcw_secondary = pre_pick_net * 0.75
+    mainline_soft = adjustment.get('mainline_fund_flow_soft') if isinstance(adjustment.get('mainline_fund_flow_soft'), dict) else {}
+    if not mainline_soft and isinstance(row.get('mainline_fund_flow_soft'), dict):
+        mainline_soft = row.get('mainline_fund_flow_soft') or {}
+    mainline_boost = float(safe_float(mainline_soft.get('soft_boost')) or 0.0)
+    mainline_primary = mainline_boost * 0.45
+    mainline_secondary = mainline_boost * 0.65
+    # Leader-chain competitiveness: even when raw scanner main_theme_core was 0,
+    # sector/fund/sszcw-backed leader proxy enters primary dim (bounded).
+    # Hot-fund / DEFENSIVE pe≈0 shells without profit edge must not own primary dim.
+    if shell_pressure > 0:
+        risk_damped_theme_core = risk_damped_theme_core * max(0.15, 1.0 - min(0.85, shell_pressure * 0.55))
+    primary_theme = risk_damped_theme_core + leader_chain_score * 0.25
+    similar_boost = float(safe_float(row.get('similar_cases_boost')) or 0.0)
+    if similar_boost == 0.0 and isinstance(row.get('similar_cases_meta'), dict):
+        similar_boost = float(safe_float(row['similar_cases_meta'].get('boost')) or 0.0)
+    # Asymmetric: similar-loss demotion weighs more than win boost (soft only).
+    similar_primary = similar_boost * (0.40 if similar_boost < 0.0 else 0.20)
+    similar_secondary = similar_boost * (0.55 if similar_boost < 0.0 else 0.15)
+    # catalyst_scale lifts confirmed catalyst evidence in secondary dim (bounded via resolve clamp).
+    secondary_catalyst = auxiliary_catalyst * catalyst_scale
+    # Secondary: profit edge / continuation outweigh bare limitup_proxy cosmetics.
+    secondary_profit = (
+        secondary_catalyst
+        + continuation_gene * 0.95 * limitup_scale
+        + limitup_proxy * 0.35 * limitup_scale
+        + profit_soft * 0.55
+        + profit_edge * 0.25
+        - auxiliary_risk
+        - capital_risk_penalty
+        - shell_pressure * 0.45
+        + ranking_adjustment
+        + sszcw_secondary
+        + mainline_secondary
+        + similar_secondary
+    )
+    # Do not optimize for chasing near-seal / sealed names. Sealed tickets are
+    # already hard-blocked by buyability; near-seal (e.g. ≥9% mainboard, still
+    # buyable) gets a soft demotion so formal sort prefers mid-move profit edge.
+    near_seal_chase_penalty = 0.0
+    try:
+        from xiaogu_forward_eligibility import _mainboard_like_limit_seal_threshold
+        seal_thr = float(_mainboard_like_limit_seal_threshold(str(row.get('symbol') or row.get('code') or '')))
+    except Exception:
+        seal_thr = 9.5
+    if signal_pct >= max(0.0, seal_thr - 0.5):
+        # Linear 0→1 from (seal-0.5) to seal+; sealed rows should already be out of pick set.
+        near_seal_chase_penalty = min(1.0, max(0.0, (signal_pct - (seal_thr - 0.5)) / 0.5))
     return (
-        main_theme_core + ranking_adjustment * 0.15,
-        auxiliary_catalyst + continuation_gene * 0.40 + limitup_proxy * 0.20 - auxiliary_risk - capital_risk_penalty + ranking_adjustment,
-        ranking_adjustment,
-        limitup_proxy,
-        -capital_risk_penalty,
+        primary_theme + ranking_adjustment * 0.35 + primary_gene_absorb + sszcw_primary + mainline_primary + similar_primary - shell_pressure * 0.35 - near_seal_chase_penalty * 0.45,
+        secondary_profit - near_seal_chase_penalty * 0.35,
+        ranking_adjustment + pre_pick_net * 0.25 + leader_chain_score * 0.15 + mainline_boost * 0.20 + profit_soft * 0.20 + min(0.0, similar_boost) * 0.25 - shell_pressure * 0.20 - near_seal_chase_penalty * 0.20,
+        limitup_proxy * limitup_scale + profit_edge * 0.15 - near_seal_chase_penalty * 0.25,
+        -capital_risk_penalty - shell_pressure * 0.10 - near_seal_chase_penalty,
         auxiliary_confidence,
         safe_float(row.get('structured_priority_score')) or 0.0,
-        continuation_expectation,
+        continuation_expectation + profit_soft,
         safe_float(row.get('structured_score')) or 0.0,
         close_position,
         volume_ratio,
@@ -5146,6 +6620,201 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
     )
 
 
+def apply_formal_profit_ranks(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Align canonical rank with profit-first formal_candidate_sort_key (P1).
+
+    Preserves scanner structured rank as pool_rank / scanner_rank.
+    Sets formal_rank and overwrites rank so TOP10 / FULL_POOL outcomes match
+    production formal ordering (not scanner structured_priority alone).
+    """
+    stamped: List[Dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        out = dict(row)
+        existing_pool = safe_int(out.get('pool_rank'))
+        existing_rank = safe_int(out.get('rank'))
+        existing_scanner = safe_int(out.get('scanner_rank'))
+        if existing_pool is None:
+            if existing_scanner is not None:
+                out['pool_rank'] = existing_scanner
+            elif existing_rank is not None:
+                out['pool_rank'] = existing_rank
+        if out.get('scanner_rank') is None and existing_rank is not None and out.get('rank_source') != 'formal_profit_first':
+            out['scanner_rank'] = existing_rank
+        if out.get('legacy_rank') is None and existing_rank is not None:
+            out['legacy_rank'] = existing_rank
+        stamped.append(out)
+    ordered = sorted(stamped, key=formal_candidate_sort_key, reverse=True)
+    for idx, row in enumerate(ordered, 1):
+        row['formal_rank'] = idx
+        row['rank'] = idx
+        row['rank_source'] = 'formal_profit_first'
+        primary = formal_candidate_sort_key(row)
+        row['formal_primary_score'] = round(float(primary[0]), 4) if primary else None
+    return ordered
+
+
+def build_rank_alignment_diagnostic(
+    rows: List[Dict[str, Any]],
+    first_clean_row: Dict[str, Any] | None = None,
+    *,
+    top_n: int = 10,
+) -> Dict[str, Any]:
+    """P0: explain pool_rank (scanner) vs formal_rank vs first_clean divergence."""
+    usable = [row for row in (rows or []) if isinstance(row, dict) and symbol_for(row)]
+    by_pool = sorted(
+        usable,
+        key=lambda row: (
+            safe_int(row.get('pool_rank')) if safe_int(row.get('pool_rank')) is not None else 999999,
+            -(safe_float(row.get('structured_priority_score')) or 0.0),
+        ),
+    )
+    by_formal = sorted(
+        usable,
+        key=lambda row: (
+            safe_int(row.get('formal_rank')) if safe_int(row.get('formal_rank')) is not None else 999999,
+            formal_candidate_sort_key(row),
+        ),
+    )
+    # formal_rank ascending is best-first; when missing, formal_candidate_sort_key desc.
+    if not any(safe_int(row.get('formal_rank')) is not None for row in usable):
+        by_formal = sorted(usable, key=formal_candidate_sort_key, reverse=True)
+
+    def _compact(row: Dict[str, Any], idx: int | None = None) -> Dict[str, Any]:
+        adj = ranking_basis_adjustment_components(row)
+        return {
+            'symbol': symbol_for(row),
+            'name': row.get('name') or row.get('stock_name'),
+            'pool_rank': safe_int(row.get('pool_rank')),
+            'formal_rank': safe_int(row.get('formal_rank')) if safe_int(row.get('formal_rank')) is not None else idx,
+            'scanner_rank': safe_int(row.get('scanner_rank')),
+            'rank': safe_int(row.get('rank')),
+            'rank_source': row.get('rank_source') or '',
+            'search_layer': row.get('search_layer') or row.get('search_layer_hint') or '',
+            'structured_priority_score': safe_float(row.get('structured_priority_score')),
+            'formal_primary_score': safe_float(row.get('formal_primary_score')) or round(float(formal_candidate_sort_key(row)[0]), 4),
+            'profit_edge_score': adj.get('profit_edge_score'),
+            'profit_continuation_soft': (adj.get('boosts') or {}).get('profit_continuation_soft'),
+            'hot_fund_shell': (adj.get('penalties') or {}).get('hot_fund_shell_without_profit_edge'),
+            'defensive_shell_penalty': (adj.get('penalties') or {}).get('defensive_pe0_hot_fund_shell'),
+        }
+
+    pool_top = [_compact(row, i) for i, row in enumerate(by_pool[:top_n], 1)]
+    formal_top = [_compact(row, i) for i, row in enumerate(by_formal[:top_n], 1)]
+    pool_top_syms = {item['symbol'] for item in pool_top if item.get('symbol')}
+    formal_top_syms = {item['symbol'] for item in formal_top if item.get('symbol')}
+    overlap = sorted(pool_top_syms & formal_top_syms)
+    formal_only = [_compact(row) for row in by_formal[:top_n] if symbol_for(row) not in pool_top_syms]
+    pool_only = [_compact(row) for row in by_pool[:top_n] if symbol_for(row) not in formal_top_syms]
+    first_clean_diag = None
+    if isinstance(first_clean_row, dict) and symbol_for(first_clean_row):
+        first_clean_diag = _compact(first_clean_row)
+        first_clean_diag['challenged_from'] = first_clean_row.get('first_clean_challenged_from')
+        first_clean_diag['challenge_reason'] = first_clean_row.get('first_clean_challenge_reason')
+    return {
+        'rank_source': 'formal_profit_first',
+        'pool_rank_basis': 'scanner_structured_priority',
+        'formal_rank_basis': 'formal_candidate_sort_key',
+        'candidate_count': len(usable),
+        'top_n': top_n,
+        'pool_formal_top_overlap_count': len(overlap),
+        'pool_formal_top_overlap_symbols': overlap,
+        'pool_top': pool_top,
+        'formal_top': formal_top,
+        'formal_top_not_in_pool_top': formal_only,
+        'pool_top_not_in_formal_top': pool_only,
+        'first_clean': first_clean_diag,
+        'divergence_note': (
+            'pool_rank is scanner structured_priority; daily_candidates.rank is formal_profit_first; '
+            'FULL_POOL/TOP10 outcomes follow formal rank after P1 alignment.'
+        ),
+    }
+
+
+def select_first_clean_with_formal_challenge(
+    search_rows: List[Dict[str, Any]],
+    bundle_context: Dict[str, Any],
+) -> Tuple[Dict[str, Any] | None, Dict[str, Any]]:
+    """Pick first_clean by layer order, then allow formal profit-edge to challenge (P2).
+
+    Soft only: never invent eligibility. Challenge when layer-order first_clean is a
+    pe≈0 hot-fund/defensive shell and a later clean row has real profit edge.
+    """
+    clean_rows: List[Dict[str, Any]] = []
+    for row in search_rows or []:
+        if not isinstance(row, dict):
+            continue
+        if not paper_pick_eligibility_profile(row, bundle_context)['eligible']:
+            continue
+        if official_target_exclusion_reasons(row, bundle_context):
+            continue
+        clean_rows.append(row)
+    meta: Dict[str, Any] = {
+        'clean_count': len(clean_rows),
+        'challenged': False,
+        'challenge_reason': '',
+        'layer_order_symbol': symbol_for(clean_rows[0]) if clean_rows else '',
+        'formal_best_symbol': '',
+        'selected_symbol': '',
+    }
+    if not clean_rows:
+        return None, meta
+    layer_first = clean_rows[0]
+    formal_best = max(clean_rows, key=formal_candidate_sort_key)
+    meta['formal_best_symbol'] = symbol_for(formal_best)
+    if symbol_for(layer_first) == symbol_for(formal_best):
+        meta['selected_symbol'] = symbol_for(layer_first)
+        return layer_first, meta
+
+    layer_adj = ranking_basis_adjustment_components(layer_first)
+    formal_adj = ranking_basis_adjustment_components(formal_best)
+    layer_pe = float(safe_float(layer_adj.get('profit_edge_score')) or 0.0)
+    layer_cont = float((layer_adj.get('boosts') or {}).get('profit_continuation_soft') or 0.0)
+    layer_shell = float((layer_adj.get('penalties') or {}).get('hot_fund_shell_without_profit_edge') or 0.0)
+    layer_def = float((layer_adj.get('penalties') or {}).get('defensive_pe0_hot_fund_shell') or 0.0)
+    formal_pe = float(safe_float(formal_adj.get('profit_edge_score')) or 0.0)
+    formal_cont = float((formal_adj.get('boosts') or {}).get('profit_continuation_soft') or 0.0)
+    layer_primary = float(formal_candidate_sort_key(layer_first)[0])
+    formal_primary = float(formal_candidate_sort_key(formal_best)[0])
+
+    layer_is_shell = (
+        layer_pe < 0.15
+        and layer_cont < 0.20
+        and (layer_shell >= 0.55 or layer_def >= 0.35)
+    )
+    formal_has_edge = formal_pe >= 0.25 or formal_cont >= 0.30
+    primary_gap = formal_primary - layer_primary
+    should_challenge = bool(
+        (layer_is_shell and formal_has_edge)
+        or (formal_has_edge and layer_pe < 0.15 and primary_gap >= 0.35)
+        or (primary_gap >= 0.80 and formal_pe >= layer_pe + 0.20)
+    )
+    if not should_challenge:
+        meta['selected_symbol'] = symbol_for(layer_first)
+        meta['challenge_reason'] = 'layer_order_kept'
+        return layer_first, meta
+
+    selected = dict(formal_best)
+    reason = (
+        f'formal_challenge:layer={symbol_for(layer_first)}(pe={layer_pe:.2f},shell={layer_shell:.2f})'
+        f'->formal={symbol_for(formal_best)}(pe={formal_pe:.2f},cont={formal_cont:.2f},gap={primary_gap:.2f})'
+    )
+    selected['first_clean_challenged_from'] = symbol_for(layer_first)
+    selected['first_clean_challenge_reason'] = reason
+    meta.update({
+        'challenged': True,
+        'challenge_reason': reason,
+        'selected_symbol': symbol_for(selected),
+        'layer_pe': round(layer_pe, 4),
+        'layer_shell': round(layer_shell, 4),
+        'formal_pe': round(formal_pe, 4),
+        'formal_cont': round(formal_cont, 4),
+        'primary_gap': round(primary_gap, 4),
+    })
+    return selected, meta
+
+
 def replay_only_sector_opportunity(profile: Dict[str, Any], row: Dict[str, Any] | None = None) -> bool:
     details = profile.get('structured_component_details') if isinstance(profile.get('structured_component_details'), dict) else {}
     tags = normalize_tag_list(profile.get('sector_opportunity_tags')) + normalize_tag_list(details.get('sector_opportunity_tags'))
@@ -5157,1145 +6826,6 @@ def replay_only_sector_opportunity(profile: Dict[str, Any], row: Dict[str, Any] 
     has_replay = any(str(tag).startswith('REPLAY_') for tag in tags)
     return has_replay and not non_replay_tags
 
-
-def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    bundle = bundle if isinstance(bundle, dict) else {}
-    profile = _cached_structured_signal_profile(row, bundle)
-    scoring_config = get_scoring_config_snapshot()
-    scoring_config_values = scoring_config.get('config') if isinstance(scoring_config, dict) else {}
-    if not isinstance(scoring_config_values, dict):
-        scoring_config_values = dict(SCORING_CONFIG_DEFAULTS)
-    price = safe_float(row.get('price'))
-    evidence_missing_flags = web_tabs_evidence_missing_flags(bundle)
-    candidate_evidence_flags = candidate_evidence_missing_flags(row, bundle)
-    normalized_source_time = normalized_source_time_for_candidate(row, bundle)
-    repo_contributions = row.get('repo_contributions') if isinstance(row.get('repo_contributions'), dict) else {}
-    vei_repo_contribution = repo_contributions.get('VEI') if isinstance(repo_contributions.get('VEI'), dict) else {}
-    vei_repo_score_delta = safe_float(vei_repo_contribution.get('score_delta'))
-    if vei_repo_score_delta is None:
-        vei_repo_score_delta = safe_float(candidate_repo_delta_by_repo(row).get('VEI'))
-    signals = {
-        'data_gate_status': str(bundle.get('data_gate_status') or profile['data_gate_status'] or ''),
-        'candidate_evidence_status': profile['candidate_evidence_status'] or str(bundle.get('candidate_evidence_status') or ''),
-        'source_time': normalized_source_time or profile['source_time'] or str(bundle.get('source_time') or ''),
-        'runner_asof_time': profile['runner_asof_time'] or str(bundle.get('_runner_asof_time') or bundle.get('runner_asof_time') or ''),
-        'trade_mode': profile['trade_mode'],
-        'primary_return_field': profile['primary_return_field'],
-        'primary_trade_horizon': profile['primary_trade_horizon'],
-        'scoring_config_loaded': bool(scoring_config.get('loaded')),
-        'scoring_config_source': str(scoring_config.get('source') or 'defaults'),
-        'scoring_config_error': str(scoring_config.get('error') or ''),
-        'weekday_blocklist': str(scoring_config_values.get('weekday_blocklist') or SCORING_CONFIG_DEFAULTS['weekday_blocklist']),
-        'max_score_cap': safe_float(scoring_config_values.get('max_score_cap')) or safe_float(SCORING_CONFIG_DEFAULTS['max_score_cap']),
-        'follow_on_strategy': str(scoring_config_values.get('follow_on_strategy') or SCORING_CONFIG_DEFAULTS['follow_on_strategy']),
-        'follow_on_t1_weight': safe_float(scoring_config_values.get('follow_on_t1_weight')) or safe_float(SCORING_CONFIG_DEFAULTS['follow_on_t1_weight']),
-        'follow_on_t2_weight': safe_float(scoring_config_values.get('follow_on_t2_weight')) or safe_float(SCORING_CONFIG_DEFAULTS['follow_on_t2_weight']),
-        'follow_on_t3_weight': safe_float(scoring_config_values.get('follow_on_t3_weight')) or safe_float(SCORING_CONFIG_DEFAULTS['follow_on_t3_weight']),
-        'follow_on_limit_up_threshold': safe_float(scoring_config_values.get('follow_on_limit_up_threshold')) or safe_float(SCORING_CONFIG_DEFAULTS['follow_on_limit_up_threshold']),
-        'horizon_aware_strategy': str(scoring_config_values.get('horizon_aware_strategy') or SCORING_CONFIG_DEFAULTS['horizon_aware_strategy']),
-        'instant_momentum_min_confirmations': safe_float(scoring_config_values.get('instant_momentum_min_confirmations')) or safe_float(SCORING_CONFIG_DEFAULTS['instant_momentum_min_confirmations']),
-        'delayed_setup_min_persistence': safe_float(scoring_config_values.get('delayed_setup_min_persistence')) or safe_float(SCORING_CONFIG_DEFAULTS['delayed_setup_min_persistence']),
-        'delayed_setup_floor_score': safe_float(scoring_config_values.get('delayed_setup_floor_score')) or safe_float(SCORING_CONFIG_DEFAULTS['delayed_setup_floor_score']),
-        'delayed_setup_theme_min_score': safe_float(scoring_config_values.get('delayed_setup_theme_min_score')) or safe_float(SCORING_CONFIG_DEFAULTS['delayed_setup_theme_min_score']),
-        'stale_repeat_window_days': safe_float(scoring_config_values.get('stale_repeat_window_days')) or safe_float(SCORING_CONFIG_DEFAULTS['stale_repeat_window_days']),
-        'stale_decay_factor': safe_float(scoring_config_values.get('stale_decay_factor')) or safe_float(SCORING_CONFIG_DEFAULTS['stale_decay_factor']),
-        'one_lot_cost': profile['one_lot_cost'] if profile['one_lot_cost'] is not None else (price * 100 if price is not None else None),
-        'one_lot_cost_cap': safe_float(paper_sizing_context(bundle).get('one_lot_cost_cap')),
-        'risk_penalty': profile['risk_penalty'],
-        'regulatory_hard_block': profile['regulatory_hard_block'] or regulatory_hard_block_reason(row, bundle),
-        'opportunity_hard_block': profile['opportunity_hard_block'] or opportunity_hard_block_reason(row, bundle) or limitup_quality_block_reason(row, bundle),
-        'limitup_reason_strength': profile['limitup_reason_strength'],
-        'seal_order_strength': profile['seal_order_strength'],
-        'order_book_pressure': profile['order_book_pressure'],
-        'sector_opportunity_score': profile['sector_opportunity_score'],
-        'sector_opportunity_tags': profile['sector_opportunity_tags'],
-        'sector_news_strength': profile['sector_news_strength'],
-        'fund_flow_momentum': profile['fund_flow_momentum'],
-        'time_series_momentum': profile['time_series_momentum'],
-        'search_layer_hint': profile['search_layer_hint'],
-        'news_catalyst_strength': profile['news_catalyst_strength'],
-        'mainboard_auxiliary_evidence_status': profile['mainboard_auxiliary_evidence_status'],
-        'mainboard_auxiliary_missing_domains': profile['mainboard_auxiliary_missing_domains'],
-        'announcement_catalyst_score': profile['announcement_catalyst_score'],
-        'sector_news_catalyst_score': profile['sector_news_catalyst_score'],
-        'limitup_reason_quality_score': profile['limitup_reason_quality_score'],
-        'risk_notice_penalty': profile['risk_notice_penalty'],
-        'mainboard_auxiliary_confidence': profile['mainboard_auxiliary_confidence'],
-        'news_catalyst_quality_categories': profile['news_catalyst_quality_categories'],
-        'sector_catalyst_score': profile['sector_catalyst_score'],
-        'topic_propagation_score': profile['topic_propagation_score'],
-        'intraday_alert_strength': profile['intraday_alert_strength'],
-        'limitup_reason_propagation_score': profile['limitup_reason_propagation_score'],
-        'limitup_capture_score': profile['limitup_capture_score'],
-        'limitup_capture_profile': profile['limitup_capture_profile'],
-        'limitup_capture_confirmed': profile['limitup_capture_confirmed'],
-        'limitup_capture_reasons': profile['limitup_capture_reasons'],
-        'close_position_score': profile['close_position_score'],
-        'low_position_catalyst_score': profile['low_position_catalyst_score'],
-        'candidate_stage': profile['candidate_stage'] or signal_stage_bucket(profile['signal_pct']),
-        'early_opportunity_score': profile['early_opportunity_score'] if profile['early_opportunity_score'] is not None else early_opportunity_score_for_row(row, bundle),
-        'setup_type': profile['setup_type'],
-        'research_signals': profile['research_signals'],
-        'research_panel_overall': profile['research_panel_overall'],
-        'catalyst_quality_category': profile['catalyst_quality_category'],
-        'a_share_risk_review_disqualified_for_paper_pick': profile['a_share_risk_review_disqualified_for_paper_pick'],
-        'historical_pattern_name': profile['historical_pattern_name'],
-        'vei_repo_score_delta': vei_repo_score_delta,
-    }
-    candidate_lifecycle = _candidate_lifecycle_profile(row, bundle)
-    signals['candidate_lifecycle'] = candidate_lifecycle
-    signals['trade_mode'] = candidate_lifecycle.get('trade_mode') or signals['trade_mode']
-    signals['primary_return_field'] = candidate_lifecycle.get('primary_return_field') or signals['primary_return_field']
-    signals['primary_trade_horizon'] = candidate_lifecycle.get('primary_trade_horizon') or signals['primary_trade_horizon']
-    signals['setup_class'] = candidate_lifecycle.get('setup_class')
-    signals['setup_rank'] = candidate_lifecycle.get('setup_rank')
-    signals['setup_reason'] = candidate_lifecycle.get('setup_reason')
-    signals['repeat_count'] = candidate_lifecycle.get('repeat_count')
-    signals['stale_decay'] = candidate_lifecycle.get('stale_decay')
-    signals['lifecycle_score'] = candidate_lifecycle.get('lifecycle_score')
-    blockers: List[str] = []
-    positive_conditions: List[str] = []
-    missing_conditions: List[str] = []
-    capital_risk_profile = candidate_capital_risk_profile(row)
-    signals['capital_risk_profile'] = capital_risk_profile
-    signals['continuation_gene_score'] = safe_float(row.get('continuation_gene_score')) or 0.0
-    signals['limitup_reason_status'] = str(row.get('limitup_reason_status') or 'MISSING')
-    signals['limitup_reason_hard_block'] = bool(row.get('limitup_reason_hard_block', False))
-    if capital_risk_profile.get('risk_codes'):
-        missing_conditions.extend(capital_risk_profile['risk_codes'])
-    if capital_risk_profile.get('risk_softened_by_dark_pool_inflow'):
-        positive_conditions.append('risk_softened_by_dark_pool_inflow')
-    auxiliary_status = signals.get('mainboard_auxiliary_evidence_status')
-    auxiliary_status_normalized = str(auxiliary_status or '').upper()
-    if auxiliary_status_normalized in ('PASS', 'OK'):
-        positive_conditions.append('mainboard_auxiliary_evidence_status=PASS')
-    elif auxiliary_status:
-        missing_conditions.append('mainboard_auxiliary_evidence_status=PASS')
-    if (signals.get('risk_notice_penalty') or 0.0) >= 0.60:
-        blockers.append('mainboard_auxiliary_risk_notice_penalty>=0.60')
-    elif (signals.get('risk_notice_penalty') or 0.0) > 0:
-        positive_conditions.append('mainboard_auxiliary_risk_notice_under_review')
-
-    price = safe_float(row.get('price'))
-    data_gate_status = str(signals['data_gate_status'] or bundle.get('data_gate_status') or 'PASS')
-    candidate_evidence_status = str(
-        signals['candidate_evidence_status']
-        or ('PASS' if not candidate_evidence_flags and not evidence_missing_flags else 'PARTIAL_OR_FAIL')
-    )
-    source_time = str(signals['source_time'] or '')
-    runner_asof_time = str(signals['runner_asof_time'] or '')
-    one_lot_cost = safe_float(signals['one_lot_cost'])
-    if one_lot_cost is None and price is not None:
-        one_lot_cost = price * 100
-    one_lot_cap = safe_float(signals['one_lot_cost_cap'])
-    risk_penalty = safe_float(signals['risk_penalty'])
-    regulatory_block = str(signals['regulatory_hard_block'] or '')
-    opportunity_block = str(signals['opportunity_hard_block'] or '')
-    limitup_reason_strength = profile['limitup_reason_strength']
-    seal_order_strength = profile['seal_order_strength']
-    order_book_pressure = profile['order_book_pressure']
-    replay_only_sector = replay_only_sector_opportunity(profile, row)
-    raw_sector_opportunity_score = profile['sector_opportunity_score'] if profile['sector_opportunity_score'] is not None else 0.0
-    sector_opportunity_score = 0.0 if replay_only_sector else raw_sector_opportunity_score
-    sector_opportunity_tags = profile['sector_opportunity_tags']
-    main_theme_alignment_score = profile.get('main_theme_alignment_score') or 0.0
-    main_theme_core_score = profile.get('main_theme_core_score') or 0.0
-    fund_flow_momentum = profile['fund_flow_momentum']
-    time_series_momentum = profile['time_series_momentum']
-    candidate_stage = profile['candidate_stage'] or signal_stage_bucket(profile['signal_pct'])
-    early_opportunity_score = profile['early_opportunity_score'] if profile['early_opportunity_score'] is not None else early_opportunity_score_for_row(row, bundle)
-    research_signals = profile.get('research_signals') if isinstance(profile.get('research_signals'), dict) else {}
-    research_panel = research_signals.get('research_panel') if isinstance(research_signals.get('research_panel'), dict) else {}
-    catalyst_quality = research_signals.get('catalyst_quality') if isinstance(research_signals.get('catalyst_quality'), dict) else {}
-    a_share_risk_review = research_signals.get('a_share_risk_review') if isinstance(research_signals.get('a_share_risk_review'), dict) else {}
-    adversarial_review = research_signals.get('adversarial_review') if isinstance(research_signals.get('adversarial_review'), dict) else {}
-    catalyst_quality_category_global = str(catalyst_quality.get('category') or profile['catalyst_quality_category'] or '')
-    research_layer = str(profile['search_layer_hint'] or profile['setup_type'] or '')
-    blocked_reasons = [str(reason) for reason in (row.get('blocked_reasons') or []) if str(reason)]
-    near_limit_up_risk = bool(row.get('near_limit_up_risk')) or any(normalized_block_bucket(reason) == 'near_limit_up_risk' for reason in blocked_reasons)
-    source_date = str(bundle.get('date') or row.get('date') or source_time[:10] or '')
-    age_minutes = scan_age_minutes(source_time, source_date, runner_asof_time) if source_time and runner_asof_time and source_date else None
-    time_gate_known = bool(source_time and runner_asof_time and source_date and age_minutes is not None)
-
-    market_context = market_adaptive_context(row, bundle)
-    market_regime = str(market_context.get('market_regime') or '')
-    market_follow_through_score = safe_float(market_context.get('market_follow_through_score'))
-    market_limitups = safe_float(market_context.get('market_limitups'))
-    market_breadth_up_pct = safe_float(market_context.get('market_breadth_up_pct'))
-    limitup_broken_ratio = safe_float(market_context.get('limitup_broken_ratio'))
-    broken_limitups = safe_float(market_context.get('broken_limitups'))
-    market_supports_high_chase = bool(market_context.get('supportive_market')) and not bool(market_context.get('weak_acceptance_market'))
-    weak_acceptance_market = bool(market_context.get('weak_acceptance_market'))
-    broken_limit_pressure = bool(market_context.get('broken_limit_pressure'))
-    overheated_market = bool(market_context.get('overheated_market'))
-    signals['market_regime'] = market_regime
-    signals['market_follow_through_score'] = market_follow_through_score
-    signals['limitup_broken_ratio'] = limitup_broken_ratio
-    signals['broken_limitups'] = broken_limitups
-    signals['market_supports_high_chase'] = market_supports_high_chase
-    signals['weak_acceptance_market'] = weak_acceptance_market
-    signals['broken_limit_pressure'] = broken_limit_pressure
-    signals['overheated_market'] = overheated_market
-    shadow_profile = shadow_risk_profile(row, bundle, profile)
-    signals.update({
-        'market_regime_risk': shadow_profile['market_regime_risk'],
-        'weak_market': shadow_profile['weak_market'],
-        'market_regime_risk_reason': shadow_profile['market_regime_risk_reason'],
-        'chase_high_risk': shadow_profile['chase_high_risk'],
-        'chase_high_shadow_penalty': shadow_profile['chase_high_shadow_penalty'],
-        'chase_high_reason': shadow_profile['chase_high_reason'],
-        'defensive_carry_score': shadow_profile['defensive_carry_score'],
-        'defensive_reason': shadow_profile['defensive_reason'],
-        'limitup_gene_strength': shadow_profile['limitup_gene_strength'],
-        'limitup_gene_shadow_gate': shadow_profile['limitup_gene_shadow_gate'],
-        'limitup_gene_block_reason': shadow_profile['limitup_gene_block_reason'],
-        'social_confirmation': shadow_profile['social_confirmation'],
-    })
-    enhanced_counts = row.get('enhanced_evidence_domain_counts') if isinstance(row.get('enhanced_evidence_domain_counts'), dict) else {}
-    limitup_context_present = (safe_float(enhanced_counts.get('limitup_context')) or 0.0) > 0.0
-    research_panel_overall = str(research_panel.get('overall') or signals.get('research_panel_overall') or '')
-    setup_type_signal = str(signals.get('setup_type') or profile.get('setup_type') or row.get('setup_type') or '')
-    sector_follower_diagnostic_only = bool(
-        str(profile.get('search_layer_hint') or '') == 'sector_follower'
-        or str(row.get('search_layer') or '') == 'sector_follower'
-        or setup_type_signal == 'SECTOR_FOLLOWER'
-    )
-    signals['sector_follower_diagnostic_only'] = sector_follower_diagnostic_only
-    if sector_follower_diagnostic_only:
-        blockers.append('sector_follower_diagnostic_only')
-        missing_conditions.append('official_layer_not_sector_follower')
-    continuation_gene_score = safe_float(signals.get('continuation_gene_score')) or 0.0
-    limitup_capture_score_for_gap = safe_float(signals.get('limitup_capture_score')) or 0.0
-    limitup_reason_status_for_gap = str(signals.get('limitup_reason_status') or '').upper()
-    sector_catalyst_score_for_gap = safe_float(signals.get('sector_catalyst_score')) or 0.0
-    topic_propagation_score_for_gap = safe_float(signals.get('topic_propagation_score')) or 0.0
-    sector_news_strength_for_gap = safe_float(signals.get('sector_news_strength')) or 0.0
-    news_catalyst_strength_for_gap = safe_float(signals.get('news_catalyst_strength')) or 0.0
-    announcement_catalyst_score_for_gap = safe_float(signals.get('announcement_catalyst_score')) or 0.0
-    limitup_reason_quality_score_for_gap = safe_float(signals.get('limitup_reason_quality_score')) or 0.0
-    low_position_catalyst_score_for_gap = safe_float(signals.get('low_position_catalyst_score')) or 0.0
-    amount_for_gap = safe_float(row.get('amount')) or safe_float(row.get('成交额')) or 0.0
-    net_inflow_for_gap = safe_float(row.get('net_inflow_main')) or 0.0
-    if net_inflow_for_gap <= 0:
-        capital_flow_for_gap = row.get('data_directory_capital_flow') if isinstance(row.get('data_directory_capital_flow'), dict) else {}
-        net_inflow_for_gap = safe_float(capital_flow_for_gap.get('main_force_net_inflow')) or 0.0
-    amount_pctile_for_gap = max(
-        safe_float(row.get('full_universe_amount_pctile')) or 0.0,
-        safe_float(row.get('amount_pctile_rule')) or 0.0,
-    )
-    fund_pctile_for_gap = max(
-        safe_float(row.get('full_universe_fund_pctile')) or 0.0,
-        safe_float(row.get('fund_pctile_rule')) or 0.0,
-    )
-    turnover_rate_for_gap = safe_float(row.get('turnover_rate')) or 0.0
-    amplitude_for_gap = safe_float(row.get('amplitude')) or 0.0
-    in_limitup_pool_for_gap = bool(
-        row.get('sealed_limit_up')
-        or row.get('is_limit_up')
-        or row.get('is_limitup')
-        or row.get('limit_up')
-        or row.get('limitup_pool_member')
-    )
-    consecutive_limit_for_gap = max(
-        safe_float(row.get('consecutive_limit_count')) or 0.0,
-        safe_float(row.get('consecutive_limit_days')) or 0.0,
-        safe_float(row.get('consecutive_limitups')) or 0.0,
-    )
-    weak_limitup_reason_status = limitup_reason_status_for_gap in ('', 'MISSING', 'PARTIAL', 'PARTIAL_OR_FAIL', 'FAIL', 'FAILED', 'WEAK', 'UNKNOWN', 'NONE')
-    has_direct_gap_confirmation = bool(
-        limitup_context_present
-        or signals.get('limitup_capture_confirmed')
-        or continuation_gene_score > 0.0
-        or in_limitup_pool_for_gap
-        or consecutive_limit_for_gap > 0.0
-        or limitup_reason_status_for_gap in ('PASS', 'OK', 'CONFIRMED', 'PROXY')
-        or research_panel_overall == 'PASS'
-        or max(
-            announcement_catalyst_score_for_gap,
-            news_catalyst_strength_for_gap,
-            limitup_reason_quality_score_for_gap,
-        ) >= 0.75
-    )
-    strong_money_confirmation = bool(
-        (amount_for_gap >= 1_000_000_000 and net_inflow_for_gap >= 50_000_000)
-        or (amount_pctile_for_gap >= 0.90 and fund_pctile_for_gap >= 0.80 and net_inflow_for_gap >= 30_000_000)
-    )
-    low_position_sector_news_confirmation = bool(
-        low_position_catalyst_score_for_gap >= 0.60
-        and max(
-            sector_opportunity_score,
-            sector_catalyst_score_for_gap,
-            sector_news_strength_for_gap,
-            news_catalyst_strength_for_gap,
-            main_theme_alignment_score,
-            main_theme_core_score,
-        ) >= 0.45
-    )
-    early_sector_confirmation_gap = bool(
-        sector_opportunity_score <= 0.0
-        or (
-            sector_opportunity_score < 0.80
-            and sector_catalyst_score_for_gap <= 0.0
-            and topic_propagation_score_for_gap < 0.30
-        )
-    )
-    early_market_pressure = bool(
-        weak_acceptance_market
-        or broken_limit_pressure
-        or market_regime.lower() == 'weak'
-        or (limitup_broken_ratio is not None and limitup_broken_ratio >= 0.70)
-    )
-    early_hot_momentum_missing_evidence = bool(
-        early_market_pressure
-        and candidate_stage == 'early_3_to_5'
-        and limitup_capture_score_for_gap <= 0.0
-        and weak_limitup_reason_status
-        and early_sector_confirmation_gap
-        and sector_catalyst_score_for_gap <= 0.0
-        and topic_propagation_score_for_gap < 0.30
-        and not has_direct_gap_confirmation
-        and not strong_money_confirmation
-        and not low_position_sector_news_confirmation
-        and (turnover_rate_for_gap >= 10.0 or amplitude_for_gap >= 7.0)
-    )
-    weak_market_hot_momentum_evidence_gap = bool(
-        setup_type_signal in ('HOT_MOMENTUM', 'L1_HOT_MOMENTUM')
-        and (
-            (
-                (weak_acceptance_market or broken_limit_pressure)
-                and candidate_stage in ('mid_5_to_7', 'high_7_to_9', 'near_limit_9_plus')
-                and not limitup_context_present
-                and not signals.get('limitup_capture_confirmed')
-                and continuation_gene_score <= 0.0
-                and str(signals.get('mainboard_auxiliary_evidence_status') or '') in ('', 'PARTIAL', 'MISSING', 'PARTIAL_OR_FAIL')
-                and research_panel_overall != 'PASS'
-            )
-            or early_hot_momentum_missing_evidence
-        )
-    )
-    signals['limitup_context_present'] = limitup_context_present
-    signals['weak_market_hot_momentum_evidence_gap'] = weak_market_hot_momentum_evidence_gap
-    signals['early_hot_momentum_missing_evidence'] = early_hot_momentum_missing_evidence
-    signals['early_hot_momentum_market_pressure'] = early_market_pressure
-    signals['early_hot_momentum_sector_confirmation_gap'] = early_sector_confirmation_gap
-    signals['hot_momentum_real_confirmation_escape'] = bool(
-        has_direct_gap_confirmation
-        or strong_money_confirmation
-        or low_position_sector_news_confirmation
-    )
-
-    signal_pct = profile['signal_pct']
-    adaptive_thresholds = market_adaptive_thresholds(candidate_stage, market_context)
-    buy_confirmation_min = adaptive_thresholds['buy_confirmation_min']
-    order_book_confirmation_min = adaptive_thresholds['order_book_min']
-    stock_level_limitup_expectation_pass = False
-    strong_high_momentum_continuation_pass = False
-
-    if data_gate_status in ('PASS', 'OK', True):
-        positive_conditions.append('data_gate_status=PASS')
-    else:
-        blockers.append('data_gate_status!=PASS')
-        missing_conditions.append('data_gate_status=PASS')
-
-    if candidate_evidence_status == 'PASS':
-        positive_conditions.append('candidate_evidence_status=PASS')
-    else:
-        positive_conditions.append('candidate_evidence_status!=PASS')
-        missing_conditions.append('candidate_evidence_status=PASS')
-
-    if time_gate_known:
-        if age_minutes is not None and age_minutes >= 0:
-            positive_conditions.append('source_time<=asof_time')
-        else:
-            blockers.append('source_time>asof_time')
-            missing_conditions.append('source_time<=asof_time')
-    else:
-        missing_conditions.append('source_time<=asof_time')
-
-    if one_lot_cost is None or one_lot_cost <= 0:
-        blockers.append('one_lot_cost_invalid')
-        missing_conditions.append('one_lot_cost_valid')
-    else:
-        positive_conditions.append('one_lot_cost_valid')
-        if one_lot_cap is not None and one_lot_cost <= one_lot_cap:
-            positive_conditions.append('one_lot_cost<=cap')
-        elif one_lot_cap is not None:
-            blockers.append('one_lot_cost>cap')
-            missing_conditions.append('one_lot_cost<=cap')
-
-    if risk_penalty is None or risk_penalty == 0:
-        positive_conditions.append('risk_penalty=0')
-    else:
-        blockers.append('risk_penalty!=0')
-        missing_conditions.append('risk_penalty=0')
-
-    if regulatory_block:
-        # Routine blocks (异常波动/风险提示) can be bypassed by strong momentum
-        if is_routine_regulatory_block(regulatory_block):
-            _close_pos = profile['close_position_score'] or safe_float(row.get('close_position_score'))
-            _capture_profile = str(profile.get('limitup_capture_profile') or '')
-            _capture_score = safe_float(profile.get('limitup_capture_score')) or 0.0
-            has_strong_momentum = (
-                (limitup_reason_strength is not None and limitup_reason_strength >= buy_confirmation_min)
-                or (seal_order_strength is not None and seal_order_strength >= buy_confirmation_min)
-                or (_close_pos is not None and _close_pos >= max(0.70, adaptive_thresholds['dynamic_close_position_min']))
-                or (_capture_profile == 'STRONG_LIMITUP_CAPTURE' and _capture_score >= 0.50)
-                or (signal_pct is not None and signal_pct >= 5.0 and not weak_acceptance_market)
-                or (fund_flow_momentum is not None and fund_flow_momentum >= max(0.3, adaptive_thresholds['dynamic_fund_flow_min'] - 0.1))
-            )
-            if has_strong_momentum:
-                positive_conditions.append('routine_regulatory_bypassed_by_momentum')
-            else:
-                blockers.append('regulatory_soft_block:' + regulatory_block)
-                missing_conditions.append('no_regulatory_hard_block_or_strong_momentum')
-        else:
-            blockers.append('regulatory_hard_block:' + regulatory_block)
-            missing_conditions.append('no_regulatory_hard_block')
-    else:
-        positive_conditions.append('no_regulatory_hard_block')
-
-    near_limit_l2_confirmed = False
-    near_limit_gate_blocked = near_limit_up_risk
-    if near_limit_up_risk:
-        # L2 exemption: near_limit + L2_LIMIT_STRENGTH confirmed = positive momentum, not a blocker
-        _source_layers = list(row.get('source_layers') or [])
-        _l2_in_layers = 'L2_LIMIT_STRENGTH' in _source_layers
-        _l2_by_strength = (limitup_reason_strength is not None and limitup_reason_strength >= 0.60)
-        _near_limit_l2_exemption = str(
-            (scoring_config_values or {}).get('near_limit_l2_exemption') or
-            SCORING_CONFIG_DEFAULTS.get('near_limit_l2_exemption') or ''
-        ).lower() == 'true'
-        if _near_limit_l2_exemption and (_l2_in_layers or _l2_by_strength):
-            near_limit_l2_confirmed = True
-            near_limit_gate_blocked = False
-            positive_conditions.append('near_limit_with_L2_confirmation')
-        else:
-            blockers.append('near_limit_up_risk')
-            missing_conditions.append('no_near_limit_up_risk')
-    else:
-        positive_conditions.append('no_near_limit_up_risk')
-    signals['near_limit_with_l2_confirmation'] = near_limit_l2_confirmed
-
-    weekday_blocklist_raw = str(signals['weekday_blocklist'] or '')
-    if weekday_blocklist_raw and source_date:
-        try:
-            blocked_days = [int(d.strip()) for d in weekday_blocklist_raw.split(',') if d.strip()]
-            weekday = dt.date.fromisoformat(source_date).weekday()
-            if weekday in blocked_days:
-                blockers.append('WEEKDAY_SOFT_BLOCKED')
-                missing_conditions.append(f'weekday_not_in_{blocked_days}')
-        except Exception:
-            blockers.append('WEEKDAY_BLOCKLIST_INVALID_SOFT')
-            missing_conditions.append('weekday_blocklist_valid')
-
-    if evidence_missing_flags:
-        positive_conditions.append('evidence_coverage_partial')
-        missing_conditions.append('evidence_coverage_complete')
-        signals['evidence_missing_flags'] = evidence_missing_flags
-    if candidate_evidence_flags:
-        positive_conditions.append('candidate_evidence_partial')
-        missing_conditions.append('candidate_evidence_complete')
-        signals['candidate_evidence_flags'] = candidate_evidence_flags
-    if candidate_lifecycle.get('setup_class') == 'STALE_REPEAT' and not (
-        (profile.get('limitup_capture_confirmed') or False)
-        or (profile.get('seal_order_strength') or 0.0) >= 0.60
-        or (profile.get('order_book_pressure') or 0.0) >= 0.50
-    ):
-        blockers.append('candidate_lifecycle_stale_repeat')
-        missing_conditions.append('candidate_lifecycle_non_stale')
-
-    buy_confirmation_hits: List[str] = []
-    if limitup_reason_strength is not None and limitup_reason_strength >= buy_confirmation_min:
-        positive_conditions.append(f'limitup_reason_strength>={buy_confirmation_min:.2f}')
-        buy_confirmation_hits.append(f'limitup_reason_strength>={buy_confirmation_min:.2f}')
-    if seal_order_strength is not None and seal_order_strength >= buy_confirmation_min:
-        positive_conditions.append(f'seal_order_strength>={buy_confirmation_min:.2f}')
-        buy_confirmation_hits.append(f'seal_order_strength>={buy_confirmation_min:.2f}')
-    if order_book_pressure is not None and order_book_pressure >= order_book_confirmation_min:
-        positive_conditions.append(f'order_book_pressure>={order_book_confirmation_min:.2f}')
-        buy_confirmation_hits.append(f'order_book_pressure>={order_book_confirmation_min:.2f}')
-    if candidate_lifecycle.get('setup_class') == 'INSTANT_MOMENTUM_SETUP':
-        positive_conditions.append('candidate_lifecycle=INSTANT_MOMENTUM_SETUP')
-    elif candidate_lifecycle.get('setup_class') == 'DELAYED_SETUP':
-        positive_conditions.append('candidate_lifecycle=DELAYED_SETUP')
-        if candidate_lifecycle.get('repeat_count'):
-            positive_conditions.append(f"candidate_lifecycle_repeat_count>={candidate_lifecycle.get('repeat_count')}")
-
-    sector_gate_pass = False
-    all_sector_tags = list(sector_opportunity_tags) + list(row.get('sector_opportunity_tags') or [])
-    has_real_sector_tag = bool([t for t in all_sector_tags if not str(t).startswith('REPLAY_')])
-    if replay_only_sector and not has_real_sector_tag:
-        blockers.append('replay_only_sector_opportunity_not_official_gate')
-        missing_conditions.append('live_sector_or_limitup_confirmation')
-    sector_gate_threshold = sector_gate_threshold_for_market(market_context)
-    if sector_opportunity_score >= sector_gate_threshold:
-        positive_conditions.append(f'sector_opportunity_score>={sector_gate_threshold}')
-        sector_gate_pass = True
-    if (not replay_only_sector) and 'SECTOR_OPPORTUNITY' in sector_opportunity_tags:
-        positive_conditions.append('vei_phase_d_tags includes SECTOR_OPPORTUNITY')
-        sector_gate_pass = True
-    if (not replay_only_sector) and 'SECTOR_OPPORTUNITY' in profile['vei_phase_d_tags']:
-        positive_conditions.append('vei_phase_d_tags includes SECTOR_OPPORTUNITY')
-        sector_gate_pass = True
-    if main_theme_core_score >= 0.6:
-        positive_conditions.append('main_theme_core_score>=0.6')
-        sector_gate_pass = True
-    elif main_theme_alignment_score >= 0.5 and fund_flow_momentum is not None and fund_flow_momentum >= 0.5:
-        positive_conditions.append('main_theme_alignment_score>=0.5_with_flow')
-        sector_gate_pass = True
-    component_details = profile['structured_component_details'] if isinstance(profile['structured_component_details'], dict) else {}
-    weak_to_strong_reversal = safe_float(component_details.get('weak_to_strong_reversal'))
-    first_board_pre_signal = safe_float(component_details.get('first_board_pre_signal'))
-    pre_limitup_anomaly = safe_float(component_details.get('pre_limitup_anomaly'))
-    limitup_capture_score = profile['limitup_capture_score'] or safe_float(component_details.get('limitup_capture_score')) or 0.0
-    limitup_capture_profile = profile['limitup_capture_profile'] or str(component_details.get('limitup_capture_profile') or '')
-    limitup_capture_reasons = profile['limitup_capture_reasons'] or normalize_tag_list(component_details.get('limitup_capture_reasons') or [])
-    close_position_score = profile['close_position_score'] or 0.0
-    limitup_capture_confirmation_pass = False
-    strong_vei_stage = candidate_stage in ('underwater', 'flat_0_to_3', 'early_3_to_5', 'mid_5_to_7')
-    strong_vei_momentum = (
-        early_opportunity_score is not None
-        and early_opportunity_score >= 0.65
-        and fund_flow_momentum is not None
-        and fund_flow_momentum > 0
-        and time_series_momentum is not None
-        and time_series_momentum > 0
-    )
-    if strong_vei_stage and strong_vei_momentum:
-        if weak_to_strong_reversal is not None and weak_to_strong_reversal >= 0.75:
-            positive_conditions.append('vei_strong_signal:weak_to_strong_reversal>=0.75')
-            sector_gate_pass = True
-        if first_board_pre_signal is not None and first_board_pre_signal >= 0.80:
-            positive_conditions.append('vei_strong_signal:first_board_pre_signal>=0.80')
-            sector_gate_pass = True
-        if vei_repo_score_delta is not None and vei_repo_score_delta >= 1.0:
-            positive_conditions.append('vei_strong_signal:integrated_vei_repo_delta>=1.0')
-            sector_gate_pass = True
-    if (
-        limitup_capture_profile == 'STRONG_LIMITUP_CAPTURE'
-        and limitup_capture_score >= 0.62
-        and close_position_score >= 0.70
-        and (pre_limitup_anomaly or 0.0) >= 0.55
-        and (profile['limitup_reason_propagation_score'] or 0.0) >= 0.60
-        and fund_flow_momentum is not None
-        and fund_flow_momentum > 0
-        and not near_limit_gate_blocked
-        and not regulatory_block
-    ):
-        limitup_capture_confirmation_pass = True
-        positive_conditions.append('limitup_capture_confirmation_pass')
-        positive_conditions.append(f'limitup_capture_profile={limitup_capture_profile}')
-        positive_conditions.append(f'limitup_capture_score={limitup_capture_score:.4f}')
-        for reason in limitup_capture_reasons:
-            positive_conditions.append('limitup_capture:' + str(reason))
-
-    dynamic_confirmation_hits: List[str] = []
-    if limitup_reason_strength is not None and limitup_reason_strength >= buy_confirmation_min:
-        dynamic_confirmation_hits.append(f'limitup_reason_strength>={buy_confirmation_min:.2f}')
-    if seal_order_strength is not None and seal_order_strength >= buy_confirmation_min:
-        dynamic_confirmation_hits.append(f'seal_order_strength>={buy_confirmation_min:.2f}')
-    if order_book_pressure is not None and order_book_pressure >= order_book_confirmation_min:
-        dynamic_confirmation_hits.append(f'order_book_pressure>={order_book_confirmation_min:.2f}')
-    if limitup_capture_confirmation_pass:
-        dynamic_confirmation_hits.append('limitup_capture_confirmation_pass')
-    if (profile['intraday_alert_strength'] or 0.0) >= 0.90:
-        dynamic_confirmation_hits.append('intraday_alert_strength>=0.9')
-    if near_limit_l2_confirmed:
-        dynamic_confirmation_hits.append('near_limit_with_L2_confirmation')
-    if main_theme_core_score >= 0.60 or main_theme_alignment_score >= 0.55:
-        dynamic_confirmation_hits.append('theme_alignment_confirmation')
-
-    dynamic_required_confirmations = int(adaptive_thresholds['dynamic_required_confirmations'])
-    dynamic_signal_confirmation_pass = (
-        candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
-        and close_position_score is not None
-        and close_position_score >= adaptive_thresholds['dynamic_close_position_min']
-        and fund_flow_momentum is not None
-        and fund_flow_momentum >= adaptive_thresholds['dynamic_fund_flow_min']
-        and time_series_momentum is not None
-        and time_series_momentum >= adaptive_thresholds['dynamic_time_series_min']
-        and len(dynamic_confirmation_hits) >= dynamic_required_confirmations
-        and not regulatory_block
-        and not near_limit_gate_blocked
-    )
-    signals['dynamic_confirmation_hits'] = dynamic_confirmation_hits
-    signals['dynamic_required_confirmations'] = dynamic_required_confirmations
-    signals['dynamic_signal_confirmation_pass'] = dynamic_signal_confirmation_pass
-    if dynamic_signal_confirmation_pass:
-        positive_conditions.append('dynamic_signal_confirmation_pass')
-
-    strong_high_momentum_continuation_pass = (
-        candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
-        and bool(signals.get('dynamic_signal_confirmation_pass'))
-        and not weak_market_hot_momentum_evidence_gap
-        and (
-            (market_supports_high_chase and not weak_acceptance_market)
-            or limitup_capture_confirmation_pass
-        )
-    )
-    if strong_high_momentum_continuation_pass:
-        positive_conditions.append('strong_high_momentum_continuation_pass')
-        buy_confirmation_hits.append('strong_high_momentum_continuation_pass')
-    if strong_high_momentum_continuation_pass:
-        sector_gate_pass = True
-        positive_conditions.append('high_momentum_continuation_bypasses_sector_vei_gate')
-    elif (
-        candidate_stage in ('mid_5_to_7', 'high_7_to_9', 'near_limit_9_plus')
-        and close_position_score >= 0.65
-        and ((fund_flow_momentum is not None and fund_flow_momentum >= 0.5) or (profile['intraday_alert_strength'] or 0.0) >= 0.95)
-        and ((profile['intraday_alert_strength'] or 0.0) >= 0.9 or (limitup_reason_strength or 0.0) >= 0.6)
-        and ((main_theme_alignment_score or 0.0) >= 0.5 or candidate_stage == 'high_7_to_9')
-        and bool(buy_confirmation_hits)
-    ):
-        sector_gate_pass = True
-        positive_conditions.append('strong_continuation_bypasses_sector_vei_gate')
-    elif (
-        candidate_stage in ('flat_0_to_3', 'mid_5_to_7', 'high_7_to_9', 'near_limit_9_plus')
-        and close_position_score >= 0.75
-        and fund_flow_momentum is not None and fund_flow_momentum >= 0.6
-        and (time_series_momentum is None or time_series_momentum >= 0.15)
-        and bool(buy_confirmation_hits)
-        and (main_theme_core_score >= 0.4 or main_theme_alignment_score >= 0.3)
-    ):
-        sector_gate_pass = True
-        positive_conditions.append('strong_stock_priority_bypasses_sector_vei_gate')
-    if not (sector_gate_pass or limitup_capture_confirmation_pass or strong_high_momentum_continuation_pass):
-        missing_conditions.append(f'sector_opportunity_score>={sector_gate_threshold} or VEI strong signal')
-
-    if research_layer in ('news_catalyst_low_position', 'sector_catalyst_low_position', 'TOPIC_FUND_IGNITION'):
-        catalyst_quality_category = str(catalyst_quality.get('category') or profile['catalyst_quality_category'] or '')
-        if catalyst_quality_category in ('risk_notice', 'regulatory_notice'):
-            blockers.append('research_catalyst_quality:' + catalyst_quality_category)
-            missing_conditions.append('research_catalyst_quality_not_risk_notice')
-        elif catalyst_quality_category:
-            positive_conditions.append('research_catalyst_quality=' + catalyst_quality_category)
-        if a_share_risk_review.get('disqualified_for_paper_pick'):
-            blockers.append('a_share_risk_review_soft_disqualified')
-            missing_conditions.append('a_share_risk_review_clean')
-        if research_panel.get('overall') == 'FAIL':
-            blockers.append('research_panel_overall_SOFT_FAIL')
-            missing_conditions.append('research_panel_overall!=FAIL')
-        elif research_panel.get('overall') in ('PASS', 'PARTIAL'):
-            positive_conditions.append('research_panel_overall=' + str(research_panel.get('overall')))
-        if adversarial_review.get('disqualifying_flags'):
-            for flag in adversarial_review.get('disqualifying_flags', []):
-                blockers.append('adversarial_review_soft:' + str(flag))
-            missing_conditions.append('adversarial_review_clean')
-
-    if fund_flow_momentum is not None and fund_flow_momentum > 0:
-        positive_conditions.append('fund_flow_momentum>0')
-    if time_series_momentum is not None and time_series_momentum > 0:
-        positive_conditions.append('time_series_momentum>0')
-    if candidate_stage in ('underwater', 'flat_0_to_3', 'early_3_to_5', 'mid_5_to_7'):
-        positive_conditions.append('candidate_stage=' + candidate_stage)
-    if early_opportunity_score is not None and early_opportunity_score >= 0.65 and candidate_stage in ('underwater', 'flat_0_to_3', 'early_3_to_5', 'mid_5_to_7'):
-        positive_conditions.append('early_opportunity_score>=0.65')
-        buy_confirmation_hits.append('early_opportunity_score>=0.65')
-    if (
-        profile['low_position_catalyst_score'] is not None
-        and profile['low_position_catalyst_score'] >= 0.60
-        and candidate_stage in ('underwater', 'flat_0_to_3', 'early_3_to_5', 'mid_5_to_7')
-    ):
-        positive_conditions.append('low_position_catalyst_score>=0.6')
-        buy_confirmation_hits.append('low_position_catalyst_score>=0.6')
-
-    capital_flow = row.get('data_directory_capital_flow') or {}
-    capital_flow_net = safe_float(capital_flow.get('main_force_net_inflow')) or 0.0
-    if capital_flow_net > 0:
-        positive_conditions.append('data_directory_capital_flow>0')
-    score_value = candidate_score_value(row) or 0.0
-    code_text = str(row.get('code') or row.get('symbol') or '')
-    inferred_board = 'chinext' if code_text.startswith(('300', '301')) else ('main' if code_text.startswith(('600', '601', '603', '605', '000', '001', '002', '003')) else '')
-    board = str(row.get('board') or inferred_board or '')
-    signal_pct_value = signal_pct or 0.0
-    stock_level_limitup_expectation_pass = (
-        board == 'chinext'
-        and candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
-        and score_value >= 90.0
-        and signal_pct_value >= 12.0
-        and close_position_score >= 0.75
-        and fund_flow_momentum is not None and fund_flow_momentum >= 0.75
-        and time_series_momentum is not None and time_series_momentum >= 0.45
-        and (order_book_pressure or 0.0) >= 0.45
-        and capital_flow_net >= 50000000
-        and sector_gate_pass
-        and not regulatory_block
-        and candidate_evidence_status == 'PASS'
-    )
-
-    if stock_level_limitup_expectation_pass:
-        signals['stock_level_limitup_expectation_pass'] = True
-        positive_conditions.append('stock_level_limitup_expectation_pass')
-        positive_conditions.append('stock_level_confirmation:data_directory_capital_flow>=5000w')
-        buy_confirmation_hits.append('stock_level_limitup_expectation_pass')
-
-    if weak_market_hot_momentum_evidence_gap:
-        blockers.append('weak_market_hot_momentum_without_d1_continuation_evidence')
-        missing_conditions.extend([
-            'limitup_context_present',
-            'limitup_capture_confirmed',
-            'continuation_gene_score>0',
-            'mainboard_auxiliary_evidence_status=PASS',
-            'research_panel_overall=PASS',
-        ])
-
-    direct_catalyst_confirmation = max(
-        safe_float(signals.get('announcement_catalyst_score')) or 0.0,
-        safe_float(signals.get('news_catalyst_strength')) or 0.0,
-        safe_float(signals.get('limitup_reason_quality_score')) or 0.0,
-    ) >= 0.75
-    weak_market_requires_direct_confirmation = (
-        (weak_acceptance_market or broken_limit_pressure)
-        and research_panel_overall in ('', 'MISSING', 'PARTIAL')
-        and not direct_catalyst_confirmation
-        and not limitup_capture_confirmation_pass
-        and not strong_high_momentum_continuation_pass
-        and not stock_level_limitup_expectation_pass
-        and (safe_float(signals.get('continuation_gene_score')) or 0.0) < 0.70
-    )
-    signals['direct_catalyst_confirmation'] = direct_catalyst_confirmation
-    signals['sector_gate_pass'] = sector_gate_pass
-    signals['weak_market_requires_direct_confirmation'] = weak_market_requires_direct_confirmation
-    strong_sector_theme_partial_aux_exception = bool(
-        board == 'main'
-        and auxiliary_status_normalized == 'PARTIAL'
-        and research_panel_overall in ('PARTIAL', 'PASS')
-        and (
-            sector_gate_pass
-            or main_theme_core_score >= 0.70
-            or main_theme_alignment_score >= 0.70
-            or sector_catalyst_score_for_gap >= 0.75
-            or topic_propagation_score_for_gap >= 0.75
-        )
-        and not near_limit_up_risk
-        and not regulatory_block
-        and not opportunity_block
-        and not capital_risk_profile.get('risk_codes')
-    )
-    signals['strong_sector_theme_partial_aux_exception'] = strong_sector_theme_partial_aux_exception
-    strong_official_exception = bool(
-        limitup_capture_confirmation_pass
-        or strong_high_momentum_continuation_pass
-        or stock_level_limitup_expectation_pass
-        or strong_sector_theme_partial_aux_exception
-    )
-    weak_low_confidence_mainboard = bool(
-        weak_acceptance_market
-        or broken_limit_pressure
-        or score_value < 70.0
-        or research_panel_overall in ('', 'MISSING', 'PARTIAL')
-        or not direct_catalyst_confirmation
-        or candidate_stage in ('early_3_to_5', 'mid_5_to_7')
-    )
-    mainboard_auxiliary_hard_block = bool(
-        board == 'main'
-        and auxiliary_status_normalized not in ('PASS', 'OK')
-        and weak_low_confidence_mainboard
-        and not strong_official_exception
-    )
-    signals['mainboard_auxiliary_evidence_hard_block'] = mainboard_auxiliary_hard_block
-    if strong_sector_theme_partial_aux_exception:
-        positive_conditions.append('strong_sector_theme_partial_aux_exception')
-    if mainboard_auxiliary_hard_block:
-        blockers.append('mainboard_auxiliary_evidence_status_not_PASS')
-        missing_conditions.append('mainboard_auxiliary_evidence_status=PASS')
-    low_score_without_direct_catalyst_confirmation = bool(
-        score_value < 70.0
-        and not direct_catalyst_confirmation
-        and not limitup_capture_confirmation_pass
-        and not strong_high_momentum_continuation_pass
-        and not stock_level_limitup_expectation_pass
-        and research_panel_overall != 'PASS'
-    )
-    signals['low_score_without_direct_catalyst_confirmation'] = low_score_without_direct_catalyst_confirmation
-    if low_score_without_direct_catalyst_confirmation:
-        blockers.append('low_score_without_direct_catalyst_confirmation')
-        missing_conditions.append('score>=70_or_direct_catalyst_confirmation')
-    if weak_market_requires_direct_confirmation:
-        blockers.append('weak_market_requires_direct_confirmation')
-        missing_conditions.append(
-            'direct_catalyst_limitup_research_PASS_or_sector_confirmation'
-        )
-
-    is_high_position = candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
-    if is_high_position and weak_acceptance_market and not (
-        strong_high_momentum_continuation_pass
-        or stock_level_limitup_expectation_pass
-    ):
-        blockers.append('broken_limit_weak_feedback_high_chase_soft' if broken_limit_pressure else 'weak_acceptance_market_high_chase_soft')
-        missing_conditions.append('weak_market_requires_stronger_high_chase_confirmation')
-
-    raw_research_signals = row.get('research_signals') if isinstance(row.get('research_signals'), dict) else {}
-    raw_research_panel = raw_research_signals.get('research_panel') if isinstance(raw_research_signals.get('research_panel'), dict) else {}
-    raw_research_panel_missing = bool(raw_research_signals and not raw_research_panel.get('overall'))
-    weak_underwater_without_confirmation = (
-        candidate_stage == 'underwater'
-        and signal_pct is not None
-        and signal_pct <= 0
-        and (research_panel.get('overall') == 'FAIL' or raw_research_panel_missing)
-        and catalyst_quality_category_global in ('', 'neutral')
-        and not limitup_capture_confirmation_pass
-        and not stock_level_limitup_expectation_pass
-    )
-    if weak_underwater_without_confirmation:
-        blockers.append('weak_underwater_without_forward_confirmation')
-        missing_conditions.append('limitup_or_catalyst_confirmation_for_underwater_candidate')
-
-    if buy_confirmation_hits:
-        positive_conditions.append('buy_confirmation>=0.6')
-    else:
-        positive_conditions.append('buy_confirmation_below_threshold')
-        missing_conditions.append('buy_confirmation>=0.6')
-        if opportunity_block == 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION':
-            blockers.append('CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION')
-
-    underwater_reversal_confirmation_pass = False
-    if (
-        data_gate_status in ('PASS', 'OK', True)
-        and candidate_evidence_status == 'PASS'
-        and time_gate_known
-        and age_minutes is not None
-        and age_minutes >= 0
-        and one_lot_cost is not None
-        and one_lot_cost > 0
-        and one_lot_cap is not None
-        and one_lot_cost <= one_lot_cap
-        and (risk_penalty in (None, 0))
-        and not regulatory_block
-        and not near_limit_up_risk
-        and not evidence_missing_flags
-        and not candidate_evidence_flags
-        and not opportunity_block
-        and not blockers
-        and candidate_stage in ('underwater', 'flat_0_to_3', 'early_3_to_5', 'mid_5_to_7')
-        and (profile['search_layer_hint'] == 'underwater_reversal' or profile['setup_type'] == 'UNDERWATER_TO_RED_STRENGTH')
-        and early_opportunity_score is not None
-        and early_opportunity_score >= 0.65
-        and fund_flow_momentum is not None
-        and fund_flow_momentum > 0
-        and time_series_momentum is not None
-        and time_series_momentum > 0
-        and bool(buy_confirmation_hits)
-    ):
-        underwater_reversal_confirmation_pass = True
-        positive_conditions.append('underwater_reversal_confirmation_pass')
-        missing_conditions = [item for item in missing_conditions if not (item.startswith('sector_opportunity_score>=') and 'VEI strong signal' in item)]
-
-    if opportunity_block and opportunity_block != 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION':
-        blockers.append(opportunity_block)
-
-    # Keep blockers deduplicated and preserve first-seen order.
-    unique_blockers: List[str] = []
-    seen_blockers = set()
-    for blocker in blockers:
-        if blocker not in seen_blockers:
-            unique_blockers.append(blocker)
-            seen_blockers.add(blocker)
-
-    unique_positive: List[str] = []
-    seen_positive = set()
-    for condition in positive_conditions:
-        if condition not in seen_positive:
-            unique_positive.append(condition)
-            seen_positive.add(condition)
-
-    unique_missing: List[str] = []
-    seen_missing = set()
-    for condition in missing_conditions:
-        if condition not in seen_missing:
-            unique_missing.append(condition)
-            seen_missing.add(condition)
-
-    eligible = not unique_blockers and data_gate_status in ('PASS', 'OK', True) and (sector_gate_pass or underwater_reversal_confirmation_pass or limitup_capture_confirmation_pass or strong_high_momentum_continuation_pass)
-    if one_lot_cost is not None and one_lot_cost > 0 and one_lot_cap is not None and one_lot_cost > one_lot_cap:
-        eligible = False
-    if risk_penalty not in (None, 0):
-        eligible = False
-    if regulatory_block:
-        # Routine blocks can be bypassed by strong momentum
-        if is_routine_regulatory_block(regulatory_block):
-            has_strong_momentum = (
-                (limitup_reason_strength is not None and limitup_reason_strength >= buy_confirmation_min)
-                or (seal_order_strength is not None and seal_order_strength >= buy_confirmation_min)
-                or (close_position_score is not None and close_position_score >= max(0.82, adaptive_thresholds['dynamic_close_position_min']))
-                or (limitup_capture_profile == 'STRONG_LIMITUP_CAPTURE' and limitup_capture_score >= 0.62)
-            )
-            if not has_strong_momentum:
-                eligible = False
-        else:
-            eligible = False
-    if near_limit_gate_blocked:
-        eligible = False
-    if opportunity_block == 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION':
-        if stock_level_limitup_expectation_pass:
-            positive_conditions.append('CHASE_HIGH_OVERRIDDEN_BY_STOCK_LEVEL_LIMITUP_EXPECTATION')
-        elif dynamic_signal_confirmation_pass and market_supports_high_chase and not weak_acceptance_market:
-            positive_conditions.append('CHASE_HIGH_OVERRIDDEN_BY_DYNAMIC_MARKET_CONFIRMATION')
-        else:
-            sector_opp = safe_float(row.get('sector_opportunity_score')) or 0.0
-            fund_mom = safe_float(fund_flow_momentum) or 0.0
-            if sector_opp >= 1.5 or fund_mom >= 0.8:
-                positive_conditions.append('CHASE_HIGH_OVERRIDDEN_BY_SECTOR_OR_FUND_FLOW')
-            else:
-                blockers.append('CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION')
-    if time_gate_known and age_minutes is not None and age_minutes < 0:
-        eligible = False
-
-    # Minimum factor requirements - prevent blind selection
-    setup_type = str(profile.get('setup_type') or '')
-    has_valid_setup = bool(setup_type and setup_type not in ('', 'NONE', 'UNKNOWN'))
-    has_close_position = close_position_score is not None and close_position_score > 0
-    has_signal_pct = signal_pct is not None and signal_pct > 0
-    
-    # Require at least setup_type OR close_position_score for eligibility
-    if not has_valid_setup and not has_close_position:
-        blockers.append('missing_critical_factors')
-        missing_conditions.append('setup_type_or_close_position_required')
-        eligible = False
-    
-    # Minimum score threshold - prevent very low score picks
-    min_score_threshold = 50.0
-    if score_value < min_score_threshold:
-        blockers.append(f'score_below_minimum:{score_value:.1f}')
-        missing_conditions.append(f'score>={min_score_threshold}')
-        eligible = False
-
-    capital_flow = row.get('data_directory_capital_flow') or {}
-    capital_flow_net = safe_float(capital_flow.get('main_force_net_inflow')) or 0.0
-    if capital_flow_net < -50000000:
-        blockers.append('main_force_heavy_sell_soft')
-        missing_conditions.append('main_force_not_heavy_sell')
-        eligible = False
-
-    market_snapshot = bundle.get('market_snapshot') or {}
-    market_limitups = safe_float(market_snapshot.get('market_limitups')) or safe_float(bundle.get('market_limitups')) or 0.0
-    market_breadth_up_pct = safe_float(market_snapshot.get('market_breadth_up_pct')) or safe_float(bundle.get('market_breadth_up_pct')) or 0.0
-    is_high_position = candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
-    if overheated_market:
-        if is_high_position and not (limitup_capture_confirmation_pass or strong_high_momentum_continuation_pass):
-            blockers.append('overheated_market_no_strong_confirmation_soft')
-            missing_conditions.append('overheated_market_requires_strong_confirmation')
-            eligible = False
-
-    research_signals_local = profile.get('research_signals') if isinstance(profile.get('research_signals'), dict) else {}
-    catalyst_quality_local = research_signals_local.get('catalyst_quality') if isinstance(research_signals_local.get('catalyst_quality'), dict) else {}
-    news_category = str(catalyst_quality_local.get('category') or '')
-    if news_category in ('risk_notice', 'regulatory_notice'):
-        if not (limitup_capture_confirmation_pass or strong_high_momentum_continuation_pass):
-            blockers.append('news_catalyst_risk_notice_soft')
-            missing_conditions.append('news_catalyst_not_risk_notice')
-            eligible = False
-
-    lhb_rows = row.get('lhb_profiles') or []
-    hot_money_buy = False
-    for lhb in lhb_rows:
-        seat_name = str(lhb.get('seat_name') or '')
-        net_buy = safe_float(lhb.get('net_buy')) or 0.0
-        if net_buy > 0 and ('游资' in seat_name or '营业部' in seat_name):
-            hot_money_buy = True
-            break
-    if hot_money_buy and capital_flow_net < 0:
-        if not (limitup_capture_confirmation_pass or strong_high_momentum_continuation_pass):
-            blockers.append('hot_money_buy_with_main_sell_soft')
-            missing_conditions.append('no_hot_money_with_main_sell')
-            eligible = False
-    if underwater_reversal_confirmation_pass:
-        signals['underwater_reversal_confirmation_pass'] = True
-    if limitup_capture_confirmation_pass:
-        signals['limitup_capture_confirmation_pass'] = True
-    if strong_high_momentum_continuation_pass:
-        signals['strong_high_momentum_continuation_pass'] = True
-
-    for blocker in blockers:
-        if blocker not in seen_blockers:
-            unique_blockers.append(blocker)
-            seen_blockers.add(blocker)
-    for condition in positive_conditions:
-        if condition not in seen_positive:
-            unique_positive.append(condition)
-            seen_positive.add(condition)
-    for condition in missing_conditions:
-        if condition not in seen_missing:
-            unique_missing.append(condition)
-            seen_missing.add(condition)
-
-    return {
-        'eligible': eligible,
-        'blockers': unique_blockers,
-        'positive_conditions': unique_positive,
-        'missing_conditions': unique_missing,
-        'signals': signals,
-        'shadow_risk_profile': shadow_profile,
-        'candidate_lifecycle': candidate_lifecycle,
-        'setup_class': candidate_lifecycle.get('setup_class'),
-        'setup_rank': candidate_lifecycle.get('setup_rank'),
-        'stale_decay': candidate_lifecycle.get('stale_decay'),
-        'repeat_count': candidate_lifecycle.get('repeat_count'),
-        'lifecycle_score': candidate_lifecycle.get('lifecycle_score'),
-    }
-
-
-def official_target_exclusion_reasons(row: Dict[str, Any], bundle: Dict[str, Any] | None = None) -> List[str]:
-    bundle = bundle if isinstance(bundle, dict) else {}
-    row = row if isinstance(row, dict) else {}
-    reasons: List[str] = []
-    regulatory_block = regulatory_hard_block_reason(row, bundle)
-    if regulatory_block:
-        reasons.append('regulatory_hard_block:' + regulatory_block)
-
-    eligibility = row.get('paper_pick_eligibility') if isinstance(row.get('paper_pick_eligibility'), dict) else {}
-    risk_explanation_gate = eligibility.get('paper_pick_risk_explanation_gate') if isinstance(eligibility.get('paper_pick_risk_explanation_gate'), dict) else paper_pick_risk_explanation_gate(row)
-    if risk_explanation_gate.get('status') == 'FAIL':
-        reasons.append('PAPER_PICK_RISK_EXPLANATION_GATE_FAIL')
-    signals = eligibility.get('signals') if isinstance(eligibility.get('signals'), dict) else {}
-    profile = row
-    if row.get('sector_opportunity_score') is None:
-        profile = _cached_structured_signal_profile(row, bundle)
-    market_context = market_adaptive_context(row, bundle)
-    sector_gate_threshold = sector_gate_threshold_for_market(market_context)
-    strong_sector = (profile.get('sector_opportunity_score') or 0.0) >= sector_gate_threshold and not replay_only_sector_opportunity(profile, row)
-    strong_momentum_override = bool(
-        signals.get('strong_high_momentum_continuation_pass')
-        or signals.get('dynamic_signal_confirmation_pass')
-        or signals.get('limitup_capture_confirmation_pass')
-        or signals.get('stock_level_limitup_expectation_pass')
-    )
-    soft_exclusion_override = bool(eligibility.get('eligible')) and (strong_sector or strong_momentum_override)
-    hard_diagnostic_blockers = {
-        'sector_follower_diagnostic_only',
-        'mainboard_auxiliary_evidence_status_not_PASS',
-        'low_score_without_direct_catalyst_confirmation',
-    }
-    partial_aux_exception = bool(signals.get('strong_sector_theme_partial_aux_exception'))
-    for blocker in [str(item) for item in (eligibility.get('blockers') or []) if item]:
-        if blocker == 'mainboard_auxiliary_evidence_status_not_PASS' and partial_aux_exception:
-            continue
-        if blocker in hard_diagnostic_blockers:
-            reasons.append(blocker)
-        elif any(token in blocker for token in ('regulatory_hard_block', 'risk_too_high')):
-            reasons.append(blocker)
-        elif 'a_share_risk_review_soft_disqualified' in blocker and not soft_exclusion_override:
-            reasons.append(blocker)
-        elif 'research_panel_overall_SOFT_FAIL' in blocker and not soft_exclusion_override:
-            reasons.append(blocker)
-        elif blocker.startswith('adversarial_review_soft:') and not soft_exclusion_override:
-            reasons.append(blocker)
-
-    research_signals = row.get('research_signals') if isinstance(row.get('research_signals'), dict) else {}
-    catalyst_quality = research_signals.get('catalyst_quality') if isinstance(research_signals.get('catalyst_quality'), dict) else {}
-    catalyst_category = str(catalyst_quality.get('category') or '')
-    if catalyst_category in ('risk_notice', 'regulatory_notice') and not (soft_exclusion_override and catalyst_category == 'risk_notice'):
-        reasons.append('research_catalyst_quality:' + catalyst_category)
-    a_share_risk_review = research_signals.get('a_share_risk_review') if isinstance(research_signals.get('a_share_risk_review'), dict) else {}
-    if a_share_risk_review.get('disqualified_for_paper_pick') and not soft_exclusion_override:
-        reasons.append('a_share_risk_review_soft_disqualified')
-    research_panel = research_signals.get('research_panel') if isinstance(research_signals.get('research_panel'), dict) else {}
-    if research_panel.get('overall') == 'FAIL' and not soft_exclusion_override:
-        reasons.append('research_panel_overall_SOFT_FAIL')
-    adversarial_review = research_signals.get('adversarial_review') if isinstance(research_signals.get('adversarial_review'), dict) else {}
-    if not soft_exclusion_override:
-        for flag in [str(item) for item in (adversarial_review.get('disqualifying_flags') or []) if item]:
-            reasons.append('adversarial_review_soft:' + flag)
-
-    enhanced_missing = [str(item) for item in (row.get('enhanced_evidence_missing_domains') or []) if item]
-    if 'candidate_fund_recheck' in enhanced_missing and not soft_exclusion_override:
-        reasons.append('candidate_fund_recheck_missing')
-    if any('fund_flow_conflict' in str(item) or 'weak_fund' in str(item) for item in (row.get('blocked_reasons') or [])) and not soft_exclusion_override:
-        reasons.append('funding_quality_conflict')
-    if any('WEEKDAY_BLOCKED' in str(item) for item in (row.get('blocked_reasons') or [])) and not soft_exclusion_override:
-        reasons.append('weekday_blocked_soft')
-    if (safe_float(row.get('risk_notice_penalty')) or 0.0) >= 0.60:
-        for notice in row.get('risk_notice_evidence') or []:
-            category = str(notice.get('category') or 'risk_notice')
-            title = str(notice.get('title') or '')[:120]
-            reasons.append(f'mainboard_auxiliary_risk:{category}:{title}')
-
-    return unique_text_values(reasons)
-
-
-def attach_paper_pick_eligibility(bundle: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(bundle, dict):
-        return bundle
-
-    def enrich(candidate: Any) -> Any:
-        if not isinstance(candidate, dict):
-            return candidate
-        updated = dict(candidate)
-        capital_risk_profile = candidate_capital_risk_profile(updated)
-        updated['capital_risk_profile'] = capital_risk_profile
-        for key in (
-            'failed_limitup_risk', 'main_buy_outflow_pressure', 'dark_pool_inflow_support',
-            'popularity_crowding_risk', 'profit_taking_pressure', 'post_broken_board_selloff_risk',
-            'high_popularity_trap_risk', 'capital_divergence_score', 'risk_softened_by_dark_pool_inflow',
-        ):
-            updated[key] = capital_risk_profile.get(key)
-        eligibility = _cached_paper_pick_eligibility_profile(updated, bundle)
-        eligibility_signals = eligibility.setdefault('signals', {})
-        eligibility_signals['capital_risk_profile'] = capital_risk_profile
-        risk_gate = paper_pick_risk_explanation_gate(updated)
-        eligibility['paper_pick_risk_explanation_gate'] = risk_gate
-        eligibility_signals['paper_pick_risk_explanation_gate'] = risk_gate
-        if risk_gate['status'] == 'FAIL':
-            eligibility['eligible'] = False
-            eligibility['blockers'] = unique_text_values([
-                *(eligibility.get('blockers') or []),
-                'PAPER_PICK_RISK_EXPLANATION_GATE_FAIL',
-            ])
-            eligibility['missing_conditions'] = unique_text_values([
-                *(eligibility.get('missing_conditions') or []),
-                'explicit_catalyst_or_risk_rebuttal_required',
-            ])
-        if capital_risk_profile.get('risk_codes'):
-            eligibility['missing_conditions'] = unique_text_values([
-                *(eligibility.get('missing_conditions') or []),
-                *capital_risk_profile['risk_codes'],
-            ])
-        if capital_risk_profile.get('risk_softened_by_dark_pool_inflow'):
-            eligibility['positive_conditions'] = unique_text_values([
-                *(eligibility.get('positive_conditions') or []),
-                'risk_softened_by_dark_pool_inflow',
-            ])
-        updated['paper_pick_eligibility'] = eligibility
-        exclusion_reasons = official_target_exclusion_reasons(updated, bundle)
-        updated['official_target_excluded'] = bool(exclusion_reasons)
-        updated['official_target_exclusion_reasons'] = exclusion_reasons
-        if exclusion_reasons:
-            updated['diagnostic_only'] = True
-        updated['structured_formal_paper_pick_eligible'] = bool(eligibility['eligible']) and not exclusion_reasons
-        updated['formal_eligible'] = bool(eligibility['eligible']) and not exclusion_reasons
-        return updated
-
-    primary_enriched_by_key: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
-    primary_items = bundle.get('paper_scoring_candidates')
-    if isinstance(primary_items, list):
-        enriched_primary_items = [enrich(item) for item in primary_items]
-        bundle['paper_scoring_candidates'] = enriched_primary_items
-        primary_enriched_by_key = {
-            _candidate_runtime_cache_key(item): item
-            for item in enriched_primary_items
-            if isinstance(item, dict)
-        }
-
-    for key in ('candidate', 'candidate_features'):
-        if key not in bundle:
-            continue
-        item = bundle.get(key)
-        if isinstance(item, dict):
-            cached_item = primary_enriched_by_key.get(_candidate_runtime_cache_key(item))
-            bundle[key] = dict(cached_item) if isinstance(cached_item, dict) else enrich(item)
-        else:
-            bundle[key] = enrich(item)
-    for key in ('structured_observation_basket', 'structured_sector_observation_basket'):
-        items = bundle.get(key)
-        if isinstance(items, list):
-            bundle[key] = [enrich(item) for item in items]
-    impact = bundle.get('structured_formal_impact')
-    if isinstance(impact, dict):
-        for key in ('top_structured_only_candidates', 'sector_opportunity_candidates', 'structured_observation_candidates'):
-            items = impact.get(key)
-            if isinstance(items, list):
-                impact[key] = [enrich(item) for item in items]
-    return bundle
 
 
 def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]:
@@ -6331,7 +6861,12 @@ def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]
         'signal_pct': row.get('signal_pct'),
         'signal_amount': row.get('signal_amount'),
         'rank': row.get('rank'),
+        'pool_rank': row.get('pool_rank'),
+        'formal_rank': row.get('formal_rank'),
+        'scanner_rank': row.get('scanner_rank'),
         'legacy_rank': row.get('legacy_rank'),
+        'rank_source': row.get('rank_source'),
+        'formal_primary_score': row.get('formal_primary_score'),
         'structured_priority_score': row.get('structured_priority_score'),
         'ranking_basis': row.get('ranking_basis'),
         'ranking_basis_details': row.get('ranking_basis_details', {}),
@@ -6414,6 +6949,9 @@ def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]
         'order_book_pressure': structured_component(row, 'order_book_pressure'),
         'fund_flow_momentum': structured_component(row, 'fund_flow_momentum'),
         'time_series_momentum': structured_component(row, 'time_series_momentum'),
+        't1_profit_candidate': bool(row.get('t1_profit_candidate')),
+        't1_profit_profile': row.get('t1_profit_profile') or {},
+        'expected_t1_profit_score': row.get('expected_t1_profit_score'),
         'final_shadow_score': row.get('final_shadow_score'),
         'structured_score_mode': row.get('structured_score_mode') or row.get('mode'),
         'final_score': score,
@@ -6446,6 +6984,48 @@ def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]
 
 
 def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_context: Dict[str, Any]) -> Dict[str, Any]:
+    from xiaogu_forward_eligibility import (
+        filter_current_day_tradable_candidates,
+        filter_t1_profit_candidates,
+    )
+
+    # Stamp production_regime so formal_candidate_sort_key / ranking_basis apply regime scales.
+    bundle_context = bundle_context if isinstance(bundle_context, dict) else {}
+    if bundle_context.get('t1_profit_gate_enabled'):
+        enriched_rows, current_day_tradable_filter = filter_t1_profit_candidates(
+            enriched_rows,
+            bundle_context,
+            enforce=True,
+        )
+    else:
+        enriched_rows, current_day_tradable_filter = filter_current_day_tradable_candidates(
+            enriched_rows,
+            bundle_context,
+        )
+    try:
+        market_ctx = market_adaptive_context({}, bundle_context)
+        stamped_regime = str(market_ctx.get('production_regime') or '').lower() or 'sideways'
+    except Exception:
+        stamped_regime = str(
+            bundle_context.get('production_regime')
+            or (bundle_context.get('market_snapshot') or {}).get('market_regime')
+            or bundle_context.get('market_regime')
+            or 'sideways'
+        ).lower()
+        market_ctx = {'production_regime': stamped_regime}
+    stamped_enriched: List[Dict[str, Any]] = []
+    for row in (enriched_rows or []):
+        if not isinstance(row, dict):
+            continue
+        stamped = dict(row)
+        if not stamped.get('production_regime'):
+            stamped['production_regime'] = stamped_regime
+        if not isinstance(stamped.get('market_adaptive_context'), dict):
+            stamped['market_adaptive_context'] = market_ctx
+        stamped_enriched.append(stamped)
+    # P1: stamp pool_rank from scanner, then rewrite rank via formal profit-first sort.
+    enriched_rows = apply_formal_profit_ranks(stamped_enriched)
+
     def row_is_searchable(row: Dict[str, Any]) -> bool:
         symbol = symbol_for(row)
         price = safe_float(row.get('price'))
@@ -6651,6 +7231,65 @@ def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_c
         and (structured_signal_profile(row)['close_position_score'] or 1.0) < 0.9  # 不追极高位
         and not _is_limit_up(row)  # 排除已涨停
     ]
+    # T+1 利润优先层：近板/高位续涨结构（中利/顺钠/华天型）必须进入 live 决策池。
+    # 旧层把 pct>=9.5 从 momentum/sector_follower 剔除，且 limitup_capture 依赖
+    # STRONG_LIMITUP_CAPTURE 画像常为 NONE → 利润票进不了 search_rows，只剩防守壳。
+    def _has_profit_continuation_structure(row: Dict[str, Any]) -> bool:
+        profile = structured_signal_profile(row)
+        details = profile.get('structured_component_details') if isinstance(profile.get('structured_component_details'), dict) else {}
+        adj = ranking_basis_adjustment_components(row)
+        pe = float(safe_float(adj.get('profit_edge_score')) or 0.0)
+        cont = float((adj.get('boosts') or {}).get('profit_continuation_soft') or 0.0)
+        shell = float((adj.get('penalties') or {}).get('hot_fund_shell_without_profit_edge') or 0.0)
+        gene = max(
+            float(safe_float(row.get('continuation_gene_score')) or 0.0),
+            float(safe_float(profile.get('continuation_gene_score')) or 0.0),
+            float(safe_float(details.get('continuation_gene_score')) or 0.0),
+        )
+        setup = str(row.get('setup_type') or profile.get('setup_type') or '')
+        proxy = row.get('sector_yesterday_limitup_gene_proxy')
+        proxy_ok = isinstance(proxy, dict) and str(proxy.get('status') or '').upper() in (
+            'PROXY', 'PASS', 'OK', 'CONFIRMED'
+        )
+        if pe >= 0.25 or cont >= 0.30:
+            return True
+        if gene >= 0.35 or proxy_ok:
+            return True
+        # Entry-layer relaxation only: a direct stock-level limitup reason on
+        # LIMIT_STRENGTH is enough to preserve the candidate for final gates.
+        # The shell penalty remains active in ranking; eligibility still applies
+        # regulatory, buyability, and risk hard blocks.
+        reason_status = str(
+            row.get('limitup_reason_status')
+            or details.get('limitup_reason_status')
+            or ''
+        ).upper()
+        reason_class = str(
+            classify_limitup_reason_evidence(row).get('limitup_reason_evidence_class')
+            or ''
+        ).upper()
+        direct_reason = (
+            reason_status in ('PASS', 'OK', 'CONFIRMED', 'DIRECT')
+            and reason_class == 'DIRECT'
+        )
+        if (
+            direct_reason
+            and setup in ('LIMIT_STRENGTH', 'L2_LIMIT_STRENGTH', 'STRONG_LIMITUP_CAPTURE')
+            and shell >= 0.55
+        ):
+            return True
+        if setup in ('LIMIT_STRENGTH', 'L2_LIMIT_STRENGTH', 'STRONG_LIMITUP_CAPTURE') and shell < 0.55:
+            return True
+        return False
+
+    profit_continuation_rows = [
+        row for row in enriched_rows
+        if row_is_searchable(row)
+        and not bool(row.get('sealed_limit_up'))
+        and (_signal_pct(row) is not None and 7.0 <= float(_signal_pct(row)) <= 10.5)
+        and candidate_stage_for_row_local(row) in ('high_7_to_9', 'near_limit_9_plus', 'mid_5_to_7')
+        and _has_profit_continuation_structure(row)
+    ]
     # 横盘突破：昨日涨幅接近0（-1%~+1%），但成交量放大
     # 逻辑：横盘后放量可能预示突破
     flat_breakout_rows = [
@@ -6734,8 +7373,33 @@ def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_c
         position = profile['close_position_score'] or 0.5
         return (has_lhb + has_news, max(0, 1.0 - position), safe_float(row.get('amount')) or 0)
 
+    # Soft similar-loss demotion for formal ranking: attach pgvector neighbors
+    # before formal_high_score sort (bounded; never hard gate / force_pick).
+    formal_trade_date = str(
+        bundle_context.get('trade_date')
+        or bundle_context.get('date')
+        or (bundle_context.get('market_snapshot') or {}).get('trade_date')
+        or ''
+    )
+    try:
+        from xiaogu_case_vector_store import attach_similar_cases_soft_bias
+        for _row in shadow_high_rows:
+            if not isinstance(_row, dict):
+                continue
+            if not _row.get('trade_date') and formal_trade_date:
+                _row['trade_date'] = formal_trade_date
+            attach_similar_cases_soft_bias(
+                _row,
+                exclude_trade_date=formal_trade_date or None,
+                limit=5,
+            )
+    except Exception:
+        pass
+
     layer_specs = [
         ('limitup_capture', limitup_capture_rows, limitup_capture_layer_sort_key),
+        # Profit-first entry: near-limit continuation before defensive low-position layers.
+        ('profit_continuation', profit_continuation_rows, formal_layer_sort_key),
         ('momentum_continuation', momentum_continuation_rows, momentum_continuation_sort_key),
         ('news_catalyst_low_position', news_catalyst_rows, sector_layer_sort_key),
         ('sector_catalyst_low_position', sector_catalyst_rows, sector_layer_sort_key),
@@ -6792,19 +7456,25 @@ def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_c
         'first_paper_pick_layer': None,
         'no_pick_reason_if_none': 'PENDING_EVALUATION',
     }
-    first_clean_row = next(
-        (
-            row for row in search_rows
-            if paper_pick_eligibility_profile(row, bundle_context)['eligible']
-            and not official_target_exclusion_reasons(row, bundle_context)
-        ),
-        None,
+    first_clean_row, first_clean_meta = select_first_clean_with_formal_challenge(
+        search_rows, bundle_context
     )
+    if isinstance(first_clean_row, dict) and first_clean_meta.get('challenged'):
+        daily_ticket_search_result['first_clean_challenge'] = first_clean_meta
+    rank_alignment_diagnostic = build_rank_alignment_diagnostic(
+        enriched_rows,
+        first_clean_row,
+        top_n=RESEARCH_BASKET_SIZE,
+    )
+    rank_alignment_diagnostic['search_row_count'] = len(search_rows)
+    rank_alignment_diagnostic['first_clean_meta'] = first_clean_meta
     blocked_candidate_diagnostics = [
         {
             'symbol': symbol_for(row),
             'name': row.get('name'),
             'rank': row.get('rank'),
+            'pool_rank': row.get('pool_rank'),
+            'formal_rank': row.get('formal_rank'),
             'search_layer': row.get('search_layer'),
             'official_target_exclusion_reasons': row.get('official_target_exclusion_reasons') or [],
         }
@@ -6814,6 +7484,10 @@ def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_c
     return {
         'search_rows': search_rows,
         'first_clean_row': first_clean_row,
+        'formal_ranked_pool': enriched_rows,
+        'current_day_tradable_filter': current_day_tradable_filter,
+        'rank_alignment_diagnostic': rank_alignment_diagnostic,
+        'first_clean_challenge_meta': first_clean_meta,
         'blocked_candidate_diagnostics': blocked_candidate_diagnostics,
         'official_target_excluded_count': len(blocked_candidate_diagnostics),
         'first_excluded_candidate': blocked_candidate_diagnostics[0] if blocked_candidate_diagnostics else None,
@@ -7023,6 +7697,7 @@ def build_research_basket_from_db(date: str) -> Dict[str, Any]:
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
+        't1_profit_gate_enabled': True,
         'data_gate_status': 'PASS' if int(session.get('quotes_count') or 0) > 0 else 'PARTIAL_OR_FAIL',
         'source_status': dict(bundle.get('source_status') or {}),
         'full_universe_scan': dict(bundle.get('full_universe_scan') or {}),
@@ -7081,6 +7756,7 @@ def build_research_basket_from_db(date: str) -> Dict[str, Any]:
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
+        't1_profit_gate_enabled': True,
         'data_gate_status': bundle.get('data_gate_status', 'PASS'),
         'source_status': bundle.get('source_status', {}),
         'full_universe_scan': bundle.get('full_universe_scan', {}),
@@ -7127,7 +7803,20 @@ def build_research_basket_from_db(date: str) -> Dict[str, Any]:
             'low': row.get('low_price'),
             'signal_pct': row.get('signal_pct') if row.get('signal_pct') is not None else raw_json.get('signal_pct'),
             'close_position_score': row.get('close_position_score') if row.get('close_position_score') is not None else raw_json.get('close_position_score'),
+            'volume_ratio': row.get('volume_ratio') if row.get('volume_ratio') is not None else raw_json.get('volume_ratio'),
+            'turnover_rate': row.get('turnover_rate') if row.get('turnover_rate') is not None else raw_json.get('turnover_rate'),
             'fund_flow_momentum': row.get('fund_flow_momentum') if row.get('fund_flow_momentum') is not None else raw_json.get('fund_flow_momentum'),
+            'net_inflow_main': row.get('net_inflow_main') if row.get('net_inflow_main') is not None else raw_json.get('net_inflow_main'),
+            'continuation_gene_score': row.get('continuation_gene_score') if row.get('continuation_gene_score') is not None else raw_json.get('continuation_gene_score'),
+            'underwater_recovery_score': row.get('underwater_recovery_score') if row.get('underwater_recovery_score') is not None else raw_json.get('underwater_recovery_score'),
+            'weak_to_strong_reversal': row.get('weak_to_strong_reversal') if row.get('weak_to_strong_reversal') is not None else raw_json.get('weak_to_strong_reversal'),
+            'first_board_pre_signal': row.get('first_board_pre_signal') if row.get('first_board_pre_signal') is not None else raw_json.get('first_board_pre_signal'),
+            'pre_limitup_anomaly': row.get('pre_limitup_anomaly') if row.get('pre_limitup_anomaly') is not None else raw_json.get('pre_limitup_anomaly'),
+            'low_position_catalyst_score': row.get('low_position_catalyst_score') if row.get('low_position_catalyst_score') is not None else raw_json.get('low_position_catalyst_score'),
+            'intraday_alert_strength': row.get('intraday_alert_strength') if row.get('intraday_alert_strength') is not None else raw_json.get('intraday_alert_strength'),
+            'direct_symbol_news_count': row.get('direct_symbol_news_count') if row.get('direct_symbol_news_count') is not None else raw_json.get('direct_symbol_news_count'),
+            'candidate_stage': row.get('candidate_stage') if row.get('candidate_stage') is not None else raw_json.get('candidate_stage'),
+            'previous_limitup': row.get('previous_limitup') if row.get('previous_limitup') is not None else raw_json.get('previous_limitup'),
             'sector_catalyst_score': row.get('sector_catalyst_score') if row.get('sector_catalyst_score') is not None else raw_json.get('sector_catalyst_score'),
             'sector_opportunity_score': row.get('sector_catalyst_score') if row.get('sector_catalyst_score') is not None else raw_json.get('sector_opportunity_score'),
             'early_opportunity_score': row.get('early_opportunity_score') if row.get('early_opportunity_score') is not None else raw_json.get('early_opportunity_score'),
@@ -7210,15 +7899,36 @@ def build_research_basket_from_db(date: str) -> Dict[str, Any]:
                 if candidate.get('price') is None and flow.get('price') is not None:
                     candidate['price'] = flow.get('price')
 
-    enriched_rows = [dict(candidate) for candidate in candidates]
+    from xiaogu_forward_eligibility import (
+        filter_current_day_tradable_candidates,
+        filter_t1_profit_candidates,
+    )
+
+    if bundle_context.get('t1_profit_gate_enabled'):
+        enriched_rows, current_day_tradable_filter = filter_t1_profit_candidates(
+            [dict(candidate) for candidate in candidates],
+            bundle_context,
+            enforce=True,
+        )
+    else:
+        enriched_rows, current_day_tradable_filter = filter_current_day_tradable_candidates(
+            [dict(candidate) for candidate in candidates],
+            bundle_context,
+        )
+    bundle['current_day_tradable_filter'] = current_day_tradable_filter
     search_context = build_daily_ticket_search_rows(enriched_rows, bundle_context)
     search_rows = search_context['search_rows']
     selected_rows = [dict(row) for row in search_rows]
     structured_formal_impact = structured_formal_impact_summary(enriched_rows, selected_rows, bundle_context)
 
-    bundle['paper_scoring_candidates'] = selected_rows or candidates
+    formal_ranked_pool = search_context.get('formal_ranked_pool') or apply_formal_profit_ranks(enriched_rows)
+    bundle['paper_scoring_candidates'] = selected_rows or formal_ranked_pool
+    bundle['full_candidate_pool'] = formal_ranked_pool
+    bundle['scored_candidates'] = formal_ranked_pool
     bundle['candidate'] = search_context['first_clean_row'] if search_context['first_clean_row'] is not None else (bundle['paper_scoring_candidates'][0] if bundle['paper_scoring_candidates'] else {})
     bundle['daily_ticket_search_result'] = search_context['daily_ticket_search_result']
+    bundle['rank_alignment_diagnostic'] = search_context.get('rank_alignment_diagnostic') or {}
+    bundle['first_clean_challenge_meta'] = search_context.get('first_clean_challenge_meta') or {}
     bundle['paper_pick_candidate_stage_distribution'] = dict(search_context['paper_pick_candidate_stage_distribution'])
     bundle['candidate_stage_blocker_distribution'] = {
         stage: dict(counts) for stage, counts in search_context['candidate_stage_blocker_distribution'].items()
@@ -7228,6 +7938,12 @@ def build_research_basket_from_db(date: str) -> Dict[str, Any]:
     bundle['structured_observation_basket'] = structured_formal_impact['structured_observation_candidates']
     bundle['structured_sector_observation_basket'] = structured_formal_impact['sector_opportunity_candidates']
     bundle['structured_formal_impact'] = structured_formal_impact
+    bundle['current_day_tradable_filter'] = search_context.get('current_day_tradable_filter') or {}
+    bundle['candidate_drop_diagnostics'] = list(
+        bundle.get('candidate_drop_diagnostics') or []
+    ) + list(
+        (bundle.get('current_day_tradable_filter') or {}).get('dropped') or []
+    )
 
     if catalog_rows:
         bundle['data_directory_catalog_records'] = catalog_rows
@@ -7532,324 +8248,6 @@ def inject_live_fund_flow_into_candidates(bundle):
     bundle['paper_scoring_candidates'] = candidates
 
 
-def load_candidate_bundle(date: str, asof_time: str | None = None) -> Dict[str, Any]:
-    db_bundle = build_research_basket_from_db(date)
-    if isinstance(db_bundle, dict) and db_bundle.get('available'):
-        source_time = str(db_bundle.get('source_time', '') or '')
-        if not asof_time:
-            latest_scan = load_latest_eastmoney_scan(date, asof_time)
-            if latest_scan is not None:
-                return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-            return db_bundle
-        if source_time.startswith(date):
-            age_minutes = scan_age_minutes(source_time, date, asof_time)
-            if age_minutes is None or age_minutes <= 0:
-                latest_scan = load_latest_eastmoney_scan(date, asof_time)
-                if latest_scan is not None:
-                    return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-                return db_bundle
-
-    patterns = [
-        str(CANDIDATE_BUNDLE_ROOT / date / '*.json'),
-        str(BASE / f'forward_candidate_bundle_{date}.json'),
-    ]
-    files: List[str] = []
-    for pat in patterns:
-        files.extend(glob.glob(pat))
-    latest_scan = load_latest_eastmoney_scan(date, asof_time)
-    if asof_time and latest_scan is not None:
-        return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-    if not files:
-        if latest_scan is not None:
-            return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-        return build_research_basket_from_latest_scan(date, asof_time)
-    latest = max(files, key=os.path.getmtime)
-    if latest_scan is not None and os.path.getmtime(latest_scan[0]) > os.path.getmtime(latest):
-        return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-    try:
-        data = read_json(Path(latest))
-        normalize_bundle_vei_tags(data)
-        data['_bundle_path'] = latest
-        data['available'] = True
-        attach_scan_summary_information_coverage_audit(
-            data,
-            latest_scan[0] if latest_scan is not None else None,
-            latest_scan[1] if latest_scan is not None else None,
-        )
-        data['sector_catalyst_diagnostics'] = scan_summary_sector_catalyst_diagnostics(
-            latest_scan[1] if latest_scan is not None else None
-        )
-        if latest_scan is not None and (
-            active_chain_governance_flags(data, date)
-            or 'structured_observation_basket' not in data
-            or 'structured_sector_observation_basket' not in data
-            or 'structured_formal_impact' not in data
-            or 'sector_opportunity_candidates' not in (data.get('structured_formal_impact') or {})
-            or 'paper_pick_eligibility' not in (data.get('candidate') or {})
-        ):
-            if latest_scan is not None:
-                return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-            return build_research_basket_from_latest_scan(date, asof_time)
-        return data
-    except Exception as e:
-        return {'available': False, 'reason': 'CANDIDATE_BUNDLE_UNREADABLE', 'error': repr(e), 'path': latest}
-
-
-def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Dict[str, Any]:
-    source_time = str(summary.get('source_time', ''))
-    data_gate_status = 'PASS' if source_time.startswith(summary_path.parent.parent.name) else 'PARTIAL_OR_FAIL'
-    full_pool_rows = (
-        summary_bundle_rows(summary, 'full_candidate_pool')
-        or summary_file_rows(summary_path, summary, 'full_candidate_pool')
-    )
-    scored_rows = (
-        summary_bundle_rows(summary, 'scored_candidates')
-        or summary_bundle_rows(summary, 'paper_scoring_candidates')
-        or summary_bundle_rows(summary, 'scored_rows')
-        or summary_file_rows(summary_path, summary, 'scored')
-    )
-    if not full_pool_rows:
-        full_pool_rows = scored_rows[:200]
-    structured_scores = summary_bundle_rows(summary, 'structured_scores') or summary_file_rows(summary_path, summary, 'structured_scores')
-    if not scored_rows:
-        return {'available': False, 'reason': 'NO_SCORED_ROWS_FOR_SAME_DAY_SCAN', 'summary_path': str(summary_path)}
-    structured_scores_by_symbol = {symbol_for(row): row for row in structured_scores if symbol_for(row)}
-
-    def with_structured_score(row: Dict[str, Any]) -> Dict[str, Any]:
-        structured = structured_scores_by_symbol.get(symbol_for(row))
-        if not structured:
-            return row
-        structured_details = structured.get('component_details') or {}
-        merged = dict(row)
-
-        def first_defined(*values):
-            for value in values:
-                if value is not None:
-                    return value
-            return None
-
-        merged['structured_score'] = first_defined(structured.get('structured_score'), row.get('structured_score'))
-        merged['structured_score_components'] = first_defined(structured.get('components'), row.get('structured_score_components'))
-        merged['structured_component_details'] = first_defined(structured.get('component_details'), row.get('structured_component_details'))
-        merged['vei_phase_d_tags'] = normalize_vei_phase_d_tags(first_defined(structured.get('vei_phase_d_tags'), row.get('vei_phase_d_tags')))
-        merged['candidate_stage'] = first_defined(structured.get('candidate_stage'), structured_details.get('candidate_stage'), row.get('candidate_stage'))
-        merged['early_opportunity_score'] = first_defined(structured.get('early_opportunity_score'), structured_details.get('early_opportunity_score'), row.get('early_opportunity_score'))
-        merged['limitup_capture_score'] = first_defined(structured.get('limitup_capture_score'), structured_details.get('limitup_capture_score'), row.get('limitup_capture_score'))
-        merged['limitup_capture_profile'] = first_defined(structured.get('limitup_capture_profile'), structured_details.get('limitup_capture_profile'), row.get('limitup_capture_profile'))
-        merged['limitup_capture_confirmed'] = first_defined(structured.get('limitup_capture_confirmed'), structured_details.get('limitup_capture_confirmed'), row.get('limitup_capture_confirmed'))
-        merged['limitup_capture_reasons'] = first_defined(structured.get('limitup_capture_reasons'), structured_details.get('limitup_capture_reasons'), row.get('limitup_capture_reasons'))
-        merged['final_shadow_score'] = first_defined(structured.get('final_shadow_score'), row.get('final_shadow_score'))
-        merged['structured_score_mode'] = first_defined(structured.get('mode'), row.get('structured_score_mode'))
-        merged['search_layer_hint'] = first_defined(structured_details.get('search_layer_hint'), row.get('search_layer_hint'))
-        merged['news_catalyst_strength'] = first_defined(structured_details.get('news_catalyst_strength'), row.get('news_catalyst_strength'))
-        merged['sector_catalyst_score'] = first_defined(structured_details.get('sector_catalyst_score'), row.get('sector_catalyst_score'))
-        merged['topic_propagation_score'] = first_defined(structured_details.get('topic_propagation_score'), row.get('topic_propagation_score'))
-        merged['intraday_alert_strength'] = first_defined(structured_details.get('intraday_alert_strength'), row.get('intraday_alert_strength'))
-        merged['limitup_reason_propagation_score'] = first_defined(structured_details.get('limitup_reason_propagation_score'), row.get('limitup_reason_propagation_score'))
-        merged['low_position_catalyst_score'] = first_defined(structured_details.get('low_position_catalyst_score'), row.get('low_position_catalyst_score'))
-        merged['main_theme_alignment_score'] = first_defined(structured.get('main_theme_alignment_score'), structured_details.get('main_theme_alignment_score'), row.get('main_theme_alignment_score'))
-        merged['main_theme_core_score'] = first_defined(structured.get('main_theme_core_score'), structured_details.get('main_theme_core_score'), row.get('main_theme_core_score'))
-        merged['hsgt_institutional_flow'] = first_defined(structured.get('hsgt_institutional_flow'), structured_details.get('hsgt_institutional_flow'), row.get('hsgt_institutional_flow'))
-        merged['experimental_catalyst_signal'] = first_defined(structured.get('experimental_catalyst_signal'), structured_details.get('experimental_catalyst_signal'), row.get('experimental_catalyst_signal'))
-        merged['research_signals'] = first_defined(structured.get('research_signals'), row.get('research_signals'))
-        research_signals = merged.get('research_signals') if isinstance(merged.get('research_signals'), dict) else {}
-        merged['research_panel_overall'] = research_signals.get('research_panel', {}).get('overall') if isinstance(research_signals.get('research_panel'), dict) else row.get('research_panel_overall')
-        merged['catalyst_quality_category'] = research_signals.get('catalyst_quality', {}).get('category') if isinstance(research_signals.get('catalyst_quality'), dict) else row.get('catalyst_quality_category')
-        merged['a_share_risk_review_disqualified_for_paper_pick'] = bool((research_signals.get('a_share_risk_review') or {}).get('disqualified_for_paper_pick')) if isinstance(research_signals, dict) else bool(row.get('a_share_risk_review_disqualified_for_paper_pick'))
-        merged['historical_pattern_name'] = research_signals.get('historical_pattern', {}).get('pattern_name') if isinstance(research_signals.get('historical_pattern'), dict) else row.get('historical_pattern_name')
-        market_snapshot = summary.get('market_snapshot') or {}
-        merged['market_regime'] = first_defined(summary.get('market_regime'), market_snapshot.get('market_regime'), row.get('market_regime'), structured.get('market_regime'))
-        merged['market_breadth_up_pct'] = first_defined(summary.get('market_breadth_up_pct'), market_snapshot.get('market_breadth_up_pct'), row.get('market_breadth_up_pct'), structured.get('market_breadth_up_pct'))
-        merged['market_limitups'] = first_defined(summary.get('market_limitups'), market_snapshot.get('market_limitups'), row.get('market_limitups'), structured.get('market_limitups'))
-        merged['market_bigups'] = first_defined(summary.get('market_bigups'), market_snapshot.get('market_bigups'), row.get('market_bigups'), structured.get('market_bigups'))
-        merged['market_follow_through_score'] = first_defined(summary.get('market_follow_through_score'), market_snapshot.get('market_follow_through_score'), row.get('market_follow_through_score'), structured.get('market_follow_through_score'))
-        merged['limitup_broken_ratio'] = first_defined(summary.get('limitup_broken_ratio'), market_snapshot.get('limitup_broken_ratio'), row.get('limitup_broken_ratio'), structured.get('limitup_broken_ratio'))
-        merged['broken_limitups'] = first_defined(summary.get('broken_limitups'), market_snapshot.get('broken_limitups'), row.get('broken_limitups'), structured.get('broken_limitups'))
-        return merged
-
-    enriched_rows = [with_structured_score(r) for r in scored_rows]
-    enriched_full_pool = [with_structured_score(r) for r in full_pool_rows]
-    try:
-        from xiaogu_social_sentiment import attach_social_features
-        attach_social_features(enriched_rows, source_time[:10])
-        attach_social_features(enriched_full_pool, source_time[:10])
-    except Exception:
-        # The social sidecar remains optional and cannot block runner intake.
-        pass
-    bundle_context = {
-        'date': source_time[:10],
-        'source_market_date': source_time[:10] if len(source_time) >= 10 else '',
-        'source_time': source_time,
-        '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': summary.get('pipeline_version') or summary.get('source') or 'eastmoney_web_tabs_scan',
-        'rule_version': RULE_VERSION,
-        'paper_only': True,
-        'no_trade': True,
-        'production_ready': False,
-        'data_gate_status': data_gate_status,
-        'source_status': summary.get('source_status', {}),
-        'full_universe_scan': summary.get('full_universe_scan', {}),
-        'market_regime': summary.get('market_regime') or (summary.get('market_snapshot') or {}).get('market_regime') or '',
-        'market_snapshot': {
-            'universe_quote_count': summary.get('universe_quote_count'),
-            'full_universe_scan': summary.get('full_universe_scan', {}),
-            'market_breadth_up_pct': summary.get('market_breadth_up_pct'),
-            'market_limitups': summary.get('market_limitups'),
-            'market_bigups': summary.get('market_bigups'),
-            'passed_count': summary.get('passed_count'),
-            'scored_count': summary.get('scored_count'),
-            'blocked_reasons': summary.get('blocked_reasons'),
-            'market_follow_through_score': summary.get('market_follow_through_score'),
-            'limitup_broken_ratio': summary.get('limitup_broken_ratio'),
-            'broken_limitups': (summary.get('market_snapshot') or {}).get('broken_limitups'),
-            'max_consecutive': summary.get('max_consecutive'),
-            'sentiment_score': summary.get('sentiment_score'),
-            'market_main_inflow': summary.get('market_main_inflow'),
-            'market_regime': summary.get('market_regime') or (summary.get('market_snapshot') or {}).get('market_regime'),
-            'external_market': summary.get('external_market') or (summary.get('market_snapshot') or {}).get('external_market') or {},
-            'sector_snapshot': summary.get('sector_snapshot') or (summary.get('market_snapshot') or {}).get('sector_snapshot') or [],
-            'source_status': summary.get('source_status', {}),
-            'hard_block_source_status': summary.get('hard_block_source_status', {}),
-            'eastmoney_web_tabs': summary.get('eastmoney_web_tabs', []),
-            'eastmoney_cdp_url': summary.get('eastmoney_cdp_url') or summary.get('cdp_url', ''),
-        },
-    }
-    search_context = build_daily_ticket_search_rows(enriched_rows, bundle_context)
-    search_rows = search_context['search_rows']
-    first_clean_row = search_context['first_clean_row']
-    paper_pick_candidate_stage_distribution = search_context['paper_pick_candidate_stage_distribution']
-    candidate_stage_blocker_distribution = search_context['candidate_stage_blocker_distribution']
-    daily_ticket_search_result = search_context['daily_ticket_search_result']
-    blocked_candidate_diagnostics = search_context.get('blocked_candidate_diagnostics', [])
-    decision_class = 'PAPER_PICK' if search_rows else 'RESEARCH_CANDIDATE'
-    selected = [basket_candidate(r, decision_class) for r in search_rows]
-    structured_formal_impact = structured_formal_impact_summary(enriched_rows, selected, bundle_context)
-    weak_market_shadow_ticket = build_weak_market_shadow_ticket(
-        selected,
-        {
-            **bundle_context,
-            'market_snapshot': {
-                **bundle_context['market_snapshot'],
-                'market_breadth_up_pct': summary.get('market_breadth_up_pct'),
-            },
-        },
-        summary_path.parent.parent.name,
-    )
-    bundle = {
-        'date': summary_path.parent.parent.name,
-        'asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'generated_at': now_iso(),
-        'source_market_date': source_time[:10] if len(source_time) >= 10 else '',
-        'source_time': source_time,
-        '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': summary.get('pipeline_version') or summary.get('source') or 'eastmoney_web_tabs_scan',
-        'rule_version': RULE_VERSION,
-        'paper_only': True,
-        'no_trade': True,
-        'production_ready': False,
-        'data_gate_status': data_gate_status,
-        'full_candidate_pool': enriched_full_pool,
-        'scored_candidates': enriched_rows,
-        'passed_candidates': selected,
-        'decision_candidates': selected,
-        'candidate_pool_exclusion_summary': dict(summary.get('pool_exclusion_summary') or {}),
-        'xiaochan_gate_status': 'ALLOW_FORWARD_PAPER_NO_TRADE',
-        'paper_scoring_candidates': selected,
-        'candidate': first_clean_row if first_clean_row is not None else {},
-        'first_search_candidate_diagnostic': selected[0] if selected else {},
-        'blocked_candidate_diagnostics': blocked_candidate_diagnostics,
-        'official_target_excluded_count': search_context.get('official_target_excluded_count', 0),
-        'first_excluded_candidate': search_context.get('first_excluded_candidate'),
-        'paper_pick_candidate_stage_distribution': dict(paper_pick_candidate_stage_distribution),
-        'candidate_stage_blocker_distribution': {stage: dict(counts) for stage, counts in candidate_stage_blocker_distribution.items()},
-        'daily_ticket_search_result': daily_ticket_search_result,
-        'weak_market_shadow_ticket': weak_market_shadow_ticket,
-        'sector_catalyst_diagnostics': scan_summary_sector_catalyst_diagnostics(summary),
-        'structured_observation_basket': structured_formal_impact['structured_observation_candidates'],
-        'structured_sector_observation_basket': structured_formal_impact['sector_opportunity_candidates'],
-        'structured_formal_impact': structured_formal_impact,
-        'market_regime': bundle_context.get('market_regime') or '',
-        'market_snapshot': {
-            **bundle_context['market_snapshot'],
-        },
-        'structured_scores': structured_scores,
-        'research_signals': summary_bundle_rows(summary, 'research_signals') or summary_file_rows(summary_path, summary, 'research_signals'),
-        'structured_score_components': summary_bundle_rows(summary, 'structured_score_components') or summary_file_rows(summary_path, summary, 'structured_score_components'),
-        'structured_component_details': summary_bundle_rows(summary, 'structured_component_details') or summary_file_rows(summary_path, summary, 'structured_component_details'),
-        'mainboard_policy': summary.get('mainboard_policy') or (summary.get('full_universe_scan') or {}).get('candidate_board_policy') or 'main_only',
-        'hsgt_diagnostics': summary.get('hsgt_diagnostics', {}),
-        'domain_timings': summary.get('domain_timings', {}),
-        'scanner_elapsed_seconds': summary.get('scanner_elapsed_seconds'),
-        'data_directory_catalog': summary.get('data_directory_catalog', {}),
-        'data_directory_catalog_records': summary_bundle_rows(summary, 'data_directory_catalog_records'),
-        'data_directory_catalog_records_path': '',
-        'data_directory_content': summary.get('data_directory_content', {}),
-        'data_directory_content_records': summary_bundle_rows(summary, 'data_directory_content_records'),
-        'data_directory_content_records_path': '',
-        'source_status': summary.get('source_status', {}),
-        'full_universe_scan': summary.get('full_universe_scan', {}),
-        'eastmoney_web_tabs': summary.get('eastmoney_web_tabs', []),
-        'eastmoney_cdp_url': summary.get('eastmoney_cdp_url') or summary.get('cdp_url', ''),
-        'risk_flags': [] if search_rows else ['NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS'],
-        'decision_reason': 'SAME_DAY_SCAN_PASSED_CANDIDATE' if search_rows else 'NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS',
-        'source_evidence': {
-            'summary_path': str(summary_path),
-            'scan_files': summary.get('files', {}),
-            'cdp_url': summary.get('cdp_url', ''),
-        },
-        'scan_summary_path': str(summary_path),
-        'scan_summary_source_time': source_time,
-        '_bundle_path': str(summary_path),
-        'available': True,
-    }
-    attach_scan_summary_information_coverage_audit(bundle, summary_path, summary)
-    bundle['sector_catalyst_diagnostics'] = scan_summary_sector_catalyst_diagnostics(summary)
-    normalize_bundle_vei_tags(bundle)
-    return bundle
-
-
-def load_latest_eastmoney_scan(date: str, asof_time: str | None = None) -> Tuple[Path, Dict[str, Any]] | None:
-    # Prefer runner-consumable minimal summary (113KB vs 26MB)
-    # Prefer current API snapshots by session recency.
-    scan_dir = None
-    for label in ('eastmoney_scan_afternoon', 'eastmoney_scan_morning', 'eastmoney_scan_v2', 'eastmoney_scan'):
-        candidate = LIVE_SCAN_ROOT / date / label
-        if candidate.exists():
-            scan_dir = candidate
-            break
-    if scan_dir is None:
-        scan_dir = LIVE_SCAN_ROOT / date / 'eastmoney_scan'
-    runner_summary = scan_dir / SCAN_SUMMARY_RUNNER_NAME
-    if runner_summary.exists():
-        try:
-            summary = read_json(runner_summary)
-            source_time = str(summary.get('source_time', ''))
-            # 允许使用同日或次日的数据（历史回放场景）
-            if source_time[:10] == date or source_time[:10] > date:
-                return runner_summary, summary
-        except Exception:
-            pass
-    # Fallback to full summary
-    candidates = []
-    for summary_path in scan_summary_paths(date):
-        try:
-            summary = read_json(summary_path)
-        except Exception:
-            continue
-        source_time = str(summary.get('source_time', ''))
-        if not source_time.startswith(date):
-            continue
-        if asof_time:
-            age_minutes = scan_age_minutes(source_time, date, asof_time)
-            if age_minutes is None or age_minutes > 0:
-                continue
-        candidates.append((summary_path, summary, source_time))
-    if not candidates:
-        return None
-    # Return the latest scan by source_time
-    candidates.sort(key=lambda x: x[2], reverse=True)
-    return candidates[0][0], candidates[0][1]
-
 
 def latest_completed_trading_day(now: dt.datetime | None = None) -> dt.date:
     """Return the latest trading day. Uses current date during trading hours (9:15-15:30),
@@ -7868,14 +8266,6 @@ def latest_completed_trading_day(now: dt.datetime | None = None) -> dt.date:
         day -= dt.timedelta(days=1)
     return day
 
-
-def scan_date_for_runtime(target_date: str) -> str:
-    try:
-        requested = dt.date.fromisoformat(target_date)
-    except Exception:
-        requested = latest_completed_trading_day()
-    today = latest_completed_trading_day()
-    return min(requested, today).isoformat()
 
 
 def run_realtime_scan(date: str, asof_time: str | None = None) -> Dict[str, Any]:
@@ -7988,6 +8378,11 @@ def core_market_source_gate(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
 def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_stale_data: bool = False) -> Tuple[str, str, str, Dict[str, Any], List[str]]:
     """Return decision, symbol, reason, candidate_features, risk_flags."""
+    from xiaogu_forward_eligibility import (
+        filter_current_day_tradable_candidates,
+        filter_t1_profit_candidates,
+    )
+
     if not bundle.get('available'):
         return 'NO_PICK', '', bundle.get('reason', 'NO_VERIFIED_CANDIDATE'), {}, ['NO_VERIFIED_CANDIDATE_BUNDLE']
     governance_flags = active_chain_governance_flags(bundle, target_date, allow_stale_data=allow_stale_data)
@@ -7999,6 +8394,12 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
         elif isinstance(bundle.get('candidate'), dict) and symbol_for(bundle['candidate']):
             _gcandidates.append(bundle['candidate'])
         _gcandidates = [c for c in _gcandidates if symbol_for(c)]
+        _gcandidates, governance_filter = filter_t1_profit_candidates(
+            _gcandidates,
+            bundle,
+            enforce=bool(bundle.get('t1_profit_gate_enabled')),
+        )
+        bundle['current_day_tradable_filter'] = governance_filter
         if _gcandidates:
             for c in _gcandidates:
                 c['_effective_score'] = (safe_float(c.get('final_score')) or safe_float(c.get('score')) or
@@ -8026,6 +8427,12 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
         candidates.extend([c for c in bundle['paper_scoring_candidates'] if isinstance(c, dict)])
     elif isinstance(bundle.get('candidate'), dict) and symbol_for(bundle['candidate']):
         candidates.append(bundle['candidate'])
+    candidates, current_day_tradable_filter = filter_t1_profit_candidates(
+        candidates,
+        bundle,
+        enforce=bool(bundle.get('t1_profit_gate_enabled')),
+    )
+    bundle['current_day_tradable_filter'] = current_day_tradable_filter
     if not candidates:
         return 'NO_PICK', '', 'BUNDLE_HAS_NO_PAPER_SCORING_CANDIDATE', {}, ['NO_PAPER_SCORING_CANDIDATE']
 
@@ -8033,6 +8440,11 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
     sizing = paper_sizing_context(bundle)
     selection_trace: List[Dict[str, Any]] = []
     priority_labels = [
+        # Profit-first dims lead live PAPER_PICK among hard-gate passers.
+        'profit_continuation_soft',
+        'profit_edge_score',
+        'negative_hot_fund_shell',
+        'formal_primary_dim',
         'setup_rank_x10',
         'golden_pair_bonus',
         'capital_flow_bonus',
@@ -8122,20 +8534,27 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
         else:
             capital_flow_bonus = 0.0
 
-        # Priority ordering based on real data:
-        # 1. setup_rank: INSTANT_MOMENTUM_SETUP has best performance (57.1% win rate, 28.6% limit-up rate)
-        # 2. golden_pair_bonus: L2+L3 = best combo (19% limit-up)
-        # 3. l2_bonus: L2 presence = strong signal
-        # 4. confluence_bonus: 2-3 layers sweet spot
-        # 5. layer_penalty: pure L6/L1 = weak
-        # 6. lifecycle, blended score within tier
+        # Live pick optimizes expected T+1 profit first (not defensive shells
+        # that merely pass hard gates — 7/27 大金 / 7/28 长江电力 path).
+        adjustment = ranking_basis_adjustment_components(candidate)
+        profit_cont = float((adjustment.get('boosts') or {}).get('profit_continuation_soft') or 0.0)
+        profit_edge = float(safe_float(adjustment.get('profit_edge_score')) or 0.0)
+        hot_shell = float((adjustment.get('penalties') or {}).get('hot_fund_shell_without_profit_edge') or 0.0)
+        defensive_shell = float((adjustment.get('penalties') or {}).get('defensive_pe0_hot_fund_shell') or 0.0)
+        shell_pressure = hot_shell + defensive_shell
+        formal_primary = float(formal_candidate_sort_key(candidate)[0])
+
         return (
-            setup_rank * 10.0,    # INSTANT_MOMENTUM_SETUP dominates (57.1% win rate)
-            golden_pair_bonus,    # L2+L3 golden pair dominates
-            capital_flow_bonus,   # Sector/concept fund inflow direction
-            l2_bonus,             # L2 presence is second tier
-            confluence_bonus,     # 2-3 layers sweet spot
-            layer_penalty,        # pure sector/momentum penalised
+            profit_cont,
+            profit_edge,
+            -shell_pressure,
+            formal_primary,
+            setup_rank * 10.0,
+            golden_pair_bonus,
+            capital_flow_bonus,
+            l2_bonus,
+            confluence_bonus,
+            layer_penalty,
             lifecycle_score,
             -stale_decay,
             blended,
@@ -8248,8 +8667,17 @@ def run_recorder(
     *,
     correction_of: str = "",
 ) -> Dict[str, Any]:
+    from xiaogu_runtime_payload import slim_features_for_recorder, payload_bytes, enforce_runtime_memory_gate, maybe_force_gc
+
     features_path = RAW_ROOT / date / asof_time.replace(':', '') / 'recorder_features.json'
-    write_json(features_path, features)
+    # Production default: slim recorder payload (was 46–50MB and OOM path).
+    full_embed = os.environ.get('XIAOGU_RECORDER_FULL_EMBED', '').strip().lower() in ('1', 'true', 'yes')
+    recorder_features = features if full_embed else slim_features_for_recorder(features)
+    mem_gate = enforce_runtime_memory_gate(stage='run_recorder')
+    if mem_gate.get('status') in ('WARN', 'HARD') and not full_embed:
+        recorder_features = slim_features_for_recorder(recorder_features)
+        maybe_force_gc()
+    write_json(features_path, recorder_features)
     cmd = [
         sys.executable, str(RECORDER),
         '--date', date,
@@ -8267,7 +8695,16 @@ def run_recorder(
         cmd.append('--dry-run')
     try:
         cp = subprocess.run(cmd, cwd=str(BASE), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-        return {'cmd': cmd, 'returncode': cp.returncode, 'stdout': cp.stdout, 'stderr': cp.stderr, 'features_path': str(features_path)}
+        return {
+            'cmd': cmd,
+            'returncode': cp.returncode,
+            'stdout': cp.stdout,
+            'stderr': cp.stderr,
+            'features_path': str(features_path),
+            'recorder_payload_bytes': payload_bytes(recorder_features),
+            'memory_gate': mem_gate,
+            'payload_policy': recorder_features.get('payload_policy') if isinstance(recorder_features, dict) else '',
+        }
     except subprocess.TimeoutExpired as exc:
         return {'cmd': cmd, 'returncode': 124, 'stdout': exc.stdout or '', 'stderr': 'RECORDER_TIMEOUT', 'features_path': str(features_path)}
 
@@ -8303,383 +8740,36 @@ def _unique_persistence_candidates(candidates: List[Dict[str, Any]], target_coun
     }
 
 
-def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any], features: Dict[str, Any], decision: str, reason: str) -> Dict[str, Any]:
-    import datetime as _dt
-    from xiaogu_db import classify_candidate_cohort, limitup_gene_signal_values
 
-    full_candidate_pool = bundle.get('full_candidate_pool')
-    full_pool_is_explicit = isinstance(full_candidate_pool, list) and bool(full_candidate_pool)
-    source_candidates = [candidate for candidate in (full_candidate_pool or bundle.get('paper_scoring_candidates') or []) if isinstance(candidate, dict)]
-    if not source_candidates:
-        return {'status': 'NO_CANDIDATES', 'scan_session': None, 'daily_candidates': [], 'limitup_gene_signals': []}
+# --- eligibility extract: bind host helpers then re-export ---
+import xiaogu_forward_eligibility as _forward_eligibility
 
-    trade_date = _dt.date.fromisoformat(date)
-    pool_exclusion_summary = dict(bundle.get('candidate_pool_exclusion_summary') or bundle.get('pool_exclusion_summary') or {})
-    target_count = int(pool_exclusion_summary.get('target_count') or 200)
-    with_candidates = sorted(
-        source_candidates,
-        key=lambda item: (
-            safe_float(item.get('rank')) if safe_float(item.get('rank')) is not None else 999999.0,
-            -(safe_float(item.get('final_score')) if item.get('final_score') is not None else safe_float(item.get('score')) or -1e9),
-            item.get('symbol') or item.get('code') or '',
-        ),
-    )
-    candidates, dedup_summary = _unique_persistence_candidates(with_candidates, target_count)
-    if not candidates:
-        return {'status': 'NO_CANDIDATES', 'scan_session': None, 'daily_candidates': [], 'limitup_gene_signals': []}
-    if dedup_summary['deduplication_applied'] or not pool_exclusion_summary.get('deduplication_applied'):
-        pool_exclusion_summary.update(dedup_summary)
-    else:
-        for key, value in dedup_summary.items():
-            pool_exclusion_summary.setdefault(key, value)
-        pool_exclusion_summary['final_persisted_count'] = len(candidates)
-    pool_exclusion_summary.setdefault('target_count', target_count)
-    pool_exclusion_summary.setdefault('legacy_partial_pool', not bool(full_candidate_pool))
-    pool_exclusion_summary.setdefault('source_status', 'LEGACY' if not full_candidate_pool else 'PASS')
-    daily_pick_symbol = str(symbol_for(features.get('daily_best_paper_watch') or {}) or '') if isinstance(features, dict) else ''
-    official_pick_symbol = str((features.get('candidate_consumption_summary') or {}).get('official_result', {}).get('symbol') or '') if isinstance(features, dict) else ''
-    top10_diagnostics = (features.get('candidate_consumption_summary') or {}).get('top10_candidates', []) if isinstance(features, dict) else []
-    top10_by_symbol = {
-        str(item.get('symbol') or ''): item
-        for item in top10_diagnostics
-        if isinstance(item, dict) and item.get('symbol')
-    }
-    with_candidates = candidates
-    scan_dir = str(bundle.get('_bundle_path') or bundle.get('raw_dir') or '')
-    scan_session = {
-        'trade_date': trade_date,
-        'scan_time': _dt.datetime.now(),
-        'cdp_url': 'manual_pipeline_snapshot',
-        'quotes_count': int((bundle.get('market_snapshot') or {}).get('universe_quote_count') or len(candidates)),
-        'scored_count': len([candidate for candidate in (bundle.get('scored_candidates') or candidates) if isinstance(candidate, dict)]),
-        'passed_count': len([candidate for candidate in (bundle.get('passed_candidates') or []) if isinstance(candidate, dict)]),
-        'scan_dir': scan_dir,
-    }
-    daily_candidates = []
-    limitup_gene_signals = []
-    top10_count = sum(1 for candidate in candidates if int(candidate.get('rank') or 999999) <= 10)
+_forward_eligibility.bind_host(__import__(__name__))
+paper_pick_eligibility_profile = _forward_eligibility.paper_pick_eligibility_profile
+official_target_exclusion_reasons = _forward_eligibility.official_target_exclusion_reasons
+structure_block_machine_codes = _forward_eligibility.structure_block_machine_codes
+attach_paper_pick_eligibility = _forward_eligibility.attach_paper_pick_eligibility
+current_day_tradable_filter_reason = _forward_eligibility.current_day_tradable_filter_reason
+filter_current_day_tradable_candidates = _forward_eligibility.filter_current_day_tradable_candidates
+filter_t1_profit_candidates = _forward_eligibility.filter_t1_profit_candidates
+t1_profit_candidate_profile = _forward_eligibility.t1_profit_candidate_profile
 
-    for row in with_candidates:
-        symbol = str(row.get('symbol') or row.get('code') or '').strip()
-        if not symbol:
-            continue
-        raw_json = row if isinstance(row, dict) else {}
-        candidate_features = dict(row.get('candidate_features') or row.get('structured_component_details') or {})
-        candidate_features.setdefault('symbol', symbol)
-        candidate_features.setdefault('code', symbol)
-        candidate_features.setdefault('name', row.get('name') or row.get('stock_name') or '')
-        candidate_features.setdefault('final_score', row.get('final_score') or row.get('score'))
-        candidate_features.setdefault('source_layers', list(row.get('source_layers') or []))
-        candidate_features.setdefault('selection_reason', row.get('selection_reason') or reason)
-        candidate_features['candidate_pool_context'] = {
-            **pool_exclusion_summary,
-            'pool_type': 'full_candidate_pool',
-            'persisted_candidate_count': len(candidates),
-        }
-        candidate_diagnostic = dict(top10_by_symbol.get(symbol) or {})
-        evaluated_decision = str(
-            candidate_diagnostic.get('official_decision_if_evaluated')
-            or row.get('decision')
-            or ('PAPER_PICK' if official_pick_symbol and symbol == official_pick_symbol else 'CANDIDATE')
-        )
-        is_top10 = int(row.get('rank') or 999999) <= 10
-        selection_outcome = str(candidate_diagnostic.get('selection_outcome') or (
-            'OFFICIAL_PICK' if official_pick_symbol and symbol == official_pick_symbol
-            else ('TOP10_NOT_SELECTED' if is_top10 or not full_pool_is_explicit else 'FULL_POOL_NOT_SELECTED')
-        ))
-        selection_outcome_reason = str(candidate_diagnostic.get('selection_outcome_reason') or candidate_diagnostic.get('official_decision_reason_if_evaluated') or reason or '')
-        eligibility_snapshot = dict(candidate_diagnostic.get('eligibility_snapshot') or candidate_features.get('paper_pick_eligibility') or {})
-        selection_diagnostics = {
-            'selection_key': list(candidate_diagnostic.get('selection_key') or []),
-            'search_layer': candidate_diagnostic.get('search_layer') or row.get('search_layer') or row.get('search_layer_hint') or '',
-            'source_layers': list(candidate_diagnostic.get('source_layers') or row.get('source_layers') or []),
-            'candidate_stage': candidate_diagnostic.get('candidate_stage') or row.get('candidate_stage') or '',
-            'hard_gate_status': dict(candidate_diagnostic.get('hard_gate_status') or row.get('hard_gate_status') or {}),
-            'candidate_reasons': list(candidate_diagnostic.get('candidate_reasons') or candidate_diagnostic.get('positive_conditions') or []),
-            'not_selected_reasons': list(candidate_diagnostic.get('not_selected_reasons') or candidate_diagnostic.get('blockers') or []),
-            'why_candidate': list(candidate_diagnostic.get('why_candidate') or []),
-            'why_not_selected': list(candidate_diagnostic.get('why_not_selected') or []),
-            'official_decision_if_evaluated': candidate_diagnostic.get('official_decision_if_evaluated') or row.get('decision') or '',
-            'official_decision_reason_if_evaluated': candidate_diagnostic.get('official_decision_reason_if_evaluated') or selection_outcome_reason,
-        }
-        candidate_entry_reason = unique_text_values([
-            *(candidate_diagnostic.get('candidate_reasons') or []),
-            *(candidate_diagnostic.get('positive_conditions') or []),
-            row.get('selection_reason') or '',
-            row.get('final_score_explanation') or '',
-            'full_candidate_pool_base_filter',
-        ])
-        not_selected_reason = [] if selection_outcome == 'OFFICIAL_PICK' else unique_text_values([
-            *(candidate_diagnostic.get('not_selected_reasons') or []),
-            selection_outcome_reason,
-        ])
-        factor_snapshot = {
-            'score': row.get('score'),
-            'final_score': row.get('final_score'),
-            'structured_score': row.get('structured_score'),
-            'structured_priority_score': row.get('structured_priority_score'),
-            'structured_components': row.get('structured_components') or row.get('structured_score_components') or {},
-            'structured_component_details': row.get('structured_component_details') or {},
-            'research_signals': row.get('research_signals') or {},
-            'continuation_gene_score': row.get('continuation_gene_score'),
-            'capital_risk_profile': row.get('capital_risk_profile') or candidate_capital_risk_profile(row),
-            'ranking_basis_adjustment_components': ranking_basis_adjustment_components(row),
-            'limitup_probability_proxy': limitup_probability_proxy_components(row),
-            'paper_pick_risk_explanation_gate': paper_pick_risk_explanation_gate(row),
-            'shadow_risk_profile': shadow_risk_profile(row, bundle),
-            'social_confirmation': social_confirmation_profile(row),
-            'candidate_pool_context': candidate_features['candidate_pool_context'],
-        }
-        factor_snapshot.update(limitup_gene_signal_values({**row, 'factor_snapshot': factor_snapshot}))
-        auxiliary_evidence_snapshot = {
-            'status': row.get('mainboard_auxiliary_evidence_status') or row.get('auxiliary_evidence_status'),
-            'missing_domains': list(row.get('mainboard_auxiliary_missing_domains') or []),
-            'announcements': list(row.get('announcement_evidence') or []),
-            'news': dict(row.get('news_evidence') or {}),
-            'sector_news': list(row.get('sector_news_evidence') or []),
-            'limitup_reasons': list(row.get('limitup_reason_evidence') or []),
-            'yesterday_limitup_gene': dict(row.get('yesterday_limitup_gene_evidence') or {}),
-            'sector_yesterday_limitup_gene_proxy': dict(row.get('sector_yesterday_limitup_gene_proxy') or {}),
-            'risk_notices': list(row.get('risk_notice_evidence') or []),
-            'capital_flow': dict(row.get('data_directory_capital_flow') or {}),
-            'popularity_rank': (row.get('capital_risk_profile') or {}).get('popularity_rank') if isinstance(row.get('capital_risk_profile'), dict) else row.get('popularity_rank'),
-            'information_coverage_audit': dict(bundle.get('information_coverage_audit') or {}),
-        }
-        ranking_basis_snapshot = {
-            'basis': row.get('ranking_basis') or 'structured_evidence_primary',
-            'rank': row.get('rank'),
-            'selection_key': list(candidate_diagnostic.get('selection_key') or []),
-            'structured_priority_score': row.get('structured_priority_score'),
-            'ranking_basis_adjustment_components': ranking_basis_adjustment_components(row),
-            'limitup_probability_proxy': limitup_probability_proxy_components(row),
-            'paper_pick_risk_explanation_gate': paper_pick_risk_explanation_gate(row),
-        }
-        ticket_reason = {
-            'decision': evaluated_decision,
-            'selection_outcome': selection_outcome,
-            'reason': selection_outcome_reason,
-        }
-        for key in (
-            'limit_up_potential', 'market_bonus', 'capital_bonus', 'fundamental_bonus',
-            'sector_rotation_bonus', 'topic_heat_bonus', 'leader_bonus', 'flow_bonus',
-            'market_mood_bonus', 'news_bonus', 'risk_penalty', 'sentiment_bonus',
-        ):
-            candidate_features.setdefault(key, row.get(key, 0))
-        candidate_features['decision'] = evaluated_decision
-        candidate_features['selection_outcome'] = selection_outcome
-        candidate_features['selection_outcome_reason'] = selection_outcome_reason
-        candidate_features['selection_diagnostics'] = selection_diagnostics
-        if eligibility_snapshot:
-            candidate_features['paper_pick_eligibility'] = eligibility_snapshot
-        if decision == 'NO_PICK' and daily_pick_symbol and symbol == daily_pick_symbol and isinstance(features.get('daily_best_paper_watch'), dict):
-            candidate_features['daily_best_paper_watch'] = dict(features['daily_best_paper_watch'])
-        cohort_info = classify_candidate_cohort(
-            {
-                'trade_date': trade_date,
-                'symbol': symbol,
-                'rank': row.get('rank'),
-                'candidate_entry_reason': candidate_entry_reason,
-                'factor_snapshot': factor_snapshot,
-                'auxiliary_evidence_snapshot': auxiliary_evidence_snapshot,
-                'ranking_basis': ranking_basis_snapshot,
-            },
-            top10_count=top10_count,
-            has_return=False,
-            trade_date=trade_date,
-        )
-        daily_candidates.append({
-            'trade_date': trade_date,
-            'symbol': symbol,
-            'stock_name': str(row.get('name') or row.get('stock_name') or ''),
-            'rank': row.get('rank'),
-            'final_score': row.get('final_score') or row.get('score'),
-            'decision': evaluated_decision,
-            'is_official_pick': bool(official_pick_symbol and symbol == official_pick_symbol),
-            'open_price': row.get('open') or row.get('open_price'),
-            'close_price': row.get('close') or row.get('close_price') or row.get('price'),
-            'high_price': row.get('high') or row.get('high_price'),
-            'low_price': row.get('low') or row.get('low_price'),
-            'volume': row.get('volume'),
-            'amount': row.get('amount'),
-            'pct_chg': row.get('pct_chg') or row.get('signal_pct'),
-            'turnover_rate': row.get('turnover_rate'),
-            'signal_pct': row.get('signal_pct'),
-            'close_position_score': row.get('close_position_score'),
-            'fund_flow_momentum': row.get('fund_flow_momentum'),
-            'sector_catalyst_score': row.get('sector_catalyst_score') or row.get('sector_opportunity_score'),
-            'early_opportunity_score': row.get('early_opportunity_score'),
-            'topic_propagation_score': row.get('topic_propagation_score'),
-            'market_regime': normalize_market_regime_for_db(row.get('market_regime') or bundle.get('market_snapshot', {}).get('market_regime')),
-            'sentiment_catalyst': str(row.get('sentiment_catalyst') or ''),
-            'theme_catalyst': str(row.get('theme_catalyst') or ''),
-            'news_catalyst': str(row.get('news_catalyst') or ''),
-            'positive_catalyst': str(row.get('positive_catalyst') or ''),
-            'selection_reason': str(row.get('selection_reason') or reason or ''),
-            'selection_outcome': selection_outcome,
-            'selection_outcome_reason': selection_outcome_reason,
-            'blockers': list(row.get('blockers') or []),
-            'hard_gate_status': dict(row.get('hard_gate_status') or {}),
-            'eligibility_snapshot': eligibility_snapshot,
-            'selection_diagnostics': selection_diagnostics,
-            'source_layers': list(row.get('source_layers') or []),
-            'candidate_features': candidate_features,
-            'raw_json': raw_json,
-            'candidate_entry_reason': candidate_entry_reason,
-            'ticket_reason': ticket_reason,
-            'not_selected_reason': not_selected_reason,
-            'factor_snapshot': factor_snapshot,
-            'auxiliary_evidence_snapshot': auxiliary_evidence_snapshot,
-            'ranking_basis': ranking_basis_snapshot,
-            'postmortem_snapshot': {},
-            'future_return_fields_placeholder': {
-                't1_return': None,
-                't2_return': None,
-                't3_return': None,
-                't5_return': None,
-                'is_limit_up': None,
-            },
-            'cohort': cohort_info['cohort'],
-            'cohort_quality': cohort_info['cohort_quality'],
-            'cohort_status_flags': cohort_info['status_flags'],
-            'reconstruction_provenance': {},
-        })
-        limitup_gene_signals.append({
-            'trade_date': trade_date,
-            'symbol': symbol,
-            'candidate': {**row, 'factor_snapshot': factor_snapshot},
-        })
-    return {
-        'status': 'OK',
-        'scan_session': scan_session,
-        'daily_candidates': daily_candidates,
-        'limitup_gene_signals': limitup_gene_signals,
-        'candidate_pool_exclusion_summary': pool_exclusion_summary,
-    }
+import xiaogu_forward_bundle_io as _forward_bundle_io
 
+_forward_bundle_io.bind_host(__import__(__name__))
+write_text = _forward_bundle_io.write_text
+write_json = _forward_bundle_io.write_json
+scan_summary_paths = _forward_bundle_io.scan_summary_paths
+summary_bundle_rows = _forward_bundle_io.summary_bundle_rows
+summary_file_rows = _forward_bundle_io.summary_file_rows
+load_candidate_bundle = _forward_bundle_io.load_candidate_bundle
+_bundle_from_scan_summary = _forward_bundle_io._bundle_from_scan_summary
+load_latest_eastmoney_scan = _forward_bundle_io.load_latest_eastmoney_scan
+scan_date_for_runtime = _forward_bundle_io.scan_date_for_runtime
+build_daily_candidate_persistence_payloads = _forward_bundle_io.build_daily_candidate_persistence_payloads
+persist_daily_candidate_snapshot = _forward_bundle_io.persist_daily_candidate_snapshot
+write_daily_candidate_persist_retry_payload = _forward_bundle_io.write_daily_candidate_persist_retry_payload
 
-def persist_daily_candidate_snapshot(
-    date: str,
-    bundle: Dict[str, Any],
-    features: Dict[str, Any],
-    decision: str,
-    reason: str,
-    *,
-    replace_existing: bool = False,
-    correction_of: str = "",
-) -> Dict[str, Any]:
-    try:
-        from xiaogu_db import (
-            fetch_daily_candidates,
-            has_returns_for_trade_date,
-            insert_scan_session,
-            prune_daily_candidates_to_symbols,
-            upsert_daily_candidate,
-            upsert_limitup_gene_signals,
-        )
-        payloads = build_daily_candidate_persistence_payloads(date, bundle, features, decision, reason)
-    except Exception as exc:
-        return {'status': 'UNAVAILABLE', 'error': repr(exc), 'written': 0}
-
-    candidates = payloads.get('daily_candidates') or []
-    if not candidates:
-        return {'status': payloads.get('status') or 'NO_CANDIDATES', 'written': 0}
-
-    correction_archive: Dict[str, Any] = {}
-    prior_rows: List[Dict[str, Any]] = []
-    if replace_existing:
-        try:
-            trade_date = dt.date.fromisoformat(date)
-            if has_returns_for_trade_date(trade_date):
-                return {
-                    'status': 'REFUSED',
-                    'written': 0,
-                    'error': 'CANDIDATE_SNAPSHOT_CORRECTION_BLOCKED_AFTER_RETURNS',
-                }
-            prior_rows = fetch_daily_candidates(trade_date)
-            archive_path = RAW_ROOT / date / str(bundle.get('_runner_asof_time') or dt.datetime.now().strftime('%H%M%S')).replace(':', '') / 'candidate_snapshot_correction_archive.json'
-            archive = {
-                'archive_type': 'daily_candidate_snapshot_before_correction',
-                'trade_date': date,
-                'correction_of': correction_of,
-                'archived_at': now_iso(),
-                'row_count': len(prior_rows),
-                'rows': prior_rows,
-            }
-            encoded = json.dumps(archive, ensure_ascii=False, sort_keys=True, default=str)
-            archive['sha256'] = hashlib.sha256(encoded.encode('utf-8')).hexdigest()
-            write_json(archive_path, archive)
-            correction_archive = {
-                'archive_path': str(archive_path),
-                'archive_sha256': archive['sha256'],
-                'previous_candidate_count': len(prior_rows),
-                'correction_of': correction_of,
-            }
-        except Exception as exc:
-            return {
-                'status': 'UNAVAILABLE',
-                'written': 0,
-                'error': f'CANDIDATE_SNAPSHOT_CORRECTION_ARCHIVE_FAILED:{exc!r}',
-            }
-
-    written = 0
-    persisted_signal_rows = 0
-    errors: List[Dict[str, Any]] = []
-    try:
-        if payloads.get('scan_session'):
-            insert_scan_session(**payloads['scan_session'])
-    except Exception as exc:
-        errors.append({'scan_session': 'persist_failed', 'error': repr(exc)[:300]})
-
-    signal_payloads = payloads.get('limitup_gene_signals') or []
-    for index, candidate_kwargs in enumerate(candidates):
-        symbol = str(candidate_kwargs.get('symbol') or '')
-        signal_kwargs = signal_payloads[index] if index < len(signal_payloads) and isinstance(signal_payloads[index], dict) else {}
-        try:
-            upsert_daily_candidate(**candidate_kwargs)
-            written += 1
-            if signal_kwargs:
-                upsert_limitup_gene_signals(**signal_kwargs)
-                persisted_signal_rows += 6
-        except Exception as exc:
-            errors.append({'symbol': symbol, 'error': repr(exc)[:300]})
-            continue
-    pruned_stale_count = 0
-    if replace_existing and not errors:
-        try:
-            pruned_stale_count = prune_daily_candidates_to_symbols(
-                dt.date.fromisoformat(date),
-                [str(candidate.get('symbol') or '') for candidate in candidates],
-            )
-        except Exception as exc:
-            errors.append({'candidate_snapshot_prune': 'failed', 'error': repr(exc)[:300]})
-    status = 'OK' if not errors else ('PARTIAL' if written else 'FAILED')
-    return {
-        'status': status,
-        'written': written,
-        'candidate_count_expected': len(candidates),
-        'candidate_pool_exclusion_summary': payloads.get('candidate_pool_exclusion_summary') or {},
-        'persisted_signal_rows': persisted_signal_rows,
-        'expected_signal_rows': len(candidates) * 6,
-        'replaced_existing_snapshot': bool(replace_existing),
-        'pruned_stale_count': pruned_stale_count,
-        'correction_archive': correction_archive,
-        'errors': errors,
-    }
-
-
-def write_daily_candidate_persist_retry_payload(path: Path, date: str, bundle: Dict[str, Any], features: Dict[str, Any], decision: str, reason: str, persist_result: Dict[str, Any]) -> str:
-    retry_path = path.parent / 'db_persistence_retry_payload.json'
-    write_json(retry_path, {
-        'payload_version': 'daily_candidate_snapshot_v1',
-        'status': 'PENDING_DB_REPLAY',
-        'date': date,
-        'decision': decision,
-        'reason': reason,
-        'bundle': bundle,
-        'features': features,
-        'persist_result': persist_result,
-    })
-    return str(retry_path)
 
 
 def main() -> None:
@@ -8705,6 +8795,21 @@ def main() -> None:
             print(f'RUNTIME_DATE_ADJUSTED: {args.date} -> {runtime_date}', file=sys.stderr, flush=True)
             args.date = runtime_date
 
+    # Pick-chain ownership: ensure @sszcw 5d soft market context exists even if
+    # daily_pipeline step 2.5 was skipped (standalone runner / scheduler edge).
+    try:
+        pre_pick_ctx = ensure_pre_pick_market_context(args.date)
+        stance = str(pre_pick_ctx.get('market_stance') or 'MISSING')
+        favored = pre_pick_ctx.get('favored_sectors') or []
+        print(
+            f'PRE_PICK_MARKET_CONTEXT: stance={stance} favored={favored} '
+            f"source={pre_pick_ctx.get('loaded_from') or 'built'}",
+            file=sys.stderr,
+            flush=True,
+        )
+    except Exception as exc:
+        print(f'PRE_PICK_MARKET_CONTEXT_FAILED: {exc}', file=sys.stderr, flush=True)
+
     scan_summary = None
 
     # NN1: runner 先从 scanner 产物 / DB 快照消费，不主动触发在线抓取
@@ -8729,7 +8834,15 @@ def main() -> None:
         args.asof_time = dt.datetime.now().strftime('%H:%M:%S')
 
     rule = read_json(RULE_FREEZE)
-    if rule.get('rule_version') != RULE_VERSION or rule.get('allow_trade') or not rule.get('paper_only') or not rule.get('no_trade') or rule.get('production_ready'):
+    if (
+        rule.get('rule_version') != RULE_VERSION
+        or not rule.get('allow_trade')
+        or not rule.get('paper_only')
+        or not rule.get('no_trade')
+        or rule.get('production_ready')
+        or rule.get('auto_order')
+        or rule.get('broker_connected')
+    ):
         raise SystemExit('rule freeze safety check not pass')
 
     if scan_summary is not None:
@@ -8739,9 +8852,12 @@ def main() -> None:
     else:
         bundle = load_candidate_bundle(args.date, args.asof_time)
     
-    # Enrich candidates with v2 scanner data
+    # Enrich candidates with v2 scanner data (stable import surface).
     try:
-        from xiaogu_eastmoney_web_tabs_scan_v0_1 import load_v2_scanner_data, enrich_candidates_with_v2_data
+        try:
+            from xiaogu_scanner_scoring import load_v2_scanner_data, enrich_candidates_with_v2_data
+        except ImportError:
+            from xiaogu_eastmoney_web_tabs_scan_v0_1 import load_v2_scanner_data, enrich_candidates_with_v2_data
         v2_data = load_v2_scanner_data(args.date)
         if v2_data:
             candidates = bundle.get('paper_scoring_candidates', [])
@@ -8897,6 +9013,7 @@ def main() -> None:
     )
     no_pick_candidate_diagnostics = None
     daily_best_paper_watch = None
+    profit_candidate_shadow_watch = None
     diagnostic_record = bundle.get('first_rejected_candidate_diagnostic') if isinstance(bundle.get('first_rejected_candidate_diagnostic'), dict) else {}
     diagnostic_features = candidate_features if isinstance(candidate_features, dict) and candidate_features else diagnostic_record.get('features')
     diagnostic_reason = reason if isinstance(candidate_features, dict) and candidate_features else diagnostic_record.get('reason', reason)
@@ -8912,6 +9029,7 @@ def main() -> None:
             diagnostic_flags,
         )
         daily_best_paper_watch = no_pick_candidate_diagnostics.get('daily_best_paper_watch')
+        profit_candidate_shadow_watch = no_pick_candidate_diagnostics.get('profit_candidate_shadow_watch')
     candidate_consumption_summary = build_candidate_consumption_summary(
         bundle,
         args.date,
@@ -8923,6 +9041,8 @@ def main() -> None:
     )
     if decision == 'NO_PICK' and daily_best_paper_watch is None:
         daily_best_paper_watch = candidate_consumption_summary.get('daily_best_paper_watch')
+    if decision == 'NO_PICK' and profit_candidate_shadow_watch is None:
+        profit_candidate_shadow_watch = load_profit_shadow_watchlist(args.date, top_n=5)
 
     if decision == 'NO_PICK':
         promoted_candidate, promoted_reason = highest_score_candidate_from_bundle(bundle)
@@ -8972,6 +9092,31 @@ def main() -> None:
         elif promoted_reason:
             print(f'WARN: NO_PICK promotion unavailable: {promoted_reason}', file=sys.stderr)
 
+    # Production default: never embed full bundle / full paper basket into runtime features.
+    from xiaogu_runtime_payload import (
+        slim_bundle_for_runtime,
+        slim_candidate_list,
+        build_runtime_decision_context,
+        enforce_runtime_memory_gate,
+        maybe_force_gc,
+        payload_bytes,
+    )
+    from xiaogu_evidence_card import build_compact_evidence_card, evidence_card_to_selection_reason
+    from xiaogu_case_vector_store import (
+        search_similar_cases,
+        upsert_pick_case,
+        similar_cases_ranking_boost,
+    )
+
+    if isinstance(candidate_features, dict) and isinstance(candidate_features.get('paper_candidate_basket'), list):
+        _basket = candidate_features['paper_candidate_basket']
+        candidate_features['paper_candidate_basket_count'] = len(_basket)
+        candidate_features['paper_candidate_basket'] = slim_candidate_list(_basket, limit=12)
+
+    # Drop heavy list nests from outer features (counts only; full lists stay in-memory on bundle).
+    _obs = bundle.get('structured_observation_basket') or []
+    _sector_obs = bundle.get('structured_sector_observation_basket') or []
+
     features = {
         'runner': 'xiaogu_forward_d1_1450_runner_v0_1',
         'date': args.date,
@@ -8979,7 +9124,7 @@ def main() -> None:
         'generated_at': now_iso(),
         'rule_version': RULE_VERSION,
         'runtime_market_snapshot': snapshot,
-        'candidate_bundle_status': bundle,
+        'candidate_bundle_status': slim_bundle_for_runtime(bundle),
         'research_signals': candidate_features.get('research_signals') or (bundle.get('candidate') or {}).get('research_signals') or {},
         'information_coverage_audit': dict(bundle.get('information_coverage_audit') or MISSING_INFORMATION_COVERAGE_AUDIT),
         'source_consumption_summary': candidate_consumption_summary.get('source_consumption_summary', {}),
@@ -8990,8 +9135,10 @@ def main() -> None:
         'data_directory_content_loaded_count': bundle.get('data_directory_content_loaded_count', 0),
         'data_directory_content_record_count': (bundle.get('data_directory_content') or {}).get('record_count', 0),
         'data_directory_content_tab_count': (bundle.get('data_directory_content') or {}).get('tab_count', 0),
-        'structured_observation_basket': bundle.get('structured_observation_basket', []),
-        'structured_sector_observation_basket': bundle.get('structured_sector_observation_basket', []),
+        'structured_observation_basket': slim_candidate_list(_obs, limit=10) if isinstance(_obs, list) else [],
+        'structured_observation_basket_count': len(_obs) if isinstance(_obs, list) else 0,
+        'structured_sector_observation_basket': slim_candidate_list(_sector_obs, limit=10) if isinstance(_sector_obs, list) else [],
+        'structured_sector_observation_basket_count': len(_sector_obs) if isinstance(_sector_obs, list) else 0,
         'structured_formal_impact': bundle.get('structured_formal_impact', {}),
         'sector_catalyst_diagnostics': dict(bundle.get('sector_catalyst_diagnostics') or MISSING_SECTOR_CATALYST_DIAGNOSTICS),
         'daily_ticket_search_result': bundle.get('daily_ticket_search_result', {}),
@@ -9002,6 +9149,7 @@ def main() -> None:
         'single_target_card': single_target_card,
         **({'no_pick_candidate_diagnostics': no_pick_candidate_diagnostics} if no_pick_candidate_diagnostics is not None else {}),
         **({'daily_best_paper_watch': daily_best_paper_watch} if daily_best_paper_watch is not None else {}),
+        **({'profit_candidate_shadow_watch': profit_candidate_shadow_watch} if profit_candidate_shadow_watch is not None else {}),
         'data_gate_status': data_gate_status,
         'core_market_source_gate': core_source_gate,
         'xiaochan_gate_status': candidate_features.get('xiaochan_gate_status', 'ALLOW_FORWARD_PAPER_NO_TRADE'),
@@ -9009,6 +9157,7 @@ def main() -> None:
         'risk_flags': risk_flags,
         'asof_leakage_flag': False,
         'loader_semantics_restored': loader_semantics_restored,
+        'payload_policy': 'slim_runtime_v1',
         **LOCKED_SAFETY,
     }
 
@@ -9305,7 +9454,63 @@ def main() -> None:
     except Exception as e:
         print(f'WARN: Pick validation error: {e}', file=sys.stderr)
 
-    # Write runtime file AFTER validation
+    # Compact evidence card + pgvector similar cases (rules/multi-factor; not LLM×400).
+    evidence_card: Dict[str, Any] = {}
+    similar_cases: List[Dict[str, Any]] = []
+    similar_boost_meta: Dict[str, Any] = {}
+    selection_reason_payload: Dict[str, Any] = {}
+    try:
+        soft_ctx: Dict[str, Any] = {}
+        if isinstance(candidate_features, dict):
+            _elig = candidate_features.get('paper_pick_eligibility') if isinstance(candidate_features.get('paper_pick_eligibility'), dict) else {}
+            _signals = _elig.get('signals') if isinstance(_elig.get('signals'), dict) else {}
+            soft_ctx = _signals.get('pre_pick_market_context_soft') if isinstance(_signals.get('pre_pick_market_context_soft'), dict) else {}
+            if not soft_ctx:
+                soft_ctx = candidate_features.get('pre_pick_market_context_soft') if isinstance(candidate_features.get('pre_pick_market_context_soft'), dict) else {}
+            # Prefer cases already attached during formal enrich when present.
+            if isinstance(candidate_features.get('similar_cases'), list) and candidate_features.get('similar_cases'):
+                similar_cases = list(candidate_features.get('similar_cases') or [])[:5]
+                similar_boost_meta = dict(candidate_features.get('similar_cases_meta') or {}) or similar_cases_ranking_boost(similar_cases)
+        if not similar_cases:
+            similar_cases = search_similar_cases(
+                symbol=symbol or '',
+                name=str((candidate_features or {}).get('name') or (candidate_features or {}).get('stock_name') or ''),
+                features=candidate_features if isinstance(candidate_features, dict) else {},
+                exclude_trade_date=args.date,
+                limit=5,
+            )
+            similar_boost_meta = similar_cases_ranking_boost(similar_cases)
+        evidence_card = build_compact_evidence_card(
+            candidate_features if isinstance(candidate_features, dict) else {},
+            features=features,
+            soft_context=soft_ctx,
+            similar_cases=similar_cases,
+            decision=decision,
+            reason=reason,
+        )
+        selection_reason_payload = evidence_card_to_selection_reason(evidence_card, legacy_reason=reason)
+        features['evidence_card'] = evidence_card
+        features['similar_cases'] = similar_cases
+        features['similar_cases_boost'] = similar_boost_meta
+        features['pre_pick_market_context_soft'] = soft_ctx
+        features['selection_reason'] = selection_reason_payload
+        features['soft_context_valid'] = bool(soft_ctx.get('soft_context_valid')) if soft_ctx else False
+        features['soft_context_source'] = soft_ctx.get('soft_context_source') or soft_ctx.get('importance') or ''
+        if isinstance(candidate_features, dict):
+            candidate_features['evidence_card'] = evidence_card
+            candidate_features['similar_cases'] = similar_cases
+            candidate_features['similar_cases_boost'] = float(similar_boost_meta.get('boost') or 0.0)
+            candidate_features['selection_reason'] = selection_reason_payload
+            features['candidate_features'] = candidate_features
+        if isinstance(single_target_card, dict):
+            single_target_card = dict(single_target_card)
+            single_target_card['evidence_card'] = evidence_card
+            single_target_card['selection_reason'] = selection_reason_payload
+            features['single_target_card'] = single_target_card
+    except Exception as exc:
+        print(f'WARN: evidence_card/similar_cases failed: {exc}', file=sys.stderr, flush=True)
+
+    # Write runtime file AFTER validation — always slim (production default, not emergency-only).
     runtime_snapshot_path = RAW_ROOT / args.date / args.asof_time.replace(':','') / 'runtime_decision_context.json'
     if correction_of:
         features['correction_context'] = {
@@ -9313,8 +9518,17 @@ def main() -> None:
             'correction_of': correction_of,
             'reason': 'LATEST_HEALTHY_CHAIN_SUPERSEDES_STALE_SAME_DAY_DECISION',
         }
-    write_json(runtime_snapshot_path, {'features': features, 'decision': decision, 'symbol': symbol, 'decision_reason': reason, 'single_target_card': single_target_card})
+    mem_gate = enforce_runtime_memory_gate(stage='pre_runtime_write')
+    features['runtime_memory_gate'] = mem_gate
+    if mem_gate.get('status') in ('WARN', 'HARD'):
+        maybe_force_gc()
+    runtime_payload = build_runtime_decision_context(
+        features, decision, symbol, reason, single_target_card,
+    )
+    write_json(runtime_snapshot_path, runtime_payload)
     features['runtime_decision_context_path'] = str(runtime_snapshot_path)
+    features['runtime_payload_bytes'] = runtime_payload.get('runtime_payload_bytes')
+    features['payload_policy'] = runtime_payload.get('payload_policy') or 'slim_runtime_v1'
 
     # 生成结构化出票理由
     structured_reasons = generate_structured_reasons(features, bundle)
@@ -9342,6 +9556,7 @@ def main() -> None:
         features,
         decision,
         reason,
+        dry_run=bool(args.dry_run),
         replace_existing=bool(args.force),
         correction_of=correction_of,
     )
@@ -9356,7 +9571,7 @@ def main() -> None:
             reason,
             daily_candidate_persist_result,
         )
-    if args.force and daily_candidate_persist_result.get('status') != 'OK':
+    if args.force and not args.dry_run and daily_candidate_persist_result.get('status') != 'OK':
         print(json.dumps({
             'status': 'CORRECTION_NOT_RECORDED',
             'date': args.date,
@@ -9371,13 +9586,10 @@ def main() -> None:
             'pruned_stale_count': daily_candidate_persist_result.get('pruned_stale_count', 0),
             'status': daily_candidate_persist_result.get('status'),
         }
-        write_json(runtime_snapshot_path, {
-            'features': features,
-            'decision': decision,
-            'symbol': symbol,
-            'decision_reason': reason,
-            'single_target_card': single_target_card,
-        })
+        write_json(
+            runtime_snapshot_path,
+            build_runtime_decision_context(features, decision, symbol, reason, single_target_card),
+        )
 
     rec = run_recorder(
         args.date,
@@ -9394,7 +9606,58 @@ def main() -> None:
     db_pick_correction: Dict[str, Any] = {}
     try:
         import datetime as _dt
-        from xiaogu_db import insert_pick, mark_pick_active_correction, supersede_active_picks_for_correction
+        from xiaogu_db import (
+            fetch_user_locked_official_pick,
+            insert_pick,
+            mark_pick_active_correction,
+            supersede_active_picks_for_correction,
+        )
+        trade_day = _dt.date.fromisoformat(args.date)
+        # Evening force / same-day re-run: if a USER_LOCKED formal pick already exists,
+        # do not write a competing PAPER_PICK (7/23 山金 superseded 华银 chaos).
+        pre_locked = fetch_user_locked_official_pick(trade_day)
+        pre_locked_symbol = str((pre_locked or {}).get('symbol') or '').zfill(6) if pre_locked else ''
+        new_symbol_norm = str(symbol or '').zfill(6)
+        if (
+            correction_of
+            and pre_locked
+            and pre_locked_symbol
+            and pre_locked_symbol not in ('', '000000', 'NO_PICK')
+            and new_symbol_norm
+            and new_symbol_norm not in ('', '000000', 'NO_PICK')
+            and pre_locked_symbol != new_symbol_norm
+            and str(decision or '').upper() == 'PAPER_PICK'
+        ):
+            print(
+                f'USER_LOCKED_OFFICIAL_BLOCKS_EVENING_FORCE: keep={pre_locked_symbol} '
+                f'skip_write={new_symbol_norm}',
+                file=sys.stderr,
+                flush=True,
+            )
+            decision = 'NO_PICK'
+            symbol = ''
+            reason = (
+                f'USER_LOCKED_OFFICIAL_BLOCKS_EVENING_FORCE:keep={pre_locked_symbol};'
+                f'superseded_attempt={new_symbol_norm}'
+            )
+            risk_flags = unique_text_values(
+                [*risk_flags, 'USER_LOCKED_OFFICIAL_BLOCKS_EVENING_FORCE']
+            )
+            db_pick_correction = {
+                'record_type': 'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE',
+                'correction_of': correction_of,
+                'locked_symbol': pre_locked_symbol,
+                'attempted_symbol': new_symbol_norm,
+                'inserted_pick_id': None,
+                'superseded_count': 0,
+                'active_pick_count': 0,
+            }
+            # Keep observation of attempted evening name without writing DB pick.
+            features['evening_force_blocked'] = {
+                'locked_symbol': pre_locked_symbol,
+                'attempted_symbol': new_symbol_norm,
+                'attempted_decision': 'PAPER_PICK',
+            }
         _blockers = list(candidate_features.get('blockers') or []) if isinstance(candidate_features, dict) else []
         _layers = list(candidate_features.get('source_layers') or []) if isinstance(candidate_features, dict) else []
         _score = None
@@ -9411,6 +9674,7 @@ def main() -> None:
             'candidate_features': _candidate,
             'single_target_card': single_target_card,
             'daily_best_paper_watch': daily_best_paper_watch,
+            'profit_candidate_shadow_watch': profit_candidate_shadow_watch,
             'candidate_consumption_summary': candidate_consumption_summary,
             'official_explanation_summary': candidate_consumption_summary.get('official_result', {}),
             'source_consumption_summary': candidate_consumption_summary.get('source_consumption_summary', {}),
@@ -9432,42 +9696,78 @@ def main() -> None:
         if correction_of:
             _pick_features['correction_context'] = dict(features.get('correction_context') or {})
             _pick_features['candidate_snapshot_correction'] = dict(features.get('candidate_snapshot_correction') or {})
-        inserted_pick_id = insert_pick(
-            trade_date=_dt.date.fromisoformat(args.date),
-            symbol=symbol or '',
-            decision=decision,
-            final_score=float(_score) if _score is not None else None,
-            blockers=_blockers,
-            features=_pick_features,
-            source_layers=_layers,
-            rule_version=RULE_VERSION,
-            scan_dir=str(snapshot.get('raw_dir') or ''),
-            dry_run=bool(args.dry_run),
-            stock_name=str(_candidate.get('name') or _candidate.get('stock_name') or ''),
-            rank=int(_candidate.get('rank')) if safe_float(_candidate.get('rank')) is not None else None,
-            structured_score=safe_float(_candidate.get('structured_score')),
-            ranking_basis={
-                'basis': _candidate.get('ranking_basis') or 'structured_evidence_primary',
-                'structured_priority_score': _candidate.get('structured_priority_score'),
-                'rank': _candidate.get('rank'),
-            },
-            ticket_reason={
-                'decision': decision,
-                'reason': reason,
-                'structured_reasons': features.get('structured_reasons', []),
-            },
-            selection_reason={
-                'candidate_entry_reason': (_pick_features.get('official_explanation_summary') or {}).get('why_selected') or [],
-                'decision_reason': reason,
-            },
-            paper_pick_eligibility=dict(_candidate.get('paper_pick_eligibility') or {}),
-            official_target_exclusion_reasons=list(_candidate.get('official_target_exclusion_reasons') or []),
-            risk_flags=unique_text_values([*risk_flags, *((_candidate.get('capital_risk_profile') or {}).get('risk_codes') or [])]),
-            auxiliary_evidence_status=str(_candidate.get('mainboard_auxiliary_evidence_status') or ''),
-            information_coverage_audit_snapshot=dict(bundle.get('information_coverage_audit') or {}),
-            source_summary_path=str(bundle.get('scan_summary_path') or ''),
-        )
-        if correction_of:
+        if db_pick_correction.get('record_type') == 'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE':
+            inserted_pick_id = None
+        else:
+            inserted_pick_id = insert_pick(
+                trade_date=trade_day,
+                symbol=symbol or '',
+                decision=decision,
+                final_score=float(_score) if _score is not None else None,
+                blockers=_blockers,
+                features=_pick_features,
+                source_layers=_layers,
+                rule_version=RULE_VERSION,
+                scan_dir=str(snapshot.get('raw_dir') or ''),
+                dry_run=bool(args.dry_run),
+                stock_name=str(_candidate.get('name') or _candidate.get('stock_name') or ''),
+                rank=int(_candidate.get('rank')) if safe_float(_candidate.get('rank')) is not None else None,
+                structured_score=safe_float(_candidate.get('structured_score')),
+                ranking_basis={
+                    'basis': _candidate.get('ranking_basis') or 'structured_evidence_primary',
+                    'structured_priority_score': _candidate.get('structured_priority_score'),
+                    'rank': _candidate.get('rank'),
+                },
+                ticket_reason={
+                    'decision': decision,
+                    'reason': reason,
+                    'structured_reasons': features.get('structured_reasons', []),
+                    'evidence_card_one_liner': (features.get('evidence_card') or {}).get('one_liner') if isinstance(features.get('evidence_card'), dict) else '',
+                },
+                selection_reason=(
+                    features.get('selection_reason')
+                    if isinstance(features.get('selection_reason'), dict)
+                    else {
+                        'format': 'legacy_repo_summary',
+                        'candidate_entry_reason': (_pick_features.get('official_explanation_summary') or {}).get('why_selected') or [],
+                        'decision_reason': reason,
+                        'evidence_card': features.get('evidence_card') or {},
+                    }
+                ),
+                paper_pick_eligibility=dict(_candidate.get('paper_pick_eligibility') or {}),
+                official_target_exclusion_reasons=list(_candidate.get('official_target_exclusion_reasons') or []),
+                risk_flags=unique_text_values([*risk_flags, *((_candidate.get('capital_risk_profile') or {}).get('risk_codes') or [])]),
+                auxiliary_evidence_status=str(_candidate.get('mainboard_auxiliary_evidence_status') or ''),
+                information_coverage_audit_snapshot=dict(bundle.get('information_coverage_audit') or {}),
+                source_summary_path=str(bundle.get('scan_summary_path') or ''),
+            )
+        # pgvector: store pick case so future formal sort can retrieve similar winners.
+        if (
+            decision in ('PAPER_PICK', 'RESEARCH_CANDIDATE')
+            and not args.dry_run
+            and db_pick_correction.get('record_type') != 'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE'
+        ):
+            try:
+                upsert_result = upsert_pick_case(
+                    trade_date=args.date,
+                    symbol=symbol or '',
+                    decision=decision,
+                    stock_name=str(_candidate.get('name') or _candidate.get('stock_name') or ''),
+                    final_score=float(_score) if _score is not None else None,
+                    evidence_card=features.get('evidence_card') if isinstance(features.get('evidence_card'), dict) else None,
+                    features=_candidate,
+                    reason=reason,
+                    metadata={
+                        'rule_version': RULE_VERSION,
+                        'similar_cases_boost': features.get('similar_cases_boost'),
+                        'soft_context_valid': features.get('soft_context_valid'),
+                    },
+                    dry_run=bool(args.dry_run),
+                )
+                features['case_vector_upsert'] = upsert_result
+            except Exception as _vec_exc:
+                print(f'WARN: upsert_pick_case failed: {_vec_exc}', file=sys.stderr, flush=True)
+        if correction_of and db_pick_correction.get('record_type') != 'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE':
             try:
                 recorder_payload = json.loads(rec.get('stdout') or '{}')
             except (TypeError, json.JSONDecodeError):
@@ -9476,27 +9776,63 @@ def main() -> None:
                 ((recorder_payload.get('record') or {}).get('raw_data_snapshot_sha256'))
                 or correction_of
             )
-            superseded_count = supersede_active_picks_for_correction(
-                _dt.date.fromisoformat(args.date),
-                correction_of=correction_reference,
-                replacement_symbol=symbol or '',
-                replacement_decision=decision,
-                reason='LATEST_HEALTHY_CHAIN_SUPERSEDES_STALE_SAME_DAY_DECISION',
-            )
-            active_count = mark_pick_active_correction(
-                _dt.date.fromisoformat(args.date),
-                symbol=symbol or '',
-                decision=decision,
-                correction_of=correction_reference,
-            )
-            db_pick_correction = {
-                'record_type': 'CORRECTION',
-                'correction_of': correction_of,
-                'correction_reference': correction_reference,
-                'inserted_pick_id': inserted_pick_id,
-                'superseded_count': superseded_count,
-                'active_pick_count': active_count,
-            }
+            locked = fetch_user_locked_official_pick(trade_day)
+            locked_symbol = str((locked or {}).get('symbol') or '').zfill(6) if locked else ''
+            new_symbol = str(symbol or '').zfill(6)
+            if locked and locked_symbol and locked_symbol != new_symbol:
+                # User-locked formal pick wins: never replace it with evening force / re-run.
+                # Supersede the newly written non-locked correction instead.
+                print(
+                    f'USER_LOCKED_OFFICIAL_PRESERVED: keep={locked_symbol} '
+                    f'supersede_new={new_symbol} decision={decision}',
+                    file=sys.stderr,
+                    flush=True,
+                )
+                superseded_count = supersede_active_picks_for_correction(
+                    trade_day,
+                    correction_of=correction_reference,
+                    replacement_symbol=locked_symbol,
+                    replacement_decision='PAPER_PICK',
+                    reason='USER_LOCKED_OFFICIAL_BLOCKS_FORCE_REPLACEMENT',
+                )
+                active_count = mark_pick_active_correction(
+                    trade_day,
+                    symbol=locked_symbol,
+                    decision='PAPER_PICK',
+                    correction_of=correction_reference,
+                )
+                db_pick_correction = {
+                    'record_type': 'CORRECTION_BLOCKED_BY_USER_LOCK',
+                    'correction_of': correction_of,
+                    'correction_reference': correction_reference,
+                    'inserted_pick_id': inserted_pick_id,
+                    'locked_symbol': locked_symbol,
+                    'attempted_symbol': new_symbol,
+                    'superseded_count': superseded_count,
+                    'active_pick_count': active_count,
+                }
+            else:
+                superseded_count = supersede_active_picks_for_correction(
+                    trade_day,
+                    correction_of=correction_reference,
+                    replacement_symbol=symbol or '',
+                    replacement_decision=decision,
+                    reason='LATEST_HEALTHY_CHAIN_SUPERSEDES_STALE_SAME_DAY_DECISION',
+                )
+                active_count = mark_pick_active_correction(
+                    trade_day,
+                    symbol=symbol or '',
+                    decision=decision,
+                    correction_of=correction_reference,
+                )
+                db_pick_correction = {
+                    'record_type': 'CORRECTION',
+                    'correction_of': correction_of,
+                    'correction_reference': correction_reference,
+                    'inserted_pick_id': inserted_pick_id,
+                    'superseded_count': superseded_count,
+                    'active_pick_count': active_count,
+                }
     except Exception as exc:
         print(f'WARN: insert_pick failed: {exc}', file=sys.stderr, flush=True)
 
@@ -9509,6 +9845,14 @@ def main() -> None:
         'source_consumption_summary': candidate_consumption_summary.get('source_consumption_summary', {}),
         'candidate_consumption_summary': candidate_consumption_summary,
         'structured_reasons': features.get('structured_reasons', []),
+        'evidence_card': features.get('evidence_card') or {},
+        'selection_reason': features.get('selection_reason') or {},
+        'similar_cases': features.get('similar_cases') or [],
+        'similar_cases_boost': features.get('similar_cases_boost') or {},
+        'case_vector_upsert': features.get('case_vector_upsert') or {},
+        'runtime_payload_bytes': features.get('runtime_payload_bytes'),
+        'payload_policy': features.get('payload_policy') or 'slim_runtime_v1',
+        'runtime_memory_gate': features.get('runtime_memory_gate') or {},
         'buy_plan': features.get('buy_plan', {}),
         'sell_plan': features.get('sell_plan', {}),
         'risk_factors': features.get('risk_factors', []),
@@ -9516,6 +9860,7 @@ def main() -> None:
         'climax_risk': features.get('climax_risk', False),
         **({'no_pick_candidate_diagnostics': no_pick_candidate_diagnostics} if no_pick_candidate_diagnostics is not None else {}),
         **({'daily_best_paper_watch': daily_best_paper_watch} if daily_best_paper_watch is not None else {}),
+        **({'profit_candidate_shadow_watch': profit_candidate_shadow_watch} if profit_candidate_shadow_watch is not None else {}),
         'rule_version': RULE_VERSION,
         'ledger_path': str(LEDGER),
         'runtime_decision_context_path': str(runtime_snapshot_path),

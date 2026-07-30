@@ -127,6 +127,7 @@ Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → F
 
 A task is complete only if:
 
+- [ ] **Karpathy constraints loaded at task start** (CLAUDE.md / `.skills/karpathy-daily.md`)
 - [ ] Code compiles / imports without error
 - [ ] Tests pass (`pytest tests/ -x -q`)
 - [ ] API endpoints return correct responses
@@ -135,6 +136,8 @@ A task is complete only if:
 - [ ] Architecture preserved
 - [ ] Research reproducible (if applicable)
 - [ ] Documentation updated (if applicable)
+- [ ] **AgentMemory updated** (`agentmemory__memory_save` for decisions/bugs/workflow; local `scripts/agentmemory_daily.sh` when relevant)
+- [ ] **Obsidian updated when knowledge changed** — project evidence → `Project/A股`; cross-domain → 神临（想法池/总索引/项目接口）
 
 ---
 
@@ -174,14 +177,25 @@ python3 scrapy_scanner/runner_v2.py
 python3 xiaogu_forward_d1_1450_runner_v0_1.py --date $(date +%Y-%m-%d) --force
 ```
 
-### Development Cycle
+### Development Cycle（任务启动强制顺序 — 不可跳过）
 
-1. **INTAKE** — Load `/karpathy-guidelines`, create task
-2. **UNDERSTAND** — `codebase-memory-mcp` (符号/调用链) + `understand-anything` (架构图谱) 交叉验证
-3. **PLAN** — Plan Enforcer discuss→draft
-4. **IMPLEMENT** — Code changes (遵循 karpathy 4 原则)
-5. **VALIDATE** — pytest + API test
-6. **COMPLETE** — Verify success criteria, commit, `agentmemory__memory_save` 记录决策
+> **Global (all Grok CLI projects):** `~/.grok/AGENTS.md`. Below is xiaogu domain elaboration; do not skip global steps.
+
+> 用户硬要求：启动先 Karpathy；定位用 **codebase-memory 主索引**（Understand-Anything 已按用户要求从 xiaogu 移除）；有歧义先 **plan-discuss**；编码后必须更新 **AgentMemory**（及知识有变时的 Obsidian）。
+
+0. **KARPATHY（启动闸门）** — 读 `CLAUDE.md` + `.skills/karpathy-daily.md`；陈述假设、成功标准、不做清单。未加载不得写业务代码。
+1. **UNDERSTAND（codebase-memory 主索引）**
+   - **主**：`codebase-memory-mcp` — `search_graph` / `trace_path` / `get_code_snippet` / `query_graph` / `search_code` 定位符号与调用链
+   - **冲突以 source code / tests / git 为准**；codebase-memory 不可用时回退 `rg` / `read_file`
+   - **Understand-Anything**：xiaogu 已停用（本地 `.understand-anything/` 已删）；勿再依赖 UA 图
+2. **PLAN** — 有实现歧义/多方案时：Plan Enforcer **plan-enforcer-discuss → draft → review**；机械小改（单点 bug、明确一行修复）可跳过 discuss，但仍要成功标准
+3. **IMPLEMENT** — 只改必须改的；modify-before-create；不平行实现
+4. **VALIDATE** — `pytest tests/ -x -q` + 受影响路径验证
+5. **COMPLETE（自动落盘）**
+   - `agentmemory__memory_save`（decision / bug / workflow / pattern）
+   - 可选 `scripts/agentmemory_daily.sh`
+   - 知识有变：Obsidian `Project/A股`（inbox/状态/任务）+ 神临（想法池/总索引/项目接口，仅跨域）
+   - 成功标准全部打勾才算完成；主链绿但记忆/笔记漏写 = **未完成**
 
 ---
 
@@ -207,25 +221,18 @@ python3 xiaogu_forward_d1_1450_runner_v0_1.py --date $(date +%Y-%m-%d) --force
 ## Codebase Memory MCP
 - 代码结构、符号、调用链、影响面优先使用 codebase-memory-mcp（`index_repository`、`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`、`search_code`）；未索引时先索引当前 workspace，工具不可用时再回退 `rg`。
 
-## Dual-Index Discovery Order
+## Code Discovery Order（xiaogu）
 
-xiaogu 代码发现使用两个互补索引，各有明确角色：
+xiaogu 代码发现以 **codebase-memory-mcp 单主索引** 为准（Understand-Anything 已移除）：
 
-### 1. codebase-memory-mcp（主索引）
-- **用途**：精确符号发现、调用链追踪、影响面分析、死代码检测
+### codebase-memory-mcp（唯一结构索引）
+- **用途**：精确符号发现、调用链追踪、影响面分析、死代码检测、架构 cluster 视图
 - **优先级**：始终优先使用
-- **适用场景**：修改代码、重构、bug定位、依赖分析
-- **工具**：`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`
-
-### 2. Understand-Anything（辅助索引）
-- **用途**：架构层可视化、交互式探索、新成员onboarding
-- **优先级**：仅在codebase-memory-mcp结果需要交叉验证时使用
-- **适用场景**：架构理解、模块边界确认、大范围重构前的全局视图
-- **工具**：`/understand`、`/understand-dashboard`、`/understand-chat`
-- **限制**：不作为代码修改的唯一依据，不覆盖source code/truth
+- **适用场景**：修改代码、重构、bug定位、依赖分析、架构理解
+- **工具**：`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`、`get_architecture`、`search_code`
 
 ### 使用规则
-1. **代码修改**：始终用 codebase-memory-mcp 做发现，Understand-Anything 仅做架构参考
-2. **架构理解**：两者互补，codebase-memory-mcp 给精确调用链，Understand-Anything 给全局视图
-3. **冲突处理**：以 source code 为准，Understand-Anything 的图是近似值
-4. **不可用时**：codebase-memory-mcp 不可用则回退 `rg`；Understand-Anything 不可用不影响代码修改
+0. **任务启动时**：先 Karpathy，再 codebase-memory UNDERSTAND，再 plan-discuss（歧义时），最后才写代码；收口写 AgentMemory
+1. **代码修改**：始终用 codebase-memory-mcp 做发现；冲突以 source code / tests / git 为准
+2. **不可用时**：回退 `rg` / `read_file`，不得发明结构
+3. **Understand-Anything**：停用；勿重建 `.understand-anything/` 作为工作依赖

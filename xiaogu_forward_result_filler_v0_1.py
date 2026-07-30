@@ -279,6 +279,122 @@ def fetch_tencent_klines(symbol: str, begin: str, end: str) -> Dict[str, Any]:
         return {'error': repr(exc), 'data': None}
 
 
+def fetch_realtime_final_bar(symbol: str) -> Optional[Dict[str, Any]]:
+    """Official same-day OHLC after market close when history kline lags.
+
+    Only when exit_date == today and daily_kline_is_final. Never invents past bars.
+    Prefer Eastmoney push2 (stable field map), then Tencent qt.
+    """
+    code = str(symbol).zfill(6)
+    today = dt.date.today().isoformat()
+    if not daily_kline_is_final(today):
+        return None
+
+    def _bar(open_p, high, low, close, *, source: str, url: str, volume: float = 0.0, amount: float = 0.0, pct_chg: float = 0.0) -> Optional[Dict[str, Any]]:
+        if close is None or close <= 0:
+            return None
+        high = high if high is not None and high >= close else close
+        low = low if low is not None and low <= close else close
+        open_p = open_p if open_p is not None else close
+        return {
+            'date': today,
+            'open': open_p,
+            'close': close,
+            'high': high,
+            'low': low,
+            'volume': volume,
+            'amount': amount,
+            'amplitude_pct': 0.0,
+            'pct_chg': pct_chg,
+            'chg': 0.0,
+            'turnover_rate': 0.0,
+            'row_source': source,
+            'source_time': now_iso(),
+            '_request_url': url,
+        }
+
+    # Eastmoney push2: f43 price*100, f44 high, f45 low, f46 open, f170 pct*100
+    try:
+        url = (
+            f'https://push2.eastmoney.com/api/qt/stock/get?secid={secid_for(code)}'
+            f'&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170'
+        )
+        req = urllib.request.Request(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0 XiaoguForwardResult/0.1', 'Referer': 'https://quote.eastmoney.com/'},
+        )
+        with DIRECT_OPENER.open(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+        data = payload.get('data') or {}
+
+        def _p100(v: Any) -> Optional[float]:
+            n = fnum(v)
+            return (n / 100.0) if n is not None else None
+
+        bar = _bar(
+            _p100(data.get('f46')),
+            _p100(data.get('f44')),
+            _p100(data.get('f45')),
+            _p100(data.get('f43')),
+            source='eastmoney_push2_realtime_final',
+            url=url,
+            volume=float(fnum(data.get('f47')) or 0.0),
+            amount=float(fnum(data.get('f48')) or 0.0),
+            pct_chg=float(fnum(data.get('f170')) or 0.0) / 100.0 if data.get('f170') is not None else 0.0,
+        )
+        if bar:
+            return bar
+    except Exception:
+        pass
+
+    # Tencent qt: price/prev/open at ~3/4/5; high/low often at 33/34
+    try:
+        prefix = 'sh' if code.startswith(('5', '6', '9')) else 'sz'
+        url = f'https://qt.gtimg.cn/q={prefix}{code}'
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 XiaoguForwardResult/0.1'})
+        with DIRECT_OPENER.open(req, timeout=10) as resp:
+            body = resp.read().decode('gbk', errors='replace')
+        if '=' in body and '"' in body:
+            raw = body.split('=', 1)[1].strip().strip(';').strip('"')
+            parts = raw.split('~')
+            if len(parts) >= 6:
+                bar = _bar(
+                    fnum(parts[5]),
+                    fnum(parts[33]) if len(parts) > 33 else None,
+                    fnum(parts[34]) if len(parts) > 34 else None,
+                    fnum(parts[3]),
+                    source='tencent_qt_realtime_final',
+                    url=url,
+                )
+                if bar:
+                    return bar
+    except Exception:
+        pass
+    return None
+
+
+def ensure_today_exit_bar(rows: List[Dict[str, Any]], symbol: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """If history kline lags today's final bar after 15:05, append realtime final close."""
+    today = dt.date.today().isoformat()
+    if not daily_kline_is_final(today):
+        return rows, None
+    if any(str(r.get('date')) == today for r in rows):
+        return rows, None
+    bar = fetch_realtime_final_bar(symbol)
+    if not bar:
+        return rows, None
+    out = list(rows) + [{k: v for k, v in bar.items() if not str(k).startswith('_')}]
+    return out, {
+        'status': 'APPENDED_REALTIME_FINAL_BAR',
+        'date': today,
+        'row_source': bar.get('row_source'),
+        'close': bar.get('close'),
+        'high': bar.get('high'),
+        'source_time': bar.get('source_time'),
+        'request_url': bar.get('_request_url'),
+        'note': 'history kline missing today bar; official realtime close used after 15:05 only',
+    }
+
 
 def trading_window(date: str, days: int = 12) -> Tuple[str, str]:
     start = dt.date.fromisoformat(date) - dt.timedelta(days=1)
@@ -633,7 +749,23 @@ def auto_return(decision: Dict[str, Any], horizon: str) -> Tuple[Optional[float]
         payload = fetch_tencent_klines(symbol, begin, end)
         rows = parse_klines(payload)
         source_name = 'tencent_qfq_kline'
-    dump_json(evidence_path, {'symbol': symbol, 'decision_date': decision['date'], 'entry_price': price, 'source': source_name, 'fetched_at': now_iso(), 'payload': payload})
+    # After 15:05: history APIs often lag today's final bar — append official realtime close only.
+    rows, realtime_meta = ensure_today_exit_bar(rows, symbol)
+    if realtime_meta:
+        source_name = f"{source_name}+{realtime_meta.get('row_source')}"
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload['_realtime_final_bar'] = realtime_meta
+    dump_json(evidence_path, {
+        'symbol': symbol,
+        'decision_date': decision['date'],
+        'entry_price': price,
+        'source': source_name,
+        'fetched_at': now_iso(),
+        'payload': payload,
+        'rows_used': rows,
+        'realtime_final_bar': realtime_meta,
+    })
     return return_from_rows(decision, horizon, rows, evidence_path, payload, source_name)
 
 

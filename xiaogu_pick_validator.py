@@ -4,11 +4,12 @@ Pick validator using Serenity + Buffett frameworks.
 Runs after PAPER_PICK to validate the pick with investment analysis.
 """
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-BASE = Path('/workspace/hermes-workspaces/xiaogu')
+BASE = Path(os.environ.get('XIAOGU_HOME') or Path(__file__).resolve().parent)
 
 
 def validate_pick_with_serenity(symbol: str, candidate: Dict[str, Any]) -> Dict[str, Any]:

@@ -103,6 +103,87 @@ def _return_limitup_summary(values: List[float]) -> Dict[str, Any]:
     }
 
 
+_HORIZON_ORDER = {'t1': 0, 't2': 1, 't3': 2}
+
+
+def _horizon_alignment_summary(rows: List[Dict[str, Any]], label: str) -> Dict[str, Any]:
+    horizon_values: Dict[str, List[float]] = {name: [] for name in _HORIZON_ORDER}
+    daily = []
+    fully_aligned_sample_count = 0
+    pairwise_total = {'t2_vs_t1': 0, 't3_vs_t1': 0, 't3_vs_t2': 0}
+    pairwise_wins = {'t2_vs_t1': 0, 't3_vs_t1': 0, 't3_vs_t2': 0}
+
+    for row in rows:
+        ladder = {
+            't1': row.get('t1_return'),
+            't2': row.get('t2_return'),
+            't3': row.get('t3_return'),
+        }
+        available = {name: _numeric(value) for name, value in ladder.items() if value is not None}
+        if not available:
+            continue
+        if len(available) == len(_HORIZON_ORDER):
+            fully_aligned_sample_count += 1
+        for name, value in available.items():
+            horizon_values[name].append(value)
+        best_horizon = max(
+            available,
+            key=lambda name: (available[name], -_HORIZON_ORDER[name]),
+        )
+        daily.append({
+            'trade_date': _date_key(row.get('trade_date')),
+            'symbol': row.get('symbol'),
+            'rank': row.get('rank'),
+            't1_return': ladder['t1'],
+            't2_return': ladder['t2'],
+            't3_return': ladder['t3'],
+            'best_horizon': best_horizon,
+            'best_return': available[best_horizon],
+        })
+        for pair_name, later, earlier in (
+            ('t2_vs_t1', 't2', 't1'),
+            ('t3_vs_t1', 't3', 't1'),
+            ('t3_vs_t2', 't3', 't2'),
+        ):
+            if ladder[later] is None or ladder[earlier] is None:
+                continue
+            pairwise_total[pair_name] += 1
+            if _numeric(ladder[later]) > _numeric(ladder[earlier]):
+                pairwise_wins[pair_name] += 1
+
+    horizon_summaries = {
+        name: _return_limitup_summary(values)
+        for name, values in horizon_values.items()
+    }
+    available_horizons = [name for name, values in horizon_values.items() if values]
+    best_horizon = (
+        max(
+            available_horizons,
+            key=lambda name: (
+                horizon_summaries[name]['avg_return'],
+                horizon_summaries[name]['win_rate'],
+                -_HORIZON_ORDER[name],
+            ),
+        )
+        if available_horizons else None
+    )
+    return {
+        'label': label,
+        'sample_count': len(rows),
+        'aligned_sample_count': len(daily),
+        'fully_aligned_sample_count': fully_aligned_sample_count,
+        'horizon_summaries': horizon_summaries,
+        'best_horizon_by_avg_return': best_horizon,
+        'best_horizon_avg_return': horizon_summaries[best_horizon]['avg_return'] if best_horizon else None,
+        'pairwise_sample_count': pairwise_total,
+        'pairwise_win_rate': {
+            name: round(pairwise_wins[name] / pairwise_total[name], 4) if pairwise_total[name] else None
+            for name in pairwise_total
+        },
+        'daily': daily,
+    }
+
+
 def _db_rows_since(start_date: str = '2026-06-20', end_date: Optional[str] = None) -> tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     """Load every candidate/pick/return row from DB for a comparable replay."""
     from sqlalchemy import create_engine, text
@@ -123,14 +204,52 @@ def _db_rows_since(start_date: str = '2026-06-20', end_date: Optional[str] = Non
         key = _date_key(row.get('trade_date')) + ':' + str(row.get('symbol') or '')
         if key in return_map:
             row['_t1_return'] = return_map[key].get('t1_return')
+
+    # Prefer the active (non-superseded) official pick for each day. Historical
+    # correction rows keep higher scores but must not override the final active
+    # PAPER_PICK used by readiness / performance gates.
+    official_by_date = {
+        _date_key(row.get('trade_date')): str(row.get('symbol') or '')
+        for row in candidates
+        if bool(row.get('is_official_pick'))
+        or str(row.get('selection_outcome') or '').upper() == 'OFFICIAL_PICK'
+    }
+
+    def _pick_rank_key(row: Dict[str, Any]) -> tuple:
+        features = row.get('features') if isinstance(row.get('features'), dict) else {}
+        superseded = str(features.get('superseded') or '').lower() in {'1', 'true', 'yes'}
+        trade_date = _date_key(row.get('trade_date'))
+        symbol = str(row.get('symbol') or '')
+        official_symbol = official_by_date.get(trade_date)
+        matches_official = bool(official_symbol and symbol == official_symbol)
+        updated = str(row.get('updated_at') or row.get('created_at') or '')
+        score = float(row.get('final_score') or 0)
+        # Higher is better: active first, official snapshot match next, then recency/score.
+        return (
+            0 if superseded else 1,
+            1 if matches_official else 0,
+            updated,
+            score,
+            symbol,
+        )
+
     for row in picks:
         if str(row.get('decision') or '').upper() != 'PAPER_PICK':
             continue
+        symbol = str(row.get('symbol') or '').strip()
+        if not symbol or symbol.upper() == 'NO_PICK':
+            continue
         key = _date_key(row.get('trade_date'))
         current = pick_map.get(key)
-        if current is None or (float(row.get('final_score') or 0), str(row.get('symbol') or '')) > (float(current.get('final_score') or 0), str(current.get('symbol') or '')):
+        if current is None or _pick_rank_key(row) > _pick_rank_key(current):
             pick_map[key] = row
-    pick_map['__all__'] = {'rows': [row for row in picks if str(row.get('decision') or '').upper() == 'PAPER_PICK']}
+    pick_map['__all__'] = {
+        'rows': [
+            row for row in picks
+            if str(row.get('decision') or '').upper() == 'PAPER_PICK'
+            and str((row.get('features') or {}).get('superseded') if isinstance(row.get('features'), dict) else '').lower() not in {'1', 'true', 'yes'}
+        ]
+    }
     return candidates, pick_map, return_map
 
 
@@ -267,13 +386,15 @@ def _ranking_miss_types(paper: Dict[str, Any], alternative: Dict[str, Any]) -> L
     if 'sector_yesterday_limitup_gene_proxy' in under:
         miss_types.append('SECTOR_PROXY_UNDERWEIGHTED')
     if 'low_position_catalyst_score' in under:
-        miss_types.append('LOW_POSITION_SETUP_UNDERWEIGHTED')
+        miss_types.append('LOW_POSITION_CATALYST_UNDERWEIGHTED')
     if _nonempty(alternative_row.get('yesterday_limitup_gene_evidence')) or (alternative_row.get('continuation_gene_score') or 0) > 0:
         miss_types.append('LIMITUP_GENE_UNDERWEIGHTED')
     if (alternative_row.get('time_series_momentum') or 0) > 0 or (alternative_row.get('close_position_score') or 0) >= 0.8:
         miss_types.append('NEAR_LIMITUP_MOMENTUM_UNDERWEIGHTED')
     if 'low_position_catalyst_score' in under and 'sector_yesterday_limitup_gene_proxy' in under:
         miss_types.append('HIGH_ELASTICITY_SETUP_UNDERWEIGHTED')
+    if 'sector_heat_opportunity' in under or 'main_theme_alignment_boost' in under:
+        miss_types.append('SECTOR_HEAT_UNDERWEIGHTED')
     if paper_profile.get('open_board_risk', 0) > 0:
         miss_types.append('OPEN_BOARD_RISK_UNDERPENALIZED')
     if paper_profile.get('weak_limitup_confirmation'):
@@ -288,17 +409,22 @@ def _ranking_miss_types(paper: Dict[str, Any], alternative: Dict[str, Any]) -> L
 
 def _primary_fix_direction(miss_types: List[str]) -> str:
     mapping = {
-        'FAILED_LIMITUP_RISK_UNDERPENALIZED': 'DECREASE_FAILED_LIMITUP_WEIGHT',
-        'CAPITAL_OUTFLOW_UNDERPENALIZED': 'DECREASE_OUTFLOW_PRESSURE_WEIGHT',
-        'HIGH_POPULARITY_OVERWEIGHT': 'DECREASE_POPULARITY_CROWDING_WEIGHT',
-        'OPEN_BOARD_RISK_UNDERPENALIZED': 'DECREASE_WEAK_CONFIRMATION_WEIGHT',
-        'WEAK_CONTINUATION_OVERSELECTED': 'DECREASE_WEAK_CONFIRMATION_WEIGHT',
-        'NEWS_CATALYST_UNDERWEIGHTED': 'INCREASE_CATALYST_WEIGHT',
-        'SECTOR_PROXY_UNDERWEIGHTED': 'INCREASE_SECTOR_PROXY_WEIGHT',
-        'LOW_POSITION_SETUP_UNDERWEIGHTED': 'INCREASE_LOW_POSITION_CATALYST_WEIGHT',
-        'LIMITUP_GENE_UNDERWEIGHTED': 'INCREASE_LIMITUP_GENE_WEIGHT',
-        'NEAR_LIMITUP_MOMENTUM_UNDERWEIGHTED': 'INCREASE_CONFIRMED_CAPITAL_INFLOW_WEIGHT',
-        'HIGH_ELASTICITY_SETUP_UNDERWEIGHTED': 'INCREASE_LIMITUP_GENE_WEIGHT',
+        'FAILED_LIMITUP_RISK_UNDERPENALIZED': 'INCREASE_PRODUCTION_PENALTY_FOR_FAILED_LIMITUP',
+        'CAPITAL_OUTFLOW_UNDERPENALIZED': 'INCREASE_PRODUCTION_PENALTY_FOR_OUTFLOW',
+        'OUTFLOW_RISK_UNDERPENALIZED': 'INCREASE_PRODUCTION_PENALTY_FOR_OUTFLOW',
+        'HIGH_POPULARITY_OVERWEIGHT': 'INCREASE_PRODUCTION_PENALTY_FOR_POPULARITY',
+        'HIGH_POPULARITY_REVERSAL_RISK': 'INCREASE_PRODUCTION_PENALTY_FOR_POPULARITY',
+        'OPEN_BOARD_RISK_UNDERPENALIZED': 'INCREASE_PRODUCTION_PENALTY_FOR_WEAK_CONFIRMATION',
+        'WEAK_CONTINUATION_OVERSELECTED': 'INCREASE_PRODUCTION_PENALTY_FOR_WEAK_CONFIRMATION',
+        'NEWS_CATALYST_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_CATALYST',
+        'SECTOR_PROXY_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_SECTOR_PROXY',
+        'SECTOR_HEAT_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_SECTOR_HEAT',
+        'LOW_POSITION_SETUP_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_LOW_POSITION_CATALYST',
+        'LOW_POSITION_CATALYST_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_LOW_POSITION_CATALYST',
+        'LIMITUP_GENE_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_LIMITUP_GENE',
+        'NEAR_LIMITUP_MOMENTUM_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_CONFIRMED_CAPITAL_INFLOW',
+        'HIGH_ELASTICITY_SETUP_UNDERWEIGHTED': 'INCREASE_PRODUCTION_WEIGHT_FOR_LIMITUP_GENE',
+        'RANK4_TO_6_UNDERVALUED': 'INCREASE_PRODUCTION_WEIGHT_FOR_MIDRANK_ELASTICITY',
     }
     return next((mapping[item] for item in miss_types if item in mapping), 'NO_ACTION_INSUFFICIENT_EVIDENCE')
 
@@ -307,11 +433,13 @@ def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dic
     """Explain daily PAPER_PICK misses and replay the existing ranking basis."""
     from xiaogu_forward_d1_1450_runner_v0_1 import formal_candidate_sort_key, ranking_basis_adjustment_components
 
-    mainboard_rows = [row for row in rows if row.get('is_mainboard') and 1 <= int(row.get('rank') or 999) <= 10]
+    mainboard_rows = [row for row in rows if row.get('is_mainboard')]
     by_date: Dict[str, List[Dict[str, Any]]] = {}
     for row in mainboard_rows:
         by_date.setdefault(_date_key(row.get('trade_date')), []).append(row)
     daily = []
+    paper_horizon_rows = []
+    top10_horizon_rows = []
     replay_baseline = []
     replay_adjusted = []
     rank26_rows = []
@@ -322,13 +450,17 @@ def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dic
         pick = pick_map.get(trade_date)
         paper = next((row for row in day if pick and str(row.get('symbol') or '') == str(pick.get('symbol') or '')), None)
         returned = [row for row in day if row.get('t1_return') is not None]
+        top10_returned = [row for row in day if 1 <= int(row.get('rank') or 999) <= 10 and row.get('t1_return') is not None]
         if paper is None or paper.get('t1_return') is None or not returned:
             daily.append({
                 'trade_date': trade_date, 'paper_pick': (pick or {}).get('symbol'),
                 'paper_pick_rank': paper.get('rank') if paper else None,
                 'paper_pick_return': paper.get('t1_return') if paper else None,
+                'paper_pick_t2_return': paper.get('t2_return') if paper else None,
+                'paper_pick_t3_return': paper.get('t3_return') if paper else None,
                 'paper_pick_limitup_hit': False, 'paper_pick_near_limitup_hit': False,
                 'top10_best': None, 'top10_best_rank': None, 'top10_best_return': None,
+                'top10_best_t2_return': None, 'top10_best_t3_return': None,
                 'top10_best_limitup_hit': False, 'top10_best_near_limitup_hit': False,
                 'gap': None, 'limitup_gap': False,
                 'paper_pick_overestimated_factors': [], 'top10_best_underestimated_factors': [],
@@ -336,7 +468,8 @@ def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dic
                 'primary_fix_direction': 'NO_ACTION_INSUFFICIENT_EVIDENCE',
             })
             continue
-        best = max(returned, key=lambda row: row['t1_return'])
+        top10_benchmark = top10_returned or returned
+        best = max(top10_benchmark, key=lambda row: row['t1_return'])
         paper_return = paper['t1_return']
         gap = paper_return - best['t1_return']
         miss_types = [] if str(best.get('symbol')) == str(paper.get('symbol')) else _ranking_miss_types(paper, best)
@@ -344,13 +477,33 @@ def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dic
             'trade_date': trade_date, 'paper_pick': paper.get('symbol'), 'paper_pick_rank': paper.get('rank'),
             'paper_pick_return': paper_return, 'paper_pick_limitup_hit': paper_return >= 0.095,
             'paper_pick_near_limitup_hit': paper_return >= 0.07,
+            'paper_pick_t2_return': paper.get('t2_return'),
+            'paper_pick_t3_return': paper.get('t3_return'),
             'top10_best': best.get('symbol'), 'top10_best_rank': best.get('rank'),
             'top10_best_return': best['t1_return'], 'top10_best_limitup_hit': best['t1_return'] >= 0.095,
+            'top10_best_t2_return': best.get('t2_return'),
+            'top10_best_t3_return': best.get('t3_return'),
             'top10_best_near_limitup_hit': best['t1_return'] >= 0.07,
             'gap': gap, 'limitup_gap': best['t1_return'] >= 0.095 and paper_return < 0.095,
             'paper_pick_overestimated_factors': _ranking_factor_explanation(paper, 'overestimated'),
             'top10_best_underestimated_factors': _ranking_factor_explanation(best, 'underestimated'),
             'ranking_miss_type': miss_types, 'primary_fix_direction': _primary_fix_direction(miss_types),
+        })
+        paper_horizon_rows.append({
+            'trade_date': trade_date,
+            'symbol': paper.get('symbol'),
+            'rank': paper.get('rank'),
+            't1_return': paper.get('t1_return'),
+            't2_return': paper.get('t2_return'),
+            't3_return': paper.get('t3_return'),
+        })
+        top10_horizon_rows.append({
+            'trade_date': trade_date,
+            'symbol': best.get('symbol'),
+            'rank': best.get('rank'),
+            't1_return': best.get('t1_return'),
+            't2_return': best.get('t2_return'),
+            't3_return': best.get('t3_return'),
         })
         replay_baseline.append(paper_return)
         adjusted = max(returned, key=lambda row: formal_candidate_sort_key(_attribution_candidate(row)))
@@ -399,6 +552,10 @@ def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dic
     }
     return {
         'paper_pick_vs_top10_best_daily': daily,
+        'timing_window_alignment': {
+            'paper_pick': _horizon_alignment_summary(paper_horizon_rows, 'paper_pick'),
+            'top10_best': _horizon_alignment_summary(top10_horizon_rows, 'top10_best'),
+        },
         'rank2_to_rank6_analysis': {
             **elasticity,
             'factor_patterns': factor_patterns,
@@ -473,20 +630,32 @@ def completed_paper_pick_sample_days(
     pick_map: Dict[str, Dict[str, Any]],
     pending_dates: set[str],
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
-    """Return the single comparable PAPER_PICK cohort and explicit exclusions."""
+    """Return the single comparable PAPER_PICK cohort and explicit exclusions.
+
+    Comparable sample = mainboard official PAPER_PICK day with complete decision
+    evidence and T+1 execution metrics. Official picks outside top10 still count
+    when their own snapshot is evidence-complete; top10 remains the benchmark
+    peer set when present.
+    """
     by_date: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
-        if row.get('is_mainboard') and 1 <= int(row.get('rank') or 999) <= 10:
+        if row.get('is_mainboard'):
             by_date.setdefault(_date_key(row.get('trade_date')), []).append(row)
     completed = []
     excluded: List[Dict[str, str]] = []
     for trade_date, day in sorted(by_date.items()):
         pick = pick_map.get(trade_date)
-        paper = next((row for row in day if pick and str(row.get('symbol') or '') == str(pick.get('symbol') or '')), None)
         if pick is None:
             continue
+        paper = next(
+            (
+                row for row in day
+                if str(row.get('symbol') or '') == str(pick.get('symbol') or '')
+            ),
+            None,
+        )
         if paper is None:
-            excluded.append({'trade_date': trade_date, 'reason': 'paper_pick_not_in_mainboard_top10_snapshot'})
+            excluded.append({'trade_date': trade_date, 'reason': 'paper_pick_not_in_mainboard_candidate_snapshot'})
             continue
         if trade_date in pending_dates:
             excluded.append({'trade_date': trade_date, 'reason': 'return_pending'})
@@ -510,11 +679,23 @@ def completed_paper_pick_sample_days(
         if str(paper.get('cohort_quality') or '') == 'INSUFFICIENT_EVIDENCE':
             excluded.append({'trade_date': trade_date, 'reason': 'candidate_snapshot_insufficient_evidence'})
             continue
-        returned = [row for row in day if row.get('t1_return') is not None]
+        # Peer set prefers top10 for ranking diagnostics, but falls back to the
+        # full mainboard day so official-outside-top10 samples remain measurable.
+        peer_day = [row for row in day if 1 <= int(row.get('rank') or 999) <= 10]
+        if not peer_day:
+            peer_day = list(day)
+        returned = [row for row in peer_day if row.get('t1_return') is not None]
+        if paper.get('t1_return') is None:
+            excluded.append({'trade_date': trade_date, 'reason': 'paper_pick_t1_return_missing'})
+            continue
         if returned:
+            # Ensure official paper row is always present in the peer day used by
+            # loss attribution / shadow diagnostics even when rank > 10.
+            if not any(str(row.get('symbol') or '') == str(paper.get('symbol') or '') for row in returned):
+                returned = [paper, *returned]
             completed.append({'trade_date': trade_date, 'paper': paper, 'day': returned})
         else:
-            excluded.append({'trade_date': trade_date, 'reason': 'top10_return_coverage_missing'})
+            excluded.append({'trade_date': trade_date, 'reason': 'peer_return_coverage_missing'})
     return completed, excluded
 
 
@@ -603,13 +784,6 @@ def _paper_pick_loss_attribution(completed_days: List[Dict[str, Any]]) -> Dict[s
             miss_types = ['NO_ACTION_INSUFFICIENT_EVIDENCE']
         for item in miss_types:
             distribution[item] = distribution.get(item, 0) + 1
-        direction = {
-            'LOW_POSITION_CATALYST_UNDERWEIGHTED': 'increase_shadow_weight_for_low_position_catalyst',
-            'LIMITUP_GENE_UNDERWEIGHTED': 'increase_shadow_weight_for_limitup_gene',
-            'FAILED_LIMITUP_RISK_UNDERPENALIZED': 'increase_shadow_penalty_for_failed_limitup_risk',
-            'OUTFLOW_RISK_UNDERPENALIZED': 'increase_shadow_penalty_for_outflow_risk',
-            'HIGH_POPULARITY_REVERSAL_RISK': 'increase_shadow_penalty_for_popularity_reversal',
-        }
         daily_cases.append({
             'trade_date': record['trade_date'],
             'paper_pick_symbol': paper.get('symbol'), 'paper_pick_rank': paper.get('rank'),
@@ -619,7 +793,7 @@ def _paper_pick_loss_attribution(completed_days: List[Dict[str, Any]]) -> Dict[s
             'return_gap': round(paper['t1_return'] - best['t1_return'], 6),
             'top10_best_limitup_hit': best['t1_return'] >= 0.095,
             'miss_types': miss_types,
-            'primary_fix_direction': next((direction[item] for item in miss_types if item in direction), 'NO_ACTION_INSUFFICIENT_EVIDENCE'),
+            'primary_fix_direction': _primary_fix_direction(miss_types),
         })
     return {
         'status': 'PASS', 'sample_count': len(completed_days), 'daily_cases': daily_cases,
@@ -783,6 +957,810 @@ def _daily_mainlines(day: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+# Layer labels must never become tradable mainline themes (M6).
+MAINLINE_LAYER_THEME_BLOCKLIST = (
+    'L0_FULL_UNIVERSE', 'L7_INTRADAY_ALERT', 'FULL_UNIVERSE', 'L0_', 'L7_',
+    'INTRADAY_ALERT', 'UNKNOWN', 'NONE', 'N/A',
+)
+RESOURCE_THEME_KEYWORDS = ('有色', '油气', '石油', '煤炭', '黄金', '贵金属', '能源金属', '工业金属', '铜', '铝')
+RESOURCE_FUTURES_CHAIN_KEYWORDS = RESOURCE_THEME_KEYWORDS + ('黑色', '焦煤', '焦炭', '螺纹', '铁矿')
+
+
+def _is_layer_theme_label(theme: str) -> bool:
+    text = str(theme or '').strip().upper()
+    if not text:
+        return True
+    for token in MAINLINE_LAYER_THEME_BLOCKLIST:
+        if token.upper() in text or text.startswith(token.upper().rstrip('_')):
+            return True
+    if text.startswith('L') and len(text) >= 2 and text[1].isdigit():
+        return True
+    # Replay/diagnostic pseudo-themes are not tradable mainline objects.
+    if text.startswith('REPLAY_') or 'REPLAY' in text:
+        return True
+    if text.startswith('SECTOR_') and text.endswith(('_OPPORTUNITY', '_FOLLOWER', '_TAG')):
+        return True
+    return False
+
+
+def _load_jsonl_rows(path: Path) -> List[Dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: List[Dict[str, Any]] = []
+    try:
+        with path.open('r', encoding='utf-8') as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(item, dict):
+                    rows.append(item)
+    except Exception:
+        return []
+    return rows
+
+
+def _resolve_scan_session_dir(trade_date: str) -> Optional[Path]:
+    day_root = LIVE_SCAN_ROOT / str(trade_date)
+    if not day_root.exists():
+        return None
+    preferred = (
+        'eastmoney_scan_afternoon',
+        'eastmoney_web_tabs_scan_afternoon',
+        'eastmoney_scan_close',
+        'eastmoney_web_tabs_scan',
+    )
+    for name in preferred:
+        candidate = day_root / name
+        if candidate.exists() and (candidate / 'flow_industry.jsonl').exists():
+            return candidate
+    for child in sorted(day_root.iterdir()):
+        if child.is_dir() and (child / 'flow_industry.jsonl').exists():
+            return child
+    return None
+
+
+def _sector_flow_rows_from_scan(trade_date: str) -> Dict[str, Any]:
+    """Read industry/concept fund+return leaders from live_scan jsonl (diagnostic only)."""
+    session_dir = _resolve_scan_session_dir(trade_date)
+    if session_dir is None:
+        return {
+            'status': 'MAINLINE_DATA_PARTIAL',
+            'reason': 'scan_session_or_flow_industry_missing',
+            'session_dir': None,
+            'industry_rows': [],
+            'concept_rows': [],
+        }
+    industry_raw = _load_jsonl_rows(session_dir / 'flow_industry.jsonl')
+    concept_raw = _load_jsonl_rows(session_dir / 'flow_concept.jsonl')
+
+    def _normalize_flow_row(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        name = str(row.get('f14') or row.get('name') or row.get('sector') or row.get('industry') or '').strip()
+        if not name or _is_layer_theme_label(name):
+            return None
+        pct = _numeric(row.get('f3') if row.get('f3') is not None else row.get('pct_chg') if row.get('pct_chg') is not None else row.get('change_pct'))
+        net = _numeric(row.get('f62') if row.get('f62') is not None else row.get('net_inflow') if row.get('net_inflow') is not None else row.get('main_net_inflow'))
+        return {
+            'theme': name,
+            'pct_chg': round(pct, 4),
+            'net_inflow': round(net, 4),
+            'code': str(row.get('f12') or row.get('code') or ''),
+        }
+
+    industry_rows = [item for item in (_normalize_flow_row(row) for row in industry_raw) if item]
+    concept_rows = [item for item in (_normalize_flow_row(row) for row in concept_raw) if item]
+    return {
+        'status': 'PASS' if industry_rows else 'MAINLINE_DATA_PARTIAL',
+        'reason': '' if industry_rows else 'flow_industry_empty',
+        'session_dir': str(session_dir),
+        'industry_rows': industry_rows,
+        'concept_rows': concept_rows,
+    }
+
+
+def _rank_sector_return_book(rows: List[Dict[str, Any]], *, top_n: int = 8) -> Dict[str, List[Dict[str, Any]]]:
+    by_return = sorted(rows, key=lambda item: (-item['pct_chg'], -item['net_inflow'], item['theme']))
+    by_flow = sorted(rows, key=lambda item: (-item['net_inflow'], -item['pct_chg'], item['theme']))
+    leaders = by_return[:top_n]
+    laggards = list(reversed(by_return[-top_n:])) if len(by_return) >= top_n else list(reversed(by_return))
+    return {
+        'sector_return_leaders': leaders,
+        'sector_return_laggards': laggards,
+        'sector_flow_leaders': by_flow[:top_n],
+    }
+
+
+def _leader_chain_top3(
+    industry_rows: List[Dict[str, Any]],
+    concept_rows: List[Dict[str, Any]] | None = None,
+    candidate_mainlines: Dict[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    """Tradable theme leaders only; never L0/L7 layer names."""
+    concept_rows = concept_rows or []
+    scored: Dict[str, Dict[str, Any]] = {}
+
+    def _bump(theme: str, *, pct: float = 0.0, net: float = 0.0, layer: str = 'L2', source: str = '') -> None:
+        if not theme or _is_layer_theme_label(theme):
+            return
+        item = scored.setdefault(theme, {
+            'theme': theme, 'score': 0.0, 'pct_chg': 0.0, 'net_inflow': 0.0,
+            'layer': layer, 'sources': set(),
+        })
+        item['score'] += max(0.0, pct) * 1.2 + max(0.0, net) / 1e9
+        item['pct_chg'] = max(item['pct_chg'], pct)
+        item['net_inflow'] = max(item['net_inflow'], net)
+        item['sources'].add(source)
+        # Prefer finer layer if already present.
+        if layer == 'L1':
+            item['layer'] = 'L1'
+
+    for index, row in enumerate(industry_rows[:12]):
+        # Top return names are L1-ish leaders for diagnostics.
+        layer = 'L1' if index < 3 else 'L2'
+        _bump(row['theme'], pct=row['pct_chg'], net=row['net_inflow'], layer=layer, source='flow_industry_return')
+    for row in sorted(industry_rows, key=lambda item: (-item['net_inflow'], -item['pct_chg']))[:8]:
+        _bump(row['theme'], pct=row['pct_chg'] * 0.5, net=row['net_inflow'], layer='L2', source='flow_industry_fund')
+    for index, row in enumerate(sorted(concept_rows, key=lambda item: (-item['pct_chg'], -item['net_inflow']))[:8]):
+        _bump(row['theme'], pct=row['pct_chg'] * 0.8, net=row['net_inflow'] * 0.5, layer='L3' if index >= 3 else 'L2', source='flow_concept')
+    # Candidate aggregate is only a soft fill when scan leaders are missing.
+    # Never let pool-tag scores (often 100+) dominate real sector return leaders.
+    if not scored:
+        for item in (candidate_mainlines or {}).get('top5') or []:
+            theme = str(item.get('theme') or '')
+            if _is_layer_theme_label(theme):
+                continue
+            soft = min(3.0, float(item.get('score') or 0.0) / 50.0)
+            _bump(theme, pct=soft, net=0.0, layer='L3', source='candidate_aggregate')
+    else:
+        for item in (candidate_mainlines or {}).get('top5') or []:
+            theme = str(item.get('theme') or '')
+            if _is_layer_theme_label(theme) or theme not in scored:
+                continue
+            scored[theme]['score'] += min(1.5, float(item.get('score') or 0.0) / 100.0)
+            scored[theme]['sources'].add('candidate_aggregate')
+
+    ranked = []
+    for item in scored.values():
+        ranked.append({
+            'theme': item['theme'],
+            'score': round(item['score'], 6),
+            'pct_chg': round(item['pct_chg'], 4),
+            'net_inflow': round(item['net_inflow'], 4),
+            'layer': item['layer'],
+            'sources': sorted(item['sources']),
+            'selected_for_production': False,
+        })
+    ranked.sort(key=lambda item: (-item['score'], item['theme']))
+    return ranked[:3]
+
+
+def _heuristic_mainline_stage(
+    leaders: List[Dict[str, Any]],
+    laggards: List[Dict[str, Any]],
+    *,
+    prior_leaders: List[str] | None = None,
+) -> str:
+    """Shadow-only stage heuristic. Never uses T+1 returns."""
+    if not leaders:
+        return 'UNKNOWN'
+    top_pct = _numeric(leaders[0].get('pct_chg'))
+    top_net = _numeric(leaders[0].get('net_inflow'))
+    lag_pct = _numeric(laggards[0].get('pct_chg')) if laggards else 0.0
+    leader_names = [str(item.get('theme') or '') for item in leaders[:3]]
+    prior = set(prior_leaders or [])
+    if prior and leader_names:
+        overlap = len(prior.intersection(leader_names))
+        if overlap == 0 and lag_pct < -1.0 and top_pct > 2.0:
+            return 'ROTATION'
+    if top_pct >= 7.0 and top_net >= 1e9:
+        return 'CLIMAX'
+    if top_pct >= 3.0 and top_net > 0:
+        return 'MAIN_UP'
+    if top_pct > 0 and top_pct < 3.0 and top_net > 0:
+        return 'BOUNCE'
+    if top_pct <= 0.5 and top_net <= 0:
+        return 'NO_MAIN'
+    return 'UNKNOWN'
+
+
+def _heuristic_index_regime(trade_date: str, session_dir: Optional[Path]) -> Dict[str, Any]:
+    """Shadow index regime from local indexes.jsonl if present."""
+    if session_dir is None:
+        return {'index_regime': 'UNKNOWN', 'reason': 'session_missing', 'selected_for_production': False}
+    rows = _load_jsonl_rows(session_dir / 'indexes.jsonl')
+    if not rows:
+        return {'index_regime': 'UNKNOWN', 'reason': 'indexes_jsonl_missing', 'selected_for_production': False}
+    # Prefer common A-share benchmarks when present.
+    preferred_names = ('上证', '沪深300', '深证成指', '创业板指')
+    chosen = None
+    for row in rows:
+        name = str(row.get('f14') or row.get('name') or '')
+        if any(token in name for token in preferred_names):
+            chosen = row
+            break
+    if chosen is None:
+        chosen = rows[0]
+    pct = _numeric(chosen.get('f3') if chosen.get('f3') is not None else chosen.get('pct_chg'))
+    if pct >= 0.8:
+        regime = 'STABLE'
+    elif pct >= -0.8:
+        regime = 'FRAGILE'
+    else:
+        regime = 'DOWNTREND'
+    return {
+        'index_regime': regime,
+        'index_name': str(chosen.get('f14') or chosen.get('name') or ''),
+        'index_pct_chg': round(pct, 4),
+        'reason': 'indexes_jsonl',
+        'selected_for_production': False,
+    }
+
+
+def _resource_futures_chain_heat(leaders: List[Dict[str, Any]]) -> float:
+    heat = 0.0
+    for index, row in enumerate(leaders[:10]):
+        theme = str(row.get('theme') or '')
+        if any(token in theme for token in RESOURCE_FUTURES_CHAIN_KEYWORDS):
+            weight = 1.0 - index * 0.08
+            heat += weight * max(0.0, min(1.0, _numeric(row.get('pct_chg')) / 8.0))
+            heat += weight * max(0.0, min(1.0, _numeric(row.get('net_inflow')) / 5e9)) * 0.5
+    return round(min(1.0, heat), 4)
+
+
+def _climax_chase_risk_for_row(row: Dict[str, Any] | None) -> float:
+    if not isinstance(row, dict):
+        return 0.0
+    price = _numeric(row.get('price'))
+    mt = _numeric(_candidate_signal(row, 'main_theme_core_score'))
+    ma = _numeric(_candidate_signal(row, 'main_theme_alignment_score'))
+    cont = _numeric(row.get('continuation_gene_score') or _candidate_signal(row, 'continuation_gene_score'))
+    status = str(row.get('limitup_reason_status') or _candidate_signal(row, 'limitup_reason_status') or '').upper()
+    risk = 0.0
+    if price >= 65.0:
+        risk += 0.35
+    if status == 'PROXY':
+        risk += 0.30
+    if mt <= 0 and ma <= 0:
+        risk += 0.20
+    if cont <= 0:
+        risk += 0.15
+    signal_pct = _numeric(row.get('signal_pct') or _candidate_signal(row, 'signal_pct'))
+    if signal_pct >= 7.0:
+        risk += 0.10
+    return round(min(1.0, risk), 4)
+
+
+def build_leader_chain_diagnostic(trade_date: str, day_rows: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
+    """Shadow diagnostic object for tradable leader chain + §10.6 fields."""
+    flow = _sector_flow_rows_from_scan(trade_date)
+    books = _rank_sector_return_book(flow.get('industry_rows') or [])
+    candidate_mainlines = _daily_mainlines(day_rows or [])
+    leader_chain = _leader_chain_top3(
+        flow.get('industry_rows') or [],
+        flow.get('concept_rows') or [],
+        candidate_mainlines,
+    )
+    stage = _heuristic_mainline_stage(
+        books['sector_return_leaders'],
+        books['sector_return_laggards'],
+    )
+    session_dir = Path(flow['session_dir']) if flow.get('session_dir') else None
+    index_info = _heuristic_index_regime(trade_date, session_dir)
+    heat = _resource_futures_chain_heat(books['sector_return_leaders'] + books.get('sector_flow_leaders', []))
+    return {
+        'trade_date': trade_date,
+        'status': flow.get('status') or 'MAINLINE_DATA_PARTIAL',
+        'reason': flow.get('reason') or '',
+        'session_dir': flow.get('session_dir'),
+        'sector_return_leaders': books['sector_return_leaders'],
+        'sector_return_laggards': books['sector_return_laggards'],
+        'sector_flow_leaders': books.get('sector_flow_leaders') or [],
+        'leader_chain_top3': leader_chain,
+        'mainline_stage': stage,
+        'index_regime': index_info.get('index_regime'),
+        'index_regime_detail': index_info,
+        'resource_futures_chain_heat': heat,
+        'candidate_mainlines_top3': candidate_mainlines.get('top3') or [],
+        'selected_for_production': False,
+        'production_mutation_allowed': False,
+        'diagnostic_only': True,
+    }
+
+
+def _classify_mainline_miss_tags(
+    *,
+    official_row: Dict[str, Any] | None,
+    leader_chain: List[Dict[str, Any]],
+    day_rows: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    """Extended miss taxonomy (M1–M6 + position tags). Diagnostic only."""
+    secondary: List[str] = []
+    primary = 'UNKNOWN'
+    if not isinstance(official_row, dict):
+        return {
+            'primary_miss_bucket': 'NO_OFFICIAL_PICK',
+            'secondary_tags': ['NO_OFFICIAL_ROW'],
+            'official_position_tags': [],
+            'selected_for_production': False,
+        }
+    status = str(official_row.get('limitup_reason_status') or _candidate_signal(official_row, 'limitup_reason_status') or '').upper()
+    evidence = official_row.get('limitup_reason_evidence') or []
+    proxy_only = status == 'PROXY' or (
+        isinstance(evidence, list)
+        and evidence
+        and all(bool(item.get('proxy')) for item in evidence if isinstance(item, dict))
+    )
+    price = _numeric(official_row.get('price'))
+    mt = _numeric(_candidate_signal(official_row, 'main_theme_core_score'))
+    ma = _numeric(_candidate_signal(official_row, 'main_theme_alignment_score'))
+    cont = _numeric(official_row.get('continuation_gene_score') or _candidate_signal(official_row, 'continuation_gene_score'))
+    snc = _numeric(
+        official_row.get('sector_news_catalyst_score')
+        or _candidate_signal(official_row, 'sector_news_catalyst_score')
+        or official_row.get('sector_news_strength')
+        or 0.0
+    )
+    aux_status = str(
+        official_row.get('mainboard_auxiliary_evidence_status')
+        or _candidate_signal(official_row, 'mainboard_auxiliary_evidence_status')
+        or ''
+    ).upper()
+    partial_exception = bool(
+        official_row.get('strong_sector_theme_partial_aux_exception')
+        or _candidate_signal(official_row, 'strong_sector_theme_partial_aux_exception')
+    )
+    eligibility = official_row.get('paper_pick_eligibility') if isinstance(official_row.get('paper_pick_eligibility'), dict) else {}
+    pos = eligibility.get('positive_conditions') if isinstance(eligibility.get('positive_conditions'), list) else []
+    if any('strong_sector_theme_partial_aux_exception' in str(item) for item in pos):
+        partial_exception = True
+    leader_themes = {str(item.get('theme') or '') for item in leader_chain}
+    official_themes = set(_candidate_themes(official_row))
+    aligned = bool(leader_themes and official_themes.intersection(leader_themes))
+
+    position_tags: List[str] = []
+    if proxy_only:
+        position_tags.append('PROXY_ONLY_LIMITUP')
+        secondary.append('PROXY_LIMITUP_REASON_HARD_PASS')
+    if price >= 65.0:
+        position_tags.append('NEAR_PRICE_CAP')
+    if mt <= 0 and ma <= 0 and not aligned:
+        position_tags.append('EDGE_FOLLOWER')
+        secondary.append('GATE_SURVIVOR_NOT_MAINLINE_CORE')
+    if partial_exception or (aux_status == 'PARTIAL' and proxy_only and price >= 65.0):
+        secondary.append('PARTIAL_AUX_EXCEPTION_LEAK')
+    if cont <= 0 and proxy_only:
+        secondary.append('EDGE_FOLLOWER')
+
+    # Hollow theme tags: many day rows share identical global tag set.
+    day_rows = day_rows or []
+    if len(day_rows) >= 5:
+        tag_sets = [tuple(sorted(_candidate_themes(row))) for row in day_rows[:40]]
+        non_empty = [item for item in tag_sets if item]
+        if non_empty:
+            dominant = max(set(non_empty), key=non_empty.count)
+            if non_empty.count(dominant) / max(1, len(non_empty)) >= 0.80 and len(dominant) >= 3:
+                secondary.append('HOLLOW_THEME_TAGS_POLLUTION')
+
+    # Structure better blocked (M4): any non-official with high cont/snc and lower score/blocked.
+    structure_miss_symbols: List[str] = []
+    for row in day_rows:
+        if str(row.get('symbol') or '') == str(official_row.get('symbol') or ''):
+            continue
+        row_cont = _numeric(row.get('continuation_gene_score') or _candidate_signal(row, 'continuation_gene_score'))
+        row_snc = _numeric(
+            row.get('sector_news_catalyst_score')
+            or _candidate_signal(row, 'sector_news_catalyst_score')
+            or 0.0
+        )
+        if row_cont >= 0.5 and row_snc >= 0.5 and (cont < 0.5 or snc < 0.5):
+            secondary.append('CORE_OR_BETTER_STRUCTURE_BLOCKED_BY_QUALIFIED')
+            structure_miss_symbols.append(str(row.get('symbol') or row.get('code') or ''))
+            if len(structure_miss_symbols) >= 3:
+                break
+
+    # Clean TOP1 structure miss (F1): cont/snc strong while official theme core is empty.
+    # Caller may attach clean_top1 via official_row['_clean_top1'] or day_rows metadata; also
+    # infer from day rows when structure present.
+    if structure_miss_symbols and mt <= 0:
+        secondary.append('STRUCTURE_MISS')
+    clean_top1 = official_row.get('_clean_top1') if isinstance(official_row.get('_clean_top1'), dict) else None
+    if isinstance(clean_top1, dict):
+        clean_cont = _numeric(clean_top1.get('continuation_gene_score'))
+        clean_snc = _numeric(clean_top1.get('sector_news_catalyst_score'))
+        if clean_cont >= 0.5 and clean_snc >= 0.5 and mt <= 0:
+            secondary.append('STRUCTURE_MISS')
+
+    # Layer-as-theme pollution on candidate aggregate themes.
+    for theme in official_themes:
+        if _is_layer_theme_label(theme):
+            secondary.append('MAINLINE_OBJECT_IS_LAYER_NOT_THEME')
+            break
+
+    if 'GATE_SURVIVOR_NOT_MAINLINE_CORE' in secondary:
+        primary = 'GATE_SURVIVOR_NOT_MAINLINE_CORE'
+    elif 'PARTIAL_AUX_EXCEPTION_LEAK' in secondary:
+        primary = 'PARTIAL_AUX_EXCEPTION_LEAK'
+    elif 'PROXY_LIMITUP_REASON_HARD_PASS' in secondary:
+        primary = 'PROXY_LIMITUP_REASON_HARD_PASS'
+    elif 'CORE_OR_BETTER_STRUCTURE_BLOCKED_BY_QUALIFIED' in secondary:
+        primary = 'CORE_OR_BETTER_STRUCTURE_BLOCKED_BY_QUALIFIED'
+    elif 'HOLLOW_THEME_TAGS_POLLUTION' in secondary:
+        primary = 'HOLLOW_THEME_TAGS_POLLUTION'
+    elif aligned:
+        primary = 'PAPER_PICK_MAINLINE_HIT'
+    else:
+        primary = 'MAINLINE_AVAILABLE_BUT_RANKED_BELOW_PICK' if leader_chain else 'MAINLINE_NOT_IN_DATA'
+
+    # Stable unique secondary order
+    seen = set()
+    ordered_secondary = []
+    for tag in secondary:
+        if tag not in seen:
+            seen.add(tag)
+            ordered_secondary.append(tag)
+    return {
+        'primary_miss_bucket': primary,
+        'secondary_tags': ordered_secondary,
+        'official_position_tags': sorted(set(position_tags)),
+        'climax_chase_risk': _climax_chase_risk_for_row(official_row),
+        'structure_miss_symbols': [item for item in structure_miss_symbols if item],
+        'selected_for_production': False,
+    }
+
+
+def _load_official_pick_from_runtime(trade_date: str) -> Optional[Dict[str, Any]]:
+    runtime_root = BASE / 'data' / 'forward_raw_runtime' / str(trade_date)
+    if not runtime_root.exists():
+        return None
+    # Prefer latest session directory with runtime_decision_context.json
+    sessions = sorted([p for p in runtime_root.iterdir() if p.is_dir()], reverse=True)
+    for session in sessions:
+        path = session / 'runtime_decision_context.json'
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        decision = str(payload.get('decision') or '').upper()
+        symbol = str(payload.get('symbol') or '').strip()
+        card = payload.get('single_target_card') if isinstance(payload.get('single_target_card'), dict) else {}
+        features = payload.get('features') if isinstance(payload.get('features'), dict) else {}
+        if decision == 'PAPER_PICK' and (symbol or card.get('symbol')):
+            merged = dict(card)
+            merged.setdefault('symbol', symbol or card.get('symbol'))
+            merged.setdefault('decision', decision)
+            cf = features.get('candidate_features')
+            if isinstance(cf, dict) and symbol and isinstance(cf.get(symbol), dict):
+                merged = {**cf.get(symbol), **merged}
+            elif isinstance(cf, list):
+                for row in cf:
+                    if isinstance(row, dict) and str(row.get('symbol') or row.get('code') or '') == symbol:
+                        merged = {**row, **merged}
+                        break
+            # Archive fallback for full candidate fields (proxy/aux etc.).
+            archive = session / 'candidate_snapshot_correction_archive.json'
+            if archive.exists():
+                try:
+                    archive_payload = json.loads(archive.read_text(encoding='utf-8'))
+                    rows = []
+                    if isinstance(archive_payload, dict):
+                        rows = (
+                            archive_payload.get('rows')
+                            or archive_payload.get('candidates')
+                            or archive_payload.get('paper_scoring_candidates')
+                            or []
+                        )
+                    elif isinstance(archive_payload, list):
+                        rows = archive_payload
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        if str(row.get('symbol') or row.get('code') or '') != symbol:
+                            continue
+                        # Flatten common nested snapshots used by miss taxonomy.
+                        raw = row.get('raw_json') if isinstance(row.get('raw_json'), dict) else {}
+                        cfeat = row.get('candidate_features') if isinstance(row.get('candidate_features'), dict) else {}
+                        factor = row.get('factor_snapshot') if isinstance(row.get('factor_snapshot'), dict) else {}
+                        aux = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
+                        nested = {**raw, **cfeat, **factor, **row}
+                        if aux:
+                            nested.setdefault('mainboard_auxiliary_evidence_status', aux.get('status'))
+                            nested.setdefault('mainboard_auxiliary_missing_domains', aux.get('missing_domains') or [])
+                            nested.setdefault('limitup_reason_evidence', aux.get('limitup_reasons') or [])
+                            limitup_items = aux.get('limitup_reasons') or []
+                            if limitup_items and all(bool(item.get('proxy')) for item in limitup_items if isinstance(item, dict)):
+                                nested.setdefault('limitup_reason_status', 'PROXY')
+                            elif limitup_items:
+                                nested.setdefault('limitup_reason_status', 'PASS')
+                        if nested.get('price') is None:
+                            nested['price'] = nested.get('close_price') or raw.get('price')
+                        if nested.get('name') in (None, ''):
+                            nested['name'] = nested.get('stock_name') or raw.get('name')
+                        # Pull theme scores from structured details when top-level missing.
+                        details = (
+                            nested.get('structured_component_details')
+                            or factor.get('structured_component_details')
+                            or {}
+                        )
+                        if isinstance(details, dict):
+                            for key in (
+                                'main_theme_core_score', 'main_theme_alignment_score',
+                                'sector_news_catalyst_score', 'news_catalyst_strength',
+                                'announcement_catalyst_score',
+                            ):
+                                if nested.get(key) is None and details.get(key) is not None:
+                                    nested[key] = details.get(key)
+                        if nested.get('continuation_gene_score') is None:
+                            nested['continuation_gene_score'] = factor.get('continuation_gene_score')
+                        merged = {**nested, **merged}
+                        break
+                except Exception:
+                    pass
+            return merged
+        pick = payload.get('paper_pick') or payload.get('official_pick') or payload.get('selected_candidate')
+        if isinstance(pick, dict):
+            return pick
+        candidates = payload.get('paper_scoring_candidates') or payload.get('candidates') or []
+        if isinstance(candidates, list):
+            for row in candidates:
+                if isinstance(row, dict) and str(row.get('decision') or '').upper() == 'PAPER_PICK':
+                    return row
+    return None
+
+
+def build_mainline_miss_daily_report(trade_date: str) -> Dict[str, Any]:
+    """Daily mainline miss report. Diagnostic only; never mutates production."""
+    day_rows: List[Dict[str, Any]] = []
+    official: Optional[Dict[str, Any]] = None
+    source = 'scan_only'
+
+    # Runtime archive first for official pick fidelity (proxy/aux/price).
+    official = _load_official_pick_from_runtime(trade_date)
+    if official is not None:
+        source = 'runtime_pick'
+    if fetch_picks is not None and official is None:
+        try:
+            picks = list(fetch_picks(trade_date) or [])
+            for pick in picks:
+                if str(pick.get('decision') or pick.get('pick_type') or '').upper() in ('PAPER_PICK', 'PAPER'):
+                    official = pick
+                    source = 'db_picks'
+                    break
+            if official is None and picks:
+                official = picks[0]
+                source = 'db_picks'
+        except Exception:
+            pass
+    # Day rows: prefer runtime archive (richer), else DB, else scan scored.
+    runtime_root = BASE / 'data' / 'forward_raw_runtime' / str(trade_date)
+    if runtime_root.exists():
+        for session in sorted([p for p in runtime_root.iterdir() if p.is_dir()], reverse=True):
+            archive = session / 'candidate_snapshot_correction_archive.json'
+            if not archive.exists():
+                continue
+            try:
+                archive_payload = json.loads(archive.read_text(encoding='utf-8'))
+                rows = archive_payload.get('rows') if isinstance(archive_payload, dict) else archive_payload
+                if isinstance(rows, list) and rows:
+                    day_rows = []
+                    for row in rows[:200]:
+                        if not isinstance(row, dict):
+                            continue
+                        raw = row.get('raw_json') if isinstance(row.get('raw_json'), dict) else {}
+                        cfeat = row.get('candidate_features') if isinstance(row.get('candidate_features'), dict) else {}
+                        factor = row.get('factor_snapshot') if isinstance(row.get('factor_snapshot'), dict) else {}
+                        aux = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
+                        flat = {**raw, **cfeat, **factor, **row}
+                        if aux:
+                            flat.setdefault('mainboard_auxiliary_evidence_status', aux.get('status'))
+                            flat.setdefault('limitup_reason_evidence', aux.get('limitup_reasons') or [])
+                            limitup_items = aux.get('limitup_reasons') or []
+                            if limitup_items and all(bool(item.get('proxy')) for item in limitup_items if isinstance(item, dict)):
+                                flat.setdefault('limitup_reason_status', 'PROXY')
+                        if flat.get('price') is None:
+                            flat['price'] = flat.get('close_price') or raw.get('price')
+                        day_rows.append(flat)
+                    source = source + '+runtime_archive_rows'
+                    break
+            except Exception:
+                continue
+    if not day_rows and fetch_daily_candidates is not None:
+        try:
+            day_rows = list(fetch_daily_candidates(trade_date) or [])
+            source = source + '+db_candidates'
+        except Exception:
+            day_rows = []
+    if not day_rows:
+        session_dir = _resolve_scan_session_dir(trade_date)
+        if session_dir is not None:
+            scored = _load_jsonl_rows(session_dir / 'eastmoney_web_tabs_scored.jsonl')
+            if scored:
+                day_rows = scored[:200]
+                source = source + '+scan_scored'
+
+    # Enrich official pick from matching day-row snapshots when runtime purge left
+    # only thin picks (missing limitup_reason_status / price). Diagnostic only.
+    if isinstance(official, dict) and day_rows:
+        official_symbol = str(official.get('symbol') or official.get('code') or '').strip()
+        for row in day_rows:
+            if not isinstance(row, dict):
+                continue
+            row_symbol = str(row.get('symbol') or row.get('code') or '').strip()
+            if not official_symbol or row_symbol != official_symbol:
+                continue
+            raw = row.get('raw_json') if isinstance(row.get('raw_json'), dict) else {}
+            cfeat = row.get('candidate_features') if isinstance(row.get('candidate_features'), dict) else {}
+            factor = row.get('factor_snapshot') if isinstance(row.get('factor_snapshot'), dict) else {}
+            aux = row.get('auxiliary_evidence_snapshot') if isinstance(row.get('auxiliary_evidence_snapshot'), dict) else {}
+            flat = {**raw, **cfeat, **factor, **row}
+            if aux:
+                flat.setdefault('mainboard_auxiliary_evidence_status', aux.get('status'))
+                flat.setdefault('mainboard_auxiliary_missing_domains', aux.get('missing_domains') or [])
+                flat.setdefault('limitup_reason_evidence', aux.get('limitup_reasons') or [])
+                limitup_items = aux.get('limitup_reasons') or []
+                if limitup_items and all(
+                    bool(item.get('proxy')) for item in limitup_items if isinstance(item, dict)
+                ):
+                    flat.setdefault('limitup_reason_status', 'PROXY')
+                elif limitup_items:
+                    flat.setdefault('limitup_reason_status', 'PASS')
+            if flat.get('price') is None:
+                flat['price'] = (
+                    flat.get('close_price')
+                    or raw.get('price')
+                    or raw.get('close_price')
+                    or cfeat.get('price')
+                )
+            if flat.get('name') in (None, ''):
+                flat['name'] = (
+                    flat.get('stock_name')
+                    or raw.get('name')
+                    or cfeat.get('name')
+                    or official.get('stock_name')
+                )
+            if flat.get('score') is None:
+                flat['score'] = flat.get('final_score') or official.get('final_score')
+            # Official identity wins; fill missing diagnostic fields from flat.
+            merged = dict(official)
+            for key, value in flat.items():
+                if merged.get(key) in (None, '', [], {}) and value not in (None, '', [], {}):
+                    merged[key] = value
+            if not merged.get('limitup_reason_status') and flat.get('limitup_reason_status'):
+                merged['limitup_reason_status'] = flat.get('limitup_reason_status')
+            if merged.get('price') is None and flat.get('price') is not None:
+                merged['price'] = flat.get('price')
+            official = merged
+            source = source + '+day_row_enrich'
+            break
+
+    leader = build_leader_chain_diagnostic(trade_date, day_rows)
+    miss = _classify_mainline_miss_tags(
+        official_row=official,
+        leader_chain=leader.get('leader_chain_top3') or [],
+        day_rows=day_rows,
+    )
+    clean_top3: List[Dict[str, Any]] = []
+    clean_top1: Optional[Dict[str, Any]] = None
+    clean_path = BASE / 'summary' / f'{trade_date}_clean_factor_rerank.json'
+    if clean_path.exists():
+        try:
+            clean_payload = json.loads(clean_path.read_text(encoding='utf-8'))
+            rows = (
+                clean_payload.get('ranked')
+                or clean_payload.get('top')
+                or clean_payload.get('candidates')
+                or clean_payload.get('counterfactual_top3')
+                or clean_payload.get('top10_eligible')
+                or []
+            )
+            if isinstance(rows, list):
+                for row in rows[:3]:
+                    if isinstance(row, dict):
+                        clean_top3.append({
+                            'symbol': row.get('symbol') or row.get('code'),
+                            'name': row.get('name'),
+                            'clean_score': row.get('clean_score') or row.get('score'),
+                            'continuation_gene_score': row.get('continuation_gene_score'),
+                            'sector_news_catalyst_score': row.get('sector_news_catalyst_score'),
+                        })
+                if clean_top3:
+                    clean_top1 = clean_top3[0]
+            # Prefer explicit counterfactual_top1 when present.
+            ctop1 = clean_payload.get('counterfactual_top1')
+            if isinstance(ctop1, dict):
+                clean_top1 = {
+                    'symbol': ctop1.get('symbol') or ctop1.get('code'),
+                    'name': ctop1.get('name'),
+                    'clean_score': ctop1.get('clean_score') or ctop1.get('score'),
+                    'continuation_gene_score': ctop1.get('continuation_gene_score'),
+                    'sector_news_catalyst_score': ctop1.get('sector_news_catalyst_score'),
+                }
+                if not clean_top3:
+                    clean_top3 = [clean_top1]
+        except Exception:
+            clean_top3 = []
+            clean_top1 = None
+
+    # Re-run miss tags with clean_top1 attachment for STRUCTURE_MISS (F1).
+    if isinstance(official, dict) and clean_top1 is not None:
+        official = dict(official)
+        official['_clean_top1'] = clean_top1
+        miss = _classify_mainline_miss_tags(
+            official_row=official,
+            leader_chain=leader.get('leader_chain_top3') or [],
+            day_rows=day_rows,
+        )
+
+    # Shadow-only rules (F1): never selected_for_production.
+    secondary = list(miss.get('secondary_tags') or [])
+    position = list(miss.get('official_position_tags') or [])
+    shadow_rules: List[Dict[str, Any]] = []
+    if 'EDGE_FOLLOWER' in position and 'PROXY_ONLY_LIMITUP' in position:
+        shadow_rules.append({
+            'rule': 'EDGE_FOLLOWER_PROXY_ONLY_SHADOW_BAN',
+            'effect': 'shadow_forbid_official_score',
+            'selected_for_production': False,
+        })
+    if 'PARTIAL_AUX_EXCEPTION_LEAK' in secondary or (
+        (official or {}).get('price') is not None and _numeric((official or {}).get('price')) >= 65.0
+        and str((official or {}).get('limitup_reason_status') or '').upper() == 'PROXY'
+    ):
+        shadow_rules.append({
+            'rule': 'PARTIAL_AUX_NEAR_CAP_OR_PROXY_SHADOW_DISABLE',
+            'effect': 'shadow_disable_partial_aux_exception',
+            'selected_for_production': False,
+        })
+    if 'STRUCTURE_MISS' in secondary or 'CORE_OR_BETTER_STRUCTURE_BLOCKED_BY_QUALIFIED' in secondary:
+        shadow_rules.append({
+            'rule': 'STRUCTURE_MISS_DIAGNOSTIC',
+            'effect': 'label_only',
+            'selected_for_production': False,
+            'structure_miss_symbols': miss.get('structure_miss_symbols') or [],
+        })
+
+    return {
+        'trade_date': trade_date,
+        'diagnostic_only': True,
+        'selected_for_production': False,
+        'production_mutation_allowed': False,
+        'source': source,
+        'leader_chain_diagnostic': leader,
+        'leader_chain_top3': leader.get('leader_chain_top3') or [],
+        'sector_return_leaders': leader.get('sector_return_leaders') or [],
+        'sector_return_laggards': leader.get('sector_return_laggards') or [],
+        'mainline_stage': leader.get('mainline_stage'),
+        'index_regime': leader.get('index_regime'),
+        'resource_futures_chain_heat': leader.get('resource_futures_chain_heat'),
+        'climax_chase_risk': miss.get('climax_chase_risk'),
+        'official_pick': {
+            'symbol': (official or {}).get('symbol') or (official or {}).get('code'),
+            'name': (official or {}).get('name'),
+            'price': (official or {}).get('price'),
+            'score': (official or {}).get('final_score') or (official or {}).get('score'),
+            'limitup_reason_status': (official or {}).get('limitup_reason_status'),
+            'main_theme_core_score': _candidate_signal(official or {}, 'main_theme_core_score') if official else None,
+        } if official else None,
+        'official_position_tags': miss.get('official_position_tags') or [],
+        'primary_miss_bucket': miss.get('primary_miss_bucket'),
+        'secondary_tags': miss.get('secondary_tags') or [],
+        'structure_miss_symbols': miss.get('structure_miss_symbols') or [],
+        'shadow_rules': shadow_rules,
+        'clean_top3': clean_top3,
+        'notes': [
+            'shadow/diagnostic only; do not feed eligibility/sort',
+            'no blogger weight mutation',
+            'no T+1 features',
+        ],
+    }
+
+
 def _row_matches_mainline(row: Dict[str, Any], themes: List[str]) -> bool:
     row_themes = set(_candidate_themes(row))
     return any(theme in row_themes for theme in themes)
@@ -863,6 +1841,18 @@ def _mainline_shadow_score(row: Dict[str, Any], variant: str, mainlines: Dict[st
         score += _limitup_gene_components(row)['boost'] * 2.0
         score += 2.5 * _numeric(_candidate_signal(row, 'low_position_catalyst_score'))
         score -= 2.0 * _failed_limit_reversal_risk_score(row)
+    elif variant == 'leader_chain_quality_shadow':
+        # Shadow-only quality preference: punish edge proxy/near-cap and reward structure genes.
+        score += alignment * 10.0
+        score += 3.0 * _numeric(row.get('continuation_gene_score') or _candidate_signal(row, 'continuation_gene_score'))
+        score += 2.0 * _numeric(
+            row.get('sector_news_catalyst_score') or _candidate_signal(row, 'sector_news_catalyst_score')
+        )
+        score -= 4.0 * _climax_chase_risk_for_row(row)
+        if str(row.get('limitup_reason_status') or _candidate_signal(row, 'limitup_reason_status') or '').upper() == 'PROXY':
+            score -= 6.0
+        if _numeric(row.get('price')) >= 65.0:
+            score -= 3.0
     return score
 
 
@@ -934,6 +1924,7 @@ def _mainline_shadow_replay(completed_days: List[Dict[str, Any]]) -> Dict[str, A
         'baseline_current', 'mainline_first_shadow', 'mainline_limitup_gene_shadow',
         'mainline_low_position_catalyst_shadow', 'mainline_risk_penalty_shadow',
         'sector_follower_mainline_shadow', 'mainline_composite_shadow',
+        'leader_chain_quality_shadow',
     ]
     baseline_values = [_numeric(day['paper'].get('t1_return')) for day in completed_days]
     results = []
@@ -1328,6 +2319,7 @@ def _sell_strategy_execution_gate(completed_days: List[Dict[str, Any]]) -> Dict[
 def _sell_strategy_replay(completed_days: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compare explicit T+1 execution proxies without changing T-day decisions."""
     rows = [day['paper'] for day in completed_days]
+    horizon_alignment = _horizon_alignment_summary(rows, 'sell_strategy_replay')
 
     def close(row: Dict[str, Any]) -> float:
         return _numeric(row.get('t1_return'))
@@ -1380,6 +2372,7 @@ def _sell_strategy_replay(completed_days: List[Dict[str, Any]]) -> Dict[str, Any
         'best_rule': best_rule,
         'strategies': metrics,
         'run_mode': 'T1_POST_HOC_REPLAY_ONLY',
+        'horizon_alignment': horizon_alignment,
         'optimistic_upper_bound_rules': [
             'take_profit_2pct', 'take_profit_3pct', 'take_profit_5pct',
             'high_to_close_retrace_stop',
@@ -1494,13 +2487,39 @@ def _production_ranking_change_gate(
         reason = 'minimum_sample_and_shadow_requirements_passed'
     else:
         reason = 'cross_regime_shadow_requirements_passed'
+    # Sample unlock is real: allow bounded self-evolution of factor/scoring knobs.
+    # Still forbid formal sort-key rewrite and freeze until SMALL_STEP (or never for freeze).
+    allowed = ['diagnose', 'shadow_replay', 'case_book']
+    forbidden = [
+        'change_formal_candidate_sort_key',
+        'change_production_ranking_weights',
+        'freeze_paper_pick',
+    ]
+    if status in ('READY_FOR_PROPOSAL', 'READY_FOR_SMALL_STEP_CHANGE'):
+        allowed = allowed + [
+            'propose_bounded_weight_step',
+            'apply_bounded_factor_weights',
+        ]
+        # Factor/scoring_config nudge is allowed; full ranking-weight rewrite still gated.
+        forbidden = [
+            'change_formal_candidate_sort_key',
+            'freeze_paper_pick',
+        ]
+        if status == 'READY_FOR_SMALL_STEP_CHANGE':
+            allowed = allowed + ['apply_small_ranking_weight_step']
+            # still keep formal sort key rewrite forbidden until explicit human promotion
     return {
         'status': status, 'reason': reason, 'requirements': requirements,
         'full_chain_ready_days': full_chain_ready_days, 'market_regime_count': market_regime_count,
-        'allowed_actions': ['diagnose', 'shadow_replay', 'case_book'],
-        'forbidden_actions': [
-            'change_formal_candidate_sort_key', 'change_production_ranking_weights', 'freeze_paper_pick',
-        ],
+        'allowed_actions': allowed,
+        'forbidden_actions': forbidden,
+        'selected_shadow_variant': shadow_replay.get('selected_candidate_variant'),
+        'self_evolution': {
+            'factor_weight_apply_allowed': status in ('READY_FOR_PROPOSAL', 'READY_FOR_SMALL_STEP_CHANGE'),
+            'ranking_weight_small_step_allowed': status == 'READY_FOR_SMALL_STEP_CHANGE',
+            'formal_sort_key_rewrite_allowed': False,
+            'freeze_paper_pick_allowed': False,
+        },
     }
 
 
@@ -1571,9 +2590,30 @@ def build_daily_closure(
 
 
 def write_daily_closure(closure: Dict[str, Any], output_path: Optional[Path] = None) -> Path:
-    path = output_path or (BASE / 'summary' / 'daily_closure_latest.json')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(closure, ensure_ascii=False, indent=2, default=str) + '\n')
+    """Write latest pointer and a dated archive so LIVE/T1 closures do not clobber each other."""
+    summary_dir = BASE / 'summary'
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(closure, ensure_ascii=False, indent=2, default=str) + '\n'
+    path = output_path or (summary_dir / 'daily_closure_latest.json')
+    path.write_text(payload)
+
+    # Always keep a dated archive unless the caller is writing an explicit temp path
+    # outside summary/ (unit tests with tmp_path).
+    try:
+        path_resolved = path.resolve()
+        summary_resolved = summary_dir.resolve()
+        write_archive = summary_resolved in path_resolved.parents or path_resolved.parent == summary_resolved
+    except Exception:
+        write_archive = output_path is None
+    if write_archive:
+        trade_date = str(closure.get('trade_date') or 'unknown')
+        run_mode = str(closure.get('run_mode') or 'UNKNOWN_RUN')
+        archive_name = f"daily_closure_{trade_date}_{run_mode}.json"
+        archive_path = summary_dir / archive_name
+        archive_path.write_text(payload)
+        # Also expose a per-day latest for quick lookup across modes.
+        day_latest = summary_dir / f"daily_closure_{trade_date}.json"
+        day_latest.write_text(payload)
     return path
 
 
@@ -1676,7 +2716,7 @@ def build_db_completeness_gate(
     )
     future_violations = _future_field_violations(candidates)
     pool_context = _candidate_pool_context(candidates)
-    candidate_count_expected = int(pool_context.get('target_count') or 200)
+    candidate_count_expected = int(pool_context.get('target_count') or 400)
     source_status = str(pool_context.get('source_status') or '').upper()
     tradable_count = pool_context.get('mainboard_tradable_count')
     exclusion_summary = dict(pool_context.get('top_exclusion_reasons') or {})
@@ -1811,6 +2851,42 @@ HISTORICAL_REPLAY_FORBIDDEN_DECISION_FIELDS = (
     't1_return', 'next_day_high_return', 'next_day_limit_touch',
     'validation_trade_date_return',
 )
+PRODUCTION_PATH_REDECISION_FORBIDDEN_FIELDS = HISTORICAL_REPLAY_FORBIDDEN_DECISION_FIELDS + (
+    't2_return', 't3_return', 't5_return', 'is_limit_up',
+    't1_return_close', 't1_return_high', 'next_day_open_return',
+    'next_day_low_return', 'next_day_gap_return', 'next_day_drawdown',
+    'high_to_close_retrace',
+)
+VALIDATION_TIER_DEFINITIONS = {
+    'L1_offline_formal_sort': {
+        'entry': (
+            'xiaogu_backtest_v0_1.offline_formal_path_for_day / '
+            '--structural-ranking-full-fix-replay; '
+            'formal_candidate_sort_key on hydrated DB peer-day snapshots'
+        ),
+        'recomputes_official_pick': True,
+        'notes': (
+            'summary/2026-07-21_structural_ranking_full_fix_replay.json; '
+            'mainboard + official_target_exclusion_reasons + paper_pick_risk_explanation_gate + formal sort; '
+            'does not require full paper_pick_eligibility (that is L3)'
+        ),
+    },
+    'L2_historical_live_replay': {
+        'entry': 'xiaogu_backtest_v0_1.build_historical_live_replay_closure / daily_pipeline.sh --historical-live-replay',
+        'recomputes_official_pick': False,
+        'notes': 'Reads historical picks+candidates for closure/diagnostics only; does not re-run formal selection',
+    },
+    'L3_production_path_redecision': {
+        'entry': 'xiaogu_backtest_v0_1.production_path_redecision_for_day / --production-path-redecision',
+        'recomputes_official_pick': True,
+        'notes': 'DB/scan pre-decision snapshot → paper_pick_eligibility_profile + official_target_exclusion_reasons + formal_candidate_sort_key',
+    },
+    'L4_full_wall_clock_live': {
+        'entry': 'daily_pipeline.sh scanner + xiaogu_forward_d1_1450_runner_v0_1 wall-clock live',
+        'recomputes_official_pick': True,
+        'notes': 'Full crawl not required for this plan; optional spot-check only',
+    },
+}
 
 
 def _future_field_violations(payload: Any, *, path: str = '') -> List[str]:
@@ -1832,14 +2908,106 @@ def _future_field_violations(payload: Any, *, path: str = '') -> List[str]:
     return []
 
 
+def _strip_future_return_fields(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop future-realized return fields so re-decision cannot leak T+1 outcomes."""
+    return {
+        key: value for key, value in row.items()
+        if key not in PRODUCTION_PATH_REDECISION_FORBIDDEN_FIELDS
+        and key != 'future_return_fields_placeholder'
+    }
+
+
 def _sanitize_decision_snapshot_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        {
-            key: value for key, value in row.items()
-            if key != 'future_return_fields_placeholder'
-        }
-        for row in rows
-    ]
+    return [_strip_future_return_fields(row) for row in rows]
+
+
+def _hydrate_decision_snapshot_row(
+    row: Dict[str, Any],
+    *,
+    historical_replay_fair_aux: bool = False,
+) -> Dict[str, Any]:
+    """Flatten persisted snapshot bags into a runner-consumable ranking row.
+
+    Always backfills price → one_lot_cost and pct aliases so historical DB rows
+    (often missing top-level price) are not false-killed by one_lot_cost_invalid.
+
+    When historical_replay_fair_aux=True (L3 redecision only): empty / RECONSTRUCTED
+    auxiliary status is treated as fair PASS so unproven hist aux does not equal
+    a live FAIL. Live runner never sets this flag.
+    """
+    out = dict(row)
+    bags: List[Dict[str, Any]] = []
+    for bag_name in (
+        'candidate_features', 'factor_snapshot', 'eligibility_snapshot',
+        'postmortem_snapshot', 'ranking_basis', 'features', 'raw_json',
+        'selection_diagnostics', 'auxiliary_evidence_snapshot',
+    ):
+        bag = row.get(bag_name)
+        if isinstance(bag, dict):
+            bags.append(bag)
+            for key, value in bag.items():
+                if out.get(key) in (None, {}, [], ''):
+                    out[key] = value
+    for bag in bags + [out]:
+        capital = bag.get('capital_risk_profile')
+        if isinstance(capital, dict):
+            out['capital_risk_profile'] = capital
+            if out.get('failed_limitup') is None:
+                out['failed_limitup'] = capital.get('failed_limitup')
+            if out.get('main_buy_net') is None:
+                out['main_buy_net'] = capital.get('main_buy_net')
+            if out.get('popularity_rank') is None:
+                out['popularity_rank'] = capital.get('popularity_rank')
+    if out.get('symbol') in (None, ''):
+        out['symbol'] = out.get('code') or out.get('symbol')
+    if out.get('name') in (None, ''):
+        out['name'] = out.get('stock_name') or out.get('name')
+    if out.get('price') in (None, ''):
+        for price_key in ('close_price', 'last_price', 'trade_price', 'open_price'):
+            if out.get(price_key) not in (None, ''):
+                out['price'] = out.get(price_key)
+                break
+    # one_lot from price when snapshot omitted cost (common on hist daily_candidates).
+    try:
+        price_f = float(out['price']) if out.get('price') not in (None, '') else None
+    except (TypeError, ValueError):
+        price_f = None
+    if out.get('one_lot_cost') in (None, '') and price_f is not None and price_f > 0:
+        out['one_lot_cost'] = price_f * 100.0
+    # pct aliases for buyability / formal sort.
+    if out.get('signal_pct') in (None, ''):
+        for pct_key in ('pct_chg', 'change_pct', 'pct_change'):
+            if out.get(pct_key) not in (None, ''):
+                out['signal_pct'] = out.get(pct_key)
+                break
+    if out.get('pct_chg') in (None, '') and out.get('signal_pct') not in (None, ''):
+        out['pct_chg'] = out.get('signal_pct')
+
+    if historical_replay_fair_aux:
+        aux_status = str(
+            out.get('mainboard_auxiliary_evidence_status')
+            or out.get('auxiliary_evidence_status')
+            or ''
+        ).strip().upper()
+        factor_snap = out.get('factor_snapshot') if isinstance(out.get('factor_snapshot'), dict) else {}
+        aux_snap = out.get('auxiliary_evidence_snapshot') if isinstance(out.get('auxiliary_evidence_snapshot'), dict) else {}
+        recon_marker = (
+            str(factor_snap.get('evidence_status') or '').upper().startswith('RECONSTRUCTED')
+            or str(aux_snap.get('evidence_status') or '').upper().startswith('RECONSTRUCTED')
+            or bool(factor_snap.get('reconstructed'))
+            or bool(aux_snap.get('reconstructed'))
+        )
+        # Live FAIL stays FAIL. Empty / MISSING / RECONSTRUCTED unproven → fair PASS for L3 only.
+        if aux_status in ('', 'NONE', 'MISSING', 'UNKNOWN', 'PARTIAL_OR_FAIL') or (
+            recon_marker and aux_status not in ('PASS', 'OK', 'FAIL')
+        ):
+            out['mainboard_auxiliary_evidence_status'] = 'PASS'
+            out['_historical_aux_fair_pass'] = True
+            out['_historical_aux_fair_reason'] = (
+                f'orig_status={aux_status or "EMPTY"};reconstructed={int(recon_marker)}'
+            )
+
+    return _attribution_candidate(_strip_future_return_fields(out))
 
 
 def _historical_replay_leakage_gate(
@@ -1970,6 +3138,16 @@ def build_historical_live_replay_closure(
         row for row in evaluated_rows
         if row.get('is_mainboard') and 1 <= int(row.get('rank') or 999) <= 10 and row.get('t1_return') is not None
     ]
+    # Official picks outside top10 remain measurable: include the paper row and
+    # fall back to full mainboard day when top10 peers are unavailable.
+    if paper_candidate and paper_candidate.get('is_mainboard') and paper_candidate.get('t1_return') is not None:
+        if not any(str(row.get('symbol') or '') == str(paper_candidate.get('symbol') or '') for row in replay_day):
+            replay_day = [paper_candidate, *replay_day]
+        if not replay_day:
+            replay_day = [
+                row for row in evaluated_rows
+                if row.get('is_mainboard') and row.get('t1_return') is not None
+            ]
     completed_days = []
     if paper_candidate and paper_candidate.get('is_mainboard') and paper_candidate.get('t1_return') is not None and replay_day:
         completed_days.append({'trade_date': input_trade_date, 'paper': paper_candidate, 'day': replay_day})
@@ -2062,6 +3240,548 @@ def build_historical_live_replay_closure(
         'historical_replay_case_book': _paper_pick_case_book(completed_days, attribution),
     })
     return closure
+
+
+def production_path_redecision_for_day(
+    candidate_rows: List[Dict[str, Any]],
+    bundle_context: Optional[Dict[str, Any]] = None,
+    *,
+    historical_replay_fair_aux: bool = True,
+) -> Dict[str, Any]:
+    """Re-decide formal paper pick from a pre-decision snapshot via runner path.
+
+    Uses runner eligibility / exclusion / formal sort (imported, not copied).
+    Does not read historical official picks; does not use future returns.
+
+    Policy (July miss breakdown 2026-07-29):
+    - sealed / near-limit names stay unbuyable via eligibility buyability seal
+    - formal sort runs only on the buyable eligible set
+    - eligible_count==0 → NO_PICK (redecision_symbol None, notes NO_PICK_NO_ELIGIBLE)
+    - default historical_replay_fair_aux so RECONSTRUCTED empty aux ≠ live FAIL
+    """
+    from xiaogu_forward_d1_1450_runner_v0_1 import (
+        formal_candidate_sort_key,
+        official_target_exclusion_reasons,
+        paper_pick_eligibility_profile,
+    )
+
+    bundle = dict(bundle_context) if isinstance(bundle_context, dict) else {}
+    # Historical DB redecision has no live scanner data_gate; default PASS so
+    # empty bundle does not mass-kill every name with data_gate_status!=PASS.
+    if not str(bundle.get('data_gate_status') or '').strip():
+        bundle['data_gate_status'] = 'PASS'
+    sanitized = _sanitize_decision_snapshot_rows(list(candidate_rows or []))
+    eligible_rows: List[Dict[str, Any]] = []
+    excluded_count = 0
+    sealed_unbuyable_count = 0
+    for raw in sanitized:
+        row = _hydrate_decision_snapshot_row(
+            raw, historical_replay_fair_aux=historical_replay_fair_aux,
+        )
+        symbol = str(row.get('symbol') or row.get('code') or '')
+        # Project scope: Shanghai/Shenzhen main board only.
+        if is_mainboard_symbol is not None:
+            if not is_mainboard_symbol(symbol):
+                excluded_count += 1
+                continue
+        elif row.get('is_mainboard') is False:
+            excluded_count += 1
+            continue
+        eligibility = paper_pick_eligibility_profile(row, bundle)
+        row['paper_pick_eligibility'] = eligibility
+        exclusion_reasons = official_target_exclusion_reasons(row, bundle)
+        row['official_target_exclusion_reasons'] = exclusion_reasons
+        signals = eligibility.get('signals') if isinstance(eligibility.get('signals'), dict) else {}
+        if signals.get('buyability_hard_block') or not signals.get('final_pick_buyable', True):
+            sealed_unbuyable_count += 1
+        # Eligible already requires buyable (seal block is a hard blocker).
+        if eligibility.get('eligible') and not exclusion_reasons:
+            eligible_rows.append(row)
+        else:
+            excluded_count += 1
+
+    notes = 'FORMAL_ELIGIBLE'
+    winner = None
+    decision = 'PAPER_PICK'
+    if eligible_rows:
+        # Formal profit-first only inside the buyable eligible set — never chase
+        # sealed limit-ups that were already excluded above.
+        winner = max(eligible_rows, key=formal_candidate_sort_key)
+    else:
+        notes = 'NO_PICK_NO_ELIGIBLE'
+        decision = 'NO_PICK'
+
+    top3 = sorted(eligible_rows, key=formal_candidate_sort_key, reverse=True)[:3]
+    return {
+        'redecision_symbol': None if winner is None else str(winner.get('symbol') or ''),
+        'decision': decision,
+        'eligible_count': len(eligible_rows),
+        'excluded_count': excluded_count,
+        'sealed_unbuyable_count': sealed_unbuyable_count,
+        'top3_formal_symbols': [str(row.get('symbol') or '') for row in top3],
+        'notes': notes,
+        'validation_tier': 'L3_production_path_redecision',
+        'historical_replay_fair_aux': bool(historical_replay_fair_aux),
+        'winner_row': winner,
+        'eligible_rows': eligible_rows,
+    }
+
+
+def build_production_path_redecision_compare(
+    sample_dates: Optional[List[str]] = None,
+    *,
+    offline_replay_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Build official / offline formal / production-path redecision comparison."""
+    if fetch_daily_candidates is None or fetch_picks is None or fetch_returns is None:
+        raise RuntimeError('database access is unavailable for production-path redecision')
+
+    offline_path = Path(
+        offline_replay_path
+        or (BASE / 'summary' / '2026-07-21_structural_ranking_full_fix_replay.json')
+    )
+    offline_payload: Dict[str, Any] = {}
+    offline_by_date: Dict[str, Dict[str, Any]] = {}
+    if offline_path.exists():
+        offline_payload = json.loads(offline_path.read_text(encoding='utf-8'))
+        offline_by_date = {
+            str(item.get('date') or ''): item
+            for item in (offline_payload.get('daily') or [])
+            if isinstance(item, dict)
+        }
+
+    if sample_dates is None:
+        sample_dates = sorted(offline_by_date.keys()) or []
+    if not sample_dates:
+        raise RuntimeError('sample_dates is empty; provide dates or offline replay JSON')
+
+    daily: List[Dict[str, Any]] = []
+    redecision_returns: List[float] = []
+    agree_flags: List[bool] = []
+    miss_root_causes: Dict[str, Dict[str, Any]] = {}
+
+    for trade_date in sample_dates:
+        input_date = date.fromisoformat(trade_date)
+        raw_rows = fetch_daily_candidates(input_date)
+        decision_rows = _sanitize_decision_snapshot_rows(raw_rows)
+        pick_rows = fetch_picks(input_date)
+        paper_picks = [
+            row for row in pick_rows
+            if str(row.get('decision') or '').upper() == 'PAPER_PICK'
+        ]
+        paper_pick = max(
+            paper_picks,
+            key=lambda row: (_numeric(row.get('final_score')), str(row.get('symbol') or '')),
+            default=None,
+        )
+        official_symbol = None if paper_pick is None else str(paper_pick.get('symbol') or '')
+        redecision = production_path_redecision_for_day(decision_rows)
+        offline = offline_by_date.get(trade_date) or {}
+        offline_formal = offline.get('new') or offline.get('offline_formal')
+
+        validation_rows = fetch_returns(input_date)
+        validation_by_symbol = {
+            str(row.get('symbol') or ''): row for row in validation_rows
+        }
+        day_rows_with_t1 = [
+            {
+                **_hydrate_decision_snapshot_row(row),
+                't1_return': (validation_by_symbol.get(str(row.get('symbol') or '')) or {}).get('t1_return'),
+            }
+            for row in decision_rows
+        ]
+        returned = [row for row in day_rows_with_t1 if row.get('t1_return') is not None]
+        day_best = max(returned, key=lambda row: row['t1_return']) if returned else None
+        redecision_symbol = redecision.get('redecision_symbol')
+        redecision_t1 = None
+        if redecision_symbol:
+            redecision_t1 = (validation_by_symbol.get(redecision_symbol) or {}).get('t1_return')
+        official_t1 = None
+        if official_symbol:
+            official_t1 = (validation_by_symbol.get(official_symbol) or {}).get('t1_return')
+        offline_t1 = offline.get('new_t1')
+        agree = (
+            offline_formal is not None
+            and redecision_symbol is not None
+            and str(offline_formal) == str(redecision_symbol)
+        )
+        if offline_formal is not None and redecision_symbol is not None:
+            agree_flags.append(bool(agree))
+        if redecision_t1 is not None:
+            redecision_returns.append(float(redecision_t1))
+
+        day_entry = {
+            'date': trade_date,
+            'official_old': official_symbol,
+            'official_old_t1': official_t1,
+            'offline_formal': offline_formal,
+            'offline_formal_t1': offline_t1,
+            'redecision': redecision_symbol,
+            'redecision_t1': redecision_t1,
+            'day_best': None if day_best is None else day_best.get('symbol'),
+            'day_best_t1': None if day_best is None else day_best.get('t1_return'),
+            'agree_offline_vs_redecision': agree if offline_formal is not None else None,
+            'eligible_count': redecision.get('eligible_count'),
+            'excluded_count': redecision.get('excluded_count'),
+            'top3_formal_symbols': redecision.get('top3_formal_symbols'),
+            'notes': redecision.get('notes'),
+            'pool_size': len(decision_rows),
+        }
+        daily.append(day_entry)
+
+        if trade_date in ('2026-07-14', '2026-07-16') and day_best is not None:
+            miss_root_causes[trade_date] = _classify_redecision_miss_root_cause(
+                trade_date=trade_date,
+                decision_rows=decision_rows,
+                redecision=redecision,
+                day_best_symbol=str(day_best.get('symbol') or ''),
+                official_symbol=official_symbol,
+                offline_formal=str(offline_formal or ''),
+            )
+
+    metrics_redecision = _return_limitup_summary(redecision_returns)
+    metrics_redecision['max_drawdown'] = _max_drawdown(redecision_returns) if redecision_returns else None
+    metrics_redecision['sample_count'] = len(redecision_returns)
+    agree_rate = (
+        round(sum(1 for flag in agree_flags if flag) / len(agree_flags), 4)
+        if agree_flags else None
+    )
+    return {
+        'validation_tier': 'L3_production_path_redecision',
+        'validation_tier_declaration': (
+            'production-path re-decision from DB pre-decision snapshot via runner '
+            'eligibility+exclusion+formal sort; not full wall-clock live crawl; '
+            'L2 HISTORICAL_LIVE_REPLAY does not recompute official picks'
+        ),
+        'validation_tier_definitions': VALIDATION_TIER_DEFINITIONS,
+        'sample_dates': list(sample_dates),
+        'daily': daily,
+        'metrics_redecision': metrics_redecision,
+        'agree_rate_offline_vs_redecision': agree_rate,
+        'miss_root_causes': miss_root_causes,
+        'limits': [
+            'Uses DB snapshot hydrate + runner formal path; not full scanner wall-clock live',
+            'L2 historical live replay does not close gap3 (no formal re-pick)',
+            'L4 full wall-clock 12-day crawl still not required',
+            'offline formal source: ' + str(offline_path),
+        ],
+        'offline_limits': offline_payload.get('limits'),
+    }
+
+
+def _classify_redecision_miss_root_cause(
+    *,
+    trade_date: str,
+    decision_rows: List[Dict[str, Any]],
+    redecision: Dict[str, Any],
+    day_best_symbol: str,
+    official_symbol: Optional[str],
+    offline_formal: str,
+) -> Dict[str, Any]:
+    """Classify residual miss vs day-best into one primary root cause."""
+    from xiaogu_forward_d1_1450_runner_v0_1 import (
+        formal_candidate_sort_key,
+        official_target_exclusion_reasons,
+        paper_pick_eligibility_profile,
+    )
+
+    by_symbol = {
+        str(row.get('symbol') or ''): _hydrate_decision_snapshot_row(row)
+        for row in decision_rows
+    }
+    winner_symbol = str(redecision.get('redecision_symbol') or '')
+    day_best_row = by_symbol.get(day_best_symbol)
+    if day_best_row is None:
+        primary = 'NOT_IN_DECISION_POOL'
+        detail = {'day_best_in_pool': False}
+    elif winner_symbol and winner_symbol == day_best_symbol:
+        primary = 'HIT_DAY_BEST'
+        detail = {'day_best_in_pool': True, 'hit': True, 'rank': day_best_row.get('rank')}
+    else:
+        eligibility = paper_pick_eligibility_profile(day_best_row, {})
+        day_best_row = {**day_best_row, 'paper_pick_eligibility': eligibility}
+        exclusion = official_target_exclusion_reasons(day_best_row, {})
+        detail = {
+            'day_best_in_pool': True,
+            'eligible': bool(eligibility.get('eligible')),
+            'eligibility_blockers': list(eligibility.get('blockers') or [])[:8],
+            'exclusion_reasons': list(exclusion or [])[:8],
+            'rank': day_best_row.get('rank'),
+            'continuation_gene_score': day_best_row.get('continuation_gene_score'),
+            'structured_score': day_best_row.get('structured_score'),
+        }
+        if not eligibility.get('eligible') or exclusion:
+            primary = 'HARD_EXCLUDED_OR_INELIGIBLE'
+        else:
+            winner_row = by_symbol.get(winner_symbol)
+            if winner_row is not None:
+                winner_elig = paper_pick_eligibility_profile(winner_row, {})
+                winner_row = {**winner_row, 'paper_pick_eligibility': winner_elig}
+                detail['winner_sort_key'] = list(formal_candidate_sort_key(winner_row))[:6]
+                detail['day_best_sort_key'] = list(formal_candidate_sort_key(day_best_row))[:6]
+            primary = 'SORT_UNDERWEIGHTED'
+            # If critical ranking bags are empty, prefer data incompleteness.
+            factor = day_best_row.get('factor_snapshot')
+            if not isinstance(factor, dict) or not factor:
+                primary = 'DATA_INCOMPLETE_PRE_DECISION'
+                detail['data_incomplete'] = True
+
+    return {
+        'trade_date': trade_date,
+        'official_symbol': official_symbol,
+        'offline_formal': offline_formal or None,
+        'redecision_symbol': redecision.get('redecision_symbol'),
+        'day_best_symbol': day_best_symbol,
+        'primary_root_cause': primary,
+        'detail': detail,
+    }
+
+
+def offline_formal_path_for_day(
+    candidate_rows: List[Dict[str, Any]],
+    bundle_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """L1 offline formal sort: mainboard + hard exclusion + risk gate + formal sort.
+
+    Differs from L3 production-path redecision: does NOT require full
+    paper_pick_eligibility. Used to refresh structural ranking full-fix replay
+    after formal_candidate_sort_key / ranking_basis changes.
+    """
+    from xiaogu_forward_d1_1450_runner_v0_1 import (
+        formal_candidate_sort_key,
+        official_target_exclusion_reasons,
+        paper_pick_risk_explanation_gate,
+    )
+
+    bundle = bundle_context if isinstance(bundle_context, dict) else {}
+    sanitized = _sanitize_decision_snapshot_rows(list(candidate_rows or []))
+    gate_pass_rows: List[Dict[str, Any]] = []
+    excluded_count = 0
+    for raw in sanitized:
+        row = _hydrate_decision_snapshot_row(raw)
+        symbol = str(row.get('symbol') or row.get('code') or '')
+        if is_mainboard_symbol is not None:
+            if not is_mainboard_symbol(symbol):
+                excluded_count += 1
+                continue
+        elif row.get('is_mainboard') is False:
+            excluded_count += 1
+            continue
+        exclusion_reasons = official_target_exclusion_reasons(row, bundle)
+        if exclusion_reasons:
+            excluded_count += 1
+            continue
+        gate = paper_pick_risk_explanation_gate(row)
+        status = gate.get('status') if isinstance(gate, dict) else ('PASS' if gate else 'FAIL')
+        if status == 'FAIL':
+            excluded_count += 1
+            continue
+        row['paper_pick_risk_explanation_gate'] = gate if isinstance(gate, dict) else {'status': status}
+        row['official_target_exclusion_reasons'] = exclusion_reasons
+        gate_pass_rows.append(row)
+
+    notes = 'FORMAL_SORT_GATE_PASS'
+    winner = None
+    if gate_pass_rows:
+        winner = max(gate_pass_rows, key=formal_candidate_sort_key)
+    else:
+        notes = 'NO_GATE_PASS'
+
+    top3 = sorted(gate_pass_rows, key=formal_candidate_sort_key, reverse=True)[:3]
+    return {
+        'offline_formal_symbol': None if winner is None else str(winner.get('symbol') or ''),
+        'offline_formal_rank': None if winner is None else winner.get('rank'),
+        'gate_pass_count': len(gate_pass_rows),
+        'excluded_count': excluded_count,
+        'top3_formal_symbols': [str(row.get('symbol') or '') for row in top3],
+        'notes': notes,
+        'validation_tier': 'L1_offline_formal_sort',
+        'winner_row': winner,
+        'gate_pass_rows': gate_pass_rows,
+    }
+
+
+def build_structural_ranking_full_fix_replay(
+    sample_dates: Optional[List[str]] = None,
+    *,
+    baseline_replay_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Rebuild L1 offline formal full-fix replay with current production sort/risk.
+
+    Baseline (old) picks come from an existing replay JSON when present so
+    before/after deltas stay comparable after gene-primary and ranking retunes.
+    """
+    if fetch_daily_candidates is None or fetch_returns is None:
+        raise RuntimeError('database access is unavailable for structural ranking full-fix replay')
+
+    baseline_path = Path(
+        baseline_replay_path
+        or (BASE / 'summary' / '2026-07-21_structural_ranking_full_fix_replay.json')
+    )
+    baseline_payload: Dict[str, Any] = {}
+    baseline_by_date: Dict[str, Dict[str, Any]] = {}
+    if baseline_path.exists():
+        baseline_payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+        baseline_by_date = {
+            str(item.get('date') or ''): item
+            for item in (baseline_payload.get('daily') or [])
+            if isinstance(item, dict)
+        }
+
+    if sample_dates is None:
+        sample_dates = sorted(baseline_by_date.keys()) or []
+    if not sample_dates:
+        raise RuntimeError('sample_dates is empty; provide dates or baseline replay JSON')
+
+    daily: List[Dict[str, Any]] = []
+    old_returns: List[float] = []
+    new_returns: List[float] = []
+    shadow_returns: List[float] = []
+
+    for trade_date in sample_dates:
+        input_date = date.fromisoformat(trade_date)
+        raw_rows = fetch_daily_candidates(input_date)
+        decision_rows = _sanitize_decision_snapshot_rows(raw_rows)
+        offline = offline_formal_path_for_day(decision_rows)
+        validation_rows = fetch_returns(input_date)
+        validation_by_symbol = {
+            str(row.get('symbol') or ''): row for row in validation_rows
+        }
+        baseline_day = baseline_by_date.get(trade_date) or {}
+        old_symbol = baseline_day.get('old')
+        old_t1 = baseline_day.get('old_t1')
+        if old_t1 is None and old_symbol:
+            old_t1 = (validation_by_symbol.get(str(old_symbol)) or {}).get('t1_return')
+        new_symbol = offline.get('offline_formal_symbol')
+        new_t1 = None
+        if new_symbol:
+            new_t1 = (validation_by_symbol.get(str(new_symbol)) or {}).get('t1_return')
+        day_rows_with_t1 = [
+            {
+                **_hydrate_decision_snapshot_row(row),
+                't1_return': (validation_by_symbol.get(str(row.get('symbol') or '')) or {}).get('t1_return'),
+            }
+            for row in decision_rows
+        ]
+        returned = [row for row in day_rows_with_t1 if row.get('t1_return') is not None]
+        day_best = max(returned, key=lambda row: row['t1_return']) if returned else None
+        # limitup_gene shadow direction: keep prior shadow symbol if present, else omit t1
+        shadow_symbol = baseline_day.get('shadow') or baseline_day.get('limitup_gene_shadow')
+        shadow_t1 = baseline_day.get('shadow_t1')
+        if shadow_t1 is None and shadow_symbol:
+            shadow_t1 = (validation_by_symbol.get(str(shadow_symbol)) or {}).get('t1_return')
+
+        if old_t1 is not None:
+            old_returns.append(float(old_t1))
+        if new_t1 is not None:
+            new_returns.append(float(new_t1))
+        if shadow_t1 is not None:
+            shadow_returns.append(float(shadow_t1))
+
+        daily.append({
+            'date': trade_date,
+            'old': old_symbol,
+            'old_t1': old_t1,
+            'old_rank': baseline_day.get('old_rank'),
+            'new': new_symbol,
+            'new_t1': new_t1,
+            'new_rank': offline.get('offline_formal_rank'),
+            'day_best': None if day_best is None else day_best.get('symbol'),
+            'day_best_t1': None if day_best is None else day_best.get('t1_return'),
+            'changed': bool(old_symbol is not None and new_symbol is not None and str(old_symbol) != str(new_symbol)),
+            'gate': offline.get('notes'),
+            'excl': [],
+            'gate_pass_count': offline.get('gate_pass_count'),
+            'top3_formal_symbols': offline.get('top3_formal_symbols'),
+            'stale_offline_new': baseline_day.get('new'),
+            'changed_from_stale_offline': (
+                baseline_day.get('new') is not None
+                and new_symbol is not None
+                and str(baseline_day.get('new')) != str(new_symbol)
+            ),
+        })
+
+    def _path_metrics(values: List[float]) -> Dict[str, Any]:
+        summary = _return_limitup_summary(values)
+        summary['max_drawdown'] = _max_drawdown(values) if values else None
+        summary['sample_count'] = len(values)
+        return summary
+
+    baseline_metrics = baseline_payload.get('baseline') or _path_metrics(old_returns)
+    shadow_metrics = baseline_payload.get('limitup_gene_shadow_plus')
+    if shadow_metrics is None and shadow_returns:
+        shadow_metrics = _path_metrics(shadow_returns)
+
+    return {
+        'validation_tier': 'L1_offline_formal_sort',
+        'validation_tier_declaration': (
+            'offline formal sort on hydrated DB peer-day snapshots via '
+            'official_target_exclusion_reasons + paper_pick_risk_explanation_gate + '
+            'formal_candidate_sort_key; not full live pipeline re-decision; '
+            'not full paper_pick_eligibility (use L3 for that)'
+        ),
+        'baseline': baseline_metrics,
+        'new_production_path': _path_metrics(new_returns),
+        'limitup_gene_shadow_plus': shadow_metrics,
+        'daily': daily,
+        'sample_dates': list(sample_dates),
+        'refreshed_at': datetime.now().isoformat(timespec='seconds'),
+        'limits': (
+            'offline formal sort on completed peer day after hydrate; hard exclusion + risk gate applied; '
+            'not full live pipeline re-decision; rebuilt with current formal_candidate_sort_key including '
+            'primary gene absorb'
+        ),
+        'refresh_note': (
+            'Rebuilt after gene-primary formal sort change; stale offline new picks preserved in '
+            'daily[].stale_offline_new for audit'
+        ),
+    }
+
+
+def _path_performance_gate_from_returns(
+    values: List[float],
+    *,
+    path: str,
+    source: str = '',
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Evaluate PERFORMANCE_GATE_THRESHOLDS on a flat return path (honest FAIL/INSUFFICIENT)."""
+    summary = _return_limitup_summary(values)
+    gate = {
+        'path': path,
+        'sample_count': len(values),
+        'avg_t1_return': summary['avg_return'],
+        'win_rate': summary['win_rate'],
+        'limitup_rate': summary['limitup_rate'],
+        'near_limitup_rate': summary['near_limitup_rate'],
+        'large_loss_rate': summary['large_loss_rate'],
+        'max_drawdown': _max_drawdown(values) if values else None,
+        'thresholds': dict(PERFORMANCE_GATE_THRESHOLDS),
+        'status': 'INSUFFICIENT_SAMPLE',
+        'blocking_reason': f'sample_count={len(values)} < {MINIMUM_PERFORMANCE_SAMPLE_COUNT}',
+        'source': source,
+    }
+    if extra:
+        gate.update(extra)
+    if len(values) < MINIMUM_PERFORMANCE_SAMPLE_COUNT:
+        return gate
+    failures = [
+        name for name, threshold in PERFORMANCE_GATE_THRESHOLDS.items()
+        if gate.get(name) is None or (
+            gate[name] > threshold if name == 'large_loss_rate'
+            else gate[name] < threshold
+        )
+    ]
+    gate['status'] = 'PASS' if not failures else 'FAIL'
+    gate['blocking_reason'] = None if not failures else 'threshold_failed:' + ','.join(failures)
+    gate['threshold_gaps'] = {
+        'avg_t1_return': None if gate['avg_t1_return'] is None else round(gate['avg_t1_return'] - PERFORMANCE_GATE_THRESHOLDS['avg_t1_return'], 6),
+        'win_rate': None if gate['win_rate'] is None else round(gate['win_rate'] - PERFORMANCE_GATE_THRESHOLDS['win_rate'], 4),
+        'limitup_rate': None if gate['limitup_rate'] is None else round(gate['limitup_rate'] - PERFORMANCE_GATE_THRESHOLDS['limitup_rate'], 4),
+        'large_loss_rate': None if gate['large_loss_rate'] is None else round(gate['large_loss_rate'] - PERFORMANCE_GATE_THRESHOLDS['large_loss_rate'], 4),
+        'max_drawdown': None if gate['max_drawdown'] is None else round(gate['max_drawdown'] - PERFORMANCE_GATE_THRESHOLDS['max_drawdown'], 6),
+    }
+    return gate
 
 
 def build_db_cohort_report(
@@ -2200,6 +3920,8 @@ def build_db_cohort_report(
     reports['sell_strategy_gate'] = _sell_strategy_gate(completed_paper_days)
     reports['sell_strategy_execution_gate'] = _sell_strategy_execution_gate(completed_paper_days)
     reports['sell_strategy_replay'] = _sell_strategy_replay(completed_paper_days)
+    timing_window_alignment = reports['ranking_improvement_analysis'].get('timing_window_alignment') or {}
+    reports['paper_pick_case_book']['timing_window_alignment'] = timing_window_alignment
     reports['sample_accumulation_gate'] = _sample_accumulation_gate(
         len(completed_paper_days),
         completed_trade_dates=[record['trade_date'] for record in completed_paper_days],
@@ -2297,6 +4019,20 @@ def build_db_cohort_report(
         'sample_count': completed_sample_count,
         'blocking_reasons': blocking_reasons,
         'next_required_condition': next_required_condition,
+        'timing_window_alignment_status': (
+            'STABLE_T1'
+            if timing_window_alignment.get('paper_pick', {}).get('best_horizon_by_avg_return') == 't1'
+            else (
+                'SHIFTED'
+                if timing_window_alignment.get('paper_pick', {}).get('best_horizon_by_avg_return')
+                in {'t2', 't3'}
+                else 'UNKNOWN'
+            )
+        ),
+        'timing_window_best_horizon': timing_window_alignment.get('paper_pick', {}).get('best_horizon_by_avg_return'),
+        'timing_window_top10_best_horizon': timing_window_alignment.get('top10_best', {}).get('best_horizon_by_avg_return'),
+        'timing_window_best_horizon_avg_return': timing_window_alignment.get('paper_pick', {}).get('best_horizon_avg_return'),
+        'timing_window_pairwise_win_rate': timing_window_alignment.get('paper_pick', {}).get('pairwise_win_rate'),
     }
     evidence_fields = ('candidate_entry_reason', 'factor_snapshot', 'auxiliary_evidence_snapshot', 'ranking_basis', 'not_selected_reason')
     reconstruction_confidence: Dict[str, int] = {}
@@ -2825,8 +4561,57 @@ def main():
     ap.add_argument('--all', action='store_true', help='All available scan dates')
     ap.add_argument('--report', action='store_true', help='Print performance report')
     ap.add_argument('--db-cohort-report', action='store_true', help='Report every DB sample since the late-June boundary by cohort')
+    ap.add_argument(
+        '--production-path-redecision',
+        action='store_true',
+        help='Run production-path re-decision compare (not historical-live-replay)',
+    )
+    ap.add_argument(
+        '--structural-ranking-full-fix-replay',
+        action='store_true',
+        help='Rebuild L1 offline formal full-fix replay with current formal sort/risk (full landing refresh)',
+    )
+    ap.add_argument(
+        '--output',
+        help='Optional output path for production-path redecision / structural ranking replay JSON',
+    )
+    ap.add_argument(
+        '--mainline-miss-daily-report',
+        action='store_true',
+        help='Shadow-only daily mainline miss taxonomy + leader chain report (no production mutation)',
+    )
     ap.add_argument('--source', choices=('auto', 'db', 'ledger'), default='auto', help='Result source preference')
     args = ap.parse_args()
+
+    if args.mainline_miss_daily_report:
+        trade_date = args.date
+        if not trade_date:
+            print('ERROR: --mainline-miss-daily-report requires --date YYYY-MM-DD')
+            return
+        report = build_mainline_miss_daily_report(trade_date)
+        out_path = Path(args.output) if args.output else (
+            BASE / 'summary' / f'mainline_miss_daily_{trade_date}.json'
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, default=str),
+            encoding='utf-8',
+        )
+        print(json.dumps({
+            'trade_date': report.get('trade_date'),
+            'primary_miss_bucket': report.get('primary_miss_bucket'),
+            'secondary_tags': report.get('secondary_tags'),
+            'official_position_tags': report.get('official_position_tags'),
+            'leader_chain_top3': [
+                item.get('theme') for item in (report.get('leader_chain_top3') or [])
+            ],
+            'mainline_stage': report.get('mainline_stage'),
+            'index_regime': report.get('index_regime'),
+            'production_mutation_allowed': report.get('production_mutation_allowed'),
+            'output': str(out_path),
+        }, ensure_ascii=False, indent=2, default=str))
+        print(f'Mainline miss daily report saved: {out_path}')
+        return
 
     if args.db_cohort_report:
         report = build_db_cohort_report(args.start or '2026-06-20', args.end)
@@ -2835,6 +4620,56 @@ def main():
         out_path = BACKTEST_OUTPUT_ROOT / f"db_cohort_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
         print(f"Report saved: {out_path}")
+        return
+
+    if args.structural_ranking_full_fix_replay:
+        sample_dates = None
+        if args.date:
+            sample_dates = [args.date]
+        elif args.start and args.end:
+            sample_dates = get_trading_dates(args.start, args.end)
+        replay = build_structural_ranking_full_fix_replay(sample_dates)
+        out_path = Path(args.output) if args.output else (
+            BASE / 'summary' / '2026-07-21_structural_ranking_full_fix_replay.json'
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(replay, ensure_ascii=False, indent=2, default=str),
+            encoding='utf-8',
+        )
+        print(json.dumps({
+            'validation_tier': replay.get('validation_tier'),
+            'sample_dates': replay.get('sample_dates'),
+            'baseline': replay.get('baseline'),
+            'new_production_path': replay.get('new_production_path'),
+            'output': str(out_path),
+        }, ensure_ascii=False, indent=2, default=str))
+        print(f'Structural ranking full-fix replay saved: {out_path}')
+        return
+
+    if args.production_path_redecision:
+        sample_dates = None
+        if args.date:
+            sample_dates = [args.date]
+        elif args.start and args.end:
+            sample_dates = get_trading_dates(args.start, args.end)
+        compare = build_production_path_redecision_compare(sample_dates)
+        out_path = Path(args.output) if args.output else (
+            BASE / 'summary' / '2026-07-21_production_path_redecision_compare.json'
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(compare, ensure_ascii=False, indent=2, default=str),
+            encoding='utf-8',
+        )
+        print(json.dumps({
+            'validation_tier': compare.get('validation_tier'),
+            'sample_dates': compare.get('sample_dates'),
+            'agree_rate_offline_vs_redecision': compare.get('agree_rate_offline_vs_redecision'),
+            'metrics_redecision': compare.get('metrics_redecision'),
+            'output': str(out_path),
+        }, ensure_ascii=False, indent=2, default=str))
+        print(f'Redecision compare saved: {out_path}')
         return
 
     if args.date:

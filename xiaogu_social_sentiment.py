@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Eastmoney social evidence collector using public pages with a CDP fallback."""
+"""Eastmoney social evidence collector: public JSON API first, HTML second, CDP last."""
 import argparse
 import html
 import json
@@ -23,7 +23,15 @@ CDP_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 PUBLIC_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36 XiaoguSocial/0.1",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Referer": "https://guba.eastmoney.com/",
+    "Origin": "https://guba.eastmoney.com",
 }
+# Direct guba article list (no captcha HTML shell). Primary path after SPA/captcha broke SSR.
+GUBA_ARTICLELIST_URL = (
+    "https://gbapi.eastmoney.com/webarticlelist/api/Article/Articlelist"
+    "?product=Guba&plat=Web&version=200&deviceid=0.0.0"
+    "&code={code}&p=1&ps={ps}&type=0&sorttype=0"
+)
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 _CDP_UNAVAILABLE_UNTIL = 0.0
 _CDP_LAST_ERROR = ""
@@ -210,47 +218,105 @@ def cdp_evaluate(tab_id: str, expression: str) -> Any:
         return None
 
 
+def _scrape_eastmoney_guba_api(symbol: str, *, page_size: int = 30) -> Dict[str, Any]:
+    """Primary path: gbapi article list JSON (no captcha HTML, no CDP)."""
+    code = str(symbol or "").zfill(6)
+    url = GUBA_ARTICLELIST_URL.format(code=code, ps=max(5, min(50, int(page_size or 30))))
+    raw = _fetch_public_text(
+        url,
+        direct=True,
+        timeout=12,
+        accept="application/json,text/plain,*/*",
+    )
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("eastmoney_guba_api_not_object")
+    rows = payload.get("re") or []
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("eastmoney_guba_api_empty")
+    titles: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("post_title") or row.get("title") or "").strip()
+        if title:
+            titles.append(title)
+    if not titles:
+        raise ValueError("eastmoney_guba_api_titles_missing")
+    result = _sentiment_payload(
+        source_key="post",
+        subject_key="symbol",
+        subject_value=code,
+        texts=titles,
+    )
+    result["transport"] = "gbapi_articlelist"
+    result["api_count"] = int(payload.get("count") or len(titles) or 0)
+    return result
+
+
 def scrape_eastmoney_guba(symbol: str) -> Dict[str, Any]:
-    """Use Eastmoney's public server-rendered forum page before any browser path."""
-    url = f"https://guba.eastmoney.com/list,{symbol}.html"
+    """Collect guba titles: JSON API first, HTML second, optional CDP last."""
+    code = str(symbol or "").zfill(6)
+    errors: List[str] = []
+
+    # 1) Direct JSON API — preferred; survives captcha HTML shell.
+    try:
+        return _scrape_eastmoney_guba_api(code)
+    except Exception as exc:
+        errors.append(f"api:{type(exc).__name__}:{exc}")
+
+    # 2) Public HTML (often captcha shell now; keep for older environments / tests).
+    url = f"https://guba.eastmoney.com/list,{code}.html"
     try:
         page = _fetch_public_text(url, direct=True)
         titles = re.findall(r'<div[^>]+class="title[^"]*"[^>]*>(.*?)</div>', page, re.S)
         if titles:
-            return _sentiment_payload(
+            result = _sentiment_payload(
                 source_key="post",
                 subject_key="symbol",
-                subject_value=symbol,
+                subject_value=code,
                 texts=titles,
             )
-        direct_error = "eastmoney_guba_titles_missing"
+            result["transport"] = "public_html"
+            return result
+        errors.append("html:titles_missing")
     except Exception as exc:
-        direct_error = f"eastmoney_guba_direct_failed:{type(exc).__name__}"
+        errors.append(f"html:{type(exc).__name__}")
+
+    # 3) CDP fallback only when API+HTML both fail and browser is already usable.
+    # Scanner main path no longer requires CDP; social must not force-start it for happy path.
+    if os.environ.get("XIAOGU_SOCIAL_ALLOW_CDP", "0") != "1":
+        return {
+            "error": "eastmoney_guba_unavailable:" + ";".join(errors) + ";cdp_disabled",
+            "symbol": code,
+        }
 
     tab_id = None
     try:
         tabs = cdp_get_tabs()
         for t in tabs:
-            if t.get('type') == 'page':
-                tab_id = t['id']
+            if t.get("type") == "page":
+                tab_id = t["id"]
                 break
         if not tab_id:
-            return {'error': f'{direct_error}; no_cdp_tab', 'symbol': symbol}
-        
+            return {"error": "eastmoney_guba_unavailable:" + ";".join(errors) + ";no_cdp_tab", "symbol": code}
+
         if not cdp_navigate(tab_id, url, timeout=15):
-            return {'error': f'{direct_error}; cloak_cdp_navigation_failed', 'symbol': symbol}
+            return {
+                "error": "eastmoney_guba_unavailable:" + ";".join(errors) + ";cloak_cdp_navigation_failed",
+                "symbol": code,
+            }
         time.sleep(2)
-        
-        # Extract post titles and sentiment
-        result = cdp_evaluate(tab_id, """
+
+        result = cdp_evaluate(
+            tab_id,
+            """
             (() => {
                 const titles = [];
-                // Method 1: .title divs (post titles)
                 document.querySelectorAll('.title').forEach(el => {
                     const text = el.textContent.trim();
                     if (text.length > 5 && text.length < 200) titles.push(text);
                 });
-                // Method 2: TR.listitem full text (fallback)
                 if (titles.length < 5) {
                     document.querySelectorAll('tr.listitem').forEach(el => {
                         const text = el.textContent.trim();
@@ -259,23 +325,34 @@ def scrape_eastmoney_guba(symbol: str) -> Dict[str, Any]:
                 }
                 return JSON.stringify(titles.slice(0, 30));
             })()
-        """)
-        
+        """,
+        )
+
         if result and isinstance(result, str):
             titles = json.loads(result)
         elif isinstance(result, list):
             titles = result
         else:
             titles = []
-        
-        return _sentiment_payload(
+
+        if not titles:
+            return {
+                "error": "eastmoney_guba_unavailable:" + ";".join(errors) + ";cdp_titles_missing",
+                "symbol": code,
+            }
+        payload = _sentiment_payload(
             source_key="post",
             subject_key="symbol",
-            subject_value=symbol,
+            subject_value=code,
             texts=titles,
         )
+        payload["transport"] = "cdp_fallback"
+        return payload
     except Exception as e:
-        return {'error': f'{direct_error}; cdp_fallback_failed:{e}', 'symbol': symbol}
+        return {
+            "error": "eastmoney_guba_unavailable:" + ";".join(errors) + f";cdp_fallback_failed:{e}",
+            "symbol": code,
+        }
 
 
 def collect_sector_sentiment(sector_stocks: list) -> Dict[str, Any]:
@@ -517,6 +594,74 @@ def attach_social_features(candidates: Iterable[Dict[str, Any]], trade_date: str
     return attached
 
 
+def _normalize_symbol(raw: Any) -> str:
+    sym = str(raw or "").strip().zfill(6)
+    if not sym.isdigit() or len(sym) != 6 or sym == "000000":
+        return ""
+    return sym
+
+
+def _symbols_from_formal_and_top10(trade_date: str, *, limit: int = 15) -> List[str]:
+    """Always cover formal PAPER_PICK + top10 candidates for soft social evidence."""
+    out: List[str] = []
+    try:
+        from xiaogu_db import get_db
+        from sqlalchemy import text
+
+        with get_db() as db:
+            pick_rows = db.execute(
+                text(
+                    """
+                    SELECT symbol FROM picks
+                    WHERE trade_date = CAST(:d AS date)
+                      AND decision = 'PAPER_PICK'
+                      AND COALESCE(features->>'superseded', 'false') <> 'true'
+                    ORDER BY id DESC
+                    LIMIT 5
+                    """
+                ),
+                {"d": trade_date},
+            ).fetchall()
+            for row in pick_rows:
+                sym = _normalize_symbol(row[0])
+                if sym:
+                    out.append(sym)
+            top_rows = db.execute(
+                text(
+                    """
+                    SELECT symbol FROM daily_candidates
+                    WHERE trade_date = CAST(:d AS date) AND rank <= 10
+                    ORDER BY rank
+                    LIMIT :lim
+                    """
+                ),
+                {"d": trade_date, "lim": int(limit)},
+            ).fetchall()
+            for row in top_rows:
+                sym = _normalize_symbol(row[0])
+                if sym:
+                    out.append(sym)
+    except Exception:
+        # Soft path: DB unavailable must not break collection.
+        pass
+    # Also try summary formal file.
+    try:
+        formal = Path(__file__).resolve().parent / "summary" / f"{trade_date}_formal_paper_pick.json"
+        if formal.exists():
+            payload = json.loads(formal.read_text(encoding="utf-8"))
+            for key in ("symbol", "code"):
+                sym = _normalize_symbol(payload.get(key))
+                if sym:
+                    out.append(sym)
+            cand = payload.get("candidate") if isinstance(payload.get("candidate"), dict) else {}
+            sym = _normalize_symbol(cand.get("symbol") or cand.get("code"))
+            if sym:
+                out.append(sym)
+    except Exception:
+        pass
+    return list(dict.fromkeys(out))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--symbols', default='')
@@ -524,6 +669,16 @@ if __name__ == '__main__':
     parser.add_argument('--sources', default='eastmoney_guba')
     parser.add_argument('--from-scan', default='')
     parser.add_argument('--topn', type=int, default=50)
+    parser.add_argument(
+        '--ensure-formal-top10',
+        action='store_true',
+        help='Also collect formal PAPER_PICK + daily_candidates rank<=10',
+    )
+    parser.add_argument(
+        '--status-file',
+        default='',
+        help='Write compact top-level status JSON for pipeline gate detection',
+    )
     args = parser.parse_args()
     symbols = [item.strip() for item in args.symbols.split(',') if item.strip()]
     themes_by_symbol: Dict[str, List[str]] = {}
@@ -545,10 +700,49 @@ if __name__ == '__main__':
                 themes_by_symbol[symbol] = list(dict.fromkeys(theme for theme in themes if theme))[:3]
         except (OSError, json.JSONDecodeError):
             pass
+    if args.ensure_formal_top10:
+        symbols.extend(_symbols_from_formal_and_top10(args.trade_date, limit=15))
+    # Dedupe while preserving order; formal/top10 always included even beyond topn.
+    ordered = list(dict.fromkeys(str(s).zfill(6) for s in symbols if str(s).strip()))
+    scan_slice = ordered[: max(1, int(args.topn))]
+    extra = [s for s in ordered if s not in scan_slice]
+    target_symbols = scan_slice + extra
     result = collect_and_store(
-        symbols[:args.topn],
+        target_symbols,
         trade_date=args.trade_date,
         sources=[item.strip() for item in args.sources.split(',') if item.strip()],
         themes_by_symbol=themes_by_symbol,
+    )
+    if args.status_file:
+        try:
+            pass_n = sum(1 for row in (result.get('results') or []) if row.get('status') == 'PASS')
+            warn_n = sum(1 for row in (result.get('results') or []) if row.get('status') != 'PASS')
+            Path(args.status_file).write_text(
+                json.dumps(
+                    {
+                        'status': result.get('status'),
+                        'trade_date': result.get('trade_date'),
+                        'result_count': result.get('result_count'),
+                        'pass_count': pass_n,
+                        'warn_count': warn_n,
+                        'used_for_official_ranking': False,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding='utf-8',
+            )
+        except OSError:
+            pass
+    # One-line machine status first so pipeline can tail/rg without loading full payload.
+    print(
+        json.dumps(
+            {
+                'status': result.get('status'),
+                'trade_date': result.get('trade_date'),
+                'result_count': result.get('result_count'),
+                'used_for_official_ranking': False,
+            },
+            ensure_ascii=False,
+        )
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

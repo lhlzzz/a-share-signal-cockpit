@@ -10,6 +10,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,12 +20,13 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, ProxyHandler, build_opener
 
-BASE = Path('/workspace/hermes-workspaces/xiaogu')
+BASE = Path(os.environ.get('XIAOGU_HOME') or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(BASE))
 
-# Import reusable structured-signal helpers from the richer scanner path.
+# Structured scoring helpers: stable surface is xiaogu_scanner_scoring
+# (implementation still lives in legacy web_tabs library module).
 try:
-    from xiaogu_eastmoney_web_tabs_scan_v0_1 import (
+    from xiaogu_scanner_scoring import (
         build_information_coverage_audit,
         build_research_signals,
         build_structured_bundle,
@@ -32,8 +34,17 @@ try:
     )
     HAS_STRUCTURED_HELPERS = True
 except ImportError:
-    build_information_coverage_audit = None
-    HAS_STRUCTURED_HELPERS = False
+    try:
+        from xiaogu_scanner_scoring import (
+            build_information_coverage_audit,
+            build_research_signals,
+            build_structured_bundle,
+            build_structured_scores,
+        )
+        HAS_STRUCTURED_HELPERS = True
+    except ImportError:
+        build_information_coverage_audit = None
+        HAS_STRUCTURED_HELPERS = False
 
 LOCAL_OPENER = build_opener(ProxyHandler({}))
 CDP_URL = os.environ.get('XIAOGU_SCANNER_CDP_URL', 'http://127.0.0.1:9333').rstrip('/')
@@ -42,6 +53,11 @@ HEADERS = {
     'Referer': 'https://quote.eastmoney.com/',
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
 }
+# Production default: direct HTTP to Eastmoney APIs. CDP is optional fallback only
+# (XIAOGU_SCANNER_TRANSPORT=cdp|auto). Do not treat browser navigation as the only path.
+DEFAULT_SCANNER_TRANSPORT = 'direct'
+_VALID_SCANNER_TRANSPORTS = frozenset({'direct', 'cdp', 'auto'})
+_SCANNER_TRANSPORT_LOGGED = False
 _CDP_FETCH_TAB_ID = None
 _CDP_FETCH_WS_URL = None
 _CDP_BROWSER_PROCESS = None
@@ -54,6 +70,10 @@ EXTERNAL_MARKET_INDEXES = (
 )
 
 MAINBOARD_PREFIXES = ('600', '601', '603', '605', '000', '001', '002', '003')
+# Full candidate pool persisted for runner/DB; pre-enrichment must stay larger so
+# unique-symbol fill can still hit the pool target after duplicates.
+FULL_CANDIDATE_POOL_TARGET = 400
+PRE_ENRICHMENT_CANDIDATE_TARGET = 500
 MAINBOARD_AUXILIARY_EVIDENCE_DOMAINS = {
     'announcements': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
     'news_kuaixun': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
@@ -94,26 +114,51 @@ def is_mainboard_code(code):
     return board_for_code(code) == 'main'
 
 
+def normalize_stock_code(value):
+    """Return a 6-digit A-share code, or None for article IDs / garbage tokens."""
+    if value in (None, ''):
+        return None
+    raw = str(value).split('.', 1)[0].strip()
+    if not raw:
+        return None
+    if len(raw) > 6 and raw[:2].lower() in ('sh', 'sz', 'bj') and raw[2:].isdigit():
+        raw = raw[2:]
+    # News/article IDs are long digit strings; never treat them as stock codes.
+    if not raw.isdigit() or len(raw) > 6:
+        return None
+    code = raw.zfill(6)
+    return code if len(code) == 6 and code.isdigit() else None
+
+
 def stock_codes_from_row(row):
     codes = []
-    for value in (
-        row.get('SECURITY_CODE'), row.get('stockCode'), row.get('SECUCODE'),
-        row.get('f12'), row.get('code'), row.get('symbol'), row.get('c'),
-    ):
-        if value not in (None, ''):
-            code = str(value).split('.', 1)[0].zfill(6)
-            if code.isdigit() and code not in codes:
-                codes.append(code)
+    # Prefer nested announcement payloads: codes[].stock_code
     for item in row.get('codes') or []:
         if isinstance(item, dict):
             value = item.get('stock_code') or item.get('stockCode') or item.get('code')
         else:
             value = item
-        if value not in (None, ''):
-            code = str(value).split('.', 1)[0].zfill(6)
-            if code.isdigit() and code not in codes:
-                codes.append(code)
+        code = normalize_stock_code(value)
+        if code and code not in codes:
+            codes.append(code)
+    for value in (
+        row.get('SECURITY_CODE'), row.get('stockCode'), row.get('SECUCODE'),
+        row.get('f12'), row.get('symbol'), row.get('c'), row.get('code'),
+    ):
+        code = normalize_stock_code(value)
+        if code and code not in codes:
+            codes.append(code)
     return codes
+
+
+def normalize_symbol_name(value):
+    """Strip HTML/ST prefixes so title/text matching is stable across sources."""
+    text = _clean_text_value(value)
+    if not text:
+        return ''
+    text = re.sub(r'(?i)^(?:\*ST|S\*ST|SST|ST)\s*', '', text)
+    text = re.sub(r'^(?:N|C)\s+', '', text)
+    return text.strip()
 
 
 def announcement_category(text):
@@ -139,6 +184,10 @@ def announcement_category(text):
 
 def _clean_text_value(value):
     text = str(value or '').strip()
+    if text:
+        text = re.sub(r'</?em>', '', text, flags=re.I)
+        text = re.sub(r'<[^>]+>', '', text)
+        text = text.strip()
     return '' if text in ('', '-', '--', '无', '暂无') else text
 
 
@@ -225,7 +274,8 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
     stock_sector_map = stock_sector_map or {}
     stock_concept_map = stock_concept_map or {}
     announcements_by_code = {}
-    for row in data_cache.get('announcements', []) or []:
+    announcements_all = [row for row in data_cache.get('announcements', []) or [] if isinstance(row, dict)]
+    for row in announcements_all:
         for code in stock_codes_from_row(row):
             announcements_by_code.setdefault(code, []).append(row)
     limitup_by_code = {}
@@ -263,20 +313,63 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
     for candidate in candidates:
         code = str(candidate.get('code') or candidate.get('symbol') or '').zfill(6)
         name = str(candidate.get('name') or candidate.get('stock_name') or '').strip()
-        sector = str(stock_sector_map.get(code) or candidate.get('sector_name') or '').strip()
+        name_key = normalize_symbol_name(name)
+        sector = str(stock_sector_map.get(code) or candidate.get('sector_name') or candidate.get('sector') or candidate.get('industry') or '').strip()
         concepts = [str(value).strip() for value in stock_concept_map.get(code, []) if str(value).strip()]
+        # Fill industry/sector so downstream sszcw theme matching is not name-only.
+        if sector:
+            candidate.setdefault('industry', sector)
+            candidate.setdefault('sector', sector)
+            candidate.setdefault('sector_name', sector)
+        if concepts:
+            existing_tags = list(candidate.get('sector_opportunity_tags') or [])
+            for concept in concepts:
+                if concept and concept not in existing_tags:
+                    existing_tags.append(concept)
+            candidate['sector_opportunity_tags'] = existing_tags
         sector_terms = [value for value in [sector, *concepts, *(candidate.get('sector_opportunity_tags') or [])] if value]
 
         announcement_evidence = []
         risk_notice_evidence = []
+        matched_ann_keys = set()
         for row in announcements_by_code.get(code, [])[:10]:
-            title = str(row.get('title') or row.get('title_ch') or '').strip()
+            title = _clean_text_value(row.get('title') or row.get('title_ch') or '')
             category = announcement_category(title)
             hard_block = any(token in title for token in ('退市', '重大违法', '立案调查', '实施风险警示', '停牌'))
             evidence = {'title': title, 'category': category, 'source': 'announcements', 'hard_block': hard_block}
             announcement_evidence.append(evidence)
+            matched_ann_keys.add(row.get('art_code') or title)
             if category in ('risk_notice', 'abnormal_movement', 'reduction'):
                 risk_notice_evidence.append(evidence)
+        # Name-in-title fallback when nested codes miss the candidate (ST/alias titles).
+        if name_key and len(name_key) >= 2 and len(announcement_evidence) < 10:
+            for row in announcements_all:
+                title = _clean_text_value(row.get('title') or row.get('title_ch') or '')
+                key = row.get('art_code') or title
+                if key in matched_ann_keys or not title:
+                    continue
+                short_names = []
+                for item in row.get('codes') or []:
+                    if isinstance(item, dict):
+                        sn = normalize_symbol_name(item.get('short_name') or item.get('name'))
+                        if sn:
+                            short_names.append(sn)
+                if name_key not in title and name_key not in short_names:
+                    continue
+                category = announcement_category(title)
+                hard_block = any(token in title for token in ('退市', '重大违法', '立案调查', '实施风险警示', '停牌'))
+                evidence = {
+                    'title': title,
+                    'category': category,
+                    'source': 'announcements_name_match',
+                    'hard_block': hard_block,
+                }
+                announcement_evidence.append(evidence)
+                matched_ann_keys.add(key)
+                if category in ('risk_notice', 'abnormal_movement', 'reduction'):
+                    risk_notice_evidence.append(evidence)
+                if len(announcement_evidence) >= 10:
+                    break
 
         direct_news = []
         sector_news = []
@@ -295,7 +388,11 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
             if not text:
                 continue
             item = {'title': str(row.get('title') or '')[:240], 'source': 'news_kuaixun', 'proxy': True}
-            if (code and code in text) or (name and name in text):
+            if (
+                (code and code in text)
+                or (name and name in text)
+                or (name_key and len(name_key) >= 2 and name_key in text)
+            ):
                 direct_news.append(item)
             elif any(term and term in text for term in sector_terms):
                 sector_news.append(item)
@@ -349,10 +446,52 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
             missing_domains.append('sector_news')
         if limitup_reason_status == 'MISSING':
             missing_domains.append('limitup_reasons')
+        filled_domain_count = 4 - len(missing_domains)
         confidence = clamp01((int(bool(announcement_evidence)) + int(bool(direct_news)) + int(bool(sector_news or sector_report_evidence)) + int(limitup_reason_status != 'MISSING')) / 4.0)
+        # PASS when all domains present, OR high-confidence partial with limitup-reason evidence.
+        # Avoid permanent 0 PASS when one soft domain (e.g. direct_symbol_news) is unmatched.
+        if not missing_domains:
+            aux_status = 'PASS'
+        elif (
+            confidence >= 0.75
+            and limitup_reason_status in ('PASS', 'PROXY')
+            and filled_domain_count >= 2
+        ):
+            aux_status = 'PASS'
+        elif confidence > 0:
+            aux_status = 'PARTIAL'
+        else:
+            aux_status = 'MISSING'
 
         candidate.update({
             'mainboard_policy': 'main_only',
+            'mainboard_auxiliary_evidence_domains': {
+                'announcements': {
+                    'present': bool(announcement_evidence),
+                    'count': len(announcement_evidence),
+                    'kind': '公告',
+                    'positive_catalyst_count': sum(
+                        1 for item in announcement_evidence
+                        if item['category'] in ('earnings', 'major_contract', 'restructuring', 'dividend')
+                    ),
+                    'risk_notice_count': len(risk_notice_evidence),
+                },
+                'direct_symbol_news': {
+                    'present': bool(direct_news),
+                    'count': len(direct_news),
+                    'kind': '直接个股新闻',
+                },
+                'sector_news': {
+                    'present': bool(sector_news or sector_report_evidence),
+                    'count': len(sector_news) + len(sector_report_evidence),
+                    'kind': '板块新闻/行业报告',
+                },
+                'limitup_reasons': {
+                    'present': bool(direct_limitup_reasons or sector_limitup_proxy),
+                    'count': len(direct_limitup_reasons) + len(sector_limitup_proxy),
+                    'kind': '涨停理由/板块延续证据',
+                },
+            },
             'announcement_evidence': announcement_evidence,
             'news_evidence': {
                 'direct_symbol_news': direct_news[:5],
@@ -393,8 +532,12 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
             'limitup_reason_quality_score': round(limitup_score, 4),
             'risk_notice_penalty': round(risk_penalty, 4),
             'mainboard_auxiliary_confidence': round(confidence, 4),
-            'mainboard_auxiliary_evidence_status': 'PASS' if not missing_domains else ('PARTIAL' if confidence > 0 else 'MISSING'),
+            'mainboard_auxiliary_evidence_status': aux_status,
             'mainboard_auxiliary_missing_domains': missing_domains,
+            'mainboard_auxiliary_evidence_summary': (
+                '公告存在但不等于直接个股新闻；'
+                'direct_symbol_news 与 sector_news 分别代表直接个股快讯和板块新闻/行业报告。'
+            ),
         })
         research_signals = candidate.get('research_signals') if isinstance(candidate.get('research_signals'), dict) else {}
         catalyst_quality = research_signals.setdefault('catalyst_quality', {})
@@ -733,11 +876,62 @@ def _cdp_navigate_text(url, timeout=25):
         ws.close()
 
 
+def resolve_scanner_transport():
+    """Return transport mode: direct (default) | cdp | auto."""
+    raw = (os.environ.get('XIAOGU_SCANNER_TRANSPORT') or DEFAULT_SCANNER_TRANSPORT).strip().lower()
+    if raw not in _VALID_SCANNER_TRANSPORTS:
+        print(f'  WARN invalid XIAOGU_SCANNER_TRANSPORT={raw!r}; fallback {DEFAULT_SCANNER_TRANSPORT}')
+        return DEFAULT_SCANNER_TRANSPORT
+    return raw
+
+
+def _api_get_direct(url, timeout=20, attempts=3):
+    """Fetch Eastmoney JSON/JSONP over direct HTTP. Never starts CDP."""
+    last_error = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            req = Request(url, headers=HEADERS)
+            with LOCAL_OPENER.open(req, timeout=timeout) as resp:
+                body = resp.read().decode('utf-8', 'replace')
+            return _loads_json_or_jsonp(body)
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 < max(1, int(attempts)):
+                time.sleep(0.25 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError('API_GET_DIRECT_FAILED')
+
+
 def api_get(url):
-    # Browser navigation through Cloak/Chrome CDP is the scanner's only
-    # Eastmoney network path. Do not fall back to Python urllib here: that is
-    # the old path that reintroduces host-level TLS handshake/read timeouts.
-    return _loads_json_or_jsonp(_cdp_navigate_text(url, timeout=25))
+    """Eastmoney API fetch. Default transport is direct HTTP (NN1).
+
+    Env XIAOGU_SCANNER_TRANSPORT:
+      direct — urllib only (production default); never starts CDP
+      cdp    — browser navigation via _cdp_navigate_text (explicit ops)
+      auto   — direct first; on total failure, CDP fallback with log
+    """
+    global _SCANNER_TRANSPORT_LOGGED
+    mode = resolve_scanner_transport()
+    used = mode
+    if mode == 'direct':
+        result = _api_get_direct(url)
+        used = 'direct'
+    elif mode == 'cdp':
+        result = _loads_json_or_jsonp(_cdp_navigate_text(url, timeout=25))
+        used = 'cdp'
+    else:
+        try:
+            result = _api_get_direct(url)
+            used = 'direct'
+        except Exception as exc:
+            print(f'  transport=cdp_fallback reason={exc!r}')
+            result = _loads_json_or_jsonp(_cdp_navigate_text(url, timeout=25))
+            used = 'cdp_fallback'
+    if not _SCANNER_TRANSPORT_LOGGED:
+        print(f'SCANNER_TRANSPORT={used}')
+        _SCANNER_TRANSPORT_LOGGED = True
+    return result
 
 
 def fetch_external_market_snapshot(captured_at):
@@ -979,25 +1173,64 @@ def rank_candidates_by_structured_priority(candidates):
     return candidates
 
 
-def select_unique_candidate_pool(candidates, target_count=200):
+def candidate_drop_diagnostic(row, stage, reason, details=None):
+    """Build a compact candidate-pool exclusion diagnostic."""
+    source = row if isinstance(row, dict) else {}
+    symbol = str(source.get('symbol') or source.get('code') or source.get('f12') or '').strip()
+    if symbol:
+        symbol = symbol.zfill(6)
+    return {
+        'symbol': symbol,
+        'name': str(source.get('name') or source.get('stock_name') or source.get('f14') or ''),
+        'stage': stage,
+        'reason': reason,
+        'details': dict(details or {}),
+    }
+
+
+def summarize_candidate_drop_stage_counts(diagnostics):
+    counts = {}
+    for item in diagnostics or []:
+        if not isinstance(item, dict):
+            continue
+        stage = str(item.get('stage') or 'unknown')
+        counts[stage] = counts.get(stage, 0) + 1
+    return counts
+
+
+def select_unique_candidate_pool(candidates, target_count=FULL_CANDIDATE_POOL_TARGET):
     """Select a ranked candidate pool with unique symbols for DB persistence."""
     source_rows = [candidate for candidate in candidates if isinstance(candidate, dict)]
     selected = []
     seen = set()
     duplicate_symbols = []
+    drop_diagnostics = []
     for candidate in source_rows:
         symbol = str(candidate.get('symbol') or candidate.get('code') or '').strip()
         if not symbol:
             continue
         symbol = symbol.zfill(6)
+        details = {
+            'rank': candidate.get('rank'),
+            'final_score': candidate.get('final_score') or candidate.get('score'),
+            'target_count': target_count,
+            'source_row_count': len(source_rows),
+        }
         if symbol in seen:
             duplicate_symbols.append(symbol)
+            drop_diagnostics.append(candidate_drop_diagnostic(
+                candidate, 'deduped_by_symbol', 'duplicate_symbol_already_selected', details,
+            ))
+            continue
+        if len(selected) >= target_count:
+            drop_diagnostics.append(candidate_drop_diagnostic(
+                candidate, 'candidate_pool_cut', 'ranked_below_full_candidate_pool_target', details,
+            ))
             continue
         seen.add(symbol)
         selected.append(candidate)
-        if len(selected) >= target_count:
-            break
     duplicate_unique = sorted(set(duplicate_symbols))
+    stage_counts = summarize_candidate_drop_stage_counts(drop_diagnostics)
     summary = {
         'source_row_count': len(source_rows),
         'raw_full_candidate_pool_rows': len(source_rows),
@@ -1008,6 +1241,11 @@ def select_unique_candidate_pool(candidates, target_count=200):
         'duplicate_symbol_count': len(duplicate_unique),
         'duplicate_symbols': duplicate_unique,
         'deduplication_applied': bool(duplicate_unique),
+        'candidate_pool_cut_count': stage_counts.get('candidate_pool_cut', 0),
+        'deduped_by_symbol_count': stage_counts.get('deduped_by_symbol', 0),
+        'candidate_drop_diagnostics': drop_diagnostics,
+        'candidate_drop_stage_counts': stage_counts,
+        'candidate_drop_diagnostic_count': len(drop_diagnostics),
         'final_persisted_count': len(selected),
     }
     return selected, summary
@@ -1167,7 +1405,7 @@ def _sector_sort_value(row):
 
 
 def fetch_sector_news(sector_rows, concept_rows, limit_per_query=20, max_queries=40):
-    """Fetch bounded, independent sector/news rows keyed by industry or concept name."""
+    """Fetch bounded sector news via Eastmoney search cmsArticleWebOld JSON param."""
     queries = []
     for sector_type, rows in (('industry', sector_rows or []), ('concept', concept_rows or [])):
         sorted_rows = sorted([row for row in rows if isinstance(row, dict)], key=_sector_sort_value, reverse=True)
@@ -1183,28 +1421,55 @@ def fetch_sector_news(sector_rows, concept_rows, limit_per_query=20, max_queries
     seen = set()
     news_rows = []
     for item in queries:
+        # Eastmoney search-api requires nested JSON `param` + type cmsArticleWebOld.
+        # The old `param=keyword&type=news` form returns code=400 非法的json格式.
+        param_obj = {
+            'uid': '',
+            'keyword': item['query'],
+            'type': ['cmsArticleWebOld'],
+            'client': 'web',
+            'clientType': 'web',
+            'clientVersion': 'curr',
+            'param': {
+                'cmsArticleWebOld': {
+                    'searchScope': 'default',
+                    'sort': 'default',
+                    'pageIndex': 1,
+                    'pageSize': int(limit_per_query),
+                    'preTag': '<em>',
+                    'postTag': '</em>',
+                }
+            },
+        }
         params = {
-            'cb': '',
-            'param': item['query'],
-            'type': 'news',
-            'pageindex': '1',
-            'pagesize': str(limit_per_query),
+            'cb': 'jQuery112308',
+            'param': json.dumps(param_obj, ensure_ascii=False),
+            '_': str(int(time.time() * 1000)),
         }
         url = f'https://search-api-web.eastmoney.com/search/jsonp?{urlencode(params)}'
         try:
             payload = api_get(url)
         except Exception:
             continue
-        candidates = payload.get('Data') or payload.get('data') or payload.get('result') or []
-        if isinstance(candidates, dict):
-            candidates = candidates.get('items') or candidates.get('data') or candidates.get('news') or []
+        if not isinstance(payload, dict):
+            continue
+        result = payload.get('result') if isinstance(payload.get('result'), dict) else {}
+        candidates = result.get('cmsArticleWebOld') or []
+        if not isinstance(candidates, list):
+            legacy = payload.get('Data') or payload.get('data') or payload.get('result') or []
+            if isinstance(legacy, dict):
+                candidates = legacy.get('items') or legacy.get('data') or legacy.get('news') or []
+            else:
+                candidates = legacy if isinstance(legacy, list) else []
         if not isinstance(candidates, list):
             continue
         for row in candidates[:limit_per_query]:
             if not isinstance(row, dict):
                 continue
-            title = _clean_text_value(row.get('Title') or row.get('title') or row.get('NewsTitle') or row.get('name'))
-            summary = _clean_text_value(row.get('Content') or row.get('summary') or row.get('Digest') or row.get('digest'))
+            title = _clean_text_value(row.get('title') or row.get('Title') or row.get('NewsTitle') or row.get('name'))
+            summary = _clean_text_value(
+                row.get('content') or row.get('Content') or row.get('summary') or row.get('Digest') or row.get('digest')
+            )
             if not title and not summary:
                 continue
             key = (item['query'], title, summary[:80])
@@ -1219,11 +1484,131 @@ def fetch_sector_news(sector_rows, concept_rows, limit_per_query=20, max_queries
                 'sector_type': item['sector_type'],
                 'source': 'eastmoney_sector_news',
                 'source_query': item['query'],
-                'published_at': row.get('ShowTime') or row.get('time') or row.get('date') or '',
-                'url': row.get('Url') or row.get('url') or '',
+                'published_at': row.get('date') or row.get('ShowTime') or row.get('time') or '',
+                'url': row.get('url') or row.get('Url') or '',
+                'media_name': row.get('mediaName') or row.get('MediaName') or '',
+                'article_code': row.get('code') or '',
             })
         time.sleep(0.03)
     return news_rows
+
+
+def fetch_announcements_multi_page(max_pages=5, page_size=100):
+    """Market-wide announcements with pagination (single page leaves most of the pool unmatched)."""
+    rows = []
+    seen = set()
+    for page in range(1, max(1, int(max_pages)) + 1):
+        try:
+            data = api_get(
+                'https://np-anotice-stock.eastmoney.com/api/security/ann?'
+                + urlencode({
+                    'ann_type': 'A',
+                    'client_source': 'WEB',
+                    'f_node': '0',
+                    'page_index': str(page),
+                    'page_size': str(page_size),
+                    's_node': '0',
+                })
+            )
+            batch = ((data.get('data') or {}) if isinstance(data, dict) else {}).get('list') or []
+        except Exception:
+            break
+        if not isinstance(batch, list) or not batch:
+            break
+        for row in batch:
+            if not isinstance(row, dict):
+                continue
+            key = row.get('art_code') or row.get('title') or row.get('title_ch')
+            if not key:
+                key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+        if len(batch) < int(page_size):
+            break
+        time.sleep(0.03)
+    return rows
+
+
+def fetch_news_kuaixun_multi_page(max_pages=3, page_size=200):
+    """7x24 kuaixun multi-page so title/name matching covers more of the candidate pool."""
+    rows = []
+    seen = set()
+    for page in range(1, max(1, int(max_pages)) + 1):
+        try:
+            ts = int(time.time() * 1000)
+            data = api_get(
+                'https://np-listapi.eastmoney.com/comm/web/getNewsByColumns?'
+                + urlencode({
+                    'client': 'web',
+                    'biz': 'web_724',
+                    'column': '350',
+                    'order': '1',
+                    'needInteractData': '0',
+                    'page_index': str(page),
+                    'page_size': str(page_size),
+                    'req_trace': str(ts),
+                })
+            )
+            batch = ((data.get('data') or {}) if isinstance(data, dict) else {}).get('list') or []
+        except Exception:
+            break
+        if not isinstance(batch, list) or not batch:
+            break
+        for row in batch:
+            if not isinstance(row, dict):
+                continue
+            key = row.get('code') or row.get('uniqueUrl') or row.get('url') or row.get('title')
+            if not key:
+                key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+        if len(batch) < int(page_size):
+            break
+        time.sleep(0.03)
+    return rows
+
+
+def fetch_stock_announcements(stock_codes, page_size=15, max_stocks=60):
+    """Per-stock announcement supplement for pool symbols missing market-wide coverage."""
+    rows = []
+    seen = set()
+    for raw in list(stock_codes or [])[: max(0, int(max_stocks))]:
+        code = normalize_stock_code(raw)
+        if not code:
+            continue
+        try:
+            data = api_get(
+                'https://np-anotice-stock.eastmoney.com/api/security/ann?'
+                + urlencode({
+                    'sr': '-1',
+                    'page_size': str(page_size),
+                    'page_index': '1',
+                    'ann_type': 'A',
+                    'client_source': 'web',
+                    'stock_list': code,
+                    'f_node': '0',
+                    's_node': '0',
+                })
+            )
+            batch = ((data.get('data') or {}) if isinstance(data, dict) else {}).get('list') or []
+        except Exception:
+            continue
+        if not isinstance(batch, list):
+            continue
+        for row in batch:
+            if not isinstance(row, dict):
+                continue
+            key = row.get('art_code') or (code, row.get('title') or row.get('title_ch'))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+        time.sleep(0.03)
+    return rows
 
 
 def fetch_hsgt_holdings(domain_timings, output_dir):
@@ -1833,31 +2218,31 @@ def main():
     print(f'{len(results["popularity_rank"])} items')
 
     # =================================================================
-    # 25. 公告 - FULL
+    # 25. 公告 - FULL (multi-page; single page leaves most of the 400 pool unmatched)
     # =================================================================
-    print(f'[{source_time}] 公告 (full)...', end=' ', flush=True)
+    print(f'[{source_time}] 公告 (full multi-page)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        data = api_get('https://np-anotice-stock.eastmoney.com/api/security/ann?ann_type=A&client_source=WEB&f_node=0&page_index=1&page_size=500&s_node=0')
-        results['announcements'] = (data.get('data', {}) or {}).get('list', []) or []
-    except:
+        ann_pages = int(os.environ.get('XIAOGU_ANN_PAGES', '8'))
+        ann_page_size = int(os.environ.get('XIAOGU_ANN_PAGE_SIZE', '100'))
+        results['announcements'] = fetch_announcements_multi_page(max_pages=ann_pages, page_size=ann_page_size)
+    except Exception:
         results['announcements'] = []
-    record_domain_timing(domain_timings, 'announcements', domain_started_at, results['announcements'], 'eastmoney_announcements')
+    record_domain_timing(domain_timings, 'announcements', domain_started_at, results['announcements'], 'eastmoney_announcements_multipage')
     print(f'{len(results["announcements"])} items')
 
     # =================================================================
-    # 20. 东财7x24快讯 - FULL
+    # 20. 东财7x24快讯 - FULL (multi-page for higher name/code match coverage)
     # =================================================================
-    print(f'[{source_time}] 东财7x24快讯 (full)...', end=' ', flush=True)
+    print(f'[{source_time}] 东财7x24快讯 (full multi-page)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        ts = int(time.time() * 1000)
-        news_url = f'https://np-listapi.eastmoney.com/comm/web/getNewsByColumns?client=web&biz=web_724&column=350&order=1&needInteractData=0&page_index=1&page_size=200&req_trace={ts}'
-        news_data = api_get(news_url)
-        results['news_kuaixun'] = (news_data.get('data', {}) or {}).get('list', []) or []
-    except:
+        news_pages = int(os.environ.get('XIAOGU_NEWS_PAGES', '5'))
+        news_page_size = int(os.environ.get('XIAOGU_NEWS_PAGE_SIZE', '200'))
+        results['news_kuaixun'] = fetch_news_kuaixun_multi_page(max_pages=news_pages, page_size=news_page_size)
+    except Exception:
         results['news_kuaixun'] = []
-    record_domain_timing(domain_timings, 'news_kuaixun', domain_started_at, results['news_kuaixun'], 'eastmoney_7x24')
+    record_domain_timing(domain_timings, 'news_kuaixun', domain_started_at, results['news_kuaixun'], 'eastmoney_7x24_multipage')
     print(f'{len(results["news_kuaixun"])} items')
 
     # =================================================================
@@ -1912,6 +2297,7 @@ def main():
     hard_block_source_status = {}
     market_snapshot = {}
     information_coverage_audit = {}
+    candidate_drop_diagnostics = []
     candidate_scoring_started_at = time.monotonic()
     if stocks:
         def safe_num(v, default=0.0):
@@ -1942,6 +2328,10 @@ def main():
             'amount_missing': 0,
             'other': 0,
         }
+
+        def record_pool_drop(row, stage, reason, details=None):
+            candidate_drop_diagnostics.append(candidate_drop_diagnostic(row, stage, reason, details))
+
         for s in stocks:
             code = str(s.get('f12', '')).zfill(6)
             price = safe_num(s.get('f2'))
@@ -1954,20 +2344,34 @@ def main():
             net_inflow = safe_num(s.get('f62'))
             board = board_for_code(code)
 
+            filter_details = {
+                'board': board,
+                'price': price,
+                'pct_chg': pct,
+                'amount': amount,
+                'one_lot_cost': round(price * 100, 4),
+                'price_cap': 70,
+                'one_lot_cost_cap': ONE_LOT_COST_CAP,
+            }
             if board != 'main':
                 pool_exclusion_counts['non_mainboard'] += 1
+                record_pool_drop(s, 'tradable_filter', 'non_mainboard', filter_details)
                 continue
             if price <= 0:
                 pool_exclusion_counts['suspended_or_missing_quote'] += 1
+                record_pool_drop(s, 'tradable_filter', 'suspended_or_missing_quote', filter_details)
                 continue
             if price > 70:
                 pool_exclusion_counts['price_over_cap'] += 1
+                record_pool_drop(s, 'tradable_filter', 'price_over_cap', filter_details)
                 continue
             if price * 100 > ONE_LOT_COST_CAP:
                 pool_exclusion_counts['one_lot_cost_over_cap'] += 1
+                record_pool_drop(s, 'tradable_filter', 'one_lot_cost_over_cap', filter_details)
                 continue
             if amount <= 0:
                 pool_exclusion_counts['amount_missing'] += 1
+                record_pool_drop(s, 'tradable_filter', 'amount_missing', filter_details)
                 continue
 
             close_pos = round((price - low) / (high - low), 6) if high > low else 0.5
@@ -2091,9 +2495,10 @@ def main():
         data_cache['stock_reports'] = load_jsonl('stock_reports.jsonl')
         data_cache['industry_reports'] = load_jsonl('industry_reports.jsonl')
 
-        # 公告/快讯
+        # 公告/快讯/板块新闻（aux 消费必须能读到 sector_news，不能只写 jsonl 不入 cache）
         data_cache['announcements'] = load_jsonl('announcements.jsonl')
         data_cache['news_kuaixun'] = load_jsonl('news_kuaixun.jsonl')
+        data_cache['sector_news'] = load_jsonl('sector_news.jsonl') or list(results.get('sector_news') or [])
 
         # 停牌信息
         data_cache['trading_halts'] = load_jsonl('trading_halts.jsonl')
@@ -2976,7 +3381,46 @@ def main():
         # ``full_candidate_pool`` is the stable, auditable market universe.
         # Score/evidence gates may narrow downstream pools but never remove rows
         # from this persistence scope.
-        candidates = tradable[:300]
+        candidates = tradable[:PRE_ENRICHMENT_CANDIDATE_TARGET]
+        for row in tradable[PRE_ENRICHMENT_CANDIDATE_TARGET:]:
+            record_pool_drop(row, 'pre_enrichment_rank_cut', 'ranked_below_pre_enrichment_target', {
+                'rank': row.get('rank'),
+                'final_score': row.get('final_score') or row.get('score'),
+                'pre_enrichment_target_count': PRE_ENRICHMENT_CANDIDATE_TARGET,
+                'tradable_count': len(tradable),
+            })
+        # Per-stock announcement fill for top candidates missing market-wide ann codes.
+        try:
+            covered_ann_codes = set()
+            for item in data_cache.get('announcements') or []:
+                covered_ann_codes.update(stock_codes_from_row(item))
+            missing_ann_codes = []
+            # Pull per-stock announcements for a larger top slice so aux PASS covers more of the pool.
+            stock_ann_topn = int(os.environ.get('XIAOGU_STOCK_ANN_TOPN', '200'))
+            for cand in candidates[:stock_ann_topn]:
+                cand_code = normalize_stock_code(cand.get('code') or cand.get('symbol'))
+                if cand_code and cand_code not in covered_ann_codes:
+                    missing_ann_codes.append(cand_code)
+            if missing_ann_codes:
+                extra_ann = fetch_stock_announcements(
+                    missing_ann_codes,
+                    page_size=int(os.environ.get('XIAOGU_STOCK_ANN_PAGE_SIZE', '15')),
+                    max_stocks=stock_ann_topn,
+                )
+                if extra_ann:
+                    data_cache['announcements'] = list(data_cache.get('announcements') or []) + extra_ann
+                    results['announcements'] = list(results.get('announcements') or []) + extra_ann
+                    ann_path = output_dir / 'announcements.jsonl'
+                    with open(ann_path, 'a', encoding='utf-8') as ann_fp:
+                        for item in extra_ann:
+                            if isinstance(item, dict):
+                                ann_fp.write(json.dumps(item, ensure_ascii=False) + '\n')
+                    print(
+                        f'  Supplemental stock announcements: +{len(extra_ann)} '
+                        f'for {len(missing_ann_codes)} missing top codes'
+                    )
+        except Exception as exc:
+            print(f'  Supplemental stock announcements skipped: {exc}')
         enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map, stock_concept_map)
         scored_count = len(candidates)
         print(f'  Candidates: {len(candidates)} (tradable={len(tradable)})')
@@ -3446,31 +3890,113 @@ def main():
                     'components': components,
                 })
         rank_candidates_by_structured_priority(candidates)
-        full_candidate_pool, candidate_pool_dedup_summary = select_unique_candidate_pool(candidates, 200)
+        full_candidate_pool, candidate_pool_dedup_summary = select_unique_candidate_pool(
+            candidates, FULL_CANDIDATE_POOL_TARGET,
+        )
         passed_candidates = [
             candidate for candidate in candidates
             if int(candidate.get('rank') or 999999) <= 10
         ]
         try:
-            from xiaogu_social_sentiment import attach_social_features
+            from xiaogu_social_sentiment import attach_social_features, collect_and_store
+            social_enabled = os.environ.get('XIAOGU_SOCIAL_ENABLED', '1') == '1'
+            social_topn = int(os.environ.get('XIAOGU_SOCIAL_COLLECT_TOP_N', '100'))
+            try:
+                social_budget_sec = int(os.environ.get('XIAOGU_SOCIAL_COLLECT_BUDGET_SEC', '60'))
+            except (TypeError, ValueError):
+                social_budget_sec = 60
+            if social_budget_sec < 0:
+                social_budget_sec = 60
+            social_sources = tuple(
+                part.strip()
+                for part in os.environ.get('XIAOGU_SOCIAL_SOURCES', 'eastmoney_guba').split(',')
+                if part.strip()
+            ) or ('eastmoney_guba',)
+            # Collect same-day guba for top ranked candidates so shadow/formal
+            # attach is not permanently MISSING when scanner runs standalone.
+            # Hard wall-clock budget: social must never block the main scan.
+            if social_enabled and social_topn > 0:
+                ranked_for_social = sorted(
+                    [row for row in candidates if isinstance(row, dict)],
+                    key=lambda row: int(row.get('rank') or 999999),
+                )[:social_topn]
+                symbols = []
+                themes_by_symbol = {}
+                for row in ranked_for_social:
+                    symbol = normalize_stock_code(row.get('code') or row.get('symbol'))
+                    if not symbol:
+                        continue
+                    symbols.append(symbol)
+                    tags = row.get('sector_opportunity_tags') if isinstance(row.get('sector_opportunity_tags'), list) else []
+                    themes = [str(tag).strip() for tag in tags if str(tag).strip()]
+                    if not themes:
+                        name = str(row.get('name') or row.get('stock_name') or '').strip()
+                        if name:
+                            themes = [name]
+                    themes_by_symbol[symbol] = themes[:3]
+                if symbols:
+                    if social_budget_sec == 0:
+                        print(
+                            f'  Social collect budget exceeded: budget_sec=0 '
+                            f'topn={len(symbols)} (soft-skip)'
+                        )
+                    else:
+                        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+                        collect_started = time.monotonic()
+                        try:
+                            with ThreadPoolExecutor(max_workers=1) as pool:
+                                future = pool.submit(
+                                    collect_and_store,
+                                    symbols,
+                                    trade_date=source_time[:10],
+                                    sources=social_sources,
+                                    themes_by_symbol=themes_by_symbol,
+                                )
+                                collect_result = future.result(timeout=social_budget_sec)
+                            collect_elapsed = time.monotonic() - collect_started
+                            print(
+                                f'  Social collect: status={collect_result.get("status")} '
+                                f'count={collect_result.get("result_count")} '
+                                f'topn={len(symbols)} used_for_official_ranking='
+                                f'{collect_result.get("used_for_official_ranking")} '
+                                f'budget_sec={social_budget_sec} elapsed={collect_elapsed:.1f}s'
+                            )
+                        except FuturesTimeout:
+                            print(
+                                f'  Social collect budget exceeded: '
+                                f'budget_sec={social_budget_sec} topn={len(symbols)} (soft-skip)'
+                            )
+                        except Exception as social_exc:
+                            print(f'  Social collect soft-skip: {social_exc}')
             attach_social_features(candidates, source_time[:10])
-        except Exception:
+        except Exception as exc:
             # Social is an optional shadow sidecar. Scanner completeness must
             # not depend on CDP login, external sources, or the social DB read.
-            pass
+            print(f'  Social sidecar optional skip: {exc}')
+        candidate_drop_diagnostics.extend(candidate_pool_dedup_summary.get('candidate_drop_diagnostics') or [])
+        candidate_drop_stage_counts = summarize_candidate_drop_stage_counts(candidate_drop_diagnostics)
+        top_exclusion_reasons = {
+            key: value for key, value in sorted(
+                pool_exclusion_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+            if value
+        }
+        if candidate_pool_dedup_summary.get('candidate_pool_cut_count'):
+            top_exclusion_reasons['candidate_pool_cut'] = candidate_pool_dedup_summary['candidate_pool_cut_count']
+        if len(tradable) > PRE_ENRICHMENT_CANDIDATE_TARGET:
+            top_exclusion_reasons['pre_enrichment_rank_cut'] = len(tradable) - PRE_ENRICHMENT_CANDIDATE_TARGET
         pool_exclusion_summary = {
             **candidate_pool_dedup_summary,
             'raw_universe_count': len(stocks),
             'mainboard_tradable_count': len(tradable),
+            'pre_enrichment_source_count': len(tradable),
+            'pre_enrichment_rank_cut_count': max(0, len(tradable) - PRE_ENRICHMENT_CANDIDATE_TARGET),
             'final_persisted_count': len(full_candidate_pool),
-            'target_count': 200,
-            'top_exclusion_reasons': {
-                key: value for key, value in sorted(
-                    pool_exclusion_counts.items(),
-                    key=lambda item: (-item[1], item[0]),
-                )
-                if value
-            },
+            'target_count': FULL_CANDIDATE_POOL_TARGET,
+            'top_exclusion_reasons': top_exclusion_reasons,
+            'candidate_drop_stage_counts': candidate_drop_stage_counts,
+            'candidate_drop_diagnostic_count': len(candidate_drop_diagnostics),
             'source_status': 'PASS' if stocks else 'FAIL',
             'legacy_partial_pool': False,
         }
@@ -3622,6 +4148,8 @@ def main():
             'sector_snapshot': sector_snapshot[:40],
             'hot_sector_count': len(hot_sectors),
             'hot_concept_count': len(hot_concepts),
+            'candidate_drop_diagnostic_count': len(candidate_drop_diagnostics),
+            'candidate_drop_stage_counts': candidate_drop_stage_counts,
             'source_status': source_status,
             'hard_block_source_status': hard_block_source_status,
             'eastmoney_web_tabs': ['api_direct_runner_v2'],
@@ -3771,6 +4299,14 @@ def main():
     runner_files['research_signals'] = write_runner_rows('eastmoney_web_tabs_research_signals.jsonl', research_signal_rows)
     runner_files['structured_score_components'] = write_runner_rows('eastmoney_web_tabs_structured_score_components.jsonl', structured_score_component_rows)
     runner_files['structured_component_details'] = write_runner_rows('eastmoney_web_tabs_structured_component_details.jsonl', structured_component_rows)
+    # Keep factor_store live with v2 scanner (was only wired on legacy scan path).
+    try:
+        from xiaogu_factor_store import write_factors
+        if candidates:
+            factor_path = write_factors(str(source_time)[:10], candidates)
+            runner_files['factors'] = str(factor_path)
+    except Exception as exc:
+        print(f'SCAN: factor_store write skipped: {exc!r}', flush=True)
     record_domain_timing(domain_timings, 'write_structured_outputs', write_structured_started_at, candidates, 'jsonl_write')
 
     scanner_elapsed_seconds = round(time.monotonic() - scanner_started_at, 4)
@@ -3803,11 +4339,14 @@ def main():
             'raw_universe_count': 0,
             'mainboard_tradable_count': 0,
             'final_persisted_count': 0,
-            'target_count': 200,
+            'target_count': FULL_CANDIDATE_POOL_TARGET,
             'top_exclusion_reasons': {'suspended_or_missing_quote': 1},
+            'candidate_drop_stage_counts': {},
+            'candidate_drop_diagnostic_count': 0,
             'source_status': 'FAIL',
             'legacy_partial_pool': False,
         },
+        'candidate_drop_diagnostics': candidate_drop_diagnostics if stocks else [],
         'paper_scoring_candidates': candidates,
         'structured_scores': structured_scores,
         'research_signals': research_signal_rows,
@@ -3985,7 +4524,7 @@ def _generate_candidates(stocks, results, market_breadth, market_limitups):
 
     # Score candidates (original logic - NOT sector prediction dependent)
     scored = []
-    for s in tradable[:200]:
+    for s in tradable[:FULL_CANDIDATE_POOL_TARGET]:
         base_score = 50
         pct = s['signal_pct']
         close_pos = s['close_position_score']

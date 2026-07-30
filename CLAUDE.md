@@ -31,6 +31,20 @@
 - [ ] 每行改动是否必要？
 - [ ] 成功标准是否明确？
 
+
+## 任务启动强制顺序（每次任务）
+
+> **全局 owner（Grok CLI 全项目）**: `~/.grok/AGENTS.md` + skills `/task-startup` `/karpathy-guidelines`。本文件仅补充 xiaogu 域细节。
+
+0. **Karpathy** — 本文件 + `.skills/karpathy-daily.md`；写假设与成功标准
+1. **UNDERSTAND** — codebase-memory **主索引**（符号/调用链/架构 cluster）；冲突以 source 为准。Understand-Anything 已从 xiaogu 移除
+2. **PLAN** — 有歧义：`plan-enforcer-discuss` → draft → review；无歧义机械改可跳过 discuss
+3. **IMPLEMENT** — 精准修改，不扩 scope
+4. **VALIDATE** — 相关测试通过
+5. **COMPLETE** — `agentmemory__memory_save` 必做；知识有变则写 Obsidian（`Project/A股` + 神临想法池/总索引/项目接口）
+
+未走 0→1 不得开写；主链绿但 AgentMemory/应有笔记未更新 = 未完成。详见 `AGENTS.md` Development Cycle。
+
 ## 项目特定约束
 
 ### 数据源
@@ -41,11 +55,13 @@
 
 ### 候选池规则
 - 只做A股主板（上海 600/601/603/605，深圳 000/001/002/003）
-- 候选池200只
+- 候选池400只
 - 涨幅范围: 0.5%-9.5%
 - 价格上限: 70元
 
 ### 工具使用
 - RTK 替代 bash 命令
-- AgentMemory 存储决策
-- Codebase-Memory 索引代码
+- AgentMemory 存储决策（任务收口必更新）
+- Codebase-Memory **主索引**（定位/调用链/架构；Understand-Anything 已停用）
+- Plan Enforcer discuss：实现有歧义时先 discuss 再 draft
+- Obsidian：A股证据 → Project/A股；跨域 → 神临

@@ -472,25 +472,42 @@ def repo_contribution_summary_text(repo_contributions: Dict[str, Any]) -> str:
     if not isinstance(repo_contributions, dict) or not repo_contributions:
         return ''
     parts: List[str] = []
+    noise_parts: List[str] = []
+
+    def _fmt(repo_name: str, entry: Dict[str, Any]) -> str:
+        status = str(entry.get('status') or '')
+        signal = str(entry.get('candidate_signal') or '')
+        delta = fnum(entry.get('score_delta'))
+        noise = bool(entry.get('noise')) or status in {
+            'GUARD_ONLY', 'STRUCTURED_FALLBACK', 'STRUCTURED_FALLBACK_MIMO',
+            'PLACEHOLDER_OR_NO_EFFECT', 'BLOCKED', 'CONCEPT_ONLY',
+        } or status.startswith('STRUCTURED_FALLBACK')
+        if noise or entry.get('counts_toward_total') is False:
+            return f'{repo_name}:{status}[{signal}]=+0.0000(noise)'
+        return f'{repo_name}:{status}[{signal}]={delta:+.4f}'
+
     for repo_name in ACTIVE_REPO_ORDER:
         entry = repo_contributions.get(repo_name)
         if not isinstance(entry, dict):
             continue
-        status = str(entry.get('status') or '')
-        signal = str(entry.get('candidate_signal') or '')
-        delta = fnum(entry.get('score_delta'))
-        parts.append(f'{repo_name}:{status}[{signal}]={delta:+.4f}')
+        text = _fmt(repo_name, entry)
+        if '(noise)' in text:
+            noise_parts.append(text)
+        else:
+            parts.append(text)
     for repo_name in sorted(repo_contributions):
         if repo_name in ACTIVE_REPO_ORDER:
             continue
         entry = repo_contributions.get(repo_name)
         if not isinstance(entry, dict):
             continue
-        status = str(entry.get('status') or '')
-        signal = str(entry.get('candidate_signal') or '')
-        delta = fnum(entry.get('score_delta'))
-        parts.append(f'{repo_name}:{status}[{signal}]={delta:+.4f}')
-    return '; '.join(parts)
+        text = _fmt(repo_name, entry)
+        if '(noise)' in text:
+            noise_parts.append(text)
+        else:
+            parts.append(text)
+    # Active scoring first; noise last so selection_reason is not dominated by guards.
+    return '; '.join(parts + noise_parts)
 
 
 def blocked_record(repo_name: str, reason: str, candidate: Dict[str, Any], extra: Optional[Dict[str, Any]] = None, evidence_paths: Optional[List[str]] = None, external_api_used: bool = False, llm_used: bool = False) -> Dict[str, Any]:
@@ -1028,8 +1045,9 @@ def quantdinger_native_adapter(candidate: Dict[str, Any]) -> Dict[str, Any]:
             'source_time_present': bool(source_time),
             'web_evidence': e,
         },
+        # Guard-only: visible in diagnostics, excluded from official score total.
         score_delta=score_delta,
-        score_eligible=True,
+        score_eligible=False,
         risk_flags=risk_flags,
         evidence_paths=[evidence_path] if evidence_path else [],
         external_api_used=False,
@@ -1659,8 +1677,9 @@ def mimo_reasoning_native_adapter(candidate: Dict[str, Any]) -> Dict[str, Any]:
             'llm_adjustment': round(llm_adjustment, 4),
             'risk_flags': risk_flags,
         },
-        score_delta=score_delta,
-        score_eligible=True,
+        # Fallback must not count toward official six-repo total (noise).
+        score_delta=score_delta if llm_used else 0.0,
+        score_eligible=bool(llm_used),
         risk_flags=risk_flags,
         evidence_paths=[evidence_path] if evidence_path else [],
         external_api_used=llm_used,

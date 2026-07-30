@@ -49,8 +49,15 @@ def validate_generation(decision: str, rule: Dict[str, Any]) -> None:
         raise SystemExit(f'invalid decision: {decision}')
     if not rule.get('paper_only') or not rule.get('no_trade') or rule.get('production_ready'):
         raise SystemExit('rule_freeze safety flags invalid; require paper_only=true no_trade=true production_ready=false')
-    if rule.get('allow_trade'):
-        raise SystemExit('rule_freeze allow_trade must be false')
+    if (
+        not rule.get('allow_trade')
+        or rule.get('auto_order')
+        or rule.get('broker_connected')
+        or not rule.get('manual_paper_execution_allowed')
+    ):
+        raise SystemExit(
+            'rule_freeze requires manual paper execution enabled and auto/broker execution disabled'
+        )
 
 
 def main() -> None:
@@ -87,6 +94,10 @@ def main() -> None:
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
+        'allow_trade': args.decision == 'PAPER_PICK',
+        'manual_paper_execution_allowed': args.decision == 'PAPER_PICK',
+        'auto_order': False,
+        'broker_connected': False,
         'note': 'T-day visible raw/features snapshot only; no T+ result fields.',
     }
     snapshot_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -110,6 +121,10 @@ def main() -> None:
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
+        'allow_trade': args.decision == 'PAPER_PICK',
+        'manual_paper_execution_allowed': args.decision == 'PAPER_PICK',
+        'auto_order': False,
+        'broker_connected': False,
         'result_status': 'PENDING',
         't1_return': None,
         't2_return': None,

@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 
 import baostock as bs
 from sqlalchemy import text
-from xiaogu_db import engine, upsert_return, record_return_backfill_failure
+from xiaogu_db import engine, upsert_return, record_return_backfill_failure, backfill_return_pick_ids
 from xiaogu_forward_result_filler_v0_1 import (
     fetch_eastmoney_klines, fetch_tencent_klines, parse_klines as parse_eastmoney_klines,
     secid_for,
@@ -131,7 +131,13 @@ def fetch_kline_range_baostock(symbol: str, start: str, end: str) -> list:
 
 
 def fetch_eastmoney_realtime_ohlc(symbol: str, trade_date: str) -> Optional[dict]:
-    """Fetch current-day OHLC from Eastmoney quote endpoint after close."""
+    """Fetch current-day OHLC from Eastmoney quote endpoint after close.
+
+    Only stamps the live quote onto *today*. Using this for a future/past
+    target date previously labeled same-day OHLC as T+1 (t1_return=0 pollution).
+    """
+    if str(trade_date)[:10] != date.today().isoformat():
+        return None
     params = '&'.join([
         'ut=fa5fd1943c7b386f172d6893dbfba10b',
         'fltt=2',
@@ -802,6 +808,12 @@ def backfill_returns(
         'rank2_to_rank6_t1_coverage': stats['rank2_to_rank6_return_coverage'],
     }
     stats['return_backfill_timeout_gate'] = build_return_backfill_timeout_gate(stats['failure_reasons'])
+    # Hygiene: always re-link returns.pick_id after writes so pick_id JOIN path stays usable.
+    if not dry_run:
+        try:
+            stats['pick_id_backfill'] = backfill_return_pick_ids()
+        except Exception as exc:
+            stats['pick_id_backfill'] = {'error': str(exc)}
     return stats
 
 
@@ -819,6 +831,13 @@ def print_analysis(stats: dict):
     print(f'T+2 filled: {stats["t2_filled"]}')
     print(f'T+3 filled: {stats["t3_filled"]}')
     print(f'T+5 filled: {stats["t5_filled"]}')
+    pick_id_stats = stats.get('pick_id_backfill') or {}
+    if pick_id_stats:
+        print(
+            f"returns.pick_id linked={pick_id_stats.get('linked')} "
+            f"null_remaining={pick_id_stats.get('null_pick_id_remaining')} "
+            f"total={pick_id_stats.get('returns_total')}"
+        )
 
     # Analyze T+1 returns
     t1_returns = [r['returns']['t1'] for r in stats['results']
@@ -1027,3 +1046,5 @@ if __name__ == '__main__':
     with open(output_path, 'w') as f:
         json.dump(stats, f, indent=2, ensure_ascii=False, default=str)
     print(f'\nDetailed results saved to {output_path}')
+    if not args.dry_run and stats.get('pick_id_backfill'):
+        print(f"  pick_id hygiene: {stats['pick_id_backfill']}")

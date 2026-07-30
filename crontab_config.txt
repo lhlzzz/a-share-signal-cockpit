@@ -1,11 +1,19 @@
 # xiaogu 每日扫描定时任务配置
 # 安装方法: crontab crontab_config.txt
+#
+# 权威入口收敛说明（2026-07-21）：
+# - 优先使用 xiaogu_scheduler.py（APScheduler）作为生产调度：
+#     09:25 morning scanner
+#     14:30 afternoon scan + runner --force
+#     15:30 result fill + T+1 return backfill
+#     20:00 signal effectiveness
+# - 若机器只跑 crontab、不跑 scheduler，则只保留下面「唯一」完整出票入口。
+# - 禁止同时启用 scheduler 与本 crontab 的下午扫/出票，避免同日重复 scan/correction。
 
-# 早盘扫描 - 每个交易日 9:35 (开盘后5分钟)
-35 9 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh morning >> logs/morning_scan.log 2>&1
-
-# 尾盘扫描 - 每个交易日 14:50 (收盘前10分钟)
-50 14 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh afternoon >> logs/afternoon_scan.log 2>&1
-
-# 完整出票流程 - 每个交易日 14:55 (尾盘出票)
+# [OPTIONAL] 仅当 scheduler 未运行时启用：完整出票流程（含 scanner + runner + backfill）
+# 默认建议：用 scheduler；crontab 只保留这一条兜底，不要再叠加 daily_scan afternoon。
 55 14 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_pipeline.sh >> logs/daily_pipeline.log 2>&1
+
+# [DISABLED by design] 旧双入口：morning/afternoon scan 与 pipeline 拆分会导致重复采集。
+# 35 9 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh morning >> logs/morning_scan.log 2>&1
+# 50 14 * * 1-5 cd /workspace/hermes-workspaces/xiaogu && bash daily_scan.sh afternoon >> logs/afternoon_scan.log 2>&1

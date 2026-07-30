@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-WORKSPACE="/workspace/hermes-workspaces/xiaogu"
+WORKSPACE="${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$WORKSPACE"
 python3 scripts/xiaogu_ensure_database.py
 

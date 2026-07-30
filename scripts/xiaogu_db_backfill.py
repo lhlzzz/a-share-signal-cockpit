@@ -680,9 +680,17 @@ def _retry_payload_paths(target_date: str = ''):
     yield from sorted(live_root.glob('**/db_persistence_retry_payload.json'))
 
 
+def _summary_replay_paths(target_date: str = ''):
+    live_root = ROOT / 'data' / 'live_scan'
+    if target_date:
+        yield from sorted((live_root / target_date).glob('**/eastmoney_web_tabs_summary_runner.json'))
+        return
+    yield from sorted(live_root.glob('**/eastmoney_web_tabs_summary_runner.json'))
+
+
 def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = '', end_date: str = '', dry_run: bool = False) -> dict:
-    """Replay full runner persistence payloads through the live persistence owner."""
-    from xiaogu_forward_d1_1450_runner_v0_1 import persist_daily_candidate_snapshot
+    """Replay runner candidate snapshots through the live persistence owner."""
+    from xiaogu_forward_d1_1450_runner_v0_1 import _bundle_from_scan_summary, persist_daily_candidate_snapshot
 
     stats = {
         'payloads_found': 0,
@@ -693,7 +701,10 @@ def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = ''
         'errors': [],
         'details': [],
     }
-    for path in _retry_payload_paths(target_date):
+    replay_paths = [('payload', path) for path in _retry_payload_paths(target_date)]
+    if not replay_paths:
+        replay_paths = [('summary', path) for path in _summary_replay_paths(target_date)]
+    for source_kind, path in replay_paths:
         try:
             payload = json.loads(path.read_text(encoding='utf-8'))
         except Exception as exc:
@@ -703,7 +714,33 @@ def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = ''
         if not isinstance(payload, dict):
             stats['payloads_skipped'] += 1
             continue
-        trade_date = str(payload.get('date') or '')
+        if source_kind == 'summary':
+            trade_date = str(payload.get('source_time') or path.parent.parent.name)[:10]
+            bundle = _bundle_from_scan_summary(path, payload)
+            if not isinstance(bundle, dict) or not bundle.get('available'):
+                stats['payloads_skipped'] += 1
+                stats['details'].append({'path': str(path), 'date': trade_date, 'status': 'SKIP_UNAVAILABLE_SUMMARY', 'reason': bundle.get('reason') if isinstance(bundle, dict) else ''})
+                continue
+            picks = fetch_picks(_date.fromisoformat(trade_date))
+            official_pick = next(
+                (row for row in picks if row.get('decision') == 'PAPER_PICK' and str(row.get('symbol') or '').strip()),
+                None,
+            )
+            features = {'candidate_consumption_summary': {'official_result': {}}}
+            if official_pick:
+                features['candidate_consumption_summary']['official_result'] = {
+                    'symbol': str(official_pick.get('symbol') or '').zfill(6),
+                    'decision': official_pick.get('decision'),
+                    'source': 'picks',
+                }
+            decision = str((official_pick or {}).get('decision') or 'REPLAY_DAILY_CANDIDATES')
+            reason = 'replayed_from_scan_summary_with_db_pick' if official_pick else 'replayed_from_scan_summary'
+        else:
+            trade_date = str(payload.get('date') or '')
+            bundle = payload.get('bundle') if isinstance(payload.get('bundle'), dict) else {}
+            features = payload.get('features') if isinstance(payload.get('features'), dict) else {}
+            decision = str(payload.get('decision') or 'NO_PICK')
+            reason = str(payload.get('reason') or '')
         if not trade_date or not _is_valid_trade_date(trade_date):
             stats['payloads_skipped'] += 1
             continue
@@ -713,27 +750,26 @@ def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = ''
         if end_date and trade_date > end_date:
             stats['payloads_skipped'] += 1
             continue
-        bundle = payload.get('bundle') if isinstance(payload.get('bundle'), dict) else {}
-        features = payload.get('features') if isinstance(payload.get('features'), dict) else {}
-        if not isinstance(bundle.get('paper_scoring_candidates'), list):
+        candidate_rows = bundle.get('full_candidate_pool') or bundle.get('paper_scoring_candidates')
+        if not isinstance(candidate_rows, list):
             stats['payloads_skipped'] += 1
             stats['details'].append({'path': str(path), 'date': trade_date, 'status': 'SKIP_NO_CANDIDATES'})
             continue
         stats['payloads_found'] += 1
         if dry_run:
-            stats['details'].append({'path': str(path), 'date': trade_date, 'status': 'DRY_RUN', 'candidate_count': len(bundle.get('paper_scoring_candidates') or [])})
+            stats['details'].append({'path': str(path), 'date': trade_date, 'status': 'DRY_RUN', 'source_kind': source_kind, 'candidate_count': len(candidate_rows)})
             continue
         try:
             result = persist_daily_candidate_snapshot(
                 trade_date,
                 bundle,
                 features,
-                str(payload.get('decision') or 'NO_PICK'),
-                str(payload.get('reason') or ''),
+                decision,
+                reason,
             )
             stats['payloads_replayed'] += 1
             stats['written'] += int(result.get('written') or 0)
-            stats['details'].append({'path': str(path), 'date': trade_date, 'result': result})
+            stats['details'].append({'path': str(path), 'date': trade_date, 'source_kind': source_kind, 'result': result})
         except Exception as exc:
             stats['errors'].append({'path': str(path), 'date': trade_date, 'error': repr(exc)})
     return stats

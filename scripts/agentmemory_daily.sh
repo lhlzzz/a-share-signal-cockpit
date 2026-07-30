@@ -1,7 +1,7 @@
 #!/bin/bash
 # AgentMemory 日常使用脚本
 
-cd /workspace/hermes-workspaces/xiaogu
+cd "${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # 保存当前状态
 echo "保存当前状态..."

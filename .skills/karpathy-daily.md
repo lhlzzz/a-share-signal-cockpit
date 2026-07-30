@@ -57,3 +57,14 @@
 - ✅ AgentMemory 记忆管理
 - ✅ Codebase-Memory-MCP 代码索引
 - ✅ Understand-Anything 交叉验证
+
+## 任务启动挂钩（强制）
+
+1. 打开本文件 + `CLAUDE.md`（Karpathy 闸门）
+2. codebase-memory 主索引定位 → Understand-Anything 辅交叉验证
+3. 有歧义 → `plan-enforcer-discuss`（再 draft）
+4. 编码 / 验证
+5. 收口：`agentmemory__memory_save` + 必要时 Obsidian（A股 / 神临）
+
+完整顺序见 `AGENTS.md` → Development Cycle。
+

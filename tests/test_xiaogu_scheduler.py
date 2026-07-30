@@ -29,6 +29,7 @@ def test_morning_scan_runs_api_scanner_without_cdp(monkeypatch):
 
 
 def test_afternoon_scan_runs_api_scanner_before_runner(monkeypatch):
+    """Afternoon pick ownership is daily_pipeline.sh (scan+sszcw+runner+backfill+evolve)."""
     calls = []
     monkeypatch.setattr(scheduler, "is_trading_day", lambda: True)
     monkeypatch.setattr(
@@ -39,12 +40,51 @@ def test_afternoon_scan_runs_api_scanner_before_runner(monkeypatch):
 
     scheduler.job_afternoon_scan_and_pick()
 
-    assert [job_name for _, job_name in calls] == ["afternoon_scan", "afternoon_runner"]
-    scan_args, _ = calls[0]
-    assert scan_args[:2] == [scheduler.PYTHON, scheduler.API_SCANNER]
-    assert "--cdp-url" not in scan_args
-    assert "--open-required-cdp-tabs" not in scan_args
-    assert scan_args[scan_args.index("--output-dir") + 1].endswith("/eastmoney_scan_afternoon")
+    assert [job_name for _, job_name in calls] == ["afternoon_daily_pipeline"]
+    args, _ = calls[0]
+    assert args[:2] == ["bash", "daily_pipeline.sh"]
+    assert len(args) == 3  # bash daily_pipeline.sh YYYY-MM-DD
+
+
+def test_result_fill_uses_t1_validation_pipeline_for_pick_id_and_evolve(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler, "is_trading_day", lambda: True)
+    monkeypatch.setattr(
+        scheduler,
+        "previous_trading_day",
+        lambda d: d.__class__(2026, 7, 21),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "run_cmd",
+        lambda args, job_name: calls.append((args, job_name)) or 0,
+    )
+
+    scheduler.job_result_fill()
+
+    assert [job_name for _, job_name in calls] == ["result_fill", "t1_validation_and_self_evolve"]
+    t1_args, _ = calls[1]
+    assert t1_args[:2] == ["bash", "daily_pipeline.sh"]
+    assert "--manual-return-backfill" in t1_args
+    assert "--validate-on" in t1_args
+
+
+def test_signal_effectiveness_runs_safe_self_evolve_not_blind_apply_weights(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        scheduler,
+        "run_cmd",
+        lambda args, job_name: calls.append((args, job_name)) or 0,
+    )
+    monkeypatch.delenv("XIAOGU_WEIGHT_AUTO_TUNE_LEGACY", raising=False)
+
+    scheduler.job_signal_effectiveness()
+
+    assert [job_name for _, job_name in calls] == ["signal_effectiveness", "safe_self_evolve"]
+    evolve_args, _ = calls[1]
+    assert "scripts/xiaogu_safe_self_evolve.py" in evolve_args
+    assert "--apply-if-ready" in evolve_args
+    assert "--apply-weights" not in " ".join(str(a) for a in evolve_args)
 
 
 def test_scan_summary_paths_excludes_legacy_cdp_source(tmp_path, monkeypatch):
