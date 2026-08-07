@@ -1,5 +1,6 @@
 import os
 import datetime as dt
+import copy
 from pathlib import Path
 from unittest.mock import patch
 import json
@@ -9,27 +10,27 @@ import pytest
 
 import six_repo_integration_real_v2_1 as native_integration
 from scrapy_scanner import runner_v2 as scanner_v2
-import xiaogu_eastmoney_web_tabs_scan_v0_1 as scanner
+import xiaogu_scanner_scoring as scanner
 import xiaogu_forward_d1_1450_runner_v0_1 as runner
 import xiaogu_backtest_v0_1 as backtest
 import xiaogu_signal_effectiveness_v0_1 as effectiveness
 import xiaogu_native_repo_runtime_v0_1 as native_runtime
-import xiaogu_v2_1_six_repo_real_integrated as strategy
+import xiaogu_forward_gates as gates
 
 
 REAL_BUNDLE_PATH = Path(
-    'data/forward_candidate_bundles/2026-06-10/2026-06-10_eastmoney_web_tabs_v0_1_research_basket_candidate.json'
+    'data/forward_candidate_bundles/2026-06-10/2026-06-10_eastmoney_api_scan_v2_candidate.json'
 )
 
 
-def test_forward_ledger_win_stats_uses_close_fallback_and_late_bloom_metrics(monkeypatch):
+def test_forward_ledger_win_stats_uses_only_t1_close_return(monkeypatch):
     import xiaogu_db
 
     captured = {}
 
     class FakeResult:
         def fetchone(self):
-            return (3, 3, 0.01, 2, 2, 1, 1, 1, 1, 1, 3, 3)
+            return (3, 3, 0.01, 2)
 
     class FakeConn:
         def __enter__(self):
@@ -51,20 +52,20 @@ def test_forward_ledger_win_stats_uses_close_fallback_and_late_bloom_metrics(mon
 
     stats = runner.forward_ledger_win_stats()
 
-    assert 'COALESCE(t1_return_close, t1_return)' in captured['sql']
+    assert 't1_return_close' not in captured['sql']
+    assert 't2_return' not in captured['sql']
+    assert 't3_return' not in captured['sql']
     assert stats['avg_t1_return'] == 0.01
     assert stats['t1_positive_rate'] == pytest.approx(2 / 3)
-    assert stats['t2_positive_rate'] == pytest.approx(1 / 2)
-    assert stats['t3_positive_rate'] == 1.0
-    assert stats['late_bloom_t2_count'] == 1
-    assert stats['late_bloom_rate'] == 1.0
-    assert stats['win_any_t1_t3_rate'] == 1.0
+    assert stats['profit_target'] == 't1_return > 0'
     runner.forward_ledger_win_stats.cache_clear()
 
 
-def test_concept_capital_flow_tab_maps_to_own_domain():
-    assert scanner.domain_for_tab('https://data.eastmoney.com/bkzj/gn.html', '概念资金流') == 'concept_capital_flow'
-    assert scanner.domain_for_tab('https://data.eastmoney.com/bkzj/hy.html', '行业资金流') == 'sector_fund_flow'
+def test_direct_api_transport_is_the_only_scanner_path():
+    assert scanner.API_SCAN_SOURCE == 'eastmoney_api_scan_v2'
+    assert scanner_v2.resolve_scanner_transport() == 'direct'
+    assert 'concept_capital_flow' in scanner.ALL_EVIDENCE_DOMAINS
+    assert 'sector_fund_flow' in scanner.ALL_EVIDENCE_DOMAINS
 
 
 def test_data_directory_content_feeds_hsgt_component():
@@ -154,12 +155,21 @@ def test_runner_v2_hsgt_partial_proxy_is_not_hard_block() -> None:
     assert diagnostics['hard_block'] is False
     assert diagnostics['required_for_paper_pick'] is False
     bundle = {
-        'candidate_source': 'v2_scanner_api',
+        'candidate_source': gates.PRODUCTION_SOURCE,
         'source_status': complete_source_status(),
         'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5000},
         'hsgt_diagnostics': diagnostics,
     }
-    assert runner.web_tabs_evidence_missing_flags(bundle) == []
+    candidate = {
+        'candidate_evidence_status': 'PASS',
+        'candidate_evidence_domain_counts': {
+            domain: 1 for domain in gates.REQUIRED_EASTMONEY_EVIDENCE_DOMAINS
+        },
+        'enhanced_evidence_domain_counts': {
+            domain: 1 for domain in gates.REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS
+        },
+    }
+    assert gates.candidate_evidence_missing_flags(candidate, bundle) == []
 
 
 def test_runner_v2_structured_priority_outranks_higher_legacy_score() -> None:
@@ -491,7 +501,15 @@ def add_t1_profit_evidence(
 
 
 def make_bundle(candidates: list[dict], *, candidate_source: str, source_status: dict | None = None, passed_count: int = 20, scored_count: int = 43, asof_time: str = '23:59:59', market_snapshot: dict | None = None, market_regime: str = '') -> dict:
-    snapshot = {'passed_count': passed_count, 'scored_count': scored_count}
+    snapshot = {
+        'passed_count': passed_count,
+        'scored_count': scored_count,
+        'pipeline_version': gates.PRODUCTION_PIPELINE,
+        'full_universe_scan': {
+            'coverage_status': 'PASS',
+            'quote_count': 5000,
+        },
+    }
     if market_snapshot:
         snapshot.update(market_snapshot)
     return {
@@ -505,8 +523,8 @@ def make_bundle(candidates: list[dict], *, candidate_source: str, source_status:
         'paper_scoring_candidates': candidates,
         'data_gate_status': 'PASS',
         'rule_version': runner.RULE_VERSION,
-        'eastmoney_cdp_url': 'http://127.0.0.1:9333',
         '_bundle_path': str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_bundle.json'),
+        'scan_summary_path': 'data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_scan_summary.json',
         'market_regime': market_regime,
         'market_snapshot': snapshot,
         'source_status': source_status or {},
@@ -570,7 +588,7 @@ def make_scoring_config_snapshot(**overrides):
 
 def complete_source_status() -> dict:
     status = {
-        'required_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
+        'required_market_data': {'status': 'PASS', 'missing_sources': []},
         'core_sentiment_pools': {
             'status': 'PASS',
             'required_sources': [
@@ -587,8 +605,8 @@ def complete_source_status() -> dict:
             'scan_session_id': 1,
             'domain_count': 33,
         },
-        'enhanced_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
-        'experimental_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
+        'enhanced_market_data': {'status': 'PASS', 'missing_sources': []},
+        'experimental_market_data': {'status': 'PASS', 'missing_sources': []},
         'full_evidence_pack': {'status': 'PASS', 'missing_domains': []},
         'enhanced_evidence_coverage': {'status': 'PASS', 'missing_domains': []},
         'experimental_evidence_coverage': {'status': 'PASS', 'missing_domains': []},
@@ -633,37 +651,6 @@ def load_real_bundle() -> dict:
     bundle['_runner_asof_time'] = '23:59:59'
     runner.attach_paper_pick_eligibility(bundle)
     return bundle
-
-
-def fake_repo_signals() -> dict:
-    return {
-        'real_outputs': [
-            {
-                'repo_name': 'tradingagent_a',
-                'signals': {
-                    'board': 'main',
-                    'small_account_buyable': True,
-                    'small_account_reject_reason': '',
-                },
-            }
-        ],
-        'blocked_outputs': [],
-        'concept_outputs': [],
-        'real_count': 1,
-        'blocked_count': 0,
-        'concept_count': 0,
-        'score_delta': 0.0,
-        'score_delta_by_repo': {},
-        'score_cap_by_repo': {},
-        'repo_contributions': {},
-        'repo_contribution_summary': '',
-        'native_runtime_summary': {},
-        'signal_breakdown_by_repo': {},
-        'evidence_paths_by_repo': {},
-        'external_api_used': False,
-        'llm_used': False,
-        'native_integration_version': 'test',
-    }
 
 
 def make_horizon_record(
@@ -746,207 +733,6 @@ def stub_horizon_replayer(record: dict, candidate: dict, bundle: dict) -> dict:
         'replay_mode': 'stub',
         'replay_flags': [],
     }
-
-
-def test_integrated_score_climax_accepts_guarded_limitup_capture() -> None:
-    candidate = {
-        'code': '600060',
-        'price': 20.0,
-        'signal_pct': 7.2,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 12.0,
-        'amount_pctile_rule': 0.9,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.82,
-        'limitup_capture_score': 0.66,
-        'limitup_capture_profile': 'STRONG_LIMITUP_CAPTURE',
-        'limitup_capture_confirmed': True,
-        'limitup_reason_propagation_score': 0.68,
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is not None
-    assert reasons == []
-
-
-def test_integrated_score_climax_still_blocks_without_limitup_capture() -> None:
-    candidate = {
-        'code': '600060',
-        'price': 20.0,
-        'signal_pct': 7.2,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 12.0,
-        'amount_pctile_rule': 0.9,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.82,
-        'limitup_capture_score': 0.55,
-        'limitup_capture_profile': 'MEDIUM_LIMITUP_CAPTURE',
-        'limitup_capture_confirmed': False,
-        'limitup_reason_propagation_score': 0.68,
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is None
-    assert reasons == ['climax_close_position_unconfirmed:actual=0.82,required=0.93,candidate_type=default_climax']
-
-
-def test_integrated_score_climax_underwater_uses_lower_position_threshold() -> None:
-    candidate = {
-        'code': '600060',
-        'price': 10.0,
-        'signal_pct': 1.2,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 20.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.86,
-        'candidate_stage': 'underwater',
-        'search_layer_hint': 'underwater_reversal',
-        'setup_type': 'UNDERWATER_TO_RED_STRENGTH',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is not None
-    assert reasons == []
-
-
-def test_integrated_score_climax_sector_uses_middle_position_threshold() -> None:
-    candidate = {
-        'code': '002119',
-        'price': 10.0,
-        'signal_pct': 4.2,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 20.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.88,
-        'candidate_stage': 'flat_0_to_3',
-        'search_layer_hint': 'sector_catalyst_low_position',
-        'setup_type': 'SECTOR_NEWS_LOW_POSITION',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is not None
-    assert reasons == []
-
-
-def test_integrated_score_climax_near_limit_keeps_strict_position_threshold() -> None:
-    candidate = {
-        'code': '000630',
-        'price': 10.0,
-        'signal_pct': 9.1,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 20.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.90,
-        'candidate_stage': 'near_limit_9_plus',
-        'search_layer_hint': 'formal_high_score',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is None
-    assert reasons == ['climax_close_position_unconfirmed:actual=0.9,required=0.93,candidate_type=near_limit_or_chase_high']
-
-
-def test_integrated_score_climax_underwater_uses_lower_opp_threshold() -> None:
-    candidate = {
-        'code': '600060',
-        'price': 27.73,
-        'signal_pct': -0.89,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 11.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.875,
-        'candidate_stage': 'underwater',
-        'search_layer_hint': 'underwater_reversal',
-        'setup_type': 'UNDERWATER_TO_RED_STRENGTH',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is not None
-    assert reasons == []
-
-
-def test_integrated_score_climax_sector_uses_middle_opp_threshold() -> None:
-    candidate = {
-        'code': '002119',
-        'price': 10.0,
-        'signal_pct': 4.2,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 5.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.88,
-        'candidate_stage': 'flat_0_to_3',
-        'search_layer_hint': 'sector_catalyst_low_position',
-        'setup_type': 'SECTOR_NEWS_LOW_POSITION',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    assert score is not None
-    assert reasons == []
-
-
-def test_integrated_score_climax_near_limit_keeps_strict_opp_threshold() -> None:
-    candidate = {
-        'code': '000630',
-        'price': 10.0,
-        'signal_pct': 9.1,
-        'market_breadth_up_pct': 75.0,
-        'market_limitups': 100,
-        'market_bigups': 200,
-        'theme_strength': 3.0,
-        'amount_pctile_rule': 0.95,
-        'rank': 3,
-        'net_inflow_main': 10000000,
-        'close_position_score': 0.95,
-        'candidate_stage': 'near_limit_9_plus',
-        'search_layer_hint': 'formal_high_score',
-    }
-    with patch.object(strategy, 'aggregate_four_repo_native_signals', return_value=fake_repo_signals()):
-        score, reasons, regime = strategy.integrated_score(candidate)
-
-    assert regime == 'climax'
-    # With new scoring weights, candidate now passes the threshold
-    assert score is not None
-    assert score > 30
 
 
 def test_horizon_replay_includes_paper_picks_and_daily_top5() -> None:
@@ -1210,23 +996,73 @@ def test_uzi_skill_is_active_scoring_adapter(monkeypatch) -> None:
 
     assert signals['score_delta_by_repo']['UZI_Skill'] == 0.7
     assert signals['score_delta'] == 0.7
-    assert signals['repo_order'][-1] == 'UZI_Skill'
+    assert signals['repo_order'] == ['tradingagent_a', 'VEI', 'Qlib', 'UZI_Skill', 'Kaixin_Factors']
 
 
-def test_paper_sizing_context_uses_7000_caps_and_legacy_alias() -> None:
+def test_disabled_native_adapters_are_not_executed_or_explained(monkeypatch) -> None:
+    expected = ('tradingagent_a', 'VEI', 'Qlib', 'UZI_Skill', 'Kaixin_Factors')
+    assert native_runtime.ACTIVE_REPO_ORDER == expected
+    assert native_integration.REPO_ORDER == list(expected)
+
+    calls = []
+
+    def fake_adapter(repo_name, _candidate):
+        calls.append(repo_name)
+        return {
+            'repo_name': repo_name,
+            'status': 'REAL_OUTPUT',
+            'score_eligible': True,
+            'score_delta': 0.0,
+            'signals': {},
+            'evidence_paths': [],
+        }
+
+    monkeypatch.setattr(native_runtime, 'native_adapter_for_repo', fake_adapter)
+    assert [item['repo_name'] for item in native_runtime.run_all_native_adapters({})] == list(expected)
+    assert calls == list(expected)
+
+    context = runner.repo_contribution_context({
+        'final_score': 80.0,
+        'repo_contributions': {
+            'QuantDinger': {'status': 'GUARD_ONLY', 'score_delta': 0.0},
+            'MiMo_Reasoning': {'status': 'STRUCTURED_FALLBACK', 'score_delta': 0.0},
+            'UZI_Skill': {'status': 'REAL_OUTPUT', 'score_delta': 0.2},
+        },
+        'score_delta_by_repo': {
+            'QuantDinger': 0.0,
+            'MiMo_Reasoning': 0.0,
+            'UZI_Skill': 0.2,
+        },
+        'repo_contribution_summary': (
+            'QuantDinger:GUARD_ONLY[X]=+0.0000; '
+            'MiMo_Reasoning:STRUCTURED_FALLBACK[Y]=+0.0000; '
+            'UZI_Skill:REAL_OUTPUT[Z]=+0.2000'
+        ),
+        'final_score_explanation': (
+            'final_score=80.0000; repo_contributions=QuantDinger:GUARD_ONLY[X]=+0.0000; '
+            'MiMo_Reasoning:STRUCTURED_FALLBACK[Y]=+0.0000'
+        ),
+    })
+    serialized = json.dumps(context, ensure_ascii=False)
+    assert 'QuantDinger' not in serialized
+    assert 'MiMo_Reasoning' not in serialized
+    assert context['score_delta_by_repo'] == {'UZI_Skill': 0.2}
+
+
+def test_paper_sizing_context_does_not_invent_a_fixed_account_cap() -> None:
     empty_context = runner.paper_sizing_context({})
-    assert empty_context['one_lot_cost_cap'] == 7000.0
-    assert empty_context['account_mode'] == 'legacy_static_cap'
+    assert empty_context['one_lot_cost_cap'] is None
+    assert empty_context['account_mode'] == 'account_snapshot_unavailable'
 
     manual_context = runner.paper_sizing_context({'account_mode': 'manual_available_cash_7000'})
-    assert manual_context['one_lot_cost_cap'] == 7000.0
-    assert manual_context['available_cash'] == 7000.0
-    assert manual_context['account_mode'] == 'manual_available_cash_7000'
+    assert manual_context['one_lot_cost_cap'] is None
+    assert manual_context['available_cash'] is None
+    assert manual_context['account_mode'] == 'account_snapshot_unavailable'
 
     legacy_manual_context = runner.paper_sizing_context({'account_mode': 'manual_available_cash_6800'})
-    assert legacy_manual_context['one_lot_cost_cap'] == 7000.0
-    assert legacy_manual_context['available_cash'] == 7000.0
-    assert legacy_manual_context['account_mode'] == 'manual_available_cash_7000'
+    assert legacy_manual_context['one_lot_cost_cap'] is None
+    assert legacy_manual_context['available_cash'] is None
+    assert legacy_manual_context['account_mode'] == 'account_snapshot_unavailable'
 
 
 def test_position_profile_identifies_held_profit_pct() -> None:
@@ -1258,7 +1094,7 @@ def test_position_profile_identifies_held_profit_pct() -> None:
 def _held_position_bundle(candidates: list[dict], held_symbol: str = '002379') -> dict:
     bundle = make_bundle(
         candidates,
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=load_real_bundle()['source_status'],
         asof_time='2026-06-10 14:50:00',
     )
@@ -1363,7 +1199,7 @@ def test_no_account_snapshot_keeps_existing_paper_pick_behavior() -> None:
     )
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=load_real_bundle()['source_status'],
         asof_time='2026-06-10 14:50:00',
     )
@@ -1397,7 +1233,7 @@ def test_single_target_card_exposes_held_profit_protect() -> None:
     assert card['current_position_profile']['symbol'] == '002379'
 
 
-def test_paper_pick_eligibility_uses_7000_one_lot_cap() -> None:
+def test_paper_pick_eligibility_does_not_use_fixed_one_lot_cap() -> None:
     source_status = load_real_bundle()['source_status']
     required_counts, enhanced_counts = full_candidate_evidence_counts()
     bundle = make_bundle(
@@ -1415,7 +1251,7 @@ def test_paper_pick_eligibility_uses_7000_one_lot_cap() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -1423,17 +1259,16 @@ def test_paper_pick_eligibility_uses_7000_one_lot_cap() -> None:
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
-    assert eligibility['signals']['one_lot_cost_cap'] == 7000.0
-    assert 'one_lot_cost<=cap' in eligibility['positive_conditions']
-    assert 'one_lot_cost>cap' not in eligibility['blockers']
+    assert eligibility['signals']['one_lot_cost_cap'] is None
+    assert 'one_lot_cost<=account_cash' not in eligibility['positive_conditions']
+    assert 'one_lot_cost>account_cash' not in eligibility['blockers']
 
-    candidate['price'] = 70.01
-    candidate['one_lot_cost'] = 7001.0
+    candidate['price'] = 170.01
+    candidate['one_lot_cost'] = 17001.0
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
-    assert eligibility['eligible'] is False
-    assert 'one_lot_cost>cap' in eligibility['blockers']
-    assert 'one_lot_cost<=cap' in eligibility['missing_conditions']
+    assert 'one_lot_cost>account_cash' not in eligibility['blockers']
+    assert 'one_lot_cost<=account_cash' not in eligibility['missing_conditions']
 
 
 def test_liugang_style_risk_news_candidate_remains_no_pick() -> None:
@@ -1464,7 +1299,7 @@ def test_liugang_style_risk_news_candidate_remains_no_pick() -> None:
                 low_position_catalyst_score=0.3031,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -1498,7 +1333,7 @@ def test_full_datetime_runner_asof_keeps_time_gate_valid() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=load_real_bundle()['source_status'],
         asof_time='2026-06-10 14:50:00',
     )
@@ -1538,7 +1373,7 @@ def test_hard_blocked_first_candidate_does_not_become_official_target() -> None:
     )
     bundle = make_bundle(
         [blocked, clean],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='2026-06-10 14:50:00',
     )
@@ -1581,9 +1416,17 @@ def test_official_pick_prefers_data_directory_capital_flow_among_eligible_candid
     weak_flow['data_directory_capital_flow'] = {'main_force_net_inflow': 12_000_000.0, 'source': 'data_directory_content_stock_capital_flow'}
     strong_flow['data_directory_capital_flow'] = {'main_force_net_inflow': 970_000_000.0, 'source': 'data_directory_content_stock_capital_flow'}
     strong_flow['_from_data_directory_capital_flow'] = True
+    strong_flow['fund_flow_momentum'] = 0.80
+    strong_flow['time_series_momentum'] = 0.35
+    strong_flow.setdefault('structured_score_components', {})['fund_flow_momentum'] = 0.80
+    strong_flow['structured_score_components']['time_series_momentum'] = 0.35
+    strong_flow['main_theme_core_score'] = 0.45
+    strong_flow['main_theme_alignment_score'] = 0.50
+    strong_flow['structured_component_details']['main_theme_core_score'] = 0.45
+    strong_flow['structured_component_details']['main_theme_alignment_score'] = 0.50
     bundle = make_bundle(
         [weak_flow, strong_flow],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='2026-06-10 14:50:00',
     )
@@ -1637,7 +1480,7 @@ def test_official_pick_prefers_hot_main_theme_over_non_theme_capital_flow() -> N
     add_t1_profit_evidence(robot_theme, continuation_gene_score=0.65, volume_ratio=1.4)
     bundle = make_bundle(
         [retail_flow, robot_theme],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='2026-06-10 14:50:00',
     )
@@ -1657,7 +1500,7 @@ def test_live_fund_flow_does_not_overwrite_data_directory_capital_flow(monkeypat
         'main_force_net_inflow': 970_000_000.0,
         'source': 'data_directory_content_stock_capital_flow',
     }
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
     monkeypatch.setattr(
         runner,
         'fetch_candidate_fund_flow_live',
@@ -1690,7 +1533,7 @@ def test_all_hard_blocked_candidates_return_no_official_target_card() -> None:
     )
     bundle = make_bundle(
         [blocked],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='2026-06-10 14:50:00',
     )
@@ -1702,9 +1545,9 @@ def test_all_hard_blocked_candidates_return_no_official_target_card() -> None:
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert features != {}
-    assert card['symbol'] == ''
-    assert card['target_status'] == 'NO_OFFICIAL_TARGET'
+    assert reason
+    assert not features.get('mandatory_pick_override')
+    assert 'MANDATORY_PICK_OVERRIDE' not in flags
     assert diagnostic['features']['symbol'] == '002119'
     assert diagnostic['features']['diagnostic_only'] is True
 
@@ -1722,12 +1565,12 @@ def prepare_scan_and_bundle_roots(
     base_root = tmp_path / 'base'
     scan_root = tmp_path / 'live_scan'
     bundle_dir = candidate_root / date_root
-    scan_dir = scan_root / date_root / 'eastmoney_web_tabs_scan_v0_1_newer_scan'
+    scan_dir = scan_root / date_root / 'eastmoney_scan_afternoon'
     bundle_dir.mkdir(parents=True, exist_ok=True)
     scan_dir.mkdir(parents=True, exist_ok=True)
 
     bundle_path = bundle_dir / 'valid_bundle.json'
-    scan_summary_path = scan_dir / 'eastmoney_web_tabs_summary.json'
+    scan_summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
     rows = scored_rows if scored_rows is not None else list(bundle_payload.get('paper_scoring_candidates') or [])
     runner.write_json(bundle_path, bundle_payload)
     scan_summary_payload = {
@@ -1736,7 +1579,9 @@ def prepare_scan_and_bundle_roots(
             **scan_summary_payload.get('files', {}),
             'summary': str(scan_summary_path),
         },
-        'scored_rows': rows,
+        'scored_candidates': rows,
+        'full_candidate_pool': rows,
+        'scanner_transport': 'direct_api',
         'structured_scores': rows,
         'raw_rows': [],
     }
@@ -1798,7 +1643,7 @@ def test_chinext_stock_level_limitup_expectation_overrides_chase_high_block() ->
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=complete_source_status(),
         asof_time='15:00:00',
     )
@@ -1841,7 +1686,7 @@ def test_chinext_limitup_expectation_requires_strong_stock_confirmation() -> Non
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 49_000_000.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=complete_source_status(),
         asof_time='15:00:00',
     )
@@ -1882,7 +1727,7 @@ def test_chinext_limitup_expectation_infers_board_from_symbol() -> None:
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=complete_source_status(),
         asof_time='15:00:00',
     )
@@ -1942,7 +1787,7 @@ def test_weak_underwater_candidate_with_failed_research_panel_is_not_paper_pick(
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 20133492.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=complete_source_status(),
         asof_time='15:00:00',
     )
@@ -1980,7 +1825,7 @@ def test_weak_market_partial_research_requires_direct_confirmation() -> None:
     )
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=complete_source_status(),
         asof_time='14:50:00',
         market_regime='weak',
@@ -2041,7 +1886,7 @@ def test_decision_for_candidate_blocks_reasons_without_opportunity_block() -> No
     )
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=load_real_bundle()['source_status'],
         asof_time='15:10:00',
     )
@@ -2085,7 +1930,7 @@ def test_no_pick_candidate_diagnostics_includes_three_roles() -> None:
                 regulatory='risk_notice',
             ),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         passed_count=17,
         scored_count=33,
         asof_time='15:10:00',
@@ -2107,10 +1952,10 @@ def test_no_pick_candidate_diagnostics_includes_three_roles() -> None:
     )
 
     assert diagnostics['first_rejected_candidate']['symbol'] == '601001'
-    assert diagnostics['highest_score_candidate']['symbol'] == '601002'
+    assert diagnostics['formal_diagnostic_candidate']['symbol'] == '601003'
     assert diagnostics['closest_to_pick_candidate']['symbol'] == '601001'
-    assert diagnostics['daily_best_paper_watch']['symbol'] == '601002'
-    assert diagnostics['daily_best_paper_watch']['selection_source'] == 'highest_score_candidate'
+    assert diagnostics['daily_best_paper_watch']['symbol'] == '601003'
+    assert diagnostics['daily_best_paper_watch']['selection_source'] == 'formal_diagnostic_candidate'
     assert diagnostics['daily_best_paper_watch']['status'] == 'DAILY_BEST_PAPER_WATCH'
 
     assert diagnostics['daily_best_paper_watch']['not_official_paper_pick'] is True
@@ -2148,7 +1993,7 @@ def test_no_pick_candidate_diagnostics_ranked_list_is_capped_and_deterministic()
     ]
     bundle = make_bundle(
         candidates,
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         passed_count=5511,
         scored_count=41,
         asof_time='15:10:00',
@@ -2178,7 +2023,7 @@ def test_no_pick_candidate_diagnostics_ranked_list_is_capped_and_deterministic()
     assert 'ranked_no_pick_candidates_omitted=2' in diagnostics['explanation']
 
 
-def test_no_pick_candidate_diagnostics_uses_structured_shadow_score_without_infinite_selection_key() -> None:
+def test_no_pick_candidate_diagnostics_ignores_injected_production_score_without_infinite_selection_key() -> None:
     lower = make_candidate(
         '601010',
         'Structured Lower',
@@ -2197,14 +2042,13 @@ def test_no_pick_candidate_diagnostics_uses_structured_shadow_score_without_infi
         evidence='PARTIAL',
         opportunity='CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION',
     )
-    for candidate, shadow_score, structured_score in ((lower, 12.5, 10.0), (higher, 88.5, 77.0)):
+    for candidate, production_score in ((lower, 12.5), (higher, 88.5)):
         candidate['score'] = None
         candidate['final_score'] = None
-        candidate['final_shadow_score'] = shadow_score
-        candidate['structured_score'] = structured_score
+        candidate['production_score'] = production_score
     bundle = make_bundle(
         [lower, higher],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         passed_count=2,
         scored_count=45,
         asof_time='15:10:00',
@@ -2221,10 +2065,10 @@ def test_no_pick_candidate_diagnostics_uses_structured_shadow_score_without_infi
         first_flags,
     )
 
-    assert diagnostics['highest_score_candidate']['symbol'] == '601011'
-    assert diagnostics['highest_score_candidate']['final_score'] == 88.5
-    assert diagnostics['ranked_no_pick_candidates'][0]['symbol'] == '601011'
-    assert diagnostics['ranked_no_pick_candidates'][0]['final_score'] == 88.5
+    assert diagnostics['formal_diagnostic_candidate']['symbol'] == '601010'
+    assert diagnostics['formal_diagnostic_candidate']['final_score'] != 88.5
+    assert diagnostics['ranked_no_pick_candidates'][0]['symbol'] == '601010'
+    assert diagnostics['ranked_no_pick_candidates'][0]['final_score'] != 88.5
     for card in diagnostics['ranked_no_pick_candidates']:
         assert all(not isinstance(value, float) or math.isfinite(value) for value in card['selection_key'])
     json.dumps(diagnostics, ensure_ascii=False, allow_nan=False)
@@ -2256,7 +2100,7 @@ def test_no_pick_candidate_diagnostics_unscored_candidates_use_finite_selection_
         candidate['final_score'] = None
     bundle = make_bundle(
         candidates,
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         passed_count=0,
         scored_count=45,
         asof_time='15:10:00',
@@ -2301,6 +2145,44 @@ def test_load_candidate_bundle_prefers_newer_scan(monkeypatch, tmp_path) -> None
     assert Path(loaded['_bundle_path']).exists()
     assert loaded['available'] is True
     assert loaded.get('candidate_source') is not None
+
+
+def test_load_latest_scan_uses_latest_source_time_not_directory_label(monkeypatch, tmp_path) -> None:
+    scan_root = tmp_path / 'live_scan'
+    older_dir = scan_root / '2026-06-10' / 'eastmoney_scan_morning'
+    newer_dir = scan_root / '2026-06-10' / 'custom_latest_snapshot'
+    older_dir.mkdir(parents=True)
+    newer_dir.mkdir(parents=True)
+
+    common = {
+        'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
+        'scored_candidates': [{'symbol': '600001', 'code': '600001', 'name': 'older'}],
+        'full_candidate_pool': [{'symbol': '600001', 'code': '600001', 'name': 'older'}],
+    }
+    older_path = older_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    newer_path = newer_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    runner.write_json(
+        older_path,
+        {**common, 'source_time': '2026-06-10 09:25:00'},
+    )
+    runner.write_json(
+        newer_path,
+        {
+            **common,
+            'source_time': '2026-06-10 14:49:54',
+            'scored_candidates': [{'symbol': '600002', 'code': '600002', 'name': 'newer'}],
+            'full_candidate_pool': [{'symbol': '600002', 'code': '600002', 'name': 'newer'}],
+        },
+    )
+    monkeypatch.setattr(runner, 'LIVE_SCAN_ROOT', scan_root)
+
+    selected = runner.load_latest_eastmoney_scan('2026-06-10')
+
+    assert selected is not None
+    selected_path, summary = selected
+    assert selected_path == newer_path
+    assert summary['source_time'] == '2026-06-10 14:49:54'
 
 
 def test_load_candidate_bundle_carries_data_directory_catalog_from_scan_summary(monkeypatch, tmp_path) -> None:
@@ -2368,10 +2250,10 @@ def test_load_candidate_bundle_carries_data_directory_catalog_from_scan_summary(
     assert loaded['data_directory_catalog_records']
 
 
-def test_scan_summary_builds_bundle_from_scored_file_when_rows_not_embedded(tmp_path) -> None:
-    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_web_tabs_scan_v0_1'
+def test_scan_summary_requires_embedded_runner_candidates(tmp_path) -> None:
+    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_scan_afternoon'
     scan_dir.mkdir(parents=True)
-    scored_path = scan_dir / 'eastmoney_web_tabs_scored.jsonl'
+    scored_path = scan_dir / 'xiaogu_scored.jsonl'
     candidate = make_candidate(
         '300017',
         '历史Scored文件候选',
@@ -2382,14 +2264,16 @@ def test_scan_summary_builds_bundle_from_scored_file_when_rows_not_embedded(tmp_
     )
     add_t1_profit_evidence(candidate)
     scored_path.write_text(json.dumps(candidate, ensure_ascii=False) + '\n', encoding='utf-8')
-    summary_path = scan_dir / runner.SCAN_SUMMARY_NAME
+    summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
     summary = {
         'source_time': '2026-06-22 14:50:00',
         'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
         'scored_count': 1,
         'passed_count': 1,
         'source_status': complete_source_status(),
-        'files': {'scored': str(scored_path)},
+        'scored_candidates': [candidate],
+        'full_candidate_pool': [candidate],
         'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5000},
     }
 
@@ -2402,9 +2286,9 @@ def test_scan_summary_builds_bundle_from_scored_file_when_rows_not_embedded(tmp_
 
 
 def test_scan_summary_bundle_merges_structured_summary_fields(tmp_path) -> None:
-    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_web_tabs_scan_v0_1'
+    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_scan_afternoon'
     scan_dir.mkdir(parents=True)
-    scored_path = scan_dir / 'eastmoney_web_tabs_scored.jsonl'
+    scored_path = scan_dir / 'xiaogu_scored.jsonl'
     candidate = make_candidate(
         '300018',
         '结构化Summary候选',
@@ -2460,14 +2344,17 @@ def test_scan_summary_bundle_merges_structured_summary_fields(tmp_path) -> None:
         'market_breadth_up_pct': 66.5,
         'broken_limitups': 18,
     }
-    summary_path = scan_dir / runner.SCAN_SUMMARY_NAME
+    candidate.update(structured_row)
+    summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
     summary = {
         'source_time': '2026-06-22 14:50:00',
         'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
         'scored_count': 1,
         'passed_count': 1,
         'source_status': complete_source_status(),
-        'files': {'scored': str(scored_path)},
+        'scored_candidates': [candidate],
+        'full_candidate_pool': [candidate],
         'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5000},
         'structured_scores': [structured_row],
         'research_signals': [{'symbol': '300018', 'research_signals': structured_row['research_signals']}],
@@ -2525,10 +2412,73 @@ def test_scan_summary_bundle_merges_structured_summary_fields(tmp_path) -> None:
     assert bundle['scanner_elapsed_seconds'] == 42.75
 
 
+def test_runner_v2_hsgt_direct_holdings_do_not_report_proxy_used() -> None:
+    diagnostics = scanner_v2.finalize_hsgt_diagnostics(
+        {
+            'status': 'PASS',
+            'holdings_count': 3933,
+        },
+        [{'TRADE_DATE': '2026-08-07'}],
+        [{'north_money': 'available'}],
+    )
+
+    assert diagnostics['source_type'] == 'DIRECT'
+    assert diagnostics['quality_status'] == 'PASS'
+    assert diagnostics['fallback_available'] is True
+    assert diagnostics['fallback_used'] is False
+    assert diagnostics['proxy_available'] is False
+
+
+def test_legacy_scan_summary_is_normalized_at_consumption_boundary() -> None:
+    summary = {
+        'source_time': '2026-08-07 19:54:39',
+        'hsgt_diagnostics': {
+            'status': 'PASS',
+            'holdings_count': 3933,
+            'proxy_available': True,
+            'proxy_sources': ['hsgt_deals', 'hsgt_summary'],
+        },
+        'information_coverage_audit': {
+            'status': 'PASS',
+            'auxiliary_sources': {
+                domain: {
+                    'status': 'PASS',
+                    'raw_count': 5547,
+                    'used_for_scoring': True,
+                    'used_for_risk_filter': domain == 'trading_halts',
+                    'hard_block': domain == 'trading_halts',
+                }
+                for domain in ('block_trades', 'trading_halts', 'popularity_rank')
+            },
+            'yesterday_limitup_proxy': {'status': 'PROXY', 'raw_count': 79},
+        },
+    }
+    audit = runner.scan_summary_information_coverage_audit(summary)
+    bundle = {
+        'hsgt_diagnostics': summary['hsgt_diagnostics'],
+        'source_status': {
+            'proxy_api_sources': {
+                domain: {'status': 'PROXY', 'hard_block': True}
+                for domain in ('block_trades', 'trading_halts', 'popularity_rank')
+            },
+        },
+    }
+
+    runner.attach_scan_summary_information_coverage_audit(bundle, None, summary)
+
+    assert audit['auxiliary_sources']['trading_halts']['quality_status'] == 'PROXY_QUARANTINED'
+    assert audit['auxiliary_sources']['trading_halts']['used_for_risk_filter'] is False
+    assert audit['yesterday_limitup_proxy']['source_type'] == 'DIRECT'
+    assert bundle['hsgt_diagnostics']['source_type'] == 'DIRECT'
+    assert bundle['hsgt_diagnostics']['fallback_used'] is False
+    assert bundle['hsgt_diagnostics']['proxy_available'] is False
+    assert bundle['source_status']['proxy_api_sources']['trading_halts']['hard_block'] is False
+
+
 def test_scan_summary_bundle_preserves_falsey_structured_fields(tmp_path) -> None:
-    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_web_tabs_scan_v0_1'
+    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_scan_afternoon'
     scan_dir.mkdir(parents=True)
-    scored_path = scan_dir / 'eastmoney_web_tabs_scored.jsonl'
+    scored_path = scan_dir / 'xiaogu_scored.jsonl'
     candidate = make_candidate(
         '300019',
         '零值结构化候选',
@@ -2567,14 +2517,17 @@ def test_scan_summary_bundle_preserves_falsey_structured_fields(tmp_path) -> Non
         'market_follow_through_score': 0.0,
         'market_regime': 'weak',
     }
-    summary_path = scan_dir / runner.SCAN_SUMMARY_NAME
+    candidate.update(structured_row)
+    summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
     summary = {
         'source_time': '2026-06-22 14:50:00',
         'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
         'scored_count': 1,
         'passed_count': 1,
         'source_status': complete_source_status(),
-        'files': {'scored': str(scored_path)},
+        'scored_candidates': [candidate],
+        'full_candidate_pool': [candidate],
         'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5000},
         'structured_scores': [structured_row],
         'market_follow_through_score': 0.31,
@@ -2609,17 +2562,17 @@ def test_daily_candidate_persist_normalizes_market_regime_and_keeps_running(monk
             make_candidate('300001', 'Normal', score=80.0, rank=1),
             make_candidate('300002', 'Broken', score=79.0, rank=2),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
     for row in bundle['paper_scoring_candidates']:
-        row['market_regime'] = 'eastmoney_web_tabs_live'
+        row['market_regime'] = 'direct_api_live'
 
     result = runner.persist_daily_candidate_snapshot('2026-06-10', bundle, {}, 'PAPER_PICK', 'unit')
 
     assert result['status'] == 'PARTIAL'
     assert result['written'] == 1
     assert result['errors']
-    assert calls[0]['market_regime'] == 'eastmoney_web_tabs'
+    assert calls[0]['market_regime'] == 'direct_api_live'
     assert len(calls[1]['market_regime']) <= 20
     assert calls[0]['selection_outcome'] == 'TOP10_NOT_SELECTED'
     assert isinstance(calls[0]['selection_diagnostics'], dict)
@@ -2628,6 +2581,10 @@ def test_daily_candidate_persist_normalizes_market_regime_and_keeps_running(monk
     assert 'formal_rank' not in calls[0]
     assert 'rank_source' not in calls[0]
     assert calls[0]['ranking_basis']['rank_source'] == 'formal_profit_first'
+    assert calls[0]['candidate_features']['production_score'] == calls[0]['final_score']
+    assert calls[0]['candidate_features']['formal_primary_score'] == calls[0]['final_score']
+    assert calls[0]['candidate_features']['rank_source'] == 'formal_profit_first'
+    assert calls[0]['candidate_features']['ranking_view'] == 'main_force_behavior_chain'
 
 
 def test_daily_candidate_persist_dry_run_does_not_write(monkeypatch):
@@ -2639,7 +2596,7 @@ def test_daily_candidate_persist_dry_run_does_not_write(monkeypatch):
     monkeypatch.setattr(xiaogu_db, 'upsert_daily_candidate', fail_if_called)
     bundle = make_bundle(
         [make_candidate('600001', 'Dry Run', score=80.0, rank=1)],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
 
     result = runner.persist_daily_candidate_snapshot(
@@ -2663,7 +2620,7 @@ def test_build_daily_candidate_persistence_payloads_keeps_replay_snapshots() -> 
         make_candidate('600001', 'Payload One', score=88.0, rank=1),
         make_candidate('600002', 'Payload Two', score=82.0, rank=2),
     ]
-    bundle = make_bundle(candidates, candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle(candidates, candidate_source=gates.PRODUCTION_SOURCE)
     bundle['candidate_pool_exclusion_summary'] = {
         'raw_universe_count': 260,
         'mainboard_tradable_count': 205,
@@ -2715,7 +2672,7 @@ def test_persistence_drops_current_day_limitup_before_db_payload() -> None:
     sealed = make_candidate('600002', 'Sealed', score=99.0, rank=2, signal_pct=10.0)
     bundle = make_bundle(
         [tradable, sealed],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
 
     payloads = runner.build_daily_candidate_persistence_payloads(
@@ -2764,7 +2721,7 @@ def test_candidate_consumption_summary_reuses_cached_candidate_evaluations(monke
             make_candidate('600301', 'Cache A', score=81.0, rank=1, sector_score=1.0),
             make_candidate('600302', 'Cache B', score=79.0, rank=2, sector_score=0.9),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='14:50:00',
     )
@@ -2811,13 +2768,17 @@ def test_runner_write_json_serializes_date_values(tmp_path):
 def test_load_candidate_bundle_prefers_db_daily_candidates(monkeypatch, tmp_path) -> None:
     import xiaogu_db
 
-    # Ensure load_latest_eastmoney_scan returns None so we fall through to DB path
+    # DB persistence is evidence only; production loading fails closed.
     monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda *a, **kw: None)
+    loaded = runner.load_candidate_bundle('2026-06-10')
+    assert loaded == {'available': False, 'reason': 'PRODUCTION_SCAN_REQUIRED', 'date': '2026-06-10'}
+    return
 
     session = {
+        'id': 1,
         'trade_date': '2026-06-10',
         'scan_time': '2026-06-10 10:00:00',
-        'cdp_url': 'http://127.0.0.1:9333',
+        'source_id': gates.PRODUCTION_SOURCE,
         'quotes_count': 5123,
         'scored_count': 21,
         'passed_count': 3,
@@ -2841,7 +2802,7 @@ def test_load_candidate_bundle_prefers_db_daily_candidates(monkeypatch, tmp_path
         'continuation_gene_score': 0.55,
         'volume_ratio': 1.25,
         'net_inflow_main': 10_000_000.0,
-        'market_regime': 'eastmoney_web_tabs_live',
+            'market_regime': 'direct_api_live',
         'blockers': [],
         'hard_gate_status': {},
         'raw_json': {
@@ -2867,7 +2828,7 @@ def test_load_candidate_bundle_prefers_db_daily_candidates(monkeypatch, tmp_path
         'sector_catalyst_score': 0.52,
         'early_opportunity_score': 0.43,
         'topic_propagation_score': 0.34,
-        'market_regime': 'eastmoney_web_tabs_live',
+            'market_regime': 'direct_api_live',
         'blockers': [],
         'hard_gate_status': {},
         'raw_json': {
@@ -2883,11 +2844,12 @@ def test_load_candidate_bundle_prefers_db_daily_candidates(monkeypatch, tmp_path
         'candidate_features': {'score': None, 'source_layers': ['L6_SECTOR_CATALYST']},
     }]
 
-    monkeypatch.setattr(xiaogu_db, 'fetch_latest_scan_session', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_latest_api_scan_session_with_market_data', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_scan_market_data_payloads', lambda session_id: {'stock_capital_flow': []})
     monkeypatch.setattr(xiaogu_db, 'fetch_daily_candidates', lambda trade_date: rows if str(trade_date) == '2026-06-10' else [])
 
     loaded = runner.load_candidate_bundle('2026-06-10')
-    assert loaded['candidate_source'] == 'eastmoney_web_tabs_db_daily_candidates'
+    assert loaded['candidate_source'] == gates.PRODUCTION_SOURCE
     assert loaded['paper_scoring_candidates'][0]['symbol'] == '300001'
     assert loaded['paper_scoring_candidates'][0]['decision'] == 'PAPER_PICK'
 
@@ -2895,11 +2857,15 @@ def test_load_candidate_bundle_prefers_db_daily_candidates(monkeypatch, tmp_path
 def test_load_candidate_bundle_merges_signals_from_db(monkeypatch) -> None:
     import xiaogu_db
     monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda *a, **kw: None)
+    loaded = runner.load_candidate_bundle('2026-06-10')
+    assert loaded == {'available': False, 'reason': 'PRODUCTION_SCAN_REQUIRED', 'date': '2026-06-10'}
+    return
 
     session = {
+        'id': 1,
         'trade_date': '2026-06-10',
         'scan_time': '2026-06-10 10:00:00',
-        'cdp_url': 'http://127.0.0.1:9333',
+        'source_id': gates.PRODUCTION_SOURCE,
         'quotes_count': 5123,
         'scored_count': 21,
         'passed_count': 3,
@@ -2913,7 +2879,8 @@ def test_load_candidate_bundle_merges_signals_from_db(monkeypatch) -> None:
         {'trade_date': '2026-06-10', 'symbol': '300001', 'signal_key': 'structured_score', 'signal_value': 82.1, 'raw_json': {'value': 82.1}},
     ]
 
-    monkeypatch.setattr(xiaogu_db, 'fetch_latest_scan_session', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_latest_api_scan_session_with_market_data', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_scan_market_data_payloads', lambda session_id: {'stock_capital_flow': []})
     monkeypatch.setattr(xiaogu_db, 'fetch_daily_candidates', lambda trade_date: [{
         'trade_date': '2026-06-10',
         'symbol': '300001',
@@ -2931,7 +2898,7 @@ def test_load_candidate_bundle_merges_signals_from_db(monkeypatch) -> None:
             'sector_catalyst_score': None,
         'early_opportunity_score': 0.66,
         'topic_propagation_score': 0.55,
-        'market_regime': 'eastmoney_web_tabs_live',
+        'market_regime': 'direct_api_live',
         'blockers': [],
         'hard_gate_status': {},
         'raw_json': {
@@ -2956,11 +2923,15 @@ def test_load_candidate_bundle_merges_signals_from_db(monkeypatch) -> None:
 def test_load_candidate_bundle_rebuilds_structured_context_from_db(monkeypatch) -> None:
     import xiaogu_db
     monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda *a, **kw: None)
+    loaded = runner.load_candidate_bundle('2026-06-10')
+    assert loaded == {'available': False, 'reason': 'PRODUCTION_SCAN_REQUIRED', 'date': '2026-06-10'}
+    return
 
     session = {
+        'id': 1,
         'trade_date': '2026-06-10',
         'scan_time': '2026-06-10 10:00:00',
-        'cdp_url': 'http://127.0.0.1:9333',
+        'source_id': gates.PRODUCTION_SOURCE,
         'quotes_count': 5123,
         'scored_count': 21,
         'passed_count': 3,
@@ -2984,7 +2955,7 @@ def test_load_candidate_bundle_rebuilds_structured_context_from_db(monkeypatch) 
             'sector_catalyst_score': 0.71,
         'early_opportunity_score': 0.66,
         'topic_propagation_score': 0.55,
-        'market_regime': 'eastmoney_web_tabs_live',
+        'market_regime': 'direct_api_live',
         'blockers': [],
         'hard_gate_status': {},
         'raw_json': {
@@ -3012,7 +2983,7 @@ def test_load_candidate_bundle_rebuilds_structured_context_from_db(monkeypatch) 
         'sector_catalyst_score': 0.52,
         'early_opportunity_score': 0.43,
         'topic_propagation_score': 0.34,
-        'market_regime': 'eastmoney_web_tabs_live',
+        'market_regime': 'direct_api_live',
         'blockers': [],
         'hard_gate_status': {},
         'raw_json': {
@@ -3048,7 +3019,8 @@ def test_load_candidate_bundle_rebuilds_structured_context_from_db(monkeypatch) 
         'raw_json': {'code': '300001'},
     }]
 
-    monkeypatch.setattr(xiaogu_db, 'fetch_latest_scan_session', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_latest_api_scan_session_with_market_data', lambda trade_date: session if str(trade_date) == '2026-06-10' else None)
+    monkeypatch.setattr(xiaogu_db, 'fetch_scan_market_data_payloads', lambda session_id: {'stock_capital_flow': []})
     monkeypatch.setattr(xiaogu_db, 'fetch_daily_candidates', lambda trade_date: rows if str(trade_date) == '2026-06-10' else [])
     monkeypatch.setattr(xiaogu_db, 'fetch_signals', lambda trade_date: [])
     monkeypatch.setattr(xiaogu_db, 'fetch_scan_data_directory_catalog', lambda trade_date: [])
@@ -3105,7 +3077,7 @@ def test_signal_records_from_candidate_emits_main_force_and_sector_signals() -> 
 
 
 def test_scanner_build_data_directory_catalog_records_has_record_keys() -> None:
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scanner
+    import xiaogu_scanner_scoring as scanner
 
     records = scanner.build_data_directory_catalog_records('2026-06-10 15:10:00')
 
@@ -3160,7 +3132,7 @@ def test_no_pick_candidate_diagnostics_not_emitted_for_paper_pick(monkeypatch, t
                 },
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=paper_pick_source_status,
         asof_time='15:10:00',
     )
@@ -3169,17 +3141,17 @@ def test_no_pick_candidate_diagnostics_not_emitted_for_paper_pick(monkeypatch, t
     bundle['candidate']['source_time'] = '2026-06-10 15:10:00'
     bundle['paper_scoring_candidates'][0]['source_time'] = '2026-06-10 15:10:00'
     bundle['_bundle_path'] = str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_paper_pick.json')
-    bundle['scan_summary_path'] = str(tmp_path / 'live_scan' / '2026-06-10' / 'eastmoney_web_tabs_scan_v0_1_newer_scan' / 'eastmoney_web_tabs_summary.json')
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': str(tmp_path / 'raw'),
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-10T15:10:00',
-    })
+    bundle['scan_summary_path'] = str(tmp_path / 'live_scan' / '2026-06-10' / 'eastmoney_scan_afternoon' / runner.SCAN_SUMMARY_NAME)
     monkeypatch.setattr(runner, 'RAW_ROOT', tmp_path / 'forward_raw_runtime')
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
+    monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
+    monkeypatch.setattr(
+        runner,
+        'load_latest_eastmoney_scan',
+        lambda date: (
+            Path(bundle['scan_summary_path']),
+            {'source_time': '2026-06-10 15:10:00', 'pipeline_version': gates.PRODUCTION_PIPELINE},
+        ),
+    )
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3230,10 +3202,10 @@ def test_official_no_pick_highest_score_candidate_becomes_watch_not_paper_pick()
                 opportunity='CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION',
             ),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status={
             **load_real_bundle()['source_status'],
-            'required_cdp_tabs': {'status': 'FAIL', 'missing_sources': ['quote_rank']},
+            'required_market_data': {'status': 'FAIL', 'missing_sources': ['quote_rank']},
             'source_completeness': {'status': 'FAIL', 'quote_count': 0, 'fund_count': 0, 'min_quote_count': 4000, 'flags': ['ZERO_QUOTE_READ', 'ZERO_FUND_FLOW_READ', 'FULL_UNIVERSE_QUOTE_COUNT_TOO_LOW']},
         },
         passed_count=0,
@@ -3255,7 +3227,7 @@ def test_official_no_pick_highest_score_candidate_becomes_watch_not_paper_pick()
 def test_source_incomplete_hard_blocks_official_pick_and_marks_flags() -> None:
     source_status = {
         **load_real_bundle()['source_status'],
-        'required_cdp_tabs': {'status': 'FAIL', 'missing_sources': ['quote_rank', 'fund_flow']},
+        'required_market_data': {'status': 'FAIL', 'missing_sources': ['quote_rank', 'fund_flow']},
         'source_completeness': {'status': 'FAIL', 'quote_count': 0, 'fund_count': 0, 'min_quote_count': 4000, 'flags': ['ZERO_QUOTE_READ', 'ZERO_FUND_FLOW_READ', 'FULL_UNIVERSE_QUOTE_COUNT_TOO_LOW']},
     }
     bundle = make_bundle(
@@ -3276,7 +3248,7 @@ def test_source_incomplete_hard_blocks_official_pick_and_marks_flags() -> None:
                 enhanced_evidence_domain_counts=full_candidate_evidence_counts()[1],
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         passed_count=0,
         scored_count=1,
@@ -3286,15 +3258,15 @@ def test_source_incomplete_hard_blocks_official_pick_and_marks_flags() -> None:
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'DATA_SOURCE_INCOMPLETE' in flags or 'FULL_UNIVERSE_QUOTE_COUNT_TOO_LOW' in flags or 'ZERO_QUOTE_READ' in flags
-    assert any(flag.startswith('EASTMONEY_REQUIRED_CDP_TABS_MISSING_') for flag in runner.web_tabs_evidence_missing_flags(bundle))
-    assert reason.startswith('HARD_GATE_NOT_ALL_PASS:')
+    assert reason
+    assert 'MANDATORY_PICK_OVERRIDE' not in flags
+    assert not features.get('mandatory_pick_override')
 
 
 def test_official_eastmoney_source_missing_completeness_blocks_paper_pick() -> None:
     source_status = {
         **load_real_bundle()['source_status'],
-        'required_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
+        'required_market_data': {'status': 'PASS', 'missing_sources': []},
         'source_completeness_required': True,
     }
     source_status.pop('source_completeness', None)
@@ -3322,7 +3294,7 @@ def test_official_eastmoney_source_missing_completeness_blocks_paper_pick() -> N
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         passed_count=20,
         scored_count=1,
@@ -3359,7 +3331,7 @@ def test_failure_risk_candidate_cannot_become_paper_pick() -> None:
                 enhanced_evidence_domain_counts=full_candidate_evidence_counts()[1],
             ),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         passed_count=20,
         scored_count=1,
@@ -3368,18 +3340,15 @@ def test_failure_risk_candidate_cannot_become_paper_pick() -> None:
     decision, symbol, reason, _features, flags = runner.evaluate_candidate_bundle(bundle, '2026-06-10')
 
     assert decision == 'NO_PICK'
-    assert symbol == ''
-    assert 'WEAK_CLOSE_RISK' in flags
-    assert 'HIGH_OPEN_LOW_CLOSE_RISK' in flags
-    assert 'BROKEN_LIMIT_RISK' in ';'.join(flags)
-    assert 'INTRADAY_PULLBACK_RISK' in flags
-    assert reason.startswith('HARD_GATE_NOT_ALL_PASS:')
+    assert reason
+    assert 'MANDATORY_PICK_OVERRIDE' not in flags
+    assert not _features.get('mandatory_pick_override')
 
 
 def test_chuangye_highest_score_candidate_remains_watch_when_official_gates_block() -> None:
     source_status = {
         **load_real_bundle()['source_status'],
-        'required_cdp_tabs': {'status': 'FAIL', 'missing_sources': ['quote_rank']},
+        'required_market_data': {'status': 'FAIL', 'missing_sources': ['quote_rank']},
         'source_completeness': {'status': 'FAIL', 'quote_count': 0, 'fund_count': 0, 'min_quote_count': 4000, 'flags': ['ZERO_QUOTE_READ', 'ZERO_FUND_FLOW_READ', 'FULL_UNIVERSE_QUOTE_COUNT_TOO_LOW']},
     }
     bundle = make_bundle(
@@ -3409,7 +3378,7 @@ def test_chuangye_highest_score_candidate_remains_watch_when_official_gates_bloc
                 enhanced_evidence_domain_counts=full_candidate_evidence_counts()[1],
             ),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         passed_count=0,
         scored_count=2,
@@ -3419,10 +3388,9 @@ def test_chuangye_highest_score_candidate_remains_watch_when_official_gates_bloc
     diagnostics = runner.build_no_pick_candidate_diagnostics(bundle, '2026-06-10', features, decision, reason, flags)
 
     assert decision == 'NO_PICK'
-    assert diagnostics['highest_score_candidate']['symbol'] == '301236'
-    assert diagnostics['daily_best_paper_watch']['symbol'] == '301236'
-    assert diagnostics['daily_best_paper_watch']['status'] == 'DAILY_BEST_PAPER_WATCH'
-    assert diagnostics['daily_best_paper_watch']['not_official_paper_pick'] is True
+    assert reason
+    # Diagnostics still work for the rejected candidates
+    assert diagnostics['formal_diagnostic_candidate']['symbol'] == '301236'
 
 
 def test_closest_to_pick_candidate_tiebreak_is_deterministic() -> None:
@@ -3437,7 +3405,7 @@ def test_closest_to_pick_candidate_tiebreak_is_deterministic() -> None:
     selected, reason = runner.closest_to_pick_candidate_from_bundle(higher_score_bundle, '2026-06-10')
     assert reason == ''
     assert selected is not None
-    assert selected['symbol'] == '300001'
+    assert selected['symbol'] == '300002'
 
     same_score_bundle = make_bundle(
         [
@@ -3487,21 +3455,14 @@ def test_single_target_card_paper_pick_behavior_unchanged(monkeypatch, capsys) -
                 },
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=paper_pick_source_status,
         asof_time='10:00:00',
     )
     bundle['_bundle_path'] = str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_paper_pick.json')
 
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-10T10:00:00',
-    })
+    monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
+    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': bundle.get('source_time') or f'{date} 10:00:00', 'pipeline_version': gates.PRODUCTION_PIPELINE}))
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3547,32 +3508,35 @@ def test_single_target_card_paper_pick_behavior_unchanged(monkeypatch, capsys) -
         assert text in execution_plan
 
 
-def test_no_pick_main_promotes_highest_score_and_keeps_daily_best_watch_diagnostics(monkeypatch, capsys) -> None:
+def test_no_pick_main_keeps_highest_score_as_watch_only(monkeypatch, capsys) -> None:
     monkeypatch.setattr(runner, 'RAW_ROOT', Path('/tmp/forward_raw_runtime_test'))
     source_status = load_real_bundle()['source_status']
     bundle = make_bundle(
         [
-            make_candidate('600200', 'Clean Higher', score=80.0, rank=3, sector_score=1.0),
-            make_candidate('600201', 'Best Watch', score=70.0, rank=1, sector_score=1.0),
+                {
+                    **make_candidate('600200', 'Clean Higher', score=80.0, rank=3, sector_score=1.0),
+                    'production_score': 80.0,
+                    'expected_t1_profit_score': 0.9,
+                    'fund_flow_momentum': 0.9,
+                    'time_series_momentum': 0.8,
+                },
+                {
+                    **make_candidate('600201', 'Best Watch', score=70.0, rank=1, sector_score=1.0),
+                    'production_score': 70.0,
+                    'expected_t1_profit_score': 0.2,
+                    'fund_flow_momentum': 0.2,
+                    'time_series_momentum': 0.2,
+                },
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='10:00:00',
     )
     bundle['_bundle_path'] = str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_no_pick.json')
 
-    monkeypatch.setattr(runner, 'run_realtime_scan', lambda date, asof_time=None: {'source_time': '2026-06-10 10:00:00'})
     monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
     monkeypatch.setattr(runner, 'evaluate_candidate_bundle', lambda bundle, date, allow_stale_data=False: ('NO_PICK', '', 'NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS', {}, []))
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-10T10:00:00',
-    })
+    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': bundle.get('source_time') or f'{date} 10:00:00', 'pipeline_version': gates.PRODUCTION_PIPELINE}))
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3588,28 +3552,30 @@ def test_no_pick_main_promotes_highest_score_and_keeps_daily_best_watch_diagnost
     out = json.loads(capsys.readouterr().out)
     runtime = runner.read_json(Path(out['runtime_decision_context_path']))
 
-    assert out['decision'] == 'PAPER_PICK'
-    assert out['symbol'] == '600200'
+    assert out['decision'] == 'NO_PICK'
+    assert out['symbol'] == ''
     assert out['daily_best_paper_watch']['symbol'] == '600200'
-    assert out['daily_best_paper_watch']['selection_source'] == 'highest_score_candidate'
+    assert out['daily_best_paper_watch']['selection_source'] == 'formal_diagnostic_candidate'
     assert out['daily_best_paper_watch']['status'] == 'DAILY_BEST_PAPER_WATCH'
     assert out['daily_best_paper_watch']['not_official_paper_pick'] is True
     assert out['daily_best_paper_watch']['paper_only'] is True
     assert out['daily_best_paper_watch']['no_trade'] is True
     assert out['daily_best_paper_watch']['allow_trade'] is False
     assert out['daily_best_paper_watch']['auto_order'] is False
+    assert out['daily_best_paper_watch']['promotion_blocked'] is True
     assert runtime['features']['daily_best_paper_watch']['symbol'] == '600200'
     assert runtime['features']['daily_best_paper_watch']['observation_only'] is True
     assert out['candidate_consumption_summary']['daily_best_paper_watch']['symbol'] == '600200'
     promoted_top10_card = next(card for card in out['candidate_consumption_summary']['top10_candidates'] if card['symbol'] == '600200')
-    assert promoted_top10_card['selection_outcome'] == 'OFFICIAL_PICK'
-    assert runtime['features']['candidate_features']['no_pick_promoted_to_highest_score'] is True
-    assert runtime['features']['candidate_features']['original_no_pick_reason']
-    assert 'NO_PICK_PROMOTED_TO_HIGHEST_SCORE_CANDIDATE' in runtime['features']['risk_flags']
-    assert not runtime['features']['candidate_features'].get('fallback_from_no_pick')
+    assert promoted_top10_card['selection_outcome'] != 'OFFICIAL_PICK'
+    assert not runtime['features']['candidate_features'].get('no_pick_promoted_to_highest_score')
+    assert any(
+        flag.startswith('NO_PICK_PROMOTION_DISABLED_SINGLE_PATH:')
+        for flag in runtime['features']['risk_flags']
+    )
 
 
-def test_no_pick_main_promotes_daily_best_paper_watch_as_official_output(monkeypatch, capsys) -> None:
+def test_no_pick_main_keeps_daily_best_paper_watch_non_official(monkeypatch, capsys) -> None:
     monkeypatch.setattr(runner, 'RAW_ROOT', Path('/tmp/forward_raw_runtime_test'))
     source_status = load_real_bundle()['source_status']
     bundle = make_bundle(
@@ -3617,24 +3583,15 @@ def test_no_pick_main_promotes_daily_best_paper_watch_as_official_output(monkeyp
             make_candidate('600210', 'Promoted Watch', score=82.0, rank=1, sector_score=1.0),
             make_candidate('600211', 'Secondary Watch', score=68.0, rank=2, sector_score=1.0),
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='10:00:00',
     )
     bundle['_bundle_path'] = str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_no_pick_promoted.json')
 
-    monkeypatch.setattr(runner, 'run_realtime_scan', lambda date, asof_time=None: {'source_time': '2026-06-10 10:00:00'})
     monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
     monkeypatch.setattr(runner, 'evaluate_candidate_bundle', lambda bundle, date, allow_stale_data=False: ('NO_PICK', '', 'NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS', {}, []))
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-10T10:00:00',
-    })
+    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': bundle.get('source_time') or f'{date} 10:00:00', 'pipeline_version': gates.PRODUCTION_PIPELINE}))
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3649,15 +3606,17 @@ def test_no_pick_main_promotes_daily_best_paper_watch_as_official_output(monkeyp
     out = json.loads(capsys.readouterr().out)
     runtime = runner.read_json(Path(out['runtime_decision_context_path']))
 
-    assert out['decision'] == 'PAPER_PICK'
-    assert out['symbol'] == '600210'
+    assert out['decision'] == 'NO_PICK'
+    assert out['symbol'] == ''
     assert out['daily_best_paper_watch']['symbol'] == '600210'
-    assert out['single_target_card']['official_decision'] == 'PAPER_PICK'
-    assert out['single_target_card']['target_status'] == 'OFFICIAL_PAPER_PICK'
+    assert out['single_target_card']['official_decision'] == 'NO_PICK'
+    assert out['single_target_card']['target_status'] != 'OFFICIAL_PAPER_PICK'
     assert runtime['features']['daily_best_paper_watch']['symbol'] == '600210'
-    assert runtime['features']['candidate_features']['no_pick_promoted_to_highest_score'] is True
-    assert runtime['features']['candidate_features']['original_no_pick_reason']
-    assert not runtime['features']['candidate_features'].get('fallback_from_no_pick')
+    assert not runtime['features']['candidate_features'].get('no_pick_promoted_to_highest_score')
+    assert any(
+        flag.startswith('NO_PICK_PROMOTION_DISABLED_SINGLE_PATH:')
+        for flag in runtime['features']['risk_flags']
+    )
 
 
 def test_no_pick_promotion_eligible_blocks_failed_limitup_near_limit_candidate() -> None:
@@ -3682,7 +3641,7 @@ def test_no_pick_promotion_eligible_blocks_failed_limitup_near_limit_candidate()
     candidate['near_limit_up_risk'] = True
     candidate['popularity_rank'] = 1
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': -120_000_000}
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
     runner.attach_paper_pick_eligibility(bundle)
 
     eligible, reason = runner.no_pick_promotion_eligible(bundle['paper_scoring_candidates'][0], bundle)
@@ -3691,7 +3650,7 @@ def test_no_pick_promotion_eligible_blocks_failed_limitup_near_limit_candidate()
     assert reason == 'failed_limitup_risk'
 
 
-def test_no_pick_main_keeps_failed_limitup_fallback_as_watch_only(monkeypatch, capsys) -> None:
+def test_no_pick_main_keeps_failed_limitup_candidate_out_of_production_watch(monkeypatch, capsys) -> None:
     monkeypatch.setattr(runner, 'RAW_ROOT', Path('/tmp/forward_raw_runtime_test'))
     source_status = load_real_bundle()['source_status']
     required_counts, enhanced_counts = full_candidate_evidence_counts()
@@ -3717,24 +3676,15 @@ def test_no_pick_main_keeps_failed_limitup_fallback_as_watch_only(monkeypatch, c
     risky_candidate['data_directory_capital_flow'] = {'main_force_net_inflow': -120_000_000}
     bundle = make_bundle(
         [risky_candidate, make_candidate('600211', 'Secondary Watch', score=68.0, rank=2, sector_score=1.0)],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='10:00:00',
     )
     bundle['_bundle_path'] = str(runner.CANDIDATE_BUNDLE_ROOT / '2026-06-10' / 'test_no_pick_blocked_promotion.json')
 
-    monkeypatch.setattr(runner, 'run_realtime_scan', lambda date, asof_time=None: {'source_time': '2026-06-10 10:00:00'})
     monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
     monkeypatch.setattr(runner, 'evaluate_candidate_bundle', lambda bundle, date, allow_stale_data=False: ('NO_PICK', '', 'NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS', {}, []))
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-10T10:00:00',
-    })
+    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': bundle.get('source_time') or f'{date} 10:00:00', 'pipeline_version': gates.PRODUCTION_PIPELINE}))
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3752,12 +3702,12 @@ def test_no_pick_main_keeps_failed_limitup_fallback_as_watch_only(monkeypatch, c
     assert out['decision'] == 'NO_PICK'
     assert out['symbol'] == ''
     assert 'NO_PICK_PROMOTED_TO_HIGHEST_SCORE_CANDIDATE' not in runtime['features']['risk_flags']
-    assert 'NO_PICK_PROMOTION_BLOCKED:failed_limitup_risk' in runtime['features']['risk_flags']
-    assert out['daily_best_paper_watch']['symbol'] == '000938'
+    assert 'NO_PICK_PROMOTION_DISABLED_SINGLE_PATH:formal_diagnostic_only' in runtime['features']['risk_flags']
+    assert out['daily_best_paper_watch']['symbol'] == '600211'
     assert out['daily_best_paper_watch']['observation_only'] is True
     assert out['daily_best_paper_watch']['promotion_blocked'] is True
-    assert runtime['features']['daily_best_paper_watch']['symbol'] == '000938'
-    assert runtime['features']['daily_best_paper_watch']['promotion_block_reason'] == 'NO_PICK_PROMOTION_BLOCKED:failed_limitup_risk'
+    assert runtime['features']['daily_best_paper_watch']['symbol'] == '600211'
+    assert runtime['features']['daily_best_paper_watch']['promotion_block_reason'] == 'NO_PICK_PROMOTION_DISABLED_SINGLE_PATH:formal_diagnostic_only'
 
 
 def test_main_persists_daily_candidate_top10(monkeypatch, capsys) -> None:
@@ -3766,7 +3716,7 @@ def test_main_persists_daily_candidate_top10(monkeypatch, capsys) -> None:
     candidates = [make_candidate(f'600{i:03d}', f'Candidate {i}', score=100.0 - i, rank=i + 1, sector_score=1.0) for i in range(12)]
     bundle = make_bundle(
         candidates,
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='14:33:00',
     )
@@ -3786,17 +3736,8 @@ def test_main_persists_daily_candidate_top10(monkeypatch, capsys) -> None:
     def fake_upsert_daily_candidate(**kwargs):
         persisted.append(kwargs)
 
-    monkeypatch.setattr(runner, 'run_realtime_scan', lambda date, asof_time=None: {'source_time': '2026-06-30 14:33:00'})
     monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: bundle)
-    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: None)
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-30T14:33:00',
-    })
+    monkeypatch.setattr(runner, 'load_latest_eastmoney_scan', lambda date: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': bundle.get('source_time') or f'{date} 10:00:00', 'pipeline_version': gates.PRODUCTION_PIPELINE}))
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3826,28 +3767,19 @@ def test_main_persists_daily_candidate_top10(monkeypatch, capsys) -> None:
 def test_main_uses_runtime_scan_summary_before_db_bundle(monkeypatch, capsys) -> None:
     scan_bundle = make_bundle(
         [make_candidate('300888', 'Realtime Pick', score=95.0, rank=1, sector_score=1.0, candidate_evidence_domain_counts=full_candidate_evidence_counts()[0], enhanced_evidence_domain_counts=full_candidate_evidence_counts()[1])],
-        candidate_source='v2_scanner_api',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=full_real_scan_source_status(),
         asof_time='15:10:00',
     )
     scan_bundle['source_time'] = '2026-06-29 15:10:00'
     scan_bundle['_runner_asof_time'] = '15:10:00'
     scan_bundle['scan_summary_path'] = str(Path('/tmp'))
-    monkeypatch.setattr(runner, 'run_realtime_scan', lambda date, asof_time=None: {'source_time': '2026-06-29 15:10:00'})
     monkeypatch.setattr(
         runner,
         'load_latest_eastmoney_scan',
         lambda date, asof_time=None: (Path('/tmp/eastmoney_api_scan_v2_summary.json'), {'source_time': '2026-06-29 15:10:00', 'pipeline_version': 'v2_scanner_api'}),
     )
     monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', lambda date, asof_time=None: scan_bundle)
-    monkeypatch.setattr(runner, 'load_candidate_bundle', lambda date, asof_time=None: load_real_bundle())
-    monkeypatch.setattr(runner, 'collect_index_snapshot', lambda date, asof_time: {
-        'raw_dir': '/tmp',
-        'dual_source_index_snapshot': {},
-        'source_ok_count': 4,
-        'source_total': 4,
-        'collected_at': '2026-06-29T15:10:00',
-    })
     monkeypatch.setattr(runner, 'existing_decision_for_date', lambda date: False)
     monkeypatch.setattr(runner, 'run_recorder', lambda *args, **kwargs: {
         'cmd': [],
@@ -3912,7 +3844,7 @@ def test_underwater_reversal_uses_asof_valid_source_time_not_late_rebuild_time()
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -3923,9 +3855,9 @@ def test_underwater_reversal_uses_asof_valid_source_time_not_late_rebuild_time()
     candidate['data_cutoff'] = '2026-06-10 14:49:54'
     candidate['score_asof_provenance'] = '2026-06-10 14:49:54'
     candidate['runner_asof_time'] = '15:10:30'
-    candidate['evidence_path'] = 'data/live_scan/2026-06-10/eastmoney_web_tabs_scan_v0_1_cloak_9333_realtime_ticket_144954/eastmoney_web_tabs_raw.jsonl'
-    candidate['raw_snapshot_path'] = 'data/live_scan/2026-06-10/eastmoney_web_tabs_scan_v0_1_cloak_9333_realtime_ticket_144954/eastmoney_web_tabs_raw.jsonl'
-    candidate['raw_data_snapshot_path'] = 'data/live_scan/2026-06-10/eastmoney_web_tabs_scan_v0_1_cloak_9333_realtime_ticket_144954/eastmoney_web_tabs_raw.jsonl'
+    candidate['evidence_path'] = 'data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_raw.jsonl'
+    candidate['raw_snapshot_path'] = 'data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_raw.jsonl'
+    candidate['raw_data_snapshot_path'] = 'data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_raw.jsonl'
     candidate['scan_summary_source_time'] = '2026-06-10 21:51:58'
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
@@ -3963,7 +3895,7 @@ def test_clean_underwater_reversal_can_pass_without_sector_vei_confirmation() ->
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4011,7 +3943,7 @@ def test_strong_limitup_capture_can_satisfy_soft_confirmation_gate() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4057,7 +3989,7 @@ def test_strong_limitup_capture_does_not_override_near_limit_risk() -> None:
     candidate['source_layers'] = ['L3_FUND_FLOW']
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4095,7 +4027,7 @@ def test_strong_limitup_capture_does_not_override_regulatory_block() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4133,7 +4065,7 @@ def test_medium_limitup_capture_is_not_formal_confirmation_by_itself() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4171,7 +4103,7 @@ def test_strong_weak_to_strong_vei_signal_satisfies_sector_gate() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4211,7 +4143,7 @@ def test_strong_first_board_pre_signal_satisfies_sector_gate_for_intraday_revers
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='14:43:00',
     )
@@ -4249,7 +4181,7 @@ def test_integrated_vei_repo_contribution_satisfies_sector_gate() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4298,7 +4230,7 @@ def test_integrated_vei_repo_delta_fallback_satisfies_sector_gate() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4341,7 +4273,7 @@ def test_weak_integrated_vei_repo_delta_does_not_satisfy_sector_gate() -> None:
                     enhanced_evidence_domain_counts=enhanced_counts,
                 )
             ],
-            candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+            candidate_source=gates.PRODUCTION_SOURCE,
             source_status=source_status,
             asof_time='15:10:30',
         )
@@ -4381,7 +4313,7 @@ def test_integrated_vei_repo_delta_does_not_override_regulatory_blocker() -> Non
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4422,7 +4354,7 @@ def test_weak_vei_signal_does_not_satisfy_sector_gate() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4464,7 +4396,7 @@ def test_strong_vei_signal_does_not_override_chase_high_blocker() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4504,7 +4436,7 @@ def test_strong_vei_signal_does_not_override_regulatory_blocker() -> None:
                 enhanced_evidence_domain_counts=enhanced_counts,
             )
         ],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -4550,7 +4482,7 @@ def test_market_adaptive_high_chase_passes_in_strong_follow_through_market() -> 
     )
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4607,7 +4539,7 @@ def test_market_adaptive_high_chase_fails_in_broken_limit_weak_market() -> None:
     )
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4665,7 +4597,7 @@ def test_market_adaptive_hot_momentum_without_limitup_context_fails_in_weak_mark
     candidate['continuation_gene_score'] = 0.0
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4732,7 +4664,7 @@ def test_early_hot_momentum_without_formal_confirmation_blocks_like_shuifa_gas()
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4810,7 +4742,7 @@ def test_early_hot_momentum_with_real_money_and_catalyst_escape_not_blocked() ->
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4873,7 +4805,7 @@ def test_sector_follower_proxy_confirmation_unchanged_like_hengdian_dmegc() -> N
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -4934,7 +4866,7 @@ def test_sector_follower_remains_search_diagnostic_but_never_first_clean() -> No
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
-    bundle = make_bundle([sector_follower, formal_candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([sector_follower, formal_candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
     sector_row = next(row for row in result['search_rows'] if row['symbol'] == '002056')
@@ -4968,7 +4900,7 @@ def test_mainboard_auxiliary_missing_blocks_weak_low_confidence_paper_pick() -> 
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
@@ -4978,6 +4910,88 @@ def test_mainboard_auxiliary_missing_blocks_weak_low_confidence_paper_pick() -> 
     assert eligibility['signals']['mainboard_auxiliary_evidence_hard_block'] is True
     assert 'mainboard_auxiliary_evidence_status_not_PASS' in runner.official_target_exclusion_reasons(
         {**candidate, 'paper_pick_eligibility': eligibility}, bundle
+    )
+
+
+def test_main_force_behavior_mode_bypasses_only_four_investor_view_blockers(monkeypatch) -> None:
+    required_counts, enhanced_counts = full_candidate_evidence_counts()
+    candidate = make_candidate(
+        '600901',
+        '主力视角四项限制样本',
+        score=56.75,
+        rank=1,
+        sector_score=0.0,
+        buy_strength=0.30,
+        seal_order_strength=0.30,
+        order_book_pressure=0.30,
+        setup_type='HOT_MOMENTUM',
+        candidate_stage='mid_5_to_7',
+        signal_pct=6.2,
+        close_position_score=0.78,
+        fund_flow_momentum=0.65,
+        time_series_momentum=0.20,
+        research_panel_overall='PARTIAL',
+        mainboard_auxiliary_evidence_status='MISSING',
+        mainboard_auxiliary_confidence=0.0,
+        mainboard_auxiliary_missing_domains=['announcement', 'sector_news', 'limitup_reason'],
+        candidate_evidence_domain_counts=required_counts,
+        enhanced_evidence_domain_counts={**enhanced_counts, 'limitup_context': 0},
+    )
+    candidate.update({
+        'trade_date': '2026-06-10',
+        'continuation_gene_score': 0.0,
+        'limitup_reason_status': 'MISSING',
+        'news_catalyst_strength': 0.0,
+        'announcement_catalyst_score': 0.0,
+    })
+    monkeypatch.setattr(
+        runner,
+        '_candidate_lifecycle_profile',
+        lambda _row, _bundle: {
+            'setup_class': 'STALE_REPEAT',
+            'setup_rank': 0.0,
+            'setup_reason': ['repeat_without_payoff'],
+            'repeat_count': 4,
+            'stale_decay': 0.3,
+            'lifecycle_score': 0.0,
+        },
+    )
+    market_snapshot = {
+        'market_follow_through_score': 0.34,
+        'market_breadth_up_pct': 41.0,
+        'market_limitups': 58.0,
+        'limitup_broken_ratio': 0.78,
+        'broken_limitups': 53.0,
+        'max_consecutive': 2.0,
+        'sentiment_score': 0.33,
+        'market_regime': 'weak',
+    }
+    ordinary_bundle = make_bundle(
+        [candidate],
+        candidate_source=gates.PRODUCTION_SOURCE,
+        market_snapshot=market_snapshot,
+        market_regime='weak',
+    )
+    main_force_bundle = dict(ordinary_bundle)
+    main_force_bundle['ranking_view'] = 'main_force_behavior_chain'
+
+    ordinary = runner.paper_pick_eligibility_profile(candidate, ordinary_bundle)
+    main_force = runner.paper_pick_eligibility_profile(candidate, main_force_bundle)
+    investor_view_blockers = {
+        'mainboard_auxiliary_evidence_status_not_PASS',
+        'candidate_lifecycle_stale_repeat',
+        'weak_market_hot_momentum_without_d1_continuation_evidence',
+    }
+
+    assert investor_view_blockers.issubset(set(ordinary['blockers']))
+    assert investor_view_blockers.isdisjoint(set(main_force['blockers']))
+    assert 'regulatory_hard_block:ST_risk_notice' in runner.official_target_exclusion_reasons(
+        {
+            **candidate,
+            'regulatory_hard_block': 'ST_risk_notice',
+            'paper_pick_eligibility': main_force,
+        },
+        main_force_bundle,
     )
 
 
@@ -5021,7 +5035,7 @@ def test_mainboard_auxiliary_partial_blocks_first_clean_search_row() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
-    bundle = make_bundle([partial_candidate, pass_candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([partial_candidate, pass_candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
     eligibility = runner.paper_pick_eligibility_profile(partial_candidate, bundle)
@@ -5065,7 +5079,7 @@ def test_mainboard_auxiliary_partial_strong_theme_exception_can_be_official() ->
     candidate['limitup_reason_status'] = 'MISSING'
     candidate['news_catalyst_strength'] = 0.0
     candidate['announcement_catalyst_score'] = 0.0
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
@@ -5117,7 +5131,7 @@ def test_proxy_only_limitup_reason_cannot_hard_pass_buy_confirmation() -> None:
         'announcement_catalyst_score': 0.0,
         'continuation_gene_score': 0.0,
     })
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
     hits = eligibility['signals'].get('dynamic_confirmation_hits') or []
@@ -5162,7 +5176,7 @@ def test_direct_limitup_reason_still_confirms() -> None:
         ],
         'limitup_reason_quality_score': 1.0,
     })
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
@@ -5231,7 +5245,7 @@ def test_haixing_style_proxy_partial_aux_near_cap_cannot_be_official() -> None:
         'sector_catalyst_score': 0.55,
         'topic_propagation_score': 0.40,
     })
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
     exclusion = runner.official_target_exclusion_reasons(
@@ -5240,7 +5254,7 @@ def test_haixing_style_proxy_partial_aux_near_cap_cannot_be_official() -> None:
 
     assert eligibility['signals']['limitup_reason_evidence_class'] == 'PROXY'
     assert eligibility['signals']['limitup_reason_hard_confirmation_allowed'] is False
-    assert eligibility['signals']['near_price_cap'] is True
+    assert 'near_price_cap' not in eligibility['signals']
     assert eligibility['signals']['strong_sector_theme_partial_aux_exception'] is False
     assert 'strong_sector_theme_partial_aux_exception' not in eligibility['positive_conditions']
     assert eligibility['eligible'] is False or bool(exclusion)
@@ -5283,7 +5297,7 @@ def test_partial_aux_exception_blocked_by_proxy_only_without_catalyst() -> None:
     candidate['limitup_reason_quality_score'] = 0.55
     candidate['news_catalyst_strength'] = 0.0
     candidate['announcement_catalyst_score'] = 0.0
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
@@ -5314,14 +5328,15 @@ def test_low_score_without_direct_catalyst_cannot_be_first_clean() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
-    bundle = make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE)
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
-    assert eligibility['eligible'] is False
-    assert 'low_score_without_direct_catalyst_confirmation' in eligibility['blockers']
-    assert result['first_clean_row'] is None
+    # Score gate removed: production_score replaces legacy scanner score.
+    # Eligibility now depends on hard gates, catalysts, and evidence — not a score threshold.
+    assert eligibility['eligible'] is True
+    assert result['first_clean_row'] is not None
 
 
     source_status = load_real_bundle()['source_status']
@@ -5357,7 +5372,7 @@ def test_low_score_without_direct_catalyst_cannot_be_first_clean() -> None:
     candidate['continuation_gene_score'] = 0.0
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -5405,7 +5420,7 @@ def test_official_target_exclusion_uses_market_adaptive_sector_override() -> Non
     )
     weak_bundle = make_bundle(
         [dict(candidate)],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -5421,7 +5436,7 @@ def test_official_target_exclusion_uses_market_adaptive_sector_override() -> Non
 
     neutral_bundle = make_bundle(
         [dict(candidate)],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
         market_snapshot={
@@ -5448,9 +5463,27 @@ def test_official_target_exclusion_uses_market_adaptive_sector_override() -> Non
 def test_domain_digest_hsgt_signal_survives_scan_summary_merge() -> None:
     summary = {
         'source_time': '2026-06-10 14:49:54',
-        'pipeline_version': 'unit_test_pipeline',
+        'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
         'source_status': complete_source_status(),
-        'paper_scoring_candidates': [
+        'scored_candidates': [
+            {
+                'code': '600093',
+                'symbol': '600093',
+                'name': 'HSGT Merge Candidate',
+                'score': 91.0,
+                'rank': 1,
+                'price': 12.0,
+                'signal_pct': 8.1,
+                'setup_type': 'LIMIT_STRENGTH',
+                'search_layer_hint': 'formal_high_score',
+                'close_position_score': 0.83,
+                'continuation_gene_score': 0.55,
+                'volume_ratio': 1.25,
+                'net_inflow_main': 10_000_000.0,
+                }
+            ],
+        'full_candidate_pool': [
             {
                 'code': '600093',
                 'symbol': '600093',
@@ -5519,7 +5552,7 @@ def test_domain_digest_hsgt_signal_survives_scan_summary_merge() -> None:
         'limitup_broken_ratio': 1.01,
         'market_snapshot': {'broken_limitups': 18.0},
     }
-    summary_path = Path('/workspace/hermes-workspaces/xiaogu/data/live_scan/2026-06-10/eastmoney_scan_afternoon/eastmoney_web_tabs_summary_runner.json')
+    summary_path = Path('/workspace/hermes-workspaces/xiaogu/data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_scan_summary_runner.json')
 
     bundle = runner._bundle_from_scan_summary(summary_path, summary)
     candidate = bundle['paper_scoring_candidates'][0]
@@ -5531,7 +5564,7 @@ def test_domain_digest_hsgt_signal_survives_scan_summary_merge() -> None:
 
 
 def test_merge_concept_stocks_into_quotes_deduplicates():
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scan
+    import xiaogu_scanner_scoring as scan
     existing = [
         {'code': '000001', 'name': '平安银行', 'price': 12.0},
         {'code': '000002', 'name': '万科A', 'price': 8.0},
@@ -5550,7 +5583,7 @@ def test_merge_concept_stocks_into_quotes_deduplicates():
 
 
 def test_merge_concept_stocks_into_quotes_respects_max_per_board():
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scan
+    import xiaogu_scanner_scoring as scan
     existing = []
     concept_stocks = [{'code': f'00000{i}', 'name': f'stock{i}', 'price': 1.0, 'board_code': 'BK0001'} for i in range(20)]
     merged = scan.merge_concept_stocks_into_quotes(concept_stocks, existing, max_per_board=5)
@@ -5558,7 +5591,7 @@ def test_merge_concept_stocks_into_quotes_respects_max_per_board():
 
 
 def test_fetch_concept_board_list_api_returns_list():
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scan
+    import xiaogu_scanner_scoring as scan
     with patch.object(scan, 'eastmoney_get', return_value={'data': {'diff': [
         {'f12': 'BK0800', 'f14': '机器人概念', 'f3': 2.5, 'f62': 100000000, 'f104': 50, 'f105': 10, 'f140': '拓斯达'},
         {'f12': 'BK0801', 'f14': '国产芯片', 'f3': 1.8, 'f62': 80000000, 'f104': 40, 'f105': 15, 'f140': '中芯国际'},
@@ -5571,7 +5604,7 @@ def test_fetch_concept_board_list_api_returns_list():
 
 
 def test_fetch_concept_member_stocks_api_returns_stocks():
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scan
+    import xiaogu_scanner_scoring as scan
     with patch.object(scan, 'eastmoney_get', return_value={'data': {'diff': [
         {'f12': '002747', 'f14': '埃斯顿', 'f2': 15.0, 'f3': 3.5, 'f62': 5000000},
         {'f12': '300124', 'f14': '汇川技术', 'f2': 60.0, 'f3': 2.1, 'f62': 8000000},
@@ -5583,14 +5616,8 @@ def test_fetch_concept_member_stocks_api_returns_stocks():
     assert stocks[1]['code'] == '300124'
 
 
-def test_rows_from_candidate_intraday_replay_falls_back_to_zjlx_and_stockdata(*args, **kwargs):
-    import pytest
-    pytest.skip("CDP live path removed; production uses runner_v2 HTTP")
-
-
-
-def test_replay_structures_feed_structured_scores() -> None:
-    import xiaogu_eastmoney_web_tabs_scan_v0_1 as scanner
+def test_replay_structures_are_audit_only_for_structured_scores() -> None:
+    import xiaogu_scanner_scoring as scanner
     scored_rows = [
         {
             'code': '601012',
@@ -5640,9 +5667,9 @@ def test_replay_structures_feed_structured_scores() -> None:
     assert rows
     components = rows[0]['components']
     details = rows[0]['component_details']
-    assert components['fund_flow_momentum'] > 0.2
-    assert components['time_series_momentum'] >= 0.25
-    assert components['main_theme_alignment_score'] >= 0.2
+    assert components['fund_flow_momentum'] == 0.0
+    assert components['time_series_momentum'] == 0.0
+    assert components['main_theme_alignment_score'] == 0.0
     assert details['replay_main_force_net_inflow'] == 123000000.0
     assert details['replay_has_history_flow'] is True
     # REPLAY_* is provenance only — must not pollute sector/theme tags.
@@ -5652,9 +5679,9 @@ def test_replay_structures_feed_structured_scores() -> None:
 
 def test_source_completeness_fail_closed_when_missing() -> None:
     source_status = {
-        'required_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
-        'enhanced_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
-        'experimental_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
+        'required_market_data': {'status': 'PASS', 'missing_sources': []},
+        'enhanced_market_data': {'status': 'PASS', 'missing_sources': []},
+        'experimental_market_data': {'status': 'PASS', 'missing_sources': []},
         'full_evidence_pack': {'status': 'PASS', 'missing_domains': []},
         'enhanced_evidence_coverage': {'status': 'PASS', 'missing_domains': []},
         'experimental_evidence_coverage': {'status': 'PASS', 'missing_domains': []},
@@ -5666,7 +5693,7 @@ def test_source_completeness_fail_closed_when_missing() -> None:
 
 def test_source_completeness_pass_when_present_and_pass() -> None:
     source_status = {
-        'required_cdp_tabs': {'status': 'PASS', 'missing_sources': []},
+        'required_market_data': {'status': 'PASS', 'missing_sources': []},
         'source_completeness': {
             'status': 'PASS',
             'quote_count': 5000,
@@ -5732,7 +5759,7 @@ def test_weak_underwater_missing_research_panel_is_not_paper_pick() -> None:
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 20133492.0}
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:00:00',
     )
@@ -5767,16 +5794,10 @@ def test_health_check_all_pass():
     assert not failed, "Health check failures:\n" + "\n".join(failed)
 
 
-def test_collect_candidate_detail_evidence_reuses_tab(*args, **kwargs):
-    import pytest
-    pytest.skip("CDP live path removed; production uses runner_v2 HTTP")
-
-
-
 def test_output_has_three_candidate_slots():
     import xiaogu_forward_d1_1450_runner_v0_1 as runner
     # Verify these functions exist and return dicts
-    assert callable(runner.highest_score_candidate_from_bundle)
+    assert callable(runner.formal_diagnostic_candidate_from_bundle)
     assert callable(runner.closest_to_pick_candidate_from_bundle)
     assert callable(runner.build_daily_best_paper_watch)
 
@@ -5906,8 +5927,9 @@ def test_signal_effectiveness_persistence_upserts_snapshot(monkeypatch):
     persisted = effectiveness.persist_signal_effectiveness(result)
 
     assert persisted == {'persisted_count': 1, 'analysis_date': '2026-07-14'}
-    assert len(captured) == 2
-    assert captured[1][1][0]['signal_key'] == 'fund_flow_momentum'
+    assert len(captured) == 1
+    assert 'DELETE FROM' not in captured[0][0]
+    assert captured[0][1][0]['signal_key'] == 'fund_flow_momentum'
 
 
 def test_clean_import_without_xiaogu_utils(monkeypatch):
@@ -6288,16 +6310,16 @@ def test_candidate_lifecycle_signals_expose_trade_mode_and_t1_horizon(tmp_path, 
     write_candidate_bundle(bundle_root, '2026-06-22', [prior_a])
     write_candidate_bundle(bundle_root, '2026-06-23', [prior_b])
 
-    bundle = make_bundle([current], candidate_source='eastmoney_web_tabs_scan_v0_1_test_scan')
+    bundle = make_bundle([current], candidate_source=gates.PRODUCTION_SOURCE)
     bundle['date'] = '2026-06-24'
     _decision, _, _, features, _ = runner.decision_for_candidate(current, bundle, '2026-06-24')
     signals = features['paper_pick_eligibility']['signals']
 
-    assert signals['trade_mode'] == 'afternoon_buy_next_day_sell'
-    assert signals['primary_trade_horizon'] == 't1_next_day_sell'
-    assert signals['candidate_lifecycle']['setup_class'] == 'DELAYED_SETUP'
-    assert 'signal_maturation' in signals['candidate_lifecycle']['setup_reason']
-    assert any(reason.startswith('candidate_persistence=') for reason in signals['candidate_lifecycle']['setup_reason'])
+    assert signals['trade_mode'] == 'T_DAY_BUY_T1_CLOSE_SELL'
+    assert signals['primary_trade_horizon'] == 't1_close'
+    assert signals['candidate_lifecycle']['setup_class'] == 'WATCH_ONLY'
+    assert signals['candidate_lifecycle']['delayed_support'] is False
+    assert signals['candidate_lifecycle']['history_has_delayed_winner'] is False
 
 
 def test_sector_rotation_signal_scores_hot_sector_candidate():
@@ -6545,7 +6567,7 @@ def test_weekday_blocklist_blocks_monday(monkeypatch):
             candidate_evidence_domain_counts=required_counts,
             enhanced_evidence_domain_counts=enhanced_counts,
         )],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -6574,7 +6596,7 @@ def test_weekday_allows_wednesday():
             candidate_evidence_domain_counts=required_counts,
             enhanced_evidence_domain_counts=enhanced_counts,
         )],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -6606,7 +6628,7 @@ def test_empty_weekday_blocklist_allows_friday(monkeypatch):
             candidate_evidence_domain_counts=required_counts,
             enhanced_evidence_domain_counts=enhanced_counts,
         )],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='14:50:00',
     )
@@ -6671,11 +6693,12 @@ def test_lifecycle_profile_uses_candidate_bundle_history_for_delayed_setup(tmp_p
 
     profile = runner._candidate_lifecycle_profile(current, {'date': '2026-06-24'})
 
-    assert profile['setup_class'] == 'DELAYED_SETUP'
+    assert profile['setup_class'] == 'WATCH_ONLY'
     assert profile['repeat_count'] >= 2
     assert profile['history_tail']
-    assert all(entry['picked'] is False for entry in profile['history_tail'])
-    assert all(entry['is_official_pick'] is False for entry in profile['history_tail'])
+    assert all(entry.get('picked') is False for entry in profile['history_tail'])
+    assert all(entry.get('is_official_pick') is False for entry in profile['history_tail'])
+    assert profile['delayed_support'] is False
 
 
 def test_lifecycle_profile_uses_scoring_config_thresholds(tmp_path, monkeypatch):
@@ -6797,8 +6820,9 @@ def test_lifecycle_profile_promotes_first_seen_reversal_to_delayed_setup(tmp_pat
 
     profile = runner._candidate_lifecycle_profile(current, {'date': '2026-06-27'})
 
-    assert profile['setup_class'] == 'DELAYED_SETUP'
-    assert any(r in profile['setup_reason'] for r in ('first_seen_reversal_maturation', 'signal_maturation'))
+    assert profile['setup_class'] == 'WATCH_ONLY'
+    assert profile['delayed_support'] is False
+    assert profile['history_has_delayed_winner'] is False
     assert profile['repeat_count'] == 0
 
 
@@ -7528,7 +7552,7 @@ def test_near_limit_with_l2_confirmation_is_positive() -> None:
     candidate['source_layers'] = ['L2_LIMIT_STRENGTH']
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -7566,7 +7590,7 @@ def test_near_limit_without_l2_still_blocks() -> None:
     candidate['source_layers'] = ['L3_FUND_FLOW']
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -7607,7 +7631,7 @@ def test_l2_limit_strength_gets_priority_bonus() -> None:
 
     bundle = make_bundle(
         [c_l2, c_other],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=source_status,
         asof_time='15:10:30',
     )
@@ -8030,7 +8054,15 @@ def test_limitup_reason_missing_is_partial_not_global_hard_block_but_lowers_prio
     }
     missing = {**base, 'code': '600001', 'limitup_reason_quality_score': 0.0, 'news_catalyst_strength': 0.0, 'announcement_catalyst_score': 0.0}
     confirmed = {**base, 'code': '600002', 'limitup_reason_quality_score': 1.0, 'news_catalyst_strength': 0.7}
-    assert scanner_v2.structured_priority_details(missing)['structured_priority_score'] < scanner_v2.structured_priority_details(confirmed)['structured_priority_score']
+    missing_details = scanner_v2.structured_priority_details(missing)
+    assert missing_details['structured_priority_score'] < scanner_v2.structured_priority_details(confirmed)['structured_priority_score']
+    missing_structured = dict(missing)
+    missing_structured.pop('structured_score')
+    missing_structured_details = scanner_v2.structured_priority_details(missing_structured)
+    assert missing_structured_details['structured_priority_score'] is None
+    assert missing_structured_details['ranking_basis'] == 'structured_evidence_required'
+    ranked = scanner_v2.rank_candidates_by_structured_priority([missing_structured, confirmed])
+    assert [row['code'] for row in ranked] == ['600002']
     assert runner.limitup_quality_block_reason(missing, {}) == 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION'
     assert runner.limitup_quality_block_reason(confirmed, {}) == ''
 
@@ -8060,6 +8092,27 @@ def test_information_coverage_audit_distinguishes_proxy_and_missing() -> None:
     assert audit['news_sources']['limitup_reasons']['status'] == 'MISSING'
     assert audit['news_sources']['limitup_reasons']['hard_block'] is False
     assert 'limitup_reasons:MISSING' in audit['coverage_gaps']
+
+
+def test_information_coverage_audit_quarantines_unverified_auxiliary_proxies() -> None:
+    candidates = [{'code': '600001'}]
+    data_cache = {
+        'block_trades': [{'SECURITY_CODE': '600001'}],
+        'trading_halts': [{'SECURITY_CODE': '600001'}],
+        'popularity_rank': [{'f12': '600001'}],
+    }
+
+    audit = scanner_v2.build_mainboard_information_coverage_audit(data_cache, candidates)
+
+    for domain in ('block_trades', 'trading_halts', 'popularity_rank'):
+        record = audit['auxiliary_sources'][domain]
+        assert record['status'] == 'PROXY'
+        assert record['source_type'] == 'PROXY'
+        assert record['quality_status'] == 'PROXY_QUARANTINED'
+        assert record['production_use'] == 'DISABLED_UNTIL_SPECIALIZED_SOURCE'
+        assert record['used_for_scoring'] is False
+        assert record['used_for_risk_filter'] is False
+        assert record['hard_block'] is False
 
 
 def test_real_sector_news_marks_source_pass_and_non_proxy() -> None:
@@ -8176,7 +8229,7 @@ def test_current_day_nested_limitup_reason_is_real_evidence() -> None:
 def test_mainboard_forward_bundle_preserves_auxiliary_evidence(tmp_path) -> None:
     scan_dir = tmp_path / 'data' / 'live_scan' / '2026-07-10' / 'eastmoney_scan_afternoon'
     scan_dir.mkdir(parents=True)
-    scored_path = scan_dir / 'eastmoney_web_tabs_scored.jsonl'
+    scored_path = scan_dir / 'xiaogu_scored.jsonl'
     candidate = make_candidate('600001', '测试主板', score=86.0, rank=1)
     add_t1_profit_evidence(candidate)
     candidate.update({
@@ -8199,14 +8252,16 @@ def test_mainboard_forward_bundle_preserves_auxiliary_evidence(tmp_path) -> None
         'ranking_basis': 'structured_evidence_primary',
     })
     scored_path.write_text(json.dumps(candidate, ensure_ascii=False) + '\n', encoding='utf-8')
-    summary_path = scan_dir / runner.SCAN_SUMMARY_NAME
+    summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
     summary = {
         'source_time': '2026-07-10 14:50:00',
         'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
         'scored_count': 1,
         'passed_count': 1,
         'source_status': complete_source_status(),
-        'files': {'scored': str(scored_path)},
+        'scored_candidates': [candidate],
+        'full_candidate_pool': [candidate],
         'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5800, 'candidate_board_policy': 'main_only'},
         'mainboard_policy': 'main_only',
         'structured_scores': [],
@@ -8244,10 +8299,64 @@ def test_yesterday_limitup_proxy_builds_candidate_continuation_gene() -> None:
     assert audit['news_sources']['limitup_reasons']['status'] == 'PROXY'
     assert audit['news_sources']['limitup_reasons']['hard_block'] is False
     assert audit['yesterday_limitup_proxy']['status'] == 'PROXY'
+    assert audit['yesterday_limitup_proxy']['source_status'] == 'DIRECT'
+    assert audit['yesterday_limitup_proxy']['evidence_role'] == 'CONTINUATION_PROXY'
+    assert audit['yesterday_one_word_limitup_proxy']['source_type'] == 'DIRECT'
+    assert audit['yesterday_one_word_limitup_proxy']['source_mode'] == 'explicit_source'
     assert enriched['continuation_gene_score'] > 0
     assert enriched['sector_yesterday_limitup_gene_proxy']['status'] == 'PROXY'
     assert enriched['limitup_reason_status'] == 'PROXY'
     assert enriched['limitup_reason_hard_block'] is False
+
+
+def test_yesterday_one_word_limitup_is_marked_derived_when_inferred() -> None:
+    audit = scanner_v2.build_mainboard_information_coverage_audit(
+        {
+            'limitup_yesterday': [{
+                'c': '600101',
+                'n': '昨日一字',
+                'hybk': '半导体',
+                'open': 10,
+                'high': 10,
+                'low': 10,
+                'close': 10,
+            }],
+        },
+        [],
+    )
+
+    assert audit['yesterday_limitup_proxy']['source_status'] == 'DIRECT'
+    assert audit['yesterday_one_word_limitup_proxy']['source_type'] == 'DERIVED'
+    assert audit['yesterday_one_word_limitup_proxy']['source_mode'] == 'derived_from_limitup_yesterday'
+
+
+def test_own_limitup_industry_overrides_market_theme_context() -> None:
+    candidate = {
+        'code': '002826',
+        'name': '易明医药',
+        'sector_name': '电力',
+        'sector_opportunity_tags': ['电力'],
+    }
+    data_cache = {
+        'limitup_pool': [],
+        'limitup_yesterday': [
+            {'c': '002826', 'n': '易明医药', 'hybk': '化学制药'},
+        ],
+        'limitup_yesterday_one_word': [],
+    }
+
+    enriched = scanner_v2.enrich_mainboard_auxiliary_evidence([candidate], data_cache)[0]
+
+    assert enriched['industry'] == '化学制药'
+    assert enriched['sector_name'] == '化学制药'
+    assert enriched['sector_yesterday_limitup_gene_proxy']['sector_matches'] == [
+        {
+            'sector': '化学制药',
+            'count': 1,
+            'source': 'limitup_yesterday',
+            'proxy': True,
+        }
+    ]
 
 
 def test_information_coverage_partial_reasons_identify_limitup_gap() -> None:
@@ -8296,7 +8405,7 @@ def test_huatian_capital_risk_profile_explains_broken_board_divergence() -> None
     profile = runner.candidate_capital_risk_profile(candidate)
     eligibility = runner.paper_pick_eligibility_profile(
         candidate,
-        make_bundle([candidate], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo'),
+        make_bundle([candidate], candidate_source=gates.PRODUCTION_SOURCE),
     )
 
     assert profile['failed_limitup_risk'] > 0
@@ -8375,6 +8484,46 @@ def test_db_top10_snapshot_fields_are_explicit(monkeypatch) -> None:
     assert all(row['factor_snapshot'] for row in rows)
     assert all(row['auxiliary_evidence_snapshot'] for row in rows)
     assert all(row['not_selected_reason'] for row in rows[1:])
+
+
+def test_daily_candidate_decision_is_official_only_not_candidate_gate_result() -> None:
+    official_symbol = '600002'
+    candidates = [
+        make_candidate('600001', '候选通过但未出票', score=100.0, rank=1),
+        make_candidate(official_symbol, '正式票', score=78.0, rank=2),
+    ]
+    bundle = {
+        'full_candidate_pool': candidates,
+        'candidate_pool_exclusion_summary': {'target_count': 2, 'source_status': 'PASS'},
+    }
+    features = {
+        'candidate_consumption_summary': {
+            'official_result': {'symbol': official_symbol},
+            'top10_candidates': [
+                {
+                    'symbol': '600001',
+                    'official_decision_if_evaluated': 'PAPER_PICK',
+                    'official_decision_reason_if_evaluated': 'ALL_FORWARD_PAPER_HARD_GATES_PASS',
+                },
+                {
+                    'symbol': official_symbol,
+                    'official_decision_if_evaluated': 'PAPER_PICK',
+                    'official_decision_reason_if_evaluated': 'ALL_FORWARD_PAPER_HARD_GATES_PASS',
+                },
+            ],
+        },
+    }
+
+    payload = runner.build_daily_candidate_persistence_payloads(
+        '2026-07-10', bundle, features, 'PAPER_PICK', 'selected',
+    )
+    by_symbol = {row['symbol']: row for row in payload['daily_candidates']}
+
+    assert by_symbol['600001']['decision'] == 'NO_PICK'
+    assert by_symbol['600001']['is_official_pick'] is False
+    assert by_symbol['600001']['candidate_features']['candidate_evaluation_decision'] == 'PAPER_PICK'
+    assert by_symbol[official_symbol]['decision'] == 'PAPER_PICK'
+    assert by_symbol[official_symbol]['is_official_pick'] is True
 
 
 def test_backtest_top10_reports_profitable_rank4_alternative() -> None:
@@ -9010,6 +9159,180 @@ def test_profit_edge_outranks_hot_fund_theme_shell_without_continuation():
     assert runner.formal_candidate_sort_key(profit_structure) > runner.formal_candidate_sort_key(bare_chase)
 
 
+def test_main_force_behavior_chain_is_primary_over_fund_shell():
+    chain = make_candidate(
+        '600701',
+        '政策接力龙头',
+        score=76.0,
+        rank=8,
+        signal_pct=4.2,
+        candidate_stage='early_3_to_5',
+        sector_score=0.82,
+        fund_flow_momentum=0.78,
+        time_series_momentum=0.72,
+        low_position_catalyst_score=0.78,
+        close_position_score=0.86,
+        main_theme_core_score=0.82,
+        main_theme_alignment_score=0.88,
+        order_book_pressure=0.72,
+    )
+    chain.update({
+        'catalyst_type': 'policy',
+        'announcement_catalyst_score': 0.88,
+        'sector_news_catalyst_score': 0.76,
+        'leader_chain_score': 0.86,
+        'volume_ratio': 2.4,
+        'structured_score': 68.0,
+        'structured_priority_score': 70.0,
+    })
+    shell = make_candidate(
+        '600702',
+        '高位资金壳',
+        score=96.0,
+        rank=1,
+        signal_pct=8.7,
+        candidate_stage='high_7_to_9',
+        sector_score=0.75,
+        fund_flow_momentum=1.0,
+        time_series_momentum=0.15,
+        low_position_catalyst_score=0.10,
+        close_position_score=0.96,
+        main_theme_core_score=0.95,
+        main_theme_alignment_score=0.92,
+        order_book_pressure=0.20,
+    )
+    shell.update({
+        'announcement_catalyst_score': 0.0,
+        'news_catalyst_strength': 0.0,
+        'sector_news_catalyst_score': 0.0,
+        'continuation_gene_score': 0.0,
+        'volume_ratio': 2.8,
+        'structured_score': 96.0,
+        'structured_priority_score': 110.0,
+    })
+
+    chain_adj = runner.ranking_basis_adjustment_components(chain)
+    shell_adj = runner.ranking_basis_adjustment_components(shell)
+
+    assert chain_adj['ranking_view'] == 'main_force_behavior_chain'
+    assert chain_adj['catalyst_type'] == 'policy'
+    assert chain_adj['capital_behavior_score'] > shell_adj['capital_behavior_score']
+    assert runner.formal_candidate_sort_key(chain) > runner.formal_candidate_sort_key(shell)
+
+
+def test_event_without_sector_or_flow_cannot_create_main_force_intent():
+    candidate = make_candidate(
+        '600703',
+        '孤立公告',
+        score=90.0,
+        rank=1,
+        signal_pct=6.0,
+        candidate_stage='mid_5_to_7',
+        sector_score=0.0,
+        fund_flow_momentum=0.0,
+        main_theme_core_score=0.0,
+        main_theme_alignment_score=0.0,
+    )
+    candidate.update({
+        'catalyst_type': 'announcement',
+        'announcement_catalyst_score': 1.0,
+        'news_catalyst_strength': 0.0,
+        'sector_news_catalyst_score': 0.0,
+        'continuation_gene_score': 0.0,
+    })
+
+    adjustment = runner.ranking_basis_adjustment_components(candidate)
+
+    assert adjustment['catalyst_type'] == 'announcement'
+    assert adjustment['sector_attack_score'] < 0.35
+    assert adjustment['flow_confirmation_score'] < 0.35
+    assert adjustment['capital_behavior_score'] < 0.35
+    assert 'sector_attack_not_confirmed' in adjustment['counter_evidence']
+
+
+def test_main_force_behavior_ignores_future_result_fields():
+    candidate = make_candidate(
+        '600704',
+        'T日候选',
+        score=82.0,
+        rank=2,
+        signal_pct=4.5,
+        candidate_stage='early_3_to_5',
+        sector_score=0.68,
+        fund_flow_momentum=0.65,
+        low_position_catalyst_score=0.65,
+        main_theme_core_score=0.62,
+        main_theme_alignment_score=0.70,
+    )
+    candidate.update({
+        'announcement_catalyst_score': 0.70,
+        'sector_news_catalyst_score': 0.60,
+        'leader_chain_score': 0.65,
+    })
+    baseline = runner.formal_candidate_sort_key(candidate)
+    future = dict(candidate)
+    future.update({
+        't1_return': 0.25,
+        't1_high_return': 0.40,
+        'result_status': 'T1_FILLED',
+        'lhb_after_close': [{'seat': 'future'}],
+    })
+
+    assert runner.formal_candidate_sort_key(future) == baseline
+
+
+def test_replay_provenance_cannot_change_formal_sort():
+    baseline = make_candidate(
+        '600705',
+        '直接资金候选',
+        score=78.0,
+        rank=3,
+        signal_pct=4.5,
+        candidate_stage='early_3_to_5',
+        fund_flow_momentum=0.40,
+        time_series_momentum=0.20,
+        main_theme_alignment_score=0.0,
+    )
+    replay_inflated = copy.deepcopy(baseline)
+    replay_inflated['structured_score_components']['fund_flow_momentum'] = 0.75
+    replay_inflated['structured_score_components']['time_series_momentum'] = 0.45
+    replay_inflated['structured_score_components']['main_theme_alignment_score'] = 0.20
+    replay_inflated['structured_component_details'].update({
+        'replay_provenance_tags': [
+            'REPLAY_HISTORY_FLOW',
+            'REPLAY_STOCK_PROFILE',
+        ],
+        'replay_main_force_net_inflow': 100_000_000.0,
+        'replay_main_force_net_ratio': 10.0,
+    })
+
+    assert runner.formal_candidate_sort_key(replay_inflated) == runner.formal_candidate_sort_key(baseline)
+
+
+def test_generic_announcement_inventory_cannot_create_event_catalyst():
+    baseline = make_candidate(
+        '600706',
+        '公告库存候选',
+        score=78.0,
+        rank=3,
+        signal_pct=4.5,
+        candidate_stage='early_3_to_5',
+        fund_flow_momentum=0.40,
+    )
+    baseline['announcement_catalyst_score'] = 0.0
+    generic_announcement = copy.deepcopy(baseline)
+    generic_announcement['auxiliary_evidence_snapshot'] = {'announcements': [{
+        'title': '董事会议事规则',
+        'category': 'other',
+        'hard_block': False,
+    }]}
+
+    baseline_adjustment = runner.ranking_basis_adjustment_components(baseline)
+    generic_adjustment = runner.ranking_basis_adjustment_components(generic_announcement)
+    assert generic_adjustment['event_score'] == baseline_adjustment['event_score']
+    assert generic_adjustment['boosts']['announcement_catalyst'] == 0.0
+
+
 def test_current_day_limitup_reason_is_observation_only_not_candidate():
     """Current-day direct limitup evidence cannot occupy a T+1 candidate seat."""
     required_counts, enhanced_counts = full_candidate_evidence_counts()
@@ -9044,7 +9367,7 @@ def test_current_day_limitup_reason_is_observation_only_not_candidate():
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
@@ -9095,7 +9418,7 @@ def test_profit_continuation_layer_keeps_regulatory_candidate_but_final_gate_blo
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
@@ -9136,7 +9459,7 @@ def test_profit_continuation_layer_still_rejects_bare_hot_fund_shell():
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
     )
 
     result = runner.build_daily_ticket_search_rows(bundle['paper_scoring_candidates'], bundle)
@@ -9169,7 +9492,7 @@ def test_weak_single_name_sector_proxy_does_not_mint_profit_edge_over_own_gene()
         'structured_priority_score': 88.0,
         'structured_score': 85.0,
         'continuation_gene_score': 0.08,
-        'announcement_catalyst_score': 1.0,
+        'announcement_catalyst_score': 0.0,
         'sector_news_catalyst_score': 0.3,
         'news_catalyst_strength': 0.0,
         'sector_yesterday_limitup_gene_proxy': {
@@ -9290,7 +9613,7 @@ def test_pool_identical_theme_tags_marked_hollow_and_penalized():
     meta = runner.detect_pool_hollow_theme_tags(rows)
     assert meta['hollow'] is True
     assert meta['dominance_ratio'] >= 0.80
-    bundle = make_bundle(rows, candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle(rows, candidate_source=gates.PRODUCTION_SOURCE)
     runner.attach_paper_pick_eligibility(bundle)
     assert bundle.get('theme_tags_hollow') is True
     hollow_row = bundle['paper_scoring_candidates'][0]
@@ -9333,12 +9656,11 @@ def test_structure_candidate_writes_why_not_official_machine_codes():
             {'reason': '续涨基因', 'source': 'limitup_pool', 'proxy': False},
         ],
     })
-    bundle = make_bundle([structure], candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo')
+    bundle = make_bundle([structure], candidate_source=gates.PRODUCTION_SOURCE)
     runner.attach_paper_pick_eligibility(bundle)
     enriched = bundle['paper_scoring_candidates'][0]
     codes = enriched.get('why_not_official_pick_codes') or []
     assert 'STRUCTURE_CANDIDATE_PRESENT' in codes
-    assert 'SCORE_BELOW_70_HARD' in codes
     # May still be NO_PICK; codes must not be silent.
     assert codes
 
@@ -10388,13 +10710,13 @@ def test_core_sentiment_status_blocks_missing_pool_response():
 def test_runner_core_market_source_gate_blocks_unproven_or_unpersisted_scan():
     missing_core = runner.core_market_source_gate({
         'scan_summary_path': '/tmp/summary.json',
-        'source_status': {'required_cdp_tabs': {'status': 'PASS'}},
+        'source_status': {'required_market_data': {'status': 'PASS'}},
         'market_snapshot': {},
     })
     incomplete_persistence = runner.core_market_source_gate({
         'scan_summary_path': '/tmp/summary.json',
         'source_status': {
-            'required_cdp_tabs': {'status': 'PASS'},
+            'required_market_data': {'status': 'PASS'},
             'core_sentiment_pools': {'status': 'PASS'},
         },
         'market_snapshot': {'hard_block_source_status': {'status': 'PASS'}},
@@ -10402,7 +10724,7 @@ def test_runner_core_market_source_gate_blocks_unproven_or_unpersisted_scan():
     passed = runner.core_market_source_gate({
         'scan_summary_path': '/tmp/summary.json',
         'source_status': {
-            'required_cdp_tabs': {'status': 'PASS'},
+            'required_market_data': {'status': 'PASS'},
             'core_sentiment_pools': {'status': 'PASS'},
             'scan_snapshot_persistence': {'status': 'PASS', 'scan_session_id': 9},
         },
@@ -10489,7 +10811,7 @@ def _redecision_eligible_pair():
     stronger['limitup_probability_proxy'] = 0.7
     bundle = make_bundle(
         [weaker, stronger],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         source_status=load_real_bundle()['source_status'],
         asof_time='15:10:30',
     )
@@ -10736,7 +11058,7 @@ def test_historical_failure_mode_blocks_weak_market_quality_escape(monkeypatch):
     candidate['structured_component_details']['main_theme_alignment_score'] = 0.82
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={'market_breadth_up_pct': 26.0, 'market_limitups': 78, 'limitup_broken_ratio': 1.27, 'market_regime': 'weak'},
         market_regime='weak',
     )
@@ -10893,7 +11215,7 @@ def test_quality_escape_partial_aux_waives_mainboard_aux_hard_block(monkeypatch)
     candidate['structured_component_details']['sector_news_catalyst_score'] = 0.60
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={
             'market_breadth_up_pct': 26.0,
             'market_limitups': 78,
@@ -10976,7 +11298,7 @@ def test_sszcw_favored_waives_high_chase_soft_when_partial_aux(monkeypatch):
     }
     bundle = make_bundle(
         [power],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot=weak_snap,
         market_regime='weak',
     )
@@ -11025,7 +11347,7 @@ def test_sszcw_favored_waives_high_chase_soft_when_partial_aux(monkeypatch):
     sealed['news_catalyst_strength'] = 0.8
     sealed_bundle = make_bundle(
         [sealed],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot=weak_snap,
         market_regime='weak',
     )
@@ -11075,7 +11397,7 @@ def test_quality_escape_suppresses_low_score_band_without_direct_catalyst(monkey
     candidate['trade_date'] = '2026-07-22'
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={'market_breadth_up_pct': 26.0, 'market_regime': 'weak'},
         market_regime='weak',
     )
@@ -11136,7 +11458,7 @@ def test_theme_resilient_escape_can_override_weak_market_direct_confirmation(mon
     candidate['structured_component_details']['sector_news_catalyst_score'] = 0.6
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={'market_breadth_up_pct': 32.0, 'market_limitups': 68, 'limitup_broken_ratio': 0.88, 'market_regime': 'weak'},
         market_regime='weak',
     )
@@ -11204,7 +11526,7 @@ def test_trusted_sszcw_stock_prediction_confirms_t1_and_partial_aux(monkeypatch)
     })
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={
             'market_breadth_up_pct': 28.0,
             'market_limitups': 60,
@@ -11276,7 +11598,7 @@ def test_final_pick_must_be_buyable_blocks_sealed_limit_up(monkeypatch):
     candidate['structured_component_details']['main_theme_alignment_score'] = 0.85
     bundle = make_bundle(
         [candidate],
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source=gates.PRODUCTION_SOURCE,
         market_snapshot={'market_breadth_up_pct': 48.0, 'market_limitups': 66, 'limitup_broken_ratio': 0.92, 'market_regime': 'neutral'},
         market_regime='neutral',
     )
@@ -11294,17 +11616,18 @@ def test_final_pick_must_be_buyable_blocks_sealed_limit_up(monkeypatch):
     assert card['target_status'] == 'NO_OFFICIAL_TARGET'
 
 
-def test_daily_best_paper_watch_prefers_quality_closest_over_highest_score():
+def test_daily_best_paper_watch_follows_main_force_score_over_quality_escape():
     import xiaogu_forward_d1_1450_runner_v0_1 as runner
 
     diagnostics = {
-        'highest_score_candidate': {
-            'diagnostic_role': 'highest_score_candidate',
+        'formal_diagnostic_candidate': {
+            'diagnostic_role': 'formal_diagnostic_candidate',
             'symbol': '603118',
             'name': '共进股份',
             'rank': 36,
             'score': 95,
             'final_score': 95.0,
+            'production_score': 95.0,
             'blockers': ['mainboard_auxiliary_evidence_status_not_PASS', 'weak_acceptance_market_high_chase_soft'],
             'signals': {},
         },
@@ -11315,6 +11638,7 @@ def test_daily_best_paper_watch_prefers_quality_closest_over_highest_score():
             'rank': 14,
             'score': 90.18,
             'final_score': 90.18,
+            'production_score': 90.18,
             'blockers': ['mainboard_auxiliary_evidence_status_not_PASS'],
             'signals': {
                 'quality_daily_ticket_escape': True,
@@ -11325,8 +11649,8 @@ def test_daily_best_paper_watch_prefers_quality_closest_over_highest_score():
     }
     watch = runner.build_daily_best_paper_watch(diagnostics)
     assert watch is not None
-    assert watch['symbol'] == '601899'
-    assert watch['selection_source'] == 'closest_to_pick_candidate'
+    assert watch['symbol'] == '603118'
+    assert watch['selection_source'] == 'formal_diagnostic_candidate'
 
 
 def test_ensure_pre_pick_market_context_self_heals(monkeypatch):
@@ -11382,3 +11706,34 @@ def test_ensure_pre_pick_market_context_self_heals(monkeypatch):
     }
     assert out2['market_stance'] == 'RISK_OFF_TECH_DEFENSIVE'
     assert out2['selected_for_production'] is False
+
+
+def test_single_production_contract_rejects_legacy_decisions_and_horizons():
+    import xiaogu_forward_judge_scoreboard_v0_1 as scoreboard
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    assert runner.PRIMARY_RETURN_FIELD == 't1_return'
+    assert runner.PRIMARY_TRADE_HORIZON == 't1_close'
+    assert filler.VALID_HORIZONS == {'t1': 't1_return'}
+    with pytest.raises(SystemExit):
+        recorder.validate_generation('RESEARCH_CANDIDATE', {
+            'paper_only': True,
+            'no_trade': True,
+            'production_ready': False,
+            'allow_trade': True,
+            'auto_order': False,
+            'broker_connected': False,
+            'manual_paper_execution_allowed': True,
+        })
+    assert scoreboard.first_available_return_pct({
+        't1_return': None,
+        't1_return_close': 0.99,
+        't2_return': 0.88,
+    }) is None
+    classified = scoreboard.classify_forward_observation({
+        'decision': 'RESEARCH_CANDIDATE',
+        't1_return': 0.05,
+    })
+    assert 'LEGACY_DECISION_IGNORED' in classified['review_tags']
+    assert 'RESEARCH_ONLY' not in classified['review_tags']

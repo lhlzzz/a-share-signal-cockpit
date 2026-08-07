@@ -11,8 +11,6 @@ import argparse
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -23,8 +21,7 @@ from urllib.request import Request, ProxyHandler, build_opener
 BASE = Path(os.environ.get('XIAOGU_HOME') or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(BASE))
 
-# Structured scoring helpers: stable surface is xiaogu_scanner_scoring
-# (implementation still lives in legacy web_tabs library module).
+# Structured scoring helpers are owned by the direct API scanner.
 try:
     from xiaogu_scanner_scoring import (
         build_information_coverage_audit,
@@ -34,33 +31,19 @@ try:
     )
     HAS_STRUCTURED_HELPERS = True
 except ImportError:
-    try:
-        from xiaogu_scanner_scoring import (
-            build_information_coverage_audit,
-            build_research_signals,
-            build_structured_bundle,
-            build_structured_scores,
-        )
-        HAS_STRUCTURED_HELPERS = True
-    except ImportError:
-        build_information_coverage_audit = None
-        HAS_STRUCTURED_HELPERS = False
+    build_information_coverage_audit = None
+    HAS_STRUCTURED_HELPERS = False
+
+from xiaogu_utils import eastmoney_quote_prices
 
 LOCAL_OPENER = build_opener(ProxyHandler({}))
-CDP_URL = os.environ.get('XIAOGU_SCANNER_CDP_URL', 'http://127.0.0.1:9333').rstrip('/')
-CDP_FETCH_HOME = os.environ.get('XIAOGU_SCANNER_CDP_HOME', 'https://quote.eastmoney.com/center/gridlist.html')
 HEADERS = {
     'Referer': 'https://quote.eastmoney.com/',
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
 }
-# Production default: direct HTTP to Eastmoney APIs. CDP is optional fallback only
-# (XIAOGU_SCANNER_TRANSPORT=cdp|auto). Do not treat browser navigation as the only path.
+# Production transport is direct HTTP only.
 DEFAULT_SCANNER_TRANSPORT = 'direct'
-_VALID_SCANNER_TRANSPORTS = frozenset({'direct', 'cdp', 'auto'})
 _SCANNER_TRANSPORT_LOGGED = False
-_CDP_FETCH_TAB_ID = None
-_CDP_FETCH_WS_URL = None
-_CDP_BROWSER_PROCESS = None
 
 EXTERNAL_MARKET_INDEXES = (
     ('us_djia', '100.DJIA', 'Dow Jones'),
@@ -74,6 +57,15 @@ MAINBOARD_PREFIXES = ('600', '601', '603', '605', '000', '001', '002', '003')
 # unique-symbol fill can still hit the pool target after duplicates.
 FULL_CANDIDATE_POOL_TARGET = 400
 PRE_ENRICHMENT_CANDIDATE_TARGET = 500
+# Eastmoney's clist endpoint exposes the quote payload as numbered fields.
+# Request the full direct field range so downstream code can consume raw API
+# values without a local sector/quote mapping layer.
+MAX_SAFE_PAGE_COUNT = 100
+STOCK_ALL_A_FIELDS = ','.join(f'f{field_id}' for field_id in range(1, 201))
+STOCK_CAPITAL_FLOW_FIELDS = ','.join(
+    ['f1', 'f2', 'f3', 'f12', 'f14']
+    + [f'f{field_id}' for field_id in range(51, 76)]
+)
 MAINBOARD_AUXILIARY_EVIDENCE_DOMAINS = {
     'announcements': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
     'news_kuaixun': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
@@ -82,12 +74,11 @@ MAINBOARD_AUXILIARY_EVIDENCE_DOMAINS = {
     'lhb': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
     'org_survey': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
     'earnings_preview': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
-    'trading_halts': {'used_for_scoring': False, 'used_for_risk_filter': True, 'hard_block': True},
+    'trading_halts': {'used_for_scoring': False, 'used_for_risk_filter': False, 'hard_block': False},
     'shareholder_changes': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
     'lockup_expiry': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
-    'margin_trading': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
-    'block_trades': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
-    'popularity_rank': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
+    'block_trades': {'used_for_scoring': False, 'used_for_risk_filter': False, 'hard_block': False},
+    'popularity_rank': {'used_for_scoring': False, 'used_for_risk_filter': False, 'hard_block': False},
     'sector_capital_flow': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
     'stock_capital_flow': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
     'sector_news': {'used_for_scoring': True, 'used_for_risk_filter': False, 'hard_block': False},
@@ -95,6 +86,11 @@ MAINBOARD_AUXILIARY_EVIDENCE_DOMAINS = {
     'risk_announcements': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
     'abnormal_movement_announcements': {'used_for_scoring': True, 'used_for_risk_filter': True, 'hard_block': False},
 }
+QUARANTINED_PROXY_AUXILIARY_DOMAINS = frozenset({
+    'block_trades',
+    'trading_halts',
+    'popularity_rank',
+})
 
 
 def board_for_code(code):
@@ -149,6 +145,29 @@ def stock_codes_from_row(row):
         if code and code not in codes:
             codes.append(code)
     return codes
+
+
+def mainboard_row_coverage(rows):
+    rows = [row for row in rows or [] if isinstance(row, dict)]
+    rows_with_codes = 0
+    mainboard_rows = 0
+    mainboard_codes = set()
+    for row in rows:
+        codes = stock_codes_from_row(row)
+        if not codes:
+            continue
+        rows_with_codes += 1
+        main_codes = [code for code in codes if is_mainboard_code(code)]
+        if main_codes:
+            mainboard_rows += 1
+            mainboard_codes.update(main_codes)
+    return {
+        'raw_rows': len(rows),
+        'rows_with_stock_codes': rows_with_codes,
+        'mainboard_rows': mainboard_rows,
+        'mainboard_unique_codes': len(mainboard_codes),
+        'mainboard_scope': 'direct_code_fields',
+    }
 
 
 def normalize_symbol_name(value):
@@ -254,10 +273,11 @@ def is_one_word_limitup_row(row):
     text = ' '.join(str(row.get(key) or '') for key in ('type', 'label', 'tags', 'reason', 'zttj'))
     if '一字' in text:
         return True
-    open_price = fnum(row.get('open') or row.get('o') or row.get('f46'))
-    high_price = fnum(row.get('high') or row.get('h') or row.get('f44'))
-    low_price = fnum(row.get('low') or row.get('l') or row.get('f45'))
-    close_price = fnum(row.get('close') or row.get('price') or row.get('p') or row.get('f43'))
+    quote = eastmoney_quote_prices(row)
+    open_price = fnum(quote.get('open'))
+    high_price = fnum(quote.get('high'))
+    low_price = fnum(quote.get('low'))
+    close_price = fnum(quote.get('close'))
     prices = [value for value in (open_price, high_price, low_price, close_price) if value > 0]
     return len(prices) == 4 and max(prices) == min(prices)
 
@@ -270,9 +290,8 @@ def yesterday_limitup_proxy_rows(data_cache):
     return yesterday_rows, [row for row in yesterday_rows if is_one_word_limitup_row(row)], 'derived_from_limitup_yesterday'
 
 
-def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map=None, stock_concept_map=None):
-    stock_sector_map = stock_sector_map or {}
-    stock_concept_map = stock_concept_map or {}
+def enrich_mainboard_auxiliary_evidence(candidates, data_cache, *_unused_legacy_args):
+    """Enrich candidates from their direct quote fields and evidence rows."""
     announcements_by_code = {}
     announcements_all = [row for row in data_cache.get('announcements', []) or [] if isinstance(row, dict)]
     for row in announcements_all:
@@ -314,20 +333,47 @@ def enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map
         code = str(candidate.get('code') or candidate.get('symbol') or '').zfill(6)
         name = str(candidate.get('name') or candidate.get('stock_name') or '').strip()
         name_key = normalize_symbol_name(name)
-        sector = str(stock_sector_map.get(code) or candidate.get('sector_name') or candidate.get('sector') or candidate.get('industry') or '').strip()
-        concepts = [str(value).strip() for value in stock_concept_map.get(code, []) if str(value).strip()]
-        # Fill industry/sector so downstream sszcw theme matching is not name-only.
+        own_limitup_industry = ''
+        for limitup_row in [
+            *(data_cache.get('limitup_pool', []) or []),
+            *(data_cache.get('limitup_yesterday', []) or []),
+        ]:
+            if code not in stock_codes_from_row(limitup_row):
+                continue
+            own_limitup_industry = str(
+                limitup_row.get('industry')
+                or limitup_row.get('sector')
+                or limitup_row.get('hybk')
+                or ''
+            ).strip()
+            if own_limitup_industry:
+                break
+        sector = str(
+            candidate.get('industry')
+            or own_limitup_industry
+            or candidate.get('sector_name')
+            or candidate.get('sector')
+            or ''
+        ).strip()
+        concepts = [
+            str(value).strip()
+            for value in candidate.get('sector_opportunity_tags') or []
+            if str(value).strip()
+        ]
+        # Fill canonical stock-industry fields from stock-level evidence.
         if sector:
-            candidate.setdefault('industry', sector)
-            candidate.setdefault('sector', sector)
-            candidate.setdefault('sector_name', sector)
+            candidate['industry'] = sector
+            candidate['sector'] = sector
+            candidate['sector_name'] = sector
         if concepts:
             existing_tags = list(candidate.get('sector_opportunity_tags') or [])
             for concept in concepts:
                 if concept and concept not in existing_tags:
                     existing_tags.append(concept)
             candidate['sector_opportunity_tags'] = existing_tags
-        sector_terms = [value for value in [sector, *concepts, *(candidate.get('sector_opportunity_tags') or [])] if value]
+        # sector_opportunity_tags are market-theme context. Do not use them as
+        # stock-industry terms when matching auxiliary evidence.
+        sector_terms = [value for value in [sector, *concepts] if value]
 
         announcement_evidence = []
         risk_notice_evidence = []
@@ -574,7 +620,6 @@ def build_mainboard_information_coverage_audit(data_cache, candidates):
         'trading_halts': sum(bool(row.get('in_halted')) for row in candidates),
         'shareholder_changes': sum(bool(row.get('in_shareholder_changes')) for row in candidates),
         'lockup_expiry': sum(bool(row.get('in_lockup_expiry')) for row in candidates),
-        'margin_trading': sum(bool(row.get('in_margin_trading')) for row in candidates),
         'block_trades': sum(bool(row.get('in_block_trades')) for row in candidates),
         'popularity_rank': sum(bool(row.get('in_popularity_rank')) for row in candidates),
         'stock_capital_flow': sum(bool(row.get('in_capital_flow')) for row in candidates),
@@ -593,20 +638,54 @@ def build_mainboard_information_coverage_audit(data_cache, candidates):
     sources = {}
     for name, policy in MAINBOARD_AUXILIARY_EVIDENCE_DOMAINS.items():
         raw_count = raw_counts.get(name, 0)
+        is_quarantined_proxy = name in QUARANTINED_PROXY_AUXILIARY_DOMAINS
         record = {
             'status': 'PASS' if raw_count > 0 else 'MISSING',
+            'source_type': 'DIRECT' if raw_count > 0 else 'MISSING',
+            'quality_status': 'PASS' if raw_count > 0 else 'MISSING',
+            'production_use': (
+                'DISABLED_UNTIL_SPECIALIZED_SOURCE'
+                if is_quarantined_proxy
+                else ('ENABLED' if raw_count > 0 else 'UNAVAILABLE')
+            ),
+            'quality_gaps': [] if raw_count > 0 else ['source_missing'],
             'collected': raw_count > 0,
             'raw_count': raw_count,
             'raw_file_written': raw_count > 0,
             'matched_candidate_count': matched.get(name, 0),
             **policy,
         }
+        if is_quarantined_proxy:
+            record.update({
+                'status': 'PROXY' if raw_count > 0 else 'MISSING',
+                'source_type': 'PROXY' if raw_count > 0 else 'MISSING',
+                'quality_status': 'PROXY_QUARANTINED' if raw_count > 0 else 'MISSING',
+                'quality_gaps': ['specialized_source_unavailable'] if raw_count > 0 else ['source_missing'],
+            })
         if name == 'sector_news':
             proxy_sources = [source for source in ('industry_reports', 'news_kuaixun', 'sector_capital_flow') if raw_counts.get(source, 0) > 0]
             if raw_count > 0:
-                record.update({'status': 'PASS', 'proxy_sources': [], 'raw_file_written': True, 'source': 'eastmoney_sector_news'})
+                record.update({
+                    'status': 'PASS',
+                    'source_type': 'DIRECT',
+                    'quality_status': 'PASS',
+                    'production_use': 'ENABLED',
+                    'quality_gaps': [],
+                    'proxy_sources': [],
+                    'raw_file_written': True,
+                    'source': 'eastmoney_sector_news',
+                })
             else:
-                record.update({'status': 'PROXY' if proxy_sources else 'MISSING', 'proxy_sources': proxy_sources, 'raw_file_written': False, 'reason': 'no independent sector_news rows; candidate-scoped proxy only'})
+                record.update({
+                    'status': 'PROXY' if proxy_sources else 'MISSING',
+                    'source_type': 'PROXY' if proxy_sources else 'MISSING',
+                    'quality_status': 'PROXY' if proxy_sources else 'MISSING',
+                    'production_use': 'SCORING_PROXY_ONLY' if proxy_sources else 'UNAVAILABLE',
+                    'quality_gaps': ['independent_sector_news_unavailable'] if proxy_sources else ['source_missing'],
+                    'proxy_sources': proxy_sources,
+                    'raw_file_written': False,
+                    'reason': 'no independent sector_news rows; candidate-scoped proxy only',
+                })
         elif name == 'limitup_reasons' and raw_count <= 0:
             pool_count = len(data_cache.get('limitup_pool', []) or [])
             proxy_sources = []
@@ -618,6 +697,10 @@ def build_mainboard_information_coverage_audit(data_cache, candidates):
                 proxy_sources.append('limitup_pool_if_available')
             record.update({
                 'status': 'PROXY' if proxy_sources else 'MISSING',
+                'source_type': 'PROXY' if proxy_sources else 'MISSING',
+                'quality_status': 'PROXY' if proxy_sources else 'MISSING',
+                'production_use': 'CONTINUATION_PROXY_ONLY' if proxy_sources else 'UNAVAILABLE',
+                'quality_gaps': ['current_day_limitup_reason_unavailable'] if proxy_sources else ['source_missing'],
                 'proxy_sources': proxy_sources,
                 'reason': 'current_day_limitup_reason_unavailable; yesterday pools used only as continuation-gene proxy' if proxy_sources else 'current_day_limitup_pool_empty',
                 'impact': 'supports continuation gene analysis but does not prove current-day limitup reason; reduces high-chase confidence and continuation certainty',
@@ -646,9 +729,17 @@ def build_mainboard_information_coverage_audit(data_cache, candidates):
         'risk_announcements': 'PASS_OR_EMPTY' if sources['announcements']['status'] == 'PASS' else sources['risk_announcements']['status'],
         'stock_capital_flow': sources['stock_capital_flow']['status'],
         'popularity_rank': sources['popularity_rank']['status'],
-        'yesterday_limitup_proxy': 'PROXY' if yesterday_rows else 'MISSING',
-        'yesterday_one_word_limitup_proxy': 'PROXY' if yesterday_one_word_rows else 'MISSING',
+        'yesterday_limitup_proxy': 'DIRECT' if yesterday_rows else 'MISSING',
+        'yesterday_one_word_limitup_proxy': (
+            'DIRECT' if yesterday_one_word_rows and one_word_source_mode == 'explicit_source'
+            else ('DERIVED' if yesterday_one_word_rows else 'MISSING')
+        ),
     }
+    yesterday_limitup_status = 'DIRECT' if yesterday_rows else 'MISSING'
+    yesterday_one_word_source_type = (
+        'DIRECT' if yesterday_one_word_rows and one_word_source_mode == 'explicit_source'
+        else ('DERIVED' if yesterday_one_word_rows else 'MISSING')
+    )
     return {
         'status': 'PARTIAL' if partial_reasons else 'PASS',
         'partial_reasons': partial_reasons,
@@ -667,9 +758,33 @@ def build_mainboard_information_coverage_audit(data_cache, candidates):
         'coverage_gaps': coverage_gaps,
         'yesterday_limitup_proxy': {
             'status': 'PROXY' if yesterday_rows else 'MISSING',
+            'source_status': yesterday_limitup_status,
+            'source_type': yesterday_limitup_status,
+            'quality_status': 'PASS' if yesterday_rows else 'MISSING',
+            'production_use': 'CONTINUATION_PROXY_ONLY' if yesterday_rows else 'UNAVAILABLE',
+            'evidence_role': 'CONTINUATION_PROXY',
+            'quality_gaps': [] if yesterday_rows else ['source_missing'],
             'raw_count': len(yesterday_rows),
             'one_word_raw_count': len(yesterday_one_word_rows),
             'one_word_source_mode': one_word_source_mode,
+            'hard_block': False,
+        },
+        'yesterday_one_word_limitup_proxy': {
+            'status': 'PROXY' if yesterday_one_word_rows else 'MISSING',
+            'source_status': yesterday_one_word_source_type,
+            'source_type': yesterday_one_word_source_type,
+            'quality_status': 'PASS' if yesterday_one_word_rows and one_word_source_mode == 'explicit_source' else (
+                'DERIVED' if yesterday_one_word_rows else 'MISSING'
+            ),
+            'production_use': 'CONTINUATION_PROXY_ONLY' if yesterday_one_word_rows else 'UNAVAILABLE',
+            'evidence_role': 'CONTINUATION_PROXY',
+            'quality_gaps': (
+                ['derived_from_yesterday_limitup']
+                if yesterday_one_word_rows and one_word_source_mode != 'explicit_source'
+                else ([] if yesterday_one_word_rows else ['source_missing'])
+            ),
+            'raw_count': len(yesterday_one_word_rows),
+            'source_mode': one_word_source_mode,
             'hard_block': False,
         },
     }
@@ -696,197 +811,13 @@ def _loads_json_or_jsonp(text):
         return json.loads(text[min(start_candidates):end + 1])
 
 
-def _cdp_http_json(path, timeout=2):
-    with LOCAL_OPENER.open(f'{CDP_URL}{path}', timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
-
-
-def _ensure_cdp_browser():
-    global _CDP_BROWSER_PROCESS
-    try:
-        _cdp_http_json('/json/version', timeout=1)
-        return
-    except Exception:
-        pass
-
-    browser_bin = os.environ.get('XIAOGU_SCANNER_CHROME_BIN')
-    if not browser_bin:
-        for name in ('google-chrome', 'chromium-browser', 'chromium'):
-            browser_bin = shutil.which(name)
-            if browser_bin:
-                break
-    if not browser_bin:
-        raise RuntimeError(f'CDP_BROWSER_UNAVAILABLE:{CDP_URL}')
-
-    port = CDP_URL.rsplit(':', 1)[-1].split('/', 1)[0]
-    user_data_dir = os.environ.get('XIAOGU_SCANNER_CDP_USER_DATA_DIR', '/tmp/xiaogu-cloakchrome-scanner')
-    browser_args = [
-        browser_bin,
-        f'--remote-debugging-port={port}',
-        f'--user-data-dir={user_data_dir}',
-        '--headless=new',
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--remote-allow-origins=*',
-    ]
-    proxy_server = os.environ.get('XIAOGU_SCANNER_PROXY_SERVER') or os.environ.get('XIAOGU_SOCIAL_PROXY')
-    if proxy_server:
-        browser_args.append(f'--proxy-server={proxy_server}')
-    browser_args.append(CDP_FETCH_HOME)
-    _CDP_BROWSER_PROCESS = subprocess.Popen(
-        browser_args,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    last_error = None
-    for _ in range(40):
-        try:
-            _cdp_http_json('/json/version', timeout=1)
-            return
-        except Exception as exc:
-            last_error = exc
-            time.sleep(0.25)
-    raise RuntimeError(f'CDP_BROWSER_START_FAILED:{CDP_URL}:{last_error!r}')
-
-
-def _local_json(path, timeout=2):
-    _ensure_cdp_browser()
-    return _cdp_http_json(path, timeout=timeout)
-
-
-def _cdp_fetch_tab():
-    global _CDP_FETCH_TAB_ID, _CDP_FETCH_WS_URL
-    tabs = _local_json('/json/list')
-    for tab in tabs if isinstance(tabs, list) else []:
-        if tab.get('id') == _CDP_FETCH_TAB_ID and tab.get('webSocketDebuggerUrl'):
-            _CDP_FETCH_WS_URL = tab['webSocketDebuggerUrl']
-            return _CDP_FETCH_WS_URL
-    for tab in tabs if isinstance(tabs, list) else []:
-        if tab.get('type') == 'page' and 'eastmoney.com' in str(tab.get('url') or '') and tab.get('webSocketDebuggerUrl'):
-            _CDP_FETCH_TAB_ID = tab.get('id')
-            _CDP_FETCH_WS_URL = tab['webSocketDebuggerUrl']
-            return _CDP_FETCH_WS_URL
-    try:
-        tab = _local_json('/json/new?' + quote(CDP_FETCH_HOME, safe=':/?&=%'), timeout=5)
-    except Exception:
-        tab = None
-    if not isinstance(tab, dict) or not tab.get('webSocketDebuggerUrl'):
-        for candidate in tabs if isinstance(tabs, list) else []:
-            if candidate.get('type') == 'page' and candidate.get('webSocketDebuggerUrl'):
-                tab = candidate
-                break
-    if not isinstance(tab, dict) or not tab.get('webSocketDebuggerUrl'):
-        raise RuntimeError(f'CDP_FETCH_TAB_UNAVAILABLE:{CDP_URL}')
-    _CDP_FETCH_TAB_ID = tab.get('id')
-    _CDP_FETCH_WS_URL = tab['webSocketDebuggerUrl']
-    return _CDP_FETCH_WS_URL
-
-
-def _cdp_call(method, params=None, timeout=25):
-    import websocket
-    os.environ['NO_PROXY'] = '127.0.0.1,localhost'
-    os.environ['no_proxy'] = '127.0.0.1,localhost'
-    ws = websocket.create_connection(_cdp_fetch_tab(), timeout=timeout)
-    try:
-        ws.settimeout(timeout)
-        ws.send(json.dumps({'id': 1, 'method': method, 'params': params or {}}))
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            message = json.loads(ws.recv())
-            if message.get('id') != 1:
-                continue
-            if message.get('error'):
-                raise RuntimeError('CDP_CALL_ERROR:' + json.dumps(message['error'], ensure_ascii=False)[:500])
-            if message.get('exceptionDetails'):
-                raise RuntimeError('CDP_CALL_EXCEPTION:' + json.dumps(message['exceptionDetails'], ensure_ascii=False)[:500])
-            return message.get('result', {})
-    finally:
-        ws.close()
-    raise TimeoutError(f'CDP_CALL_TIMEOUT:{method}')
-
-
-def _cdp_evaluate(expression, timeout=25):
-    result = _cdp_call('Runtime.evaluate', {
-        'expression': expression,
-        'returnByValue': True,
-        'awaitPromise': True,
-    }, timeout=timeout)
-    value = result.get('result', {})
-    if value.get('subtype') == 'error':
-        raise RuntimeError('CDP_EVALUATE_RESULT_ERROR:' + str(value.get('description') or value.get('value'))[:500])
-    return value.get('value')
-
-
-def _cdp_navigate_text(url, timeout=25):
-    import base64
-    import websocket
-
-    os.environ['NO_PROXY'] = '127.0.0.1,localhost'
-    os.environ['no_proxy'] = '127.0.0.1,localhost'
-    ws = websocket.create_connection(_cdp_fetch_tab(), timeout=timeout)
-    next_id = 0
-    pending = {}
-    target_request_id = None
-    loaded = False
-
-    def send(method, params=None):
-        nonlocal next_id
-        next_id += 1
-        ws.send(json.dumps({'id': next_id, 'method': method, 'params': params or {}}))
-        return next_id
-
-    def wait_for(command_id, deadline):
-        nonlocal target_request_id, loaded
-        while time.monotonic() < deadline:
-            message = json.loads(ws.recv())
-            if message.get('id') == command_id:
-                if message.get('error'):
-                    raise RuntimeError('CDP_CALL_ERROR:' + json.dumps(message['error'], ensure_ascii=False)[:500])
-                return message.get('result', {})
-            if message.get('id'):
-                pending[message['id']] = message
-                continue
-            params = message.get('params') or {}
-            if message.get('method') == 'Network.responseReceived':
-                response = params.get('response') or {}
-                if response.get('url') == url:
-                    target_request_id = params.get('requestId')
-            elif message.get('method') == 'Network.loadingFinished' and params.get('requestId') == target_request_id:
-                loaded = True
-        raise TimeoutError('CDP_WAIT_TIMEOUT')
-
-    try:
-        ws.settimeout(timeout)
-        deadline = time.monotonic() + timeout
-        wait_for(send('Network.enable'), deadline)
-        nav = wait_for(send('Page.navigate', {'url': url}), deadline)
-        if nav.get('errorText'):
-            raise RuntimeError(f"CDP_NAVIGATE_FAILED:{nav.get('errorText')}")
-        while time.monotonic() < deadline and not loaded:
-            wait_for(send('Runtime.evaluate', {'expression': 'document.readyState', 'returnByValue': True}), deadline)
-        if not target_request_id:
-            raise RuntimeError('CDP_NAVIGATE_RESPONSE_MISSING')
-        body_result = wait_for(send('Network.getResponseBody', {'requestId': target_request_id}), deadline)
-        body = body_result.get('body') or ''
-        if body_result.get('base64Encoded'):
-            body = base64.b64decode(body).decode('utf-8', 'replace')
-        return body
-    finally:
-        ws.close()
-
-
 def resolve_scanner_transport():
-    """Return transport mode: direct (default) | cdp | auto."""
-    raw = (os.environ.get('XIAOGU_SCANNER_TRANSPORT') or DEFAULT_SCANNER_TRANSPORT).strip().lower()
-    if raw not in _VALID_SCANNER_TRANSPORTS:
-        print(f'  WARN invalid XIAOGU_SCANNER_TRANSPORT={raw!r}; fallback {DEFAULT_SCANNER_TRANSPORT}')
-        return DEFAULT_SCANNER_TRANSPORT
-    return raw
+    """Return the only supported transport mode."""
+    return DEFAULT_SCANNER_TRANSPORT
 
 
 def _api_get_direct(url, timeout=20, attempts=3):
-    """Fetch Eastmoney JSON/JSONP over direct HTTP. Never starts CDP."""
+    """Fetch Eastmoney JSON/JSONP over direct HTTP."""
     last_error = None
     for attempt in range(max(1, int(attempts))):
         try:
@@ -903,31 +834,19 @@ def _api_get_direct(url, timeout=20, attempts=3):
     raise RuntimeError('API_GET_DIRECT_FAILED')
 
 
-def api_get(url):
-    """Eastmoney API fetch. Default transport is direct HTTP (NN1).
+def stock_concepts_from_quote_row(row):
+    return list(dict.fromkeys(
+        value.strip()
+        for value in re.split(r'[,，;；|]+', str((row or {}).get('f103') or ''))
+        if value.strip() and value.strip() not in ('-', '--')
+    ))
 
-    Env XIAOGU_SCANNER_TRANSPORT:
-      direct — urllib only (production default); never starts CDP
-      cdp    — browser navigation via _cdp_navigate_text (explicit ops)
-      auto   — direct first; on total failure, CDP fallback with log
-    """
+def api_get(url):
+    """Eastmoney API fetch. Production transport is direct HTTP only."""
     global _SCANNER_TRANSPORT_LOGGED
-    mode = resolve_scanner_transport()
-    used = mode
-    if mode == 'direct':
-        result = _api_get_direct(url)
-        used = 'direct'
-    elif mode == 'cdp':
-        result = _loads_json_or_jsonp(_cdp_navigate_text(url, timeout=25))
-        used = 'cdp'
-    else:
-        try:
-            result = _api_get_direct(url)
-            used = 'direct'
-        except Exception as exc:
-            print(f'  transport=cdp_fallback reason={exc!r}')
-            result = _loads_json_or_jsonp(_cdp_navigate_text(url, timeout=25))
-            used = 'cdp_fallback'
+    resolve_scanner_transport()
+    result = _api_get_direct(url)
+    used = 'direct'
     if not _SCANNER_TRANSPORT_LOGGED:
         print(f'SCANNER_TRANSPORT={used}')
         _SCANNER_TRANSPORT_LOGGED = True
@@ -1029,6 +948,14 @@ def result_item_count(value):
     return 0
 
 
+def _store_fetch_diagnostic(diagnostics, record):
+    if isinstance(diagnostics, list):
+        diagnostics.append(dict(record))
+    elif isinstance(diagnostics, dict):
+        diagnostics.clear()
+        diagnostics.update(record)
+
+
 def record_domain_timing(domain_timings, domain, started_at, value, source, error=''):
     elapsed_seconds = round(time.monotonic() - started_at, 4)
     item_count = result_item_count(value)
@@ -1063,7 +990,6 @@ def timed_fetch(domain_timings, domain, source, fetcher):
 
 def structured_priority_details(candidate):
     structured_score = fnum(candidate.get('structured_score'), 0.0)
-    legacy_score = fnum(candidate.get('final_score', candidate.get('score')), 0.0)
     early_score = clamp01(fnum(candidate.get('early_opportunity_score'), 0.0))
     limitup_capture_score = clamp01(fnum(candidate.get('limitup_capture_score'), 0.0))
     main_theme_alignment = clamp01(fnum(candidate.get('main_theme_alignment_score'), 0.0))
@@ -1119,26 +1045,23 @@ def structured_priority_details(candidate):
             + continuation_gene * 6.0
             + auxiliary_confidence * 3.0
         )
-        legacy_contribution = legacy_score * 0.25
         auxiliary_penalty = risk_notice_penalty * 12.0
         if stage in ('high_7_to_9', 'near_limit_9_plus') and not (limitup_reason_quality or continuation_gene or news_catalyst or announcement_catalyst):
             auxiliary_penalty += 8.0
         auxiliary_penalty += weak_market_evidence_gap_penalty
-        priority_score = structured_contribution + evidence_contribution + legacy_contribution - stage_penalty - auxiliary_penalty
+        priority_score = structured_contribution + evidence_contribution - stage_penalty - auxiliary_penalty
         ranking_basis = 'structured_evidence_primary'
     else:
         structured_contribution = 0.0
         evidence_contribution = 0.0
-        legacy_contribution = legacy_score
-        priority_score = legacy_score - stage_penalty
-        ranking_basis = 'legacy_fallback_missing_structured_evidence'
+        priority_score = None
+        ranking_basis = 'structured_evidence_required'
         auxiliary_penalty = 0.0
     return {
-        'structured_priority_score': round(priority_score, 4),
+        'structured_priority_score': round(priority_score, 4) if priority_score is not None else None,
         'ranking_basis': ranking_basis,
         'structured_contribution': round(structured_contribution, 4),
         'evidence_contribution': round(evidence_contribution, 4),
-        'legacy_contribution': round(legacy_contribution, 4),
         'high_position_penalty': round(stage_penalty, 4),
         'mainboard_auxiliary_penalty': round(auxiliary_penalty, 4),
         'continuation_gene_contribution': round(continuation_gene * 6.0 if has_structured_evidence else 0.0, 4),
@@ -1148,23 +1071,27 @@ def structured_priority_details(candidate):
 
 
 def rank_candidates_by_structured_priority(candidates):
+    eligible_candidates = []
     for candidate in candidates:
-        candidate.setdefault('legacy_rank', candidate.get('rank'))
         details = structured_priority_details(candidate)
         candidate.update(details)
+        if candidate.get('structured_score') is None:
+            candidate['candidate_drop_reason'] = 'STRUCTURED_EVIDENCE_REQUIRED'
+            continue
         candidate['ranking_basis_details'] = {
             key: details[key]
-            for key in ('structured_contribution', 'evidence_contribution', 'legacy_contribution', 'high_position_penalty', 'mainboard_auxiliary_penalty', 'weak_market_evidence_gap_penalty')
+            for key in ('structured_contribution', 'evidence_contribution', 'high_position_penalty', 'mainboard_auxiliary_penalty', 'weak_market_evidence_gap_penalty')
         }
         candidate['ranking_basis_details']['mainboard_auxiliary_evidence_primary'] = bool(
             candidate.get('mainboard_auxiliary_evidence_status')
         )
+        eligible_candidates.append(candidate)
+    candidates[:] = eligible_candidates
     candidates.sort(
         key=lambda candidate: (
             fnum(candidate.get('structured_priority_score'), 0.0),
             fnum(candidate.get('structured_score'), 0.0),
             fnum(candidate.get('early_opportunity_score'), 0.0),
-            fnum(candidate.get('final_score', candidate.get('score')), 0.0),
         ),
         reverse=True,
     )
@@ -1317,39 +1244,96 @@ def build_core_sentiment_pool_status(pool_diagnostics, results, market_limitups)
     }
 
 
-def fetch_paginated(fs, page_size=100, fields=None):
-    """Fetch stock list with pagination - full data"""
+def fetch_paginated(
+    fs,
+    page_size=100,
+    fields=None,
+    diagnostics=None,
+    max_pages=MAX_SAFE_PAGE_COUNT,
+):
+    """Fetch a direct Eastmoney clist dataset until the API reports completion."""
     if fields is None:
         fields = 'f12,f13,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18,f20,f21,f23,f62,f115,f24,f25'
     all_items = []
-    page = 1
-    while True:
-        params = {
-            'pn': str(page), 'pz': str(page_size), 'po': '1', 'np': '1',
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-            'fltt': '2', 'invt': '2', 'fid': 'f3',
-            'fs': fs,
-            'fields': fields,
-        }
-        url = f'https://push2delay.eastmoney.com/api/qt/clist/get?{urlencode(params)}'
-        data = api_get(url)
-        diff = data.get('data', {}).get('diff', []) or []
-        if not diff:
-            break
-        all_items.extend(diff)
-        if len(diff) < page_size:
-            break
-        page += 1
-        time.sleep(0.05)
+    total = None
+    pages = 0
+    terminated = False
+    page_size = max(1, int(page_size))
+    max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
+    try:
+        for page in range(1, max_pages + 1):
+            params = {
+                'pn': str(page), 'pz': str(page_size), 'po': '1', 'np': '1',
+                'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+                'fltt': '2', 'invt': '2', 'fid': 'f3',
+                'fs': fs,
+                'fields': fields,
+            }
+            url = f'https://push2delay.eastmoney.com/api/qt/clist/get?{urlencode(params)}'
+            data = api_get(url)
+            payload = data.get('data') if isinstance(data, dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            if page == 1:
+                for key in ('total', 'count', 'totalCount'):
+                    try:
+                        total = int(payload.get(key))
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            diff = payload.get('diff', []) or []
+            if not isinstance(diff, list) or not diff:
+                terminated = True
+                break
+            all_items.extend(item for item in diff if isinstance(item, dict))
+            pages = page
+            if total is not None and len(all_items) >= total:
+                terminated = True
+                break
+            if len(diff) < page_size:
+                terminated = True
+                break
+            time.sleep(0.05)
+    except Exception as exc:
+        _store_fetch_diagnostic(diagnostics, {
+            'status': 'ERROR' if not all_items else 'PARTIAL',
+            'row_count': len(all_items),
+            'pages': pages,
+            'reported_total': total,
+            'page_size': page_size,
+            'max_pages': max_pages,
+            'limit_hit': False,
+            'error': repr(exc),
+        })
+        raise
+    limit_hit = not terminated and pages >= max_pages
+    _store_fetch_diagnostic(diagnostics, {
+        'status': 'PARTIAL' if limit_hit else ('PASS' if all_items else 'EMPTY'),
+        'row_count': len(all_items),
+        'pages': pages,
+        'reported_total': total,
+        'page_size': page_size,
+        'max_pages': max_pages,
+        'limit_hit': limit_hit,
+    })
     return all_items
 
 
-def fetch_datacenter(report_name, sort_col, page_size=500, extra_params=None, diagnostics=None):
-    """Fetch from datacenter API - full data"""
-    params = {
+def fetch_datacenter(
+    report_name,
+    sort_col,
+    page_size=500,
+    extra_params=None,
+    diagnostics=None,
+    max_pages=MAX_SAFE_PAGE_COUNT,
+):
+    """Fetch all available rows from a paginated Eastmoney data-center report."""
+    rows = []
+    total = None
+    pages = 0
+    terminated = False
+    base_params = {
         'reportName': report_name,
         'columns': 'ALL',
-        'pageNumber': '1',
         'pageSize': str(page_size),
         'sortTypes': '-1',
         'sortColumns': sort_col,
@@ -1357,33 +1341,166 @@ def fetch_datacenter(report_name, sort_col, page_size=500, extra_params=None, di
         'client': 'WEB',
     }
     if extra_params:
-        params.update(extra_params)
-    url = f'https://datacenter-web.eastmoney.com/api/data/v1/get?{urlencode(params)}'
+        base_params.update(extra_params)
     try:
-        data = api_get(url)
+        max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
+        for page in range(1, max_pages + 1):
+            params = {**base_params, 'pageNumber': str(page)}
+            url = f'https://datacenter-web.eastmoney.com/api/data/v1/get?{urlencode(params)}'
+            data = api_get(url)
+            result = data.get('result') or {}
+            batch = result.get('data', []) or []
+            if page == 1:
+                for key in ('count', 'total', 'totalCount'):
+                    try:
+                        total = int(result.get(key))
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            if not isinstance(batch, list) or not batch:
+                terminated = True
+                break
+            rows.extend(item for item in batch if isinstance(item, dict))
+            pages = page
+            if total is not None and len(rows) >= total:
+                terminated = True
+                break
+            if len(batch) < int(page_size):
+                terminated = True
+                break
+            time.sleep(0.03)
     except Exception as exc:
         if isinstance(diagnostics, list):
-            diagnostics.append({
+            _store_fetch_diagnostic(diagnostics, {
                 'report_name': report_name,
-                'sort_columns': params.get('sortColumns'),
-                'sort_types': params.get('sortTypes'),
-                'status': 'ERROR',
+                'sort_columns': base_params.get('sortColumns'),
+                'sort_types': base_params.get('sortTypes'),
+                'status': 'ERROR' if not rows else 'PARTIAL',
                 'error': repr(exc),
+                'row_count': len(rows),
+                'pages': pages,
+                'reported_total': total,
+                'page_size': int(page_size),
+                'max_pages': max_pages,
+                'limit_hit': False,
             })
         raise
-    result = data.get('result') or {}
-    rows = result.get('data', []) or []
-    if isinstance(diagnostics, list):
-        diagnostics.append({
-            'report_name': report_name,
-            'sort_columns': params.get('sortColumns'),
-            'sort_types': params.get('sortTypes'),
-            'status': 'PASS' if rows else 'EMPTY',
-            'success': data.get('success'),
-            'code': data.get('code'),
-            'message': data.get('message'),
+    _store_fetch_diagnostic(diagnostics, {
+        'report_name': report_name,
+        'sort_columns': base_params.get('sortColumns'),
+        'sort_types': base_params.get('sortTypes'),
+        'status': 'PARTIAL' if not terminated and pages >= max_pages else ('PASS' if rows else 'EMPTY'),
+        'row_count': len(rows),
+        'pages': pages,
+        'reported_total': total,
+        'page_size': int(page_size),
+        'max_pages': max_pages,
+        'limit_hit': not terminated and pages >= max_pages,
+    })
+    return rows
+
+
+def fetch_report_list(
+    query_type,
+    begin_time,
+    end_time,
+    page_size=500,
+    diagnostics=None,
+    max_pages=MAX_SAFE_PAGE_COUNT,
+):
+    """Fetch all pages from Eastmoney's direct research-report endpoint."""
+    rows = []
+    seen = set()
+    total = None
+    pages = 0
+    terminated = False
+    page_size = max(1, int(page_size))
+    max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
+    try:
+        for page in range(1, max_pages + 1):
+            params = {
+                'industryCode': '*',
+                'pageSize': str(page_size),
+                'industry': '*',
+                'rating': '*',
+                'ratingChange': '*',
+                'beginTime': begin_time,
+                'endTime': end_time,
+                'pageNo': str(page),
+                'fields': '',
+                'qType': str(query_type),
+                'orgCode': '',
+                'rcode': '',
+                'p': str(page),
+                'pageNum': str(page),
+            }
+            data = api_get(
+                f'https://reportapi.eastmoney.com/report/list?{urlencode(params)}'
+            )
+            payload = data.get('data') if isinstance(data, dict) else []
+            if isinstance(payload, dict):
+                for key in ('total', 'count', 'totalCount'):
+                    try:
+                        total = int(payload.get(key))
+                        break
+                    except (TypeError, ValueError):
+                        continue
+                batch = payload.get('data') or payload.get('list') or payload.get('rows') or []
+            else:
+                batch = payload or []
+            if not isinstance(batch, list) or not batch:
+                terminated = True
+                break
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+                key = (
+                    row.get('art_code')
+                    or row.get('reportCode')
+                    or row.get('reportId')
+                    or row.get('id')
+                    or (
+                        row.get('stockCode'),
+                        row.get('title'),
+                        row.get('publishDate') or row.get('noticeDate') or row.get('date'),
+                    )
+                    or row.get('title')
+                    or json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+            pages = page
+            if total is not None and len(rows) >= total:
+                terminated = True
+                break
+            if len(batch) < page_size:
+                terminated = True
+                break
+            time.sleep(0.03)
+    except Exception as exc:
+        _store_fetch_diagnostic(diagnostics, {
+            'status': 'ERROR' if not rows else 'PARTIAL',
             'row_count': len(rows),
+            'pages': pages,
+            'reported_total': total,
+            'page_size': page_size,
+            'max_pages': max_pages,
+            'limit_hit': False,
+            'error': repr(exc),
         })
+        raise
+    _store_fetch_diagnostic(diagnostics, {
+        'status': 'PARTIAL' if not terminated and pages >= max_pages else ('PASS' if rows else 'EMPTY'),
+        'row_count': len(rows),
+        'pages': pages,
+        'reported_total': total,
+        'page_size': page_size,
+        'max_pages': max_pages,
+        'limit_hit': not terminated and pages >= max_pages,
+        'query_type': str(query_type),
+    })
     return rows
 
 
@@ -1404,8 +1521,15 @@ def _sector_sort_value(row):
     )
 
 
-def fetch_sector_news(sector_rows, concept_rows, limit_per_query=20, max_queries=40):
-    """Fetch bounded sector news via Eastmoney search cmsArticleWebOld JSON param."""
+def fetch_sector_news(
+    sector_rows,
+    concept_rows,
+    limit_per_query=20,
+    max_queries=40,
+    max_pages=10,
+    diagnostics=None,
+):
+    """Fetch direct sector news with bounded query count and paginated results."""
     queries = []
     for sector_type, rows in (('industry', sector_rows or []), ('concept', concept_rows or [])):
         sorted_rows = sorted([row for row in rows if isinstance(row, dict)], key=_sector_sort_value, reverse=True)
@@ -1420,85 +1544,109 @@ def fetch_sector_news(sector_rows, concept_rows, limit_per_query=20, max_queries
 
     seen = set()
     news_rows = []
+    pages_fetched = 0
+    max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
     for item in queries:
-        # Eastmoney search-api requires nested JSON `param` + type cmsArticleWebOld.
-        # The old `param=keyword&type=news` form returns code=400 非法的json格式.
-        param_obj = {
-            'uid': '',
-            'keyword': item['query'],
-            'type': ['cmsArticleWebOld'],
-            'client': 'web',
-            'clientType': 'web',
-            'clientVersion': 'curr',
-            'param': {
-                'cmsArticleWebOld': {
-                    'searchScope': 'default',
-                    'sort': 'default',
-                    'pageIndex': 1,
-                    'pageSize': int(limit_per_query),
-                    'preTag': '<em>',
-                    'postTag': '</em>',
-                }
-            },
-        }
-        params = {
-            'cb': 'jQuery112308',
-            'param': json.dumps(param_obj, ensure_ascii=False),
-            '_': str(int(time.time() * 1000)),
-        }
-        url = f'https://search-api-web.eastmoney.com/search/jsonp?{urlencode(params)}'
-        try:
-            payload = api_get(url)
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        result = payload.get('result') if isinstance(payload.get('result'), dict) else {}
-        candidates = result.get('cmsArticleWebOld') or []
-        if not isinstance(candidates, list):
-            legacy = payload.get('Data') or payload.get('data') or payload.get('result') or []
-            if isinstance(legacy, dict):
-                candidates = legacy.get('items') or legacy.get('data') or legacy.get('news') or []
-            else:
-                candidates = legacy if isinstance(legacy, list) else []
-        if not isinstance(candidates, list):
-            continue
-        for row in candidates[:limit_per_query]:
-            if not isinstance(row, dict):
-                continue
-            title = _clean_text_value(row.get('title') or row.get('Title') or row.get('NewsTitle') or row.get('name'))
-            summary = _clean_text_value(
-                row.get('content') or row.get('Content') or row.get('summary') or row.get('Digest') or row.get('digest')
-            )
-            if not title and not summary:
-                continue
-            key = (item['query'], title, summary[:80])
-            if key in seen:
-                continue
-            seen.add(key)
-            news_rows.append({
-                'title': title,
-                'summary': summary,
-                'content': summary,
-                'sector': item['query'],
-                'sector_type': item['sector_type'],
-                'source': 'eastmoney_sector_news',
-                'source_query': item['query'],
-                'published_at': row.get('date') or row.get('ShowTime') or row.get('time') or '',
-                'url': row.get('url') or row.get('Url') or '',
-                'media_name': row.get('mediaName') or row.get('MediaName') or '',
-                'article_code': row.get('code') or '',
-            })
-        time.sleep(0.03)
+        for page in range(1, max_pages + 1):
+            # Eastmoney search-api requires nested JSON `param` + type cmsArticleWebOld.
+            param_obj = {
+                'uid': '',
+                'keyword': item['query'],
+                'type': ['cmsArticleWebOld'],
+                'client': 'web',
+                'clientType': 'web',
+                'clientVersion': 'curr',
+                'param': {
+                    'cmsArticleWebOld': {
+                        'searchScope': 'default',
+                        'sort': 'default',
+                        'pageIndex': page,
+                        'pageSize': int(limit_per_query),
+                        'preTag': '<em>',
+                        'postTag': '</em>',
+                    }
+                },
+            }
+            params = {
+                'cb': 'jQuery112308',
+                'param': json.dumps(param_obj, ensure_ascii=False),
+                '_': str(int(time.time() * 1000)),
+            }
+            url = f'https://search-api-web.eastmoney.com/search/jsonp?{urlencode(params)}'
+            try:
+                payload = api_get(url)
+            except Exception:
+                break
+            if not isinstance(payload, dict):
+                break
+            result = payload.get('result') if isinstance(payload.get('result'), dict) else {}
+            candidates = result.get('cmsArticleWebOld') or []
+            if not isinstance(candidates, list):
+                legacy = payload.get('Data') or payload.get('data') or payload.get('result') or []
+                if isinstance(legacy, dict):
+                    candidates = legacy.get('items') or legacy.get('data') or legacy.get('news') or []
+                else:
+                    candidates = legacy if isinstance(legacy, list) else []
+            if not isinstance(candidates, list) or not candidates:
+                break
+            pages_fetched += 1
+            for row in candidates[:limit_per_query]:
+                if not isinstance(row, dict):
+                    continue
+                title = _clean_text_value(row.get('title') or row.get('Title') or row.get('NewsTitle') or row.get('name'))
+                summary = _clean_text_value(
+                    row.get('content') or row.get('Content') or row.get('summary') or row.get('Digest') or row.get('digest')
+                )
+                if not title and not summary:
+                    continue
+                key = (item['query'], title, summary[:80])
+                if key in seen:
+                    continue
+                seen.add(key)
+                news_rows.append({
+                    'title': title,
+                    'summary': summary,
+                    'content': summary,
+                    'sector': item['query'],
+                    'sector_type': item['sector_type'],
+                    'source': 'eastmoney_sector_news',
+                    'source_query': item['query'],
+                    'published_at': row.get('date') or row.get('ShowTime') or row.get('time') or '',
+                    'url': row.get('url') or row.get('Url') or '',
+                    'media_name': row.get('mediaName') or row.get('MediaName') or '',
+                    'article_code': row.get('code') or '',
+                })
+            if len(candidates) < int(limit_per_query):
+                break
+            time.sleep(0.03)
+    _store_fetch_diagnostic(diagnostics, {
+        'status': 'PASS' if news_rows else 'EMPTY',
+        'row_count': len(news_rows),
+        'queries': len(queries),
+        'pages': pages_fetched,
+        'max_queries': max_queries,
+        'max_pages_per_query': max_pages,
+        'bounded_query_source': True,
+        'source': 'eastmoney_sector_news',
+    })
     return news_rows
 
 
-def fetch_announcements_multi_page(max_pages=5, page_size=100):
+def fetch_announcements_multi_page(
+    max_pages=MAX_SAFE_PAGE_COUNT,
+    page_size=100,
+    diagnostics=None,
+):
     """Market-wide announcements with pagination (single page leaves most of the pool unmatched)."""
     rows = []
     seen = set()
-    for page in range(1, max(1, int(max_pages)) + 1):
-        try:
+    total = None
+    pages = 0
+    terminated = False
+    max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
+    page_size = max(1, int(page_size))
+    try:
+        for page in range(1, max_pages + 1):
             data = api_get(
                 'https://np-anotice-stock.eastmoney.com/api/security/ann?'
                 + urlencode({
@@ -1510,33 +1658,75 @@ def fetch_announcements_multi_page(max_pages=5, page_size=100):
                     's_node': '0',
                 })
             )
-            batch = ((data.get('data') or {}) if isinstance(data, dict) else {}).get('list') or []
-        except Exception:
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        for row in batch:
-            if not isinstance(row, dict):
-                continue
-            key = row.get('art_code') or row.get('title') or row.get('title_ch')
-            if not key:
-                key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(row)
-        if len(batch) < int(page_size):
-            break
-        time.sleep(0.03)
+            payload = (data.get('data') or {}) if isinstance(data, dict) else {}
+            batch = payload.get('list') or [] if isinstance(payload, dict) else []
+            if page == 1 and isinstance(payload, dict):
+                for key in ('total', 'count', 'totalCount'):
+                    try:
+                        total = int(payload.get(key))
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            if not isinstance(batch, list) or not batch:
+                terminated = True
+                break
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get('art_code') or row.get('title') or row.get('title_ch')
+                if not key:
+                    key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+            pages = page
+            if total is not None and len(rows) >= total:
+                terminated = True
+                break
+            if len(batch) < page_size:
+                terminated = True
+                break
+            time.sleep(0.03)
+    except Exception as exc:
+        _store_fetch_diagnostic(diagnostics, {
+            'status': 'ERROR' if not rows else 'PARTIAL',
+            'row_count': len(rows),
+            'pages': pages,
+            'reported_total': total,
+            'page_size': page_size,
+            'max_pages': max_pages,
+            'limit_hit': False,
+            'error': repr(exc),
+        })
+        return rows
+    _store_fetch_diagnostic(diagnostics, {
+        'status': 'PARTIAL' if not terminated and pages >= max_pages else ('PASS' if rows else 'EMPTY'),
+        'row_count': len(rows),
+        'pages': pages,
+        'reported_total': total,
+        'page_size': page_size,
+        'max_pages': max_pages,
+        'limit_hit': not terminated and pages >= max_pages,
+    })
     return rows
 
 
-def fetch_news_kuaixun_multi_page(max_pages=3, page_size=200):
+def fetch_news_kuaixun_multi_page(
+    max_pages=MAX_SAFE_PAGE_COUNT,
+    page_size=200,
+    diagnostics=None,
+):
     """7x24 kuaixun multi-page so title/name matching covers more of the candidate pool."""
     rows = []
     seen = set()
-    for page in range(1, max(1, int(max_pages)) + 1):
-        try:
+    total = None
+    pages = 0
+    terminated = False
+    max_pages = max(1, min(int(max_pages), MAX_SAFE_PAGE_COUNT))
+    page_size = max(1, int(page_size))
+    try:
+        for page in range(1, max_pages + 1):
             ts = int(time.time() * 1000)
             data = api_get(
                 'https://np-listapi.eastmoney.com/comm/web/getNewsByColumns?'
@@ -1551,24 +1741,57 @@ def fetch_news_kuaixun_multi_page(max_pages=3, page_size=200):
                     'req_trace': str(ts),
                 })
             )
-            batch = ((data.get('data') or {}) if isinstance(data, dict) else {}).get('list') or []
-        except Exception:
-            break
-        if not isinstance(batch, list) or not batch:
-            break
-        for row in batch:
-            if not isinstance(row, dict):
-                continue
-            key = row.get('code') or row.get('uniqueUrl') or row.get('url') or row.get('title')
-            if not key:
-                key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(row)
-        if len(batch) < int(page_size):
-            break
-        time.sleep(0.03)
+            payload = ((data.get('data') or {}) if isinstance(data, dict) else {})
+            batch = payload.get('list') or [] if isinstance(payload, dict) else []
+            if page == 1 and isinstance(payload, dict):
+                for key in ('total', 'count', 'totalCount'):
+                    try:
+                        total = int(payload.get(key))
+                        break
+                    except (TypeError, ValueError):
+                        continue
+            if not isinstance(batch, list) or not batch:
+                terminated = True
+                break
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get('code') or row.get('uniqueUrl') or row.get('url') or row.get('title')
+                if not key:
+                    key = json.dumps(row, ensure_ascii=False, sort_keys=True)[:160]
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+            pages = page
+            if total is not None and len(rows) >= total:
+                terminated = True
+                break
+            if len(batch) < page_size:
+                terminated = True
+                break
+            time.sleep(0.03)
+    except Exception as exc:
+        _store_fetch_diagnostic(diagnostics, {
+            'status': 'ERROR' if not rows else 'PARTIAL',
+            'row_count': len(rows),
+            'pages': pages,
+            'reported_total': total,
+            'page_size': page_size,
+            'max_pages': max_pages,
+            'limit_hit': False,
+            'error': repr(exc),
+        })
+        return rows
+    _store_fetch_diagnostic(diagnostics, {
+        'status': 'PARTIAL' if not terminated and pages >= max_pages else ('PASS' if rows else 'EMPTY'),
+        'row_count': len(rows),
+        'pages': pages,
+        'reported_total': total,
+        'page_size': page_size,
+        'max_pages': max_pages,
+        'limit_hit': not terminated and pages >= max_pages,
+    })
     return rows
 
 
@@ -1638,40 +1861,14 @@ def fetch_hsgt_holdings(domain_timings, output_dir):
         if rows:
             break
 
-    fallback_paths = []
-    if not rows:
-        from datetime import date, timedelta
-        for day in (date.today(), date.today() - timedelta(days=1)):
-            day_root = BASE / 'data' / 'live_scan' / day.isoformat()
-            fallback_paths.extend([
-                output_dir / 'hsgt_holdings_cloak.json',
-                day_root / 'eastmoney_scan' / 'hsgt_holdings_cloak.json',
-                day_root / 'eastmoney_scan_morning' / 'hsgt_holdings_cloak.json',
-                day_root / 'eastmoney_scan_afternoon' / 'hsgt_holdings_cloak.json',
-            ])
-        seen_paths = set()
-        for path in fallback_paths:
-            path_key = str(path)
-            if path_key in seen_paths or not path.exists():
-                continue
-            seen_paths.add(path_key)
-            try:
-                rows = timed_fetch(
-                    domain_timings,
-                    'hsgt_holdings',
-                    f'cloak_file:{path}',
-                    lambda path=path: json.loads(path.read_text(encoding='utf-8')),
-                )
-            except Exception:
-                rows = []
-            if rows:
-                break
-
     diagnostics = {
         'status': 'PASS' if rows else 'MISSING',
         'holdings_count': len(rows),
         'api_attempts': api_attempts,
-        'fallback_paths_checked': [str(path) for path in fallback_paths],
+        'api_sources_checked': [
+            f'datacenter:{report_name}:{sort_columns}'
+            for report_name, sort_columns, _ in attempts
+        ],
         'selected_source': next((attempt['source'] for attempt in reversed(domain_timings.get('hsgt_holdings', {}).get('attempts', [])) if attempt.get('item_count')), ''),
         'required_for_paper_pick': False,
         'hard_block': False,
@@ -1687,11 +1884,21 @@ def finalize_hsgt_diagnostics(diagnostics, hsgt_deals, hsgt_summary):
         proxy_sources.append('hsgt_deals')
     if hsgt_summary:
         proxy_sources.append('hsgt_summary')
-    finalized['proxy_available'] = bool(proxy_sources)
+    holdings_available = bool(finalized.get('holdings_count'))
+    fallback_available = bool(proxy_sources)
+    fallback_used = bool(fallback_available and not holdings_available)
+    finalized['fallback_available'] = fallback_available
+    finalized['fallback_used'] = fallback_used
+    # Backward-compatible field: it now means a fallback was actually used,
+    # not merely that a backup source was present.
+    finalized['proxy_available'] = fallback_used
     finalized['proxy_sources'] = proxy_sources
+    finalized['source_type'] = 'DIRECT' if holdings_available else ('FALLBACK' if fallback_used else 'MISSING')
+    finalized['quality_status'] = 'PASS' if holdings_available else ('PROXY' if fallback_used else 'MISSING')
+    finalized['production_use'] = 'ENABLED' if holdings_available else 'OPTIONAL_FALLBACK_ONLY'
     finalized['hard_block'] = False
     finalized['required_for_paper_pick'] = False
-    if not finalized.get('holdings_count') and proxy_sources:
+    if not holdings_available and proxy_sources:
         finalized['status'] = 'PARTIAL'
         finalized['reason'] = 'holdings unavailable; aggregate/deal proxy remains available'
     return finalized
@@ -1705,34 +1912,13 @@ def main():
     parser.add_argument('--force-realtime', action='store_true', help='强制获取实时数据')
     args = parser.parse_args()
 
-    # 如果指定了日期且不是强制实时，从缓存读取历史数据
-    if args.date and not args.force_realtime:
-        cache_dir = BASE / 'data' / 'live_scan' / args.date / 'eastmoney_scan'
-        if cache_dir.exists() and any(cache_dir.glob('*.jsonl')):
-            print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 回放历史数据: {args.date}')
-            print(f'  缓存目录: {cache_dir}')
-            # 复制缓存数据到输出目录
-            output_dir = Path(args.output_dir) if args.output_dir else cache_dir
-            if output_dir != cache_dir:
-                import shutil
-                output_dir.mkdir(parents=True, exist_ok=True)
-                for f in cache_dir.glob('*.jsonl'):
-                    shutil.copy2(f, output_dir / f.name)
-                for f in cache_dir.glob('*.json'):
-                    shutil.copy2(f, output_dir / f.name)
-            print(f'  输出目录: {output_dir}')
-            print(f'  回放完成')
-            return
-        else:
-            print(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 缓存目录不存在或为空: {cache_dir}')
-            print(f'  将获取实时数据')
-
     source_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    output_dir = Path(args.output_dir) if args.output_dir else BASE / 'data' / 'live_scan' / source_time[:10] / 'eastmoney_scan'
+    output_dir = Path(args.output_dir) if args.output_dir else BASE / 'data' / 'live_scan' / source_time[:10] / 'eastmoney_scan_afternoon'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results = {}
     domain_timings = {}
+    pagination_diagnostics = {}
     hsgt_diagnostics = {}
     external_market_snapshot = fetch_external_market_snapshot(source_time)
     results['external_market'] = list(external_market_snapshot['indexes'])
@@ -1749,42 +1935,72 @@ def main():
     # 1. 沪深A股 - FULL (上证A股+深证A股+创业板)
     # =================================================================
     print(f'[{source_time}] 沪深A股 (full)...', end=' ', flush=True)
-    results['stock_all_a'] = timed_fetch(domain_timings, 'stock_all_a', 'push2_paginated', lambda: fetch_paginated('m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048'))
+    results['stock_all_a'] = timed_fetch(
+        domain_timings,
+        'stock_all_a',
+        'push2_paginated',
+        lambda: fetch_paginated(
+            'm:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048',
+            fields=STOCK_ALL_A_FIELDS,
+            diagnostics=pagination_diagnostics.setdefault('stock_all_a', {}),
+        ),
+    )
     print(f'{len(results["stock_all_a"])} items')
 
     # =================================================================
     # 2. 行业板块 - FULL
     # =================================================================
     print(f'[{source_time}] 行业板块 (full)...', end=' ', flush=True)
-    results['sector_industry'] = timed_fetch(domain_timings, 'sector_industry', 'push2_paginated', lambda: fetch_paginated('m:90+t:2', fields='f12,f14,f3,f62,f66,f204,f205'))
-    print(f'{len(results["sector_industry"])} items')
-
     # =================================================================
     # 3. 概念板块 - FULL
     # =================================================================
     print(f'[{source_time}] 概念板块 (full)...', end=' ', flush=True)
-    results['sector_concept'] = timed_fetch(domain_timings, 'sector_concept', 'push2_paginated', lambda: fetch_paginated('m:90+t:3', fields='f12,f14,f3,f62,f66,f204,f205'))
-    print(f'{len(results["sector_concept"])} items')
-
     # =================================================================
     # 4. 地域板块 - FULL
     # =================================================================
     print(f'[{source_time}] 地域板块 (full)...', end=' ', flush=True)
-    results['sector_region'] = timed_fetch(domain_timings, 'sector_region', 'push2_paginated', lambda: fetch_paginated('m:90+t:1', fields='f12,f14,f3,f62,f66,f204,f205'))
+    results['sector_region'] = timed_fetch(
+        domain_timings,
+        'sector_region',
+        'push2_paginated',
+        lambda: fetch_paginated(
+            'm:90+t:1',
+            fields='f12,f14,f3,f62,f66,f204,f205',
+            diagnostics=pagination_diagnostics.setdefault('sector_region', {}),
+        ),
+    )
     print(f'{len(results["sector_region"])} items')
 
     # =================================================================
     # 4. 资金流 - 行业
     # =================================================================
     print(f'[{source_time}] 行业资金流 (full)...', end=' ', flush=True)
-    results['flow_industry'] = timed_fetch(domain_timings, 'flow_industry', 'push2_paginated', lambda: fetch_paginated('m:90+t:2', fields='f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87'))
+    results['flow_industry'] = timed_fetch(
+        domain_timings,
+        'flow_industry',
+        'push2_paginated',
+        lambda: fetch_paginated(
+            'm:90+t:2',
+            fields='f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87',
+            diagnostics=pagination_diagnostics.setdefault('flow_industry', {}),
+        ),
+    )
     print(f'{len(results["flow_industry"])} items')
 
     # =================================================================
     # 5. 资金流 - 概念
     # =================================================================
     print(f'[{source_time}] 概念资金流 (full)...', end=' ', flush=True)
-    results['flow_concept'] = timed_fetch(domain_timings, 'flow_concept', 'push2_paginated', lambda: fetch_paginated('m:90+t:3', fields='f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87'))
+    results['flow_concept'] = timed_fetch(
+        domain_timings,
+        'flow_concept',
+        'push2_paginated',
+        lambda: fetch_paginated(
+            'm:90+t:3',
+            fields='f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87',
+            diagnostics=pagination_diagnostics.setdefault('flow_concept', {}),
+        ),
+    )
     print(f'{len(results["flow_concept"])} items')
 
     print(f'[{source_time}] 板块新闻 (bounded)...', end=' ', flush=True)
@@ -1793,8 +2009,9 @@ def main():
         'sector_news',
         'eastmoney_sector_news',
         lambda: fetch_sector_news(
-            [*(results.get('sector_industry') or []), *(results.get('flow_industry') or [])],
-            [*(results.get('sector_concept') or []), *(results.get('flow_concept') or [])],
+            list(results.get('flow_industry') or []),
+            list(results.get('flow_concept') or []),
+            diagnostics=pagination_diagnostics.setdefault('sector_news', {}),
         ),
     )
     print(f'{len(results["sector_news"])} items')
@@ -1803,7 +2020,18 @@ def main():
     # 6. 龙虎榜 - FULL (last 30 days)
     # =================================================================
     print(f'[{source_time}] 龙虎榜 (full)...', end=' ', flush=True)
-    results['lhb'] = timed_fetch(domain_timings, 'lhb', 'datacenter:RPT_DAILYBILLBOARD_DETAILSNEW', lambda: fetch_datacenter('RPT_DAILYBILLBOARD_DETAILSNEW', 'TRADE_DATE,DEAL_AMOUNT_RATIO', page_size=500, extra_params={'sortTypes': '-1,-1'}))
+    results['lhb'] = timed_fetch(
+        domain_timings,
+        'lhb',
+        'datacenter:RPT_DAILYBILLBOARD_DETAILSNEW',
+        lambda: fetch_datacenter(
+            'RPT_DAILYBILLBOARD_DETAILSNEW',
+            'TRADE_DATE,DEAL_AMOUNT_RATIO',
+            page_size=500,
+            extra_params={'sortTypes': '-1,-1'},
+            diagnostics=pagination_diagnostics.setdefault('lhb', []),
+        ),
+    )
     print(f'{len(results["lhb"])} items')
 
     # =================================================================
@@ -1938,152 +2166,135 @@ def main():
     print(f'{len(results["hsgt_summary"])} items')
 
     print(f'[{source_time}] 北向资金明细 (full)...', end=' ', flush=True)
-    results['hsgt_deals'] = timed_fetch(domain_timings, 'hsgt_deals', 'datacenter:RPT_MUTUAL_DEAL_HISTORY', lambda: fetch_datacenter('RPT_MUTUAL_DEAL_HISTORY', 'TRADE_DATE', page_size=500))
+    results['hsgt_deals'] = timed_fetch(
+        domain_timings,
+        'hsgt_deals',
+        'datacenter:RPT_MUTUAL_DEAL_HISTORY',
+        lambda: fetch_datacenter(
+            'RPT_MUTUAL_DEAL_HISTORY',
+            'TRADE_DATE',
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('hsgt_deals', []),
+        ),
+    )
     print(f'{len(results["hsgt_deals"])} items')
 
     # =================================================================
     # 10. 业绩预告 - FULL
     # =================================================================
     print(f'[{source_time}] 业绩预告 (full)...', end=' ', flush=True)
-    results['earnings_preview'] = timed_fetch(domain_timings, 'earnings_preview', 'datacenter:RPT_LICO_FN_CPD', lambda: fetch_datacenter('RPT_LICO_FN_CPD', 'NOTICE_DATE', page_size=500))
+    results['earnings_preview'] = timed_fetch(
+        domain_timings,
+        'earnings_preview',
+        'datacenter:RPT_LICO_FN_CPD',
+        lambda: fetch_datacenter(
+            'RPT_LICO_FN_CPD',
+            'NOTICE_DATE',
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('earnings_preview', []),
+        ),
+    )
     print(f'{len(results["earnings_preview"])} items')
 
     # =================================================================
     # 11. 限售解禁 - FULL
     # =================================================================
     print(f'[{source_time}] 限售解禁 (full)...', end=' ', flush=True)
-    results['lockup_expiry'] = timed_fetch(domain_timings, 'lockup_expiry', 'datacenter:RPT_LIFT_STAGE', lambda: fetch_datacenter('RPT_LIFT_STAGE', 'FREE_DATE', page_size=500))
+    results['lockup_expiry'] = timed_fetch(
+        domain_timings,
+        'lockup_expiry',
+        'datacenter:RPT_LIFT_STAGE',
+        lambda: fetch_datacenter(
+            'RPT_LIFT_STAGE',
+            'FREE_DATE',
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('lockup_expiry', []),
+        ),
+    )
     print(f'{len(results["lockup_expiry"])} items')
 
     # =================================================================
-    # 12. 机构调研 - 近7天 (分页获取, pageSize上限50)
+    # 12. 机构调研 - 近7天 (direct data-center pagination)
     # =================================================================
     print(f'[{source_time}] 机构调研 (7d)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
         from datetime import timedelta
         week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-        all_survey = []
-        for pg in range(1, 21):  # max 20 pages = 1000 items
-            params = {
-                'reportName': 'RPT_ORG_SURVEY',
-                'columns': 'ALL',
-                'pageNumber': str(pg),
-                'pageSize': '50',
-                'sortTypes': '-1',
-                'sortColumns': 'NOTICE_DATE',
-                'source': 'WEB',
-                'client': 'WEB',
-                'filter': f"(NOTICE_DATE>='{week_ago}')"
-            }
-            url = f'https://datacenter-web.eastmoney.com/api/data/v1/get?{urlencode(params)}'
-            data = api_get(url)
-            result = data.get('result') or {}
-            items = result.get('data', []) or []
-            if not items:
-                break
-            all_survey.extend(items)
-        results['org_survey'] = all_survey
+        results['org_survey'] = timed_fetch(
+            domain_timings,
+            'org_survey',
+            'datacenter:RPT_ORG_SURVEY',
+            lambda: fetch_datacenter(
+                'RPT_ORG_SURVEY',
+                'NOTICE_DATE',
+                page_size=50,
+                extra_params={'filter': f"(NOTICE_DATE>='{week_ago}')"},
+                diagnostics=pagination_diagnostics.setdefault('org_survey', []),
+            ),
+        )
     except:
         results['org_survey'] = []
-    record_domain_timing(domain_timings, 'org_survey', domain_started_at, results['org_survey'], 'datacenter:RPT_ORG_SURVEY')
+        record_domain_timing(
+            domain_timings,
+            'org_survey',
+            domain_started_at,
+            results['org_survey'],
+            'datacenter:RPT_ORG_SURVEY',
+        )
     print(f'{len(results["org_survey"])} items')
 
     # =================================================================
-    # 13. 融资融券 - 最新交易日 (单引号过滤)
-    # =================================================================
-    print(f'[{source_time}] 融资融券 (latest)...', end=' ', flush=True)
-    try:
-        results['margin_trading'] = timed_fetch(
-            domain_timings,
-            'margin_trading',
-            'datacenter:RPTA_WEB_RZRQ_GGMX',
-            lambda: fetch_datacenter('RPTA_WEB_RZRQ_GGMX', 'DATE', page_size=500),
-        )
-    except:
-        results['margin_trading'] = []
-    print(f'{len(results["margin_trading"])} items')
-
-    # =================================================================
-    # 14. 个股资金流 - FULL (主力+散户, 分页获取)
+    # 13. 个股资金流 - FULL (主力+散户, direct pagination)
     # =================================================================
     print(f'[{source_time}] 个股资金流 (full)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        all_capital_flow = []
-        for pg in range(1, 60):  # max 60 pages = 6000 items
-            params = {
-                'fields1': 'f1,f2,f3,f7',
-                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65,f66,f67,f68,f69,f70,f71,f72,f73,f74,f75',
-                'ut': 'b2884a393a59ad64002292a3e90d46a5',
-                'pn': str(pg),
-                'pz': '100',
-                'po': '1',
-                'np': '1',
-                'fltt': '2',
-                'invt': '2',
-                'fid': 'f62',
-                'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
-            }
-            url = f'https://push2delay.eastmoney.com/api/qt/clist/get?{urlencode(params)}'
-            data = api_get(url)
-            diff = data.get('data', {}).get('diff', []) or []
-            if not diff:
-                break
-            all_capital_flow.extend(diff)
-            if len(diff) < 100:
-                break
-        results['stock_capital_flow'] = all_capital_flow
+        results['stock_capital_flow'] = fetch_paginated(
+            'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+            page_size=100,
+            fields=STOCK_CAPITAL_FLOW_FIELDS,
+            diagnostics=pagination_diagnostics.setdefault('stock_capital_flow', {}),
+        )
     except:
         results['stock_capital_flow'] = []
-    record_domain_timing(domain_timings, 'stock_capital_flow', domain_started_at, results['stock_capital_flow'], 'push2_fund_flow_paginated')
+    record_domain_timing(
+        domain_timings,
+        'stock_capital_flow',
+        domain_started_at,
+        results['stock_capital_flow'],
+        'push2_fund_flow_paginated',
+    )
     print(f'{len(results["stock_capital_flow"])} items')
 
     # =================================================================
-    # 15. 板块资金流 - FULL (行业+概念, 分页获取)
+    # 15. 板块资金流 - FULL (行业+概念, direct pagination)
     # =================================================================
     print(f'[{source_time}] 板块资金流 (full)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        # 行业板块资金流
-        industry_flow = []
-        for pg in range(1, 6):  # max 6 pages = 600 items
-            params = {
-                'fields1': 'f1,f2,f3,f7',
-                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65,f66,f67,f68,f69,f70,f71,f72,f73,f74,f75',
-                'ut': 'b2884a393a59ad64002292a3e90d46a5',
-                'pn': str(pg),
-                'pz': '100',
-                'po': '1',
-                'np': '1',
-                'fltt': '2',
-                'invt': '2',
-                'fid': 'f62',
-                'fs': 'm:90+t:2',
-            }
-            url = f'https://push2delay.eastmoney.com/api/qt/clist/get?{urlencode(params)}'
-            data = api_get(url)
-            diff = data.get('data', {}).get('diff', []) or []
-            if not diff:
-                break
-            industry_flow.extend(diff)
-            if len(diff) < 100:
-                break
-
-        # 概念板块资金流
-        concept_flow = []
-        for pg in range(1, 6):
-            params['fs'] = 'm:90+t:3'
-            params['pn'] = str(pg)
-            url = f'https://push2delay.eastmoney.com/api/qt/clist/get?{urlencode(params)}'
-            data = api_get(url)
-            diff = data.get('data', {}).get('diff', []) or []
-            if not diff:
-                break
-            concept_flow.extend(diff)
-            if len(diff) < 100:
-                break
-
+        sector_fields = ','.join(
+            [f'f{field_id}' for field_id in range(1, 4)]
+            + [f'f{field_id}' for field_id in range(51, 76)]
+        )
+        industry_diagnostics = {}
+        concept_diagnostics = {}
+        industry_flow = fetch_paginated(
+            'm:90+t:2',
+            page_size=100,
+            fields=sector_fields,
+            diagnostics=industry_diagnostics,
+        )
+        concept_flow = fetch_paginated(
+            'm:90+t:3',
+            page_size=100,
+            fields=sector_fields,
+            diagnostics=concept_diagnostics,
+        )
+        pagination_diagnostics['sector_capital_flow'] = {
+            'industry': industry_diagnostics,
+            'concept': concept_diagnostics,
+        }
         results['sector_capital_flow'] = {'industry': industry_flow, 'concept': concept_flow}
     except:
         results['sector_capital_flow'] = {'industry': [], 'concept': []}
@@ -2136,9 +2347,13 @@ def main():
         from datetime import timedelta
         week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
         today = datetime.now().strftime('%Y-%m-%d')
-        report_url = f'https://reportapi.eastmoney.com/report/list?industryCode=*&pageSize=500&industry=*&rating=*&ratingChange=*&beginTime={week_ago}&endTime={today}&pageNo=1&fields=&qType=0&orgCode=&rcode=&p=1&pageNum=1'
-        data = api_get(report_url)
-        results['stock_reports'] = data.get('data', []) or []
+        results['stock_reports'] = fetch_report_list(
+            '0',
+            week_ago,
+            today,
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('stock_reports', {}),
+        )
     except:
         results['stock_reports'] = []
     record_domain_timing(domain_timings, 'stock_reports', domain_started_at, results['stock_reports'], 'reportapi:stock')
@@ -2153,9 +2368,13 @@ def main():
         from datetime import timedelta
         week_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
         today = datetime.now().strftime('%Y-%m-%d')
-        report_url = f'https://reportapi.eastmoney.com/report/list?industryCode=*&pageSize=500&industry=*&rating=*&ratingChange=*&beginTime={week_ago}&endTime={today}&pageNo=1&fields=&qType=1&orgCode=&rcode=&p=1&pageNum=1'
-        data = api_get(report_url)
-        results['industry_reports'] = data.get('data', []) or []
+        results['industry_reports'] = fetch_report_list(
+            '1',
+            week_ago,
+            today,
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('industry_reports', {}),
+        )
     except:
         results['industry_reports'] = []
     record_domain_timing(domain_timings, 'industry_reports', domain_started_at, results['industry_reports'], 'reportapi:industry')
@@ -2166,7 +2385,16 @@ def main():
     # =================================================================
     print(f'[{source_time}] 大宗交易 (full)...', end=' ', flush=True)
     try:
-        results['block_trades'] = timed_fetch(domain_timings, 'block_trades', 'push2_paginated_proxy', lambda: fetch_paginated('m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23', fields='f2,f3,f6,f12,f13,f14,f15,f16,f17'))
+        results['block_trades'] = timed_fetch(
+            domain_timings,
+            'block_trades',
+            'push2_paginated_proxy',
+            lambda: fetch_paginated(
+                'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+                fields='f2,f3,f6,f12,f13,f14,f15,f16,f17',
+                diagnostics=pagination_diagnostics.setdefault('block_trades', {}),
+            ),
+        )
     except:
         results['block_trades'] = []
     print(f'{len(results["block_trades"])} items')
@@ -2175,14 +2403,34 @@ def main():
     # 20. 股东变动 - FULL (datacenter API)
     # =================================================================
     print(f'[{source_time}] 股东变动 (full)...', end=' ', flush=True)
-    results['shareholder_changes'] = timed_fetch(domain_timings, 'shareholder_changes', 'datacenter:RPT_SHARE_HOLDER_INCREASE', lambda: fetch_datacenter('RPT_SHARE_HOLDER_INCREASE', 'END_DATE', page_size=500))
+    results['shareholder_changes'] = timed_fetch(
+        domain_timings,
+        'shareholder_changes',
+        'datacenter:RPT_SHARE_HOLDER_INCREASE',
+        lambda: fetch_datacenter(
+            'RPT_SHARE_HOLDER_INCREASE',
+            'END_DATE',
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('shareholder_changes', []),
+        ),
+    )
     print(f'{len(results["shareholder_changes"])} items')
 
     # =================================================================
     # 21. IPO日历 - FULL (datacenter API)
     # =================================================================
     print(f'[{source_time}] IPO日历 (full)...', end=' ', flush=True)
-    results['ipo_calendar'] = timed_fetch(domain_timings, 'ipo_calendar', 'datacenter:RPTA_APP_IPOAPPLY', lambda: fetch_datacenter('RPTA_APP_IPOAPPLY', 'APPLY_DATE', page_size=500))
+    results['ipo_calendar'] = timed_fetch(
+        domain_timings,
+        'ipo_calendar',
+        'datacenter:RPTA_APP_IPOAPPLY',
+        lambda: fetch_datacenter(
+            'RPTA_APP_IPOAPPLY',
+            'APPLY_DATE',
+            page_size=500,
+            diagnostics=pagination_diagnostics.setdefault('ipo_calendar', []),
+        ),
+    )
     print(f'{len(results["ipo_calendar"])} items')
 
     # =================================================================
@@ -2190,7 +2438,16 @@ def main():
     # =================================================================
     print(f'[{source_time}] 停牌信息 (full)...', end=' ', flush=True)
     try:
-        results['trading_halts'] = timed_fetch(domain_timings, 'trading_halts', 'push2_paginated_proxy', lambda: fetch_paginated('m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23', fields='f2,f3,f6,f12,f13,f14,f15,f16,f17'))
+        results['trading_halts'] = timed_fetch(
+            domain_timings,
+            'trading_halts',
+            'push2_paginated_proxy',
+            lambda: fetch_paginated(
+                'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+                fields='f2,f3,f6,f12,f13,f14,f15,f16,f17',
+                diagnostics=pagination_diagnostics.setdefault('trading_halts', {}),
+            ),
+        )
     except:
         results['trading_halts'] = []
     print(f'{len(results["trading_halts"])} items')
@@ -2212,7 +2469,16 @@ def main():
     # =================================================================
     print(f'[{source_time}] 人气排名 (full)...', end=' ', flush=True)
     try:
-        results['popularity_rank'] = timed_fetch(domain_timings, 'popularity_rank', 'push2_paginated_proxy', lambda: fetch_paginated('m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23', fields='f2,f3,f6,f12,f13,f14,f15,f16,f17'))
+        results['popularity_rank'] = timed_fetch(
+            domain_timings,
+            'popularity_rank',
+            'push2_paginated_proxy',
+            lambda: fetch_paginated(
+                'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+                fields='f2,f3,f6,f12,f13,f14,f15,f16,f17',
+                diagnostics=pagination_diagnostics.setdefault('popularity_rank', {}),
+            ),
+        )
     except:
         results['popularity_rank'] = []
     print(f'{len(results["popularity_rank"])} items')
@@ -2223,9 +2489,13 @@ def main():
     print(f'[{source_time}] 公告 (full multi-page)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        ann_pages = int(os.environ.get('XIAOGU_ANN_PAGES', '8'))
+        ann_pages = int(os.environ.get('XIAOGU_ANN_PAGES', str(MAX_SAFE_PAGE_COUNT)))
         ann_page_size = int(os.environ.get('XIAOGU_ANN_PAGE_SIZE', '100'))
-        results['announcements'] = fetch_announcements_multi_page(max_pages=ann_pages, page_size=ann_page_size)
+        results['announcements'] = fetch_announcements_multi_page(
+            max_pages=ann_pages,
+            page_size=ann_page_size,
+            diagnostics=pagination_diagnostics.setdefault('announcements', {}),
+        )
     except Exception:
         results['announcements'] = []
     record_domain_timing(domain_timings, 'announcements', domain_started_at, results['announcements'], 'eastmoney_announcements_multipage')
@@ -2237,9 +2507,13 @@ def main():
     print(f'[{source_time}] 东财7x24快讯 (full multi-page)...', end=' ', flush=True)
     domain_started_at = time.monotonic()
     try:
-        news_pages = int(os.environ.get('XIAOGU_NEWS_PAGES', '5'))
+        news_pages = int(os.environ.get('XIAOGU_NEWS_PAGES', str(MAX_SAFE_PAGE_COUNT)))
         news_page_size = int(os.environ.get('XIAOGU_NEWS_PAGE_SIZE', '200'))
-        results['news_kuaixun'] = fetch_news_kuaixun_multi_page(max_pages=news_pages, page_size=news_page_size)
+        results['news_kuaixun'] = fetch_news_kuaixun_multi_page(
+            max_pages=news_pages,
+            page_size=news_page_size,
+            diagnostics=pagination_diagnostics.setdefault('news_kuaixun', {}),
+        )
     except Exception:
         results['news_kuaixun'] = []
     record_domain_timing(domain_timings, 'news_kuaixun', domain_started_at, results['news_kuaixun'], 'eastmoney_7x24_multipage')
@@ -2259,11 +2533,13 @@ def main():
 
     # Build summary
     summary = {
-        'source': 'eastmoney_scan_v2',
-        'pipeline_version': 'eastmoney_scan_v2_full',
+        'source': 'eastmoney_api_scan_v2',
+        'pipeline_version': 'v2_scanner_api',
         'source_time': source_time,
         'domains': {name: len(items) for name, items in results.items()},
         'total_items': sum(len(items) for items in results.values()),
+        'pagination_diagnostics': pagination_diagnostics,
+        'scanner_transport': 'direct_api',
         'files': {name: str(output_dir / f'{name}.jsonl') for name in results.keys()},
     }
 
@@ -2316,13 +2592,9 @@ def main():
             if pct < 9: return 'high_7_to_9'
             return 'near_limit_9_plus'
 
-        ONE_LOT_COST_CAP = 7000.0
-
         tradable = []
         pool_exclusion_counts = {
             'non_mainboard': 0,
-            'price_over_cap': 0,
-            'one_lot_cost_over_cap': 0,
             'invalid_price': 0,
             'suspended_or_missing_quote': 0,
             'amount_missing': 0,
@@ -2336,10 +2608,12 @@ def main():
             code = str(s.get('f12', '')).zfill(6)
             price = safe_num(s.get('f2'))
             pct = safe_num(s.get('f3'))
+            quote = eastmoney_quote_prices(s)
+            open_price = safe_num(quote.get('open'))
+            high = safe_num(quote.get('high'))
+            low = safe_num(quote.get('low'))
             amount = safe_num(s.get('f6'))
             turnover = safe_num(s.get('f8'))
-            high = safe_num(s.get('f4'))
-            low = safe_num(s.get('f5'))
             prev_close = safe_num(s.get('f18'))
             net_inflow = safe_num(s.get('f62'))
             board = board_for_code(code)
@@ -2350,8 +2624,7 @@ def main():
                 'pct_chg': pct,
                 'amount': amount,
                 'one_lot_cost': round(price * 100, 4),
-                'price_cap': 70,
-                'one_lot_cost_cap': ONE_LOT_COST_CAP,
+                'price_cap': None,
             }
             if board != 'main':
                 pool_exclusion_counts['non_mainboard'] += 1
@@ -2360,14 +2633,6 @@ def main():
             if price <= 0:
                 pool_exclusion_counts['suspended_or_missing_quote'] += 1
                 record_pool_drop(s, 'tradable_filter', 'suspended_or_missing_quote', filter_details)
-                continue
-            if price > 70:
-                pool_exclusion_counts['price_over_cap'] += 1
-                record_pool_drop(s, 'tradable_filter', 'price_over_cap', filter_details)
-                continue
-            if price * 100 > ONE_LOT_COST_CAP:
-                pool_exclusion_counts['one_lot_cost_over_cap'] += 1
-                record_pool_drop(s, 'tradable_filter', 'one_lot_cost_over_cap', filter_details)
                 continue
             if amount <= 0:
                 pool_exclusion_counts['amount_missing'] += 1
@@ -2400,6 +2665,7 @@ def main():
                 'name': str(s.get('f14', '')),
                 'stock_name': str(s.get('f14', '')),
                 'price': price,
+                'open': open_price,
                 'signal_pct': pct,
                 'signal_amount': amount,
                 'turnover_rate': turnover,
@@ -2484,9 +2750,6 @@ def main():
         # 机构调研
         data_cache['org_survey'] = load_jsonl('org_survey.jsonl')
 
-        # 融资融券
-        data_cache['margin_trading'] = load_jsonl('margin_trading.jsonl')
-
         # 北向资金
         data_cache['hsgt_deals'] = load_jsonl('hsgt_deals.jsonl')
         data_cache['hsgt_holdings'] = load_jsonl('hsgt_holdings.jsonl')
@@ -2514,8 +2777,6 @@ def main():
 
         # 板块数据 (分析模块需要)
         data_cache['stock_all_a'] = load_jsonl('stock_all_a.jsonl')
-        data_cache['sector_industry'] = load_jsonl('sector_industry.jsonl')
-        data_cache['sector_concept'] = load_jsonl('sector_concept.jsonl')
         data_cache['flow_industry'] = load_jsonl('flow_industry.jsonl')
         data_cache['flow_concept'] = load_jsonl('flow_concept.jsonl')
         data_cache['market_capital_flow'] = load_jsonl('market_capital_flow.jsonl')
@@ -2559,20 +2820,6 @@ def main():
         sorted_sectors = sorted(sector_flow.values(), key=lambda x: x['net_inflow'], reverse=True)
         hot_sectors = {s['name'] for s in sorted_sectors[:10]}
         cold_sectors = {s['name'] for s in sorted_sectors[-5:]}
-        # 构建股票→板块映射
-        stock_sector_map = {}
-        for item in data_cache.get('sector_industry', []):
-            leader_code = str(item.get('f205', '')).zfill(6)
-            sector_name = str(item.get('f14', ''))
-            if leader_code and sector_name:
-                stock_sector_map[leader_code] = sector_name
-        for code, reports in stock_report_codes.items():
-            for report in reports:
-                sector_name = str(report.get('industry', '')).strip()
-                if sector_name:
-                    stock_sector_map.setdefault(code, sector_name)
-                    break
-
         # --- 2. 题材热度信号 ---
         # 逻辑: 概念板块涨幅+资金流排名 → 热门概念龙头加分
         concept_flow = {}
@@ -2584,16 +2831,6 @@ def main():
             concept_flow[code] = {'name': name, 'net_inflow': net_inflow, 'pct': pct}
         sorted_concepts = sorted(concept_flow.values(), key=lambda x: x['net_inflow'], reverse=True)
         hot_concepts = {c['name'] for c in sorted_concepts[:10]}
-        # 构建龙头股→概念映射 (概念板块f205=龙头股代码)
-        stock_concept_map = {}
-        for item in data_cache.get('sector_concept', []):
-            leader_code = str(item.get('f205', '')).zfill(6)
-            concept_name = str(item.get('f14', ''))
-            if leader_code and concept_name:
-                if leader_code not in stock_concept_map:
-                    stock_concept_map[leader_code] = []
-                stock_concept_map[leader_code].append(concept_name)
-
         # --- 3. 龙头动向信号 ---
         # 逻辑: 连板股数量、最高连板数、涨停封单强度
         consecutive_count = len(data_cache.get('limitup_consecutive', []))
@@ -2626,11 +2863,110 @@ def main():
             }
         # 大盘资金流
         market_flow = data_cache.get('market_capital_flow', [])
-        market_main_inflow = sum(safe_num(m.get('klines', [''])[0].split(',')[-1]) if m.get('klines') else 0 for m in market_flow)
+        # Eastmoney kline fields: date, main net amount, super-large amount,
+        # medium amount, large amount, main net ratio, change percent.
+        market_main_inflow = sum(
+            safe_num(m.get('klines', [''])[0].split(',')[1])
+            if m.get('klines') and len(m.get('klines', [''])[0].split(',')) > 1
+            else 0
+            for m in market_flow
+        )
 
         # --- 5. 市场情绪信号 ---
         # 逻辑: 市场宽度、涨停数/炸板数比、涨跌比
         all_stocks = data_cache.get('stock_all_a', [])
+        mainboard_rows = [
+            row for row in all_stocks
+            if board_for_code(row.get('f12')) == 'main'
+        ]
+        mainboard_codes = {
+            normalize_stock_code(row.get('f12'))
+            for row in mainboard_rows
+            if normalize_stock_code(row.get('f12'))
+        }
+        mainboard_industry_count = sum(
+            bool(str(row.get('f100') or '').strip())
+            for row in mainboard_rows
+        )
+        mainboard_region_count = sum(
+            bool(str(row.get('f102') or '').strip())
+            for row in mainboard_rows
+        )
+        mainboard_concept_count = sum(
+            bool(str(row.get('f103') or '').strip() not in ('', '-', '--'))
+            for row in mainboard_rows
+        )
+        mainboard_capital_flow_codes = {
+            normalize_stock_code(row.get('f12'))
+            for row in data_cache.get('stock_capital_flow', [])
+            if normalize_stock_code(row.get('f12'))
+        }
+        mainboard_capital_flow_count = len(mainboard_codes & mainboard_capital_flow_codes)
+        industry_flow_count = len(data_cache.get('flow_industry', []))
+        concept_flow_count = len(data_cache.get('flow_concept', []))
+        mainboard_domain_coverage = {
+            domain: mainboard_row_coverage(data_cache.get(domain, []))
+            for domain in (
+                'lhb',
+                'hsgt_deals',
+                'hsgt_holdings',
+                'earnings_preview',
+                'lockup_expiry',
+                'org_survey',
+                'stock_capital_flow',
+                'stock_reports',
+                'block_trades',
+                'shareholder_changes',
+                'ipo_calendar',
+                'trading_halts',
+                'popularity_rank',
+                'announcements',
+            )
+        }
+        direct_data_coverage = {
+            'mode': 'eastmoney_api_direct_raw',
+            'read_path': 'scan_market_data -> xiaogu_api',
+            'quote_endpoint': 'push2delay.eastmoney.com/api/qt/clist/get',
+            'quote_fields': STOCK_ALL_A_FIELDS.split(','),
+            'quote_rows': len(all_stocks),
+            'mainboard_quote_rows': len(mainboard_rows),
+            'mainboard_unique_codes': len(mainboard_codes),
+            'mainboard_industry': {
+                'field': 'f100',
+                'covered_rows': mainboard_industry_count,
+                'coverage_ratio': round(
+                    mainboard_industry_count / len(mainboard_rows), 6
+                ) if mainboard_rows else 0.0,
+            },
+            'mainboard_region': {
+                'field': 'f102',
+                'covered_rows': mainboard_region_count,
+                'coverage_ratio': round(
+                    mainboard_region_count / len(mainboard_rows), 6
+                ) if mainboard_rows else 0.0,
+            },
+            'mainboard_concepts': {
+                'field': 'f103',
+                'covered_rows': mainboard_concept_count,
+                'coverage_ratio': round(
+                    mainboard_concept_count / len(mainboard_rows), 6
+                ) if mainboard_rows else 0.0,
+            },
+            'mainboard_stock_capital_flow': {
+                'endpoint': 'push2delay.eastmoney.com/api/qt/clist/get',
+                'covered_rows': mainboard_capital_flow_count,
+                'coverage_ratio': round(
+                    mainboard_capital_flow_count / len(mainboard_codes), 6
+                ) if mainboard_codes else 0.0,
+            },
+            'sector_capital_flow': {
+                'industry_rows': industry_flow_count,
+                'concept_rows': concept_flow_count,
+                'source': 'push2delay.eastmoney.com/api/qt/clist/get',
+            },
+            'mainboard_domains': mainboard_domain_coverage,
+            'pagination': pagination_diagnostics,
+        }
         up_count = sum(1 for s in all_stocks if safe_num(s.get('f3')) > 0)
         down_count = sum(1 for s in all_stocks if safe_num(s.get('f3')) < 0)
         market_breadth = up_count / len(all_stocks) * 100 if all_stocks else 0
@@ -2699,34 +3035,24 @@ def main():
             if match_count > 0:
                 keyword_scores[keyword] = min(100, score)
 
-        # 构建板块→龙头股映射
-        concept_leaders = {}
-        for item in data_cache.get('sector_concept', []):
-            concept_name = str(item.get('f14', ''))
-            leader_code = str(item.get('f205', '')).zfill(6)
-            if concept_name and leader_code:
-                concept_leaders[concept_name] = leader_code
-
-        sector_leaders = {}
-        for item in data_cache.get('sector_industry', []):
-            sector_name = str(item.get('f14', ''))
-            leader_code = str(item.get('f205', '')).zfill(6)
-            if sector_name and leader_code:
-                sector_leaders[sector_name] = leader_code
-
-        # 将关键词得分映射到板块龙头股
+        # Match news keywords directly against each stock's API-provided
+        # industry and concept fields.
         news_mentioned_codes = {}
         for keyword, score in keyword_scores.items():
-            for concept_name, leader_code in concept_leaders.items():
-                if keyword in concept_name:
-                    if leader_code not in news_mentioned_codes:
-                        news_mentioned_codes[leader_code] = 0
-                    news_mentioned_codes[leader_code] = max(news_mentioned_codes[leader_code], score)
-            for sector_name, leader_code in sector_leaders.items():
-                if keyword in sector_name:
-                    if leader_code not in news_mentioned_codes:
-                        news_mentioned_codes[leader_code] = 0
-                    news_mentioned_codes[leader_code] = max(news_mentioned_codes[leader_code], score)
+            for stock in all_stocks:
+                code = normalize_stock_code(stock.get('f12'))
+                if not code:
+                    continue
+                stock_text = ' '.join([
+                    str(stock.get('f14') or ''),
+                    str(stock.get('f100') or ''),
+                    *stock_concepts_from_quote_row(stock),
+                ])
+                if keyword in stock_text:
+                    news_mentioned_codes[code] = max(
+                        news_mentioned_codes.get(code, 0),
+                        score,
+                    )
 
         # 公告直接提及的股票
         announcement_codes = {}
@@ -2765,26 +3091,10 @@ def main():
                 'net_amount': safe_num(item.get('NET_AMOUNT')),
             })
 
-        # 大宗交易索引 (当前 API 只能拿到近似活跃度视图，不是 datacenter 明细)
-        # 保留真实可用字段供 structured evidence 统一解释，不再在本地复制 premium/discount 逻辑。
+        # The current endpoint is only a market-activity view, not a
+        # specialized block-trade report. Keep the raw domain for audit, but
+        # quarantine it from production scoring until a verified source exists.
         block_trade_codes = {}
-        for item in data_cache['block_trades']:
-            code = str(item.get('f12', '')).zfill(6)
-            if code.startswith(('5', '1')):
-                continue
-            amount = safe_num(item.get('f6'))
-            turnover = safe_num(item.get('f8'))
-            price = safe_num(item.get('f2'))
-            pct = safe_num(item.get('f3'))
-            if amount <= 0 and turnover <= 0:
-                continue
-            block_trade_codes.setdefault(code, []).append({
-                'price': price,
-                'amount': amount,
-                'turnover': turnover,
-                'pct': pct,
-                'source': 'push2_activity_proxy',
-            })
 
         # 股东变动索引
         shareholder_changes_codes = {}
@@ -2830,18 +3140,6 @@ def main():
                 'notice_date': item.get('NOTICE_DATE', ''),
             })
 
-        # 融资融券索引 (datacenter API字段)
-        margin_codes = {}
-        for item in data_cache['margin_trading']:
-            # 尝试多个可能的代码字段
-            code = str(item.get('SECURITY_CODE', '') or item.get('SCODE', '')).zfill(6)
-            if code and code != '000000':
-                margin_codes[code] = {
-                    'rzye': safe_num(item.get('RZYE')),  # 融资余额
-                    'rqye': safe_num(item.get('RQYE')),  # 融券余额
-                    'rzrqye': safe_num(item.get('RZRQYE')),  # 融资融券余额
-                }
-
         # 北向持股索引
         hsgt_holding_codes = {}
         for item in data_cache['hsgt_holdings']:
@@ -2870,33 +3168,13 @@ def main():
                     'date': item.get('noticeDate', '') or item.get('notice_date', ''),
                 })
 
-        # 人气排名索引 (push2 API字段)
-        # 注意: 这个API返回的是整个市场的股票，不是只有高人气的股票
-        # 需要从原始数据中筛选高人气的股票 (成交额排名前100)
+        # The current endpoint returns the whole market, not a verified
+        # popularity ranking. Keep it quarantined from production scoring.
         popularity_codes = {}
-        # 按成交额排序，取前100名
-        sorted_by_amount = sorted(data_cache['popularity_rank'], key=lambda x: safe_num(x.get('f6', 0)), reverse=True)
-        for rank, item in enumerate(sorted_by_amount[:100], 1):
-            code = str(item.get('f12', '')).zfill(6)
-            # 过滤掉ETF和非股票代码
-            if code.startswith(('5', '1')):  # ETF代码
-                continue
-            popularity_codes[code] = rank
 
-        # 停牌索引 (push2 API字段)
-        # 注意: 这个API返回的是整个市场的股票，不是只有停牌的股票
-        # 需要从原始数据中筛选真正停牌的股票 (涨幅为0且成交额为0)
+        # The current endpoint returns the whole market, so it cannot prove a
+        # halt. Do not turn zero-change/zero-amount heuristics into hard risk.
         halted_codes = set()
-        for item in data_cache['trading_halts']:
-            code = str(item.get('f12', '')).zfill(6)
-            # 过滤掉ETF和非股票代码
-            if code.startswith(('5', '1')):  # ETF代码
-                continue
-            # 只标记真正停牌的股票 (涨幅为0且成交额为0)
-            pct = safe_num(item.get('f3'))
-            amount = safe_num(item.get('f6'))
-            if pct == 0 and amount == 0:
-                halted_codes.add(code)
 
         # 资金流索引
         capital_flow_codes = {}
@@ -2913,7 +3191,7 @@ def main():
 
         print(f'  Loaded: limitup={len(limitup_codes)}, consecutive={len(consecutive_codes)}, lhb={len(lhb_codes)}')
         print(f'  Loaded: block_trades={len(block_trade_codes)}, shareholder={len(shareholder_changes_codes)}, earnings={len(earnings_codes)}')
-        print(f'  Loaded: lockup={len(lockup_codes)}, org_survey={len(org_survey_codes)}, margin={len(margin_codes)}')
+        print(f'  Loaded: lockup={len(lockup_codes)}, org_survey={len(org_survey_codes)}')
         print(f'  Loaded: hsgt_holdings={len(hsgt_holding_codes)}, reports={len(stock_report_codes)}, announcements={len(announcement_codes)}')
         print(f'  Loaded: popularity={len(popularity_codes)}, halted={len(halted_codes)}, capital_flow={len(capital_flow_codes)}')
 
@@ -2925,10 +3203,20 @@ def main():
         structured_scores = []
         sector_snapshot = []
         for sector_name in sorted(hot_sectors):
-            symbols = [code for code, mapped in stock_sector_map.items() if mapped == sector_name]
+            symbols = [
+                normalize_stock_code(row.get('f12'))
+                for row in all_stocks
+                if str(row.get('f100') or '').strip() == sector_name
+            ]
+            symbols = [code for code in symbols if code]
             sector_snapshot.append({'sector': sector_name, 'symbols': symbols[:20]})
         for concept_name in sorted(hot_concepts):
-            symbols = [code for code, mapped in stock_concept_map.items() if concept_name in mapped]
+            symbols = []
+            for row in all_stocks:
+                code = normalize_stock_code(row.get('f12'))
+                concepts = stock_concepts_from_quote_row(row)
+                if code and concept_name in concepts:
+                    symbols.append(code)
             sector_snapshot.append({'sector': concept_name, 'symbols': symbols[:20]})
         market_follow_through_score = clamp01(
             0.45 * clamp01((market_breadth - 35.0) / 35.0)
@@ -3073,11 +3361,6 @@ def main():
                 # 超大单净流入加分 (最高4分)
                 if cf['super_large_inflow'] > 0:
                     capital_bonus += min(4, cf['super_large_inflow'] / 1e8 * 0.8)
-            # 融资余额增长加分 (最高3分)
-            if code in margin_codes:
-                margin = margin_codes[code]
-                if margin['rzye'] > 0:
-                    capital_bonus += min(3, margin['rzye'] / 1e9 * 0.5)
             # 北向持股加分 (最高3分)
             if code in hsgt_holding_codes:
                 hsgt = hsgt_holding_codes[code]
@@ -3111,24 +3394,12 @@ def main():
 
             # 5. 风险信号评分 (扣分0-20)
             risk_penalty = 0.0
-            # 停牌股惩罚 (最高15分)
-            if code in halted_codes:
-                risk_penalty += 15.0
-
             # 限售解禁惩罚 (最高8分)
             if code in lockup_codes:
                 lockup = lockup_codes[code]
                 free_ratio = lockup.get('free_ratio', 0)
                 if free_ratio > 5:  # 解禁比例>5%
                     risk_penalty += min(8, free_ratio * 0.5)
-
-            # 大宗交易不再引用不存在的 premium 字段；
-            # 解释权交给结构化证据路径，局部打分只保留成交额/换手事实。
-            if code in block_trade_codes:
-                trades = block_trade_codes[code]
-                large_trade_turnover = max((trade.get('turnover', 0.0) for trade in trades), default=0.0)
-                if large_trade_turnover >= 8.0:
-                    risk_penalty += 1.5
 
             # 股东减持惩罚 (最高5分)
             if code in shareholder_changes_codes:
@@ -3139,20 +3410,15 @@ def main():
 
             # 6. 情绪信号评分 (0-5)
             sentiment_bonus = 0.0
-            # 人气排名加分
-            if code in popularity_codes:
-                rank = popularity_codes[code]
-                if rank <= 20:  # 人气前20
-                    sentiment_bonus += 5.0
-                elif rank <= 50:  # 人气前50
-                    sentiment_bonus += 3.0
-                elif rank <= 100:  # 人气前100
-                    sentiment_bonus += 1.0
-
             # 7. 板块轮动信号 (0-8)
             sector_rotation_bonus = 0.0
             # 龙头股加分 (行业板块龙头)
-            stock_sector = stock_sector_map.get(code, '')
+            stock_sector = str(
+                s.get('industry')
+                or s.get('sector_name')
+                or s.get('sector')
+                or ''
+            ).strip()
             if stock_sector in hot_sectors:
                 sector_rotation_bonus += 8.0
             elif stock_sector in cold_sectors:
@@ -3161,7 +3427,11 @@ def main():
             # 8. 题材热度信号 (0-8)
             topic_heat_bonus = 0.0
             # 龙头股加分 (概念板块龙头)
-            stock_concepts = stock_concept_map.get(code, [])
+            stock_concepts = [
+                str(value).strip()
+                for value in s.get('sector_opportunity_tags') or []
+                if str(value).strip()
+            ]
             for concept_name in stock_concepts:
                 if concept_name in hot_concepts:
                     topic_heat_bonus += 8.0
@@ -3312,12 +3582,11 @@ def main():
                 'sector_rotation': len(live_hot_themes),
                 'limitup_context': int(code in limitup_codes or code in consecutive_codes or code in broken_codes),
                 'hsgt_holdings': 1 if code in hsgt_holding_codes else 0,
-                'block_trades': len(block_trade_codes.get(code, [])),
                 'shareholder_changes': len(shareholder_changes_codes.get(code, [])),
             }
             enhanced_evidence_status, enhanced_missing_domains = evidence_status_from_counts(
                 enhanced_domain_counts,
-                optional_domains={'hsgt_holdings', 'block_trades', 'shareholder_changes'},
+                optional_domains={'hsgt_holdings', 'shareholder_changes'},
             )
             s['search_layer_hint'] = search_layer_hint
             s['sector_catalyst_score'] = round(sector_strength, 4)
@@ -3359,17 +3628,19 @@ def main():
             s['in_consecutive'] = code in consecutive_codes
             s['in_lhb'] = code in lhb_codes
             s['in_block_trades'] = code in block_trade_codes
+            s['block_trades_source_status'] = 'PROXY_QUARANTINED' if data_cache.get('block_trades') else 'MISSING'
             s['in_earnings_preview'] = code in earnings_codes
             s['in_lockup_expiry'] = code in lockup_codes
             s['in_org_survey'] = code in org_survey_codes
-            s['in_margin_trading'] = code in margin_codes
             s['in_hsgt_holdings'] = code in hsgt_holding_codes
             s['in_stock_reports'] = code in stock_report_codes
             s['in_announcements'] = code in announcement_codes
             s['in_halted'] = code in halted_codes
+            s['trading_halts_source_status'] = 'PROXY_QUARANTINED' if data_cache.get('trading_halts') else 'MISSING'
             s['in_shareholder_changes'] = code in shareholder_changes_codes
             s['in_popularity_rank'] = code in popularity_codes
             s['popularity_rank'] = popularity_codes.get(code)
+            s['popularity_rank_source_status'] = 'PROXY_QUARANTINED' if data_cache.get('popularity_rank') else 'MISSING'
             s['in_capital_flow'] = code in capital_flow_codes
             s['failed_limitup'] = code in broken_codes
 
@@ -3421,12 +3692,12 @@ def main():
                     )
         except Exception as exc:
             print(f'  Supplemental stock announcements skipped: {exc}')
-        enrich_mainboard_auxiliary_evidence(candidates, data_cache, stock_sector_map, stock_concept_map)
+        enrich_mainboard_auxiliary_evidence(candidates, data_cache)
         scored_count = len(candidates)
         print(f'  Candidates: {len(candidates)} (tradable={len(tradable)})')
         print(f'  Data sources used: limitup={len(limitup_codes)}, lhb={len(lhb_codes)}, block_trades={len(block_trade_codes)}')
         print(f'                   shareholder={len(shareholder_changes_codes)}, earnings={len(earnings_codes)}, org_survey={len(org_survey_codes)}')
-        print(f'                   margin={len(margin_codes)}, hsgt={len(hsgt_holding_codes)}, reports={len(stock_report_codes)}')
+        print(f'                   hsgt={len(hsgt_holding_codes)}, reports={len(stock_report_codes)}')
 
         research_signal_rows = []
         structured_component_rows = []
@@ -3475,19 +3746,16 @@ def main():
                 'popularity_heat', 'industry_board', 'sector_fund_flow', 'concept_capital_flow',
                 'candidate_quote_recheck', 'candidate_fund_recheck', 'candidate_lhb_recheck',
                 'candidate_announcement_recheck', 'candidate_intraday_replay',
-                'margin_trading', 'block_trades', 'lockup_expiry', 'shareholder_changes',
+                'block_trades', 'lockup_expiry', 'shareholder_changes',
                 'research_reports', 'stock_reports', 'earnings_preview', 'ipo_calendar', 'trading_halts',
                 'data_directory_content',
             )}
             rows_by_domain['announcements'] = candidate_rows('announcements')
             rows_by_domain['lhb'] = candidate_rows('lhb')
             rows_by_domain['sector_fund_flow'] = candidate_rows('stock_capital_flow')
-            rows_by_domain['margin_trading'] = candidate_rows('margin_trading')
-            rows_by_domain['block_trades'] = candidate_rows('block_trades')
             rows_by_domain['lockup_expiry'] = candidate_rows('lockup_expiry')
             rows_by_domain['shareholder_changes'] = candidate_rows('shareholder_changes')
             rows_by_domain['earnings_preview'] = candidate_rows('earnings_preview')
-            rows_by_domain['trading_halts'] = candidate_rows('trading_halts')
 
             market_hsgt_summary = list(data_cache.get('hsgt_summary', []) or [])
             if market_hsgt_summary:
@@ -3508,8 +3776,17 @@ def main():
                 })
 
             for code, candidate in candidate_lookup.items():
-                stock_sector = stock_sector_map.get(code, '')
-                stock_concepts = stock_concept_map.get(code, [])
+                stock_sector = str(
+                    candidate.get('industry')
+                    or candidate.get('sector_name')
+                    or candidate.get('sector')
+                    or ''
+                ).strip()
+                stock_concepts = [
+                    str(value).strip()
+                    for value in candidate.get('sector_opportunity_tags') or []
+                    if str(value).strip()
+                ]
                 for ann in candidate.get('announcement_evidence', [])[:5]:
                     text = str(ann.get('title', '')).strip()
                     if text:
@@ -3594,17 +3871,6 @@ def main():
                         'domain': 'broken_limit_risk',
                         'source': 'runner_v2_limitup_broken',
                     })
-                if code in popularity_codes:
-                    rows_by_domain['popularity_heat'].append({
-                        'code': code,
-                        'symbol': code,
-                        'rank': popularity_codes.get(code),
-                        'row_index': popularity_codes.get(code),
-                        'text': f"人气排名 {popularity_codes.get(code)}",
-                        'raw_text': f"人气排名 {popularity_codes.get(code)}",
-                        'domain': 'popularity_heat',
-                        'source': 'runner_v2_popularity_rank',
-                    })
                 if stock_sector:
                     rows_by_domain['industry_board'].append({
                         'code': code,
@@ -3613,7 +3879,7 @@ def main():
                         'text': f"行业板块 {stock_sector}",
                         'raw_text': f"行业板块 {stock_sector}",
                         'domain': 'industry_board',
-                        'source': 'runner_v2_sector_leader_map',
+                        'source': 'eastmoney_stock_all_a.f100',
                     })
                 for concept_name in stock_concepts:
                     rows_by_domain['concept_industry'].append({
@@ -3623,17 +3889,8 @@ def main():
                         'text': f"概念板块 {concept_name}",
                         'raw_text': f"概念板块 {concept_name}",
                         'domain': 'concept_industry',
-                        'source': 'runner_v2_concept_map',
-                    })
-                    rows_by_domain['concept_capital_flow'].append({
-                        'code': code,
-                        'symbol': code,
-                        'BOARD_NAME': concept_name,
-                        'text': f"概念资金流 {concept_name}",
-                        'raw_text': f"概念资金流 {concept_name}",
-                        'domain': 'concept_capital_flow',
-                        'source': 'runner_v2_concept_map',
-                    })
+                        'source': 'eastmoney_stock_all_a.f103',
+                        })
                 if code in capital_flow_codes:
                     cf = capital_flow_codes.get(code) or {}
                     rows_by_domain['candidate_fund_recheck'].append({
@@ -3812,7 +4069,6 @@ def main():
                 candidate['limitup_capture_profile'] = structured.get('limitup_capture_profile')
                 candidate['limitup_capture_confirmed'] = structured.get('limitup_capture_confirmed')
                 candidate['limitup_capture_reasons'] = structured.get('limitup_capture_reasons') or []
-                candidate['final_shadow_score'] = structured.get('final_shadow_score')
                 candidate['research_signals'] = structured.get('research_signals') or candidate.get('research_signals')
                 candidate['main_theme_alignment_score'] = details.get('main_theme_alignment_score')
                 candidate['main_theme_core_score'] = details.get('main_theme_core_score')
@@ -3890,6 +4146,7 @@ def main():
                     'components': components,
                 })
         rank_candidates_by_structured_priority(candidates)
+
         full_candidate_pool, candidate_pool_dedup_summary = select_unique_candidate_pool(
             candidates, FULL_CANDIDATE_POOL_TARGET,
         )
@@ -3897,82 +4154,6 @@ def main():
             candidate for candidate in candidates
             if int(candidate.get('rank') or 999999) <= 10
         ]
-        try:
-            from xiaogu_social_sentiment import attach_social_features, collect_and_store
-            social_enabled = os.environ.get('XIAOGU_SOCIAL_ENABLED', '1') == '1'
-            social_topn = int(os.environ.get('XIAOGU_SOCIAL_COLLECT_TOP_N', '100'))
-            try:
-                social_budget_sec = int(os.environ.get('XIAOGU_SOCIAL_COLLECT_BUDGET_SEC', '60'))
-            except (TypeError, ValueError):
-                social_budget_sec = 60
-            if social_budget_sec < 0:
-                social_budget_sec = 60
-            social_sources = tuple(
-                part.strip()
-                for part in os.environ.get('XIAOGU_SOCIAL_SOURCES', 'eastmoney_guba').split(',')
-                if part.strip()
-            ) or ('eastmoney_guba',)
-            # Collect same-day guba for top ranked candidates so shadow/formal
-            # attach is not permanently MISSING when scanner runs standalone.
-            # Hard wall-clock budget: social must never block the main scan.
-            if social_enabled and social_topn > 0:
-                ranked_for_social = sorted(
-                    [row for row in candidates if isinstance(row, dict)],
-                    key=lambda row: int(row.get('rank') or 999999),
-                )[:social_topn]
-                symbols = []
-                themes_by_symbol = {}
-                for row in ranked_for_social:
-                    symbol = normalize_stock_code(row.get('code') or row.get('symbol'))
-                    if not symbol:
-                        continue
-                    symbols.append(symbol)
-                    tags = row.get('sector_opportunity_tags') if isinstance(row.get('sector_opportunity_tags'), list) else []
-                    themes = [str(tag).strip() for tag in tags if str(tag).strip()]
-                    if not themes:
-                        name = str(row.get('name') or row.get('stock_name') or '').strip()
-                        if name:
-                            themes = [name]
-                    themes_by_symbol[symbol] = themes[:3]
-                if symbols:
-                    if social_budget_sec == 0:
-                        print(
-                            f'  Social collect budget exceeded: budget_sec=0 '
-                            f'topn={len(symbols)} (soft-skip)'
-                        )
-                    else:
-                        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-                        collect_started = time.monotonic()
-                        try:
-                            with ThreadPoolExecutor(max_workers=1) as pool:
-                                future = pool.submit(
-                                    collect_and_store,
-                                    symbols,
-                                    trade_date=source_time[:10],
-                                    sources=social_sources,
-                                    themes_by_symbol=themes_by_symbol,
-                                )
-                                collect_result = future.result(timeout=social_budget_sec)
-                            collect_elapsed = time.monotonic() - collect_started
-                            print(
-                                f'  Social collect: status={collect_result.get("status")} '
-                                f'count={collect_result.get("result_count")} '
-                                f'topn={len(symbols)} used_for_official_ranking='
-                                f'{collect_result.get("used_for_official_ranking")} '
-                                f'budget_sec={social_budget_sec} elapsed={collect_elapsed:.1f}s'
-                            )
-                        except FuturesTimeout:
-                            print(
-                                f'  Social collect budget exceeded: '
-                                f'budget_sec={social_budget_sec} topn={len(symbols)} (soft-skip)'
-                            )
-                        except Exception as social_exc:
-                            print(f'  Social collect soft-skip: {social_exc}')
-            attach_social_features(candidates, source_time[:10])
-        except Exception as exc:
-            # Social is an optional shadow sidecar. Scanner completeness must
-            # not depend on CDP login, external sources, or the social DB read.
-            print(f'  Social sidecar optional skip: {exc}')
         candidate_drop_diagnostics.extend(candidate_pool_dedup_summary.get('candidate_drop_diagnostics') or [])
         candidate_drop_stage_counts = summarize_candidate_drop_stage_counts(candidate_drop_diagnostics)
         top_exclusion_reasons = {
@@ -4012,9 +4193,12 @@ def main():
         enhanced_domain_counts = {
             'block_trades': len(data_cache.get('block_trades', [])),
             'shareholder_changes': len(data_cache.get('shareholder_changes', [])),
-            'margin_trading': len(data_cache.get('margin_trading', [])),
-            'sector_industry': len(data_cache.get('sector_industry', [])),
-            'sector_concept': len(data_cache.get('sector_concept', [])),
+            'sector_industry': sum(
+                bool(row.get('f100')) for row in data_cache.get('stock_all_a', [])
+            ),
+            'sector_concept': sum(
+                bool(row.get('f103')) for row in data_cache.get('stock_all_a', [])
+            ),
         }
         experimental_domain_counts = {
             'popularity_rank': len(data_cache.get('popularity_rank', [])),
@@ -4037,6 +4221,9 @@ def main():
         if not data_cache.get('stock_capital_flow'):
             source_missing.append('stock_capital_flow')
             source_flags.append('ZERO_FUND_FLOW_READ')
+        if not mainboard_capital_flow_codes:
+            source_missing.append('stock_capital_flow_codes')
+            source_flags.append('STOCK_CAPITAL_FLOW_CODE_FIELD_MISSING')
         if external_market_snapshot['status'] != 'PASS':
             source_missing.append('external_market')
             source_flags.append('EXTERNAL_MARKET_SNAPSHOT_NOT_COMPLETE')
@@ -4049,7 +4236,7 @@ def main():
             source_missing.extend(core_sentiment_pools['missing_sources'])
             source_flags.extend(core_sentiment_pools['flags'])
         source_status = {
-            'required_cdp_tabs': {
+            'required_api_sources': {
                 'status': core_sentiment_pools['status'],
                 'missing_sources': list(core_sentiment_pools['missing_sources']),
                 'mode': 'api_direct',
@@ -4061,12 +4248,12 @@ def main():
                 'source': external_market_snapshot['source'],
                 'captured_at': external_market_snapshot['captured_at'],
             },
-            'enhanced_cdp_tabs': {
+            'enhanced_api_sources': {
                 'status': 'PASS',
                 'missing_sources': [],
                 'mode': 'api_direct',
             },
-            'experimental_cdp_tabs': {
+            'experimental_api_sources': {
                 'status': 'PASS',
                 'missing_sources': [],
                 'mode': 'api_direct',
@@ -4092,9 +4279,37 @@ def main():
                 'domain_counts': optional_domain_counts,
                 'hard_block': False,
             },
+            'pagination_diagnostics': pagination_diagnostics,
+            'proxy_api_sources': {
+                'block_trades': {
+                    'status': 'PROXY',
+                    'source': 'push2_paginated_quote_activity',
+                    'specialized_datacenter_source': False,
+                    'quality_status': 'PROXY_QUARANTINED',
+                    'production_use': 'DISABLED_UNTIL_SPECIALIZED_SOURCE',
+                    'hard_block': False,
+                },
+                'trading_halts': {
+                    'status': 'PROXY',
+                    'source': 'push2_paginated_quote_activity',
+                    'specialized_datacenter_source': False,
+                    'quality_status': 'PROXY_QUARANTINED',
+                    'production_use': 'DISABLED_UNTIL_SPECIALIZED_SOURCE',
+                    'hard_block': False,
+                },
+                'popularity_rank': {
+                    'status': 'PROXY',
+                    'source': 'push2_paginated_quote_activity',
+                    'specialized_datacenter_source': False,
+                    'quality_status': 'PROXY_QUARANTINED',
+                    'production_use': 'DISABLED_UNTIL_SPECIALIZED_SOURCE',
+                    'hard_block': False,
+                },
+            },
             'source_completeness': {
                 'status': 'PASS' if not source_missing else 'PARTIAL_OR_FAIL',
                 'quote_count': len(stocks),
+                'direct_data_coverage': direct_data_coverage,
                 'fund_count': len(data_cache.get('stock_capital_flow', [])),
                 'core_sentiment_pool_counts': {
                     name: len(results.get(name, []))
@@ -4113,6 +4328,7 @@ def main():
         full_universe_scan = {
             'enabled': True,
             'quote_count': len(stocks),
+            'direct_data_coverage': direct_data_coverage,
             'tradable_count': len(tradable),
             'coverage_status': 'PASS' if len(stocks) >= 4000 else 'PARTIAL_OR_FAIL',
             'min_quote_count': 4000,
@@ -4131,6 +4347,7 @@ def main():
         }
         market_snapshot = {
             'universe_quote_count': len(stocks),
+            'direct_data_coverage': direct_data_coverage,
             'full_universe_scan': full_universe_scan,
             'market_breadth_up_pct': round(market_breadth, 2),
             'market_limitups': market_limitups,
@@ -4152,8 +4369,7 @@ def main():
             'candidate_drop_stage_counts': candidate_drop_stage_counts,
             'source_status': source_status,
             'hard_block_source_status': hard_block_source_status,
-            'eastmoney_web_tabs': ['api_direct_runner_v2'],
-            'eastmoney_cdp_url': 'api_direct',
+            'scanner_sources': ['eastmoney_api_scan_v2'],
         }
 
         def coverage_record(count):
@@ -4172,14 +4388,17 @@ def main():
             'limitup_strength': coverage_record(len(data_cache.get('limitup_pool', []))),
             'consecutive_limit_strength': coverage_record(len(data_cache.get('limitup_consecutive', []))),
             'yesterday_limit_strength': coverage_record(len(data_cache.get('limitup_yesterday', []))),
-            'concept_industry': coverage_record(len(data_cache.get('sector_concept', []))),
-            'industry_board': coverage_record(len(data_cache.get('sector_industry', []))),
+            'concept_industry': coverage_record(sum(
+                bool(row.get('f103')) for row in data_cache.get('stock_all_a', [])
+            )),
+            'industry_board': coverage_record(sum(
+                bool(row.get('f100')) for row in data_cache.get('stock_all_a', [])
+            )),
             'sector_fund_flow': coverage_record(sector_flow_count or len(data_cache.get('flow_concept', [])) + len(data_cache.get('flow_industry', []))),
             'candidate_quote_recheck': coverage_record(len(candidates)),
             'candidate_fund_recheck': coverage_record(len(data_cache.get('stock_capital_flow', []))),
             'popularity_heat': coverage_record(len(data_cache.get('popularity_rank', []))),
             'concept_capital_flow': coverage_record(len(data_cache.get('flow_concept', []))),
-            'margin_trading': coverage_record(len(data_cache.get('margin_trading', []))),
             'block_trades': coverage_record(len(data_cache.get('block_trades', []))),
             'shareholder_changes': coverage_record(len(data_cache.get('shareholder_changes', []))),
             'lockup_expiry': coverage_record(len(data_cache.get('lockup_expiry', []))),
@@ -4190,6 +4409,11 @@ def main():
         information_coverage_audit['hsgt_evidence'] = {
             'status': hsgt_diagnostics.get('status', 'MISSING'),
             'holdings_count': len(data_cache.get('hsgt_holdings', [])),
+            'source_type': hsgt_diagnostics.get('source_type', 'MISSING'),
+            'quality_status': hsgt_diagnostics.get('quality_status', hsgt_diagnostics.get('status', 'MISSING')),
+            'production_use': hsgt_diagnostics.get('production_use', 'OPTIONAL'),
+            'fallback_available': bool(hsgt_diagnostics.get('fallback_available')),
+            'fallback_used': bool(hsgt_diagnostics.get('fallback_used')),
             'proxy_available': bool(hsgt_diagnostics.get('proxy_available')),
             'proxy_sources': list(hsgt_diagnostics.get('proxy_sources') or []),
             'hard_block': False,
@@ -4209,11 +4433,11 @@ def main():
             scan_session_id = insert_scan_session(
                 trade_date=datetime.fromisoformat(source_time).date(),
                 scan_time=datetime.fromisoformat(source_time),
-                cdp_url='eastmoney_api_direct',
+                source_id='eastmoney_api_scan_v2',
                 quotes_count=len(stocks),
                 scored_count=scored_count,
                 passed_count=len(passed_candidates),
-                scan_dir=str(output_dir / 'eastmoney_web_tabs_summary.json'),
+                scan_dir=str(output_dir / 'xiaogu_scan_summary.json'),
                 market_snapshot=market_snapshot,
                 source_status=source_status,
                 source_counts={name: result_item_count(items) for name, items in results.items()},
@@ -4252,11 +4476,11 @@ def main():
                 insert_scan_session(
                     trade_date=datetime.fromisoformat(source_time).date(),
                     scan_time=datetime.fromisoformat(source_time),
-                    cdp_url='eastmoney_api_direct',
+                    source_id='eastmoney_api_scan_v2',
                     quotes_count=len(stocks),
                     scored_count=scored_count,
                     passed_count=len(passed_candidates),
-                    scan_dir=str(output_dir / 'eastmoney_web_tabs_summary.json'),
+                    scan_dir=str(output_dir / 'xiaogu_scan_summary.json'),
                     market_snapshot=market_snapshot,
                     source_status=source_status,
                     source_counts={name: result_item_count(items) for name, items in results.items()},
@@ -4290,15 +4514,15 @@ def main():
                     f.write(json.dumps(row, ensure_ascii=False) + '\n')
         return str(path)
 
-    runner_files['scored'] = write_runner_rows('eastmoney_web_tabs_scored.jsonl', candidates)
+    runner_files['scored'] = write_runner_rows('xiaogu_scored.jsonl', candidates)
     runner_files['full_candidate_pool'] = write_runner_rows(
-        'eastmoney_web_tabs_full_candidate_pool.jsonl',
+        'xiaogu_full_candidate_pool.jsonl',
         full_candidate_pool if stocks else [],
     )
-    runner_files['structured_scores'] = write_runner_rows('eastmoney_web_tabs_structured_scores.jsonl', structured_scores)
-    runner_files['research_signals'] = write_runner_rows('eastmoney_web_tabs_research_signals.jsonl', research_signal_rows)
-    runner_files['structured_score_components'] = write_runner_rows('eastmoney_web_tabs_structured_score_components.jsonl', structured_score_component_rows)
-    runner_files['structured_component_details'] = write_runner_rows('eastmoney_web_tabs_structured_component_details.jsonl', structured_component_rows)
+    runner_files['structured_scores'] = write_runner_rows('xiaogu_structured_scores.jsonl', structured_scores)
+    runner_files['research_signals'] = write_runner_rows('xiaogu_research_signals.jsonl', research_signal_rows)
+    runner_files['structured_score_components'] = write_runner_rows('xiaogu_structured_score_components.jsonl', structured_score_component_rows)
+    runner_files['structured_component_details'] = write_runner_rows('xiaogu_structured_component_details.jsonl', structured_component_rows)
     # Keep factor_store live with v2 scanner (was only wired on legacy scan path).
     try:
         from xiaogu_factor_store import write_factors
@@ -4315,8 +4539,7 @@ def main():
         'source': 'eastmoney_api_scan_v2',
         'pipeline_version': 'v2_scanner_api',
         'source_time': source_time,
-        'eastmoney_cdp_url': 'api_direct',
-        'cdp_url': 'api_direct',
+        'scanner_transport': 'direct_api',
         'universe_quote_count': len(stocks),
         'market_breadth_up_pct': market_breadth,
         'market_limitups': market_limitups,
@@ -4355,6 +4578,7 @@ def main():
         'information_coverage_audit': information_coverage_audit,
         'mainboard_policy': 'main_only',
         'hsgt_diagnostics': hsgt_diagnostics,
+        'pagination_diagnostics': pagination_diagnostics,
         'domain_timings': domain_timings,
         'db_snapshot_persistence': db_snapshot_persistence,
         'scanner_elapsed_seconds': scanner_elapsed_seconds,
@@ -4365,17 +4589,17 @@ def main():
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
-        'eastmoney_web_tabs': ['api_direct_runner_v2'],
+        'scanner_sources': ['eastmoney_api_scan_v2'],
         'sector_snapshot': sector_snapshot[:40],
         'files': runner_files,
     }
 
-    runner_summary_path = output_dir / 'eastmoney_web_tabs_summary_runner.json'
+    runner_summary_path = output_dir / 'xiaogu_scan_summary_runner.json'
     with open(runner_summary_path, 'w', encoding='utf-8') as f:
         json.dump(runner_summary, f, ensure_ascii=False, indent=2)
 
     # Also create the full summary for compatibility
-    full_summary_path = output_dir / 'eastmoney_web_tabs_summary.json'
+    full_summary_path = output_dir / 'xiaogu_scan_summary.json'
     with open(full_summary_path, 'w', encoding='utf-8') as f:
         json.dump(runner_summary, f, ensure_ascii=False, indent=2)
 
@@ -4402,7 +4626,6 @@ def _generate_candidates(stocks, results, market_breadth, market_limitups):
     if not stocks:
         return []
 
-    ONE_LOT_COST_CAP = 7000.0
     def signal_stage_bucket(pct):
         if pct < 0:
             return 'underwater'
@@ -4422,16 +4645,16 @@ def _generate_candidates(stocks, results, market_breadth, market_limitups):
         code = str(s.get('f12', '')).zfill(6)
         price = fnum(s.get('f2'))
         pct = fnum(s.get('f3'))
+        quote = eastmoney_quote_prices(s)
+        open_price = fnum(quote.get('open'))
+        high = fnum(quote.get('high'))
+        low = fnum(quote.get('low'))
         amount = fnum(s.get('f6'))
         turnover = fnum(s.get('f8'))
-        high = fnum(s.get('f4'))
-        low = fnum(s.get('f5'))
         prev_close = fnum(s.get('f18'))
         board = board_for_code(code)
 
-        if price <= 0 or price > 70:
-            continue
-        if price * 100 > ONE_LOT_COST_CAP:
+        if price <= 0:
             continue
         if board != 'main':
             continue
@@ -4443,6 +4666,7 @@ def _generate_candidates(stocks, results, market_breadth, market_limitups):
             'code': code,
             'name': str(s.get('f14', '')),
             'price': price,
+            'open': open_price,
             'signal_pct': round(pct, 2),
             'signal_amount': amount,
             'turnover_rate': round(turnover, 2),
@@ -4452,6 +4676,15 @@ def _generate_candidates(stocks, results, market_breadth, market_limitups):
             'low': low,
             'prev_close': prev_close,
             'rank': 0,
+            'industry': str(s.get('f100') or '').strip(),
+            'sector': str(s.get('f100') or '').strip(),
+            'sector_name': str(s.get('f100') or '').strip(),
+            'industry_board': str(s.get('f100') or '').strip(),
+            'eastmoney_industry': str(s.get('f100') or '').strip(),
+            'sw_industry': '',
+            'region_board': str(s.get('f102') or '').strip(),
+            'sector_opportunity_tags': stock_concepts_from_quote_row(s),
+            'stock_industry_source': 'eastmoney_stock_all_a.f100+f102+f103',
         })
 
     # Sort by amount (liquidity)
