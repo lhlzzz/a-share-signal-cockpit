@@ -25,6 +25,29 @@ def _clip_text(value: Any, limit: int = 120) -> str:
     return text[: limit - 1] + '…'
 
 
+def _decision_reason_zh(value: Any) -> str:
+    text = str(value or '').strip()
+    mapping = {
+        'ALL_FORWARD_PAPER_HARD_GATES_PASS': '全部正式出票门禁通过',
+        'NO_PICK_PROMOTED_TO_HIGHEST_SCORE_CANDIDATE': '无其他正式票时，提升为当前最高获利证据候选',
+        'NO_PICK': '未形成正式出票',
+    }
+    return mapping.get(text, text)
+
+
+def _market_stance_zh(value: Any) -> str:
+    mapping = {
+        'DEFENSIVE_ROTATION': '防御轮动',
+        'RISK_OFF_TECH_DEFENSIVE': '风险厌恶，偏防御',
+        'AVOID_CLIMAX_TECH': '回避高位加速',
+        'RISK_ON': '风险偏好回升',
+        'WATCH': '观察',
+        'NO_MAIN': '暂无明确主线',
+    }
+    text = str(value or '').strip()
+    return mapping.get(text, text.replace('_', ' ') if text else '')
+
+
 def _list_head(items: Any, n: int = 3) -> List[Any]:
     if not isinstance(items, list):
         return []
@@ -42,7 +65,7 @@ def _announcement_bullets(row: Dict[str, Any]) -> List[str]:
             bullets.append(_clip_text(item, 100))
     score = _f(row.get('announcement_catalyst_score'))
     if score is not None and not bullets:
-        bullets.append(f'announcement_catalyst_score={score:.2f}')
+        bullets.append(f'公告催化强度：{score:.2f}')
     return bullets
 
 
@@ -58,7 +81,7 @@ def _news_bullets(row: Dict[str, Any]) -> List[str]:
             elif item:
                 bullets.append(_clip_text(item, 100))
         if news.get('status') and not bullets:
-            bullets.append(f"news_status={news.get('status')}")
+            bullets.append(f"新闻证据状态：{news.get('status')}")
     elif isinstance(news, list):
         for item in _list_head(news, 3):
             if isinstance(item, dict):
@@ -67,29 +90,29 @@ def _news_bullets(row: Dict[str, Any]) -> List[str]:
                     bullets.append(_clip_text(title, 100))
     strength = _f(row.get('news_catalyst_strength'))
     if strength is not None:
-        bullets.append(f'news_catalyst_strength={strength:.2f}')
+        bullets.append(f'新闻催化强度：{strength:.2f}')
     return bullets[:4]
 
 
 def _fund_bullets(row: Dict[str, Any]) -> List[str]:
     bullets: List[str] = []
     for key, label in (
-        ('fund_flow_momentum', 'fund_flow_momentum'),
-        ('net_inflow_main', 'net_inflow_main'),
-        ('full_universe_fund_pctile', 'fund_pctile'),
-        ('volume_ratio', 'volume_ratio'),
-        ('close_position_score', 'close_position'),
-        ('hsgt_institutional_flow', 'hsgt'),
+        ('fund_flow_momentum', '主力资金动量'),
+        ('net_inflow_main', '主力净流入'),
+        ('full_universe_fund_pctile', '资金分位'),
+        ('volume_ratio', '成交量放大'),
+        ('close_position_score', '收盘位置'),
+        ('hsgt_institutional_flow', '沪深港通资金'),
     ):
         val = _f(row.get(key))
         if val is not None:
-            bullets.append(f'{label}={val:.4g}')
+            bullets.append(f'{label}：{val:.4g}')
     capital = row.get('data_directory_capital_flow') if isinstance(row.get('data_directory_capital_flow'), dict) else {}
     if capital:
         for key in ('main_net_inflow', 'main_force_net_inflow', 'super_net_inflow'):
             val = _f(capital.get(key))
             if val is not None:
-                bullets.append(f'{key}={val:.4g}')
+                bullets.append(f'资金明细：{val:.4g}')
                 break
     return bullets[:6]
 
@@ -102,25 +125,54 @@ def _theme_bullets(row: Dict[str, Any], soft: Optional[Dict[str, Any]] = None) -
     ):
         val = _f(row.get(key))
         if val is not None:
-            bullets.append(f'{key}={val:.3f}')
+            labels = {
+                'main_theme_core_score': '主线核心强度',
+                'main_theme_alignment_score': '主线匹配度',
+                'leader_chain_score': '龙头链强度',
+                'sector_opportunity_score': '板块机会强度',
+                'continuation_gene_score': '涨停基因强度',
+            }
+            bullets.append(f"{labels[key]}：{val:.3f}")
     if row.get('main_theme_source'):
-        bullets.append(f"main_theme_source={row.get('main_theme_source')}")
+        bullets.append(f"主线来源：{row.get('main_theme_source')}")
     tags = row.get('sector_opportunity_tags') or row.get('theme_tags') or []
     if isinstance(tags, list) and tags:
-        bullets.append('tags=' + ','.join(str(t) for t in tags[:5]))
+        bullets.append('主线标签：' + '、'.join(str(t) for t in tags[:5]))
     for key in ('industry', 'sector', 'predicted_sector', 'main_theme'):
         if row.get(key):
-            bullets.append(f'{key}={_clip_text(row.get(key), 40)}')
+            labels = {
+                'industry': '行业',
+                'sector': '板块',
+                'predicted_sector': '预测板块',
+                'main_theme': '主线',
+            }
+            bullets.append(f"{labels[key]}：{_clip_text(row.get(key), 40)}")
     if isinstance(soft, dict):
         if soft.get('favored_hits'):
-            bullets.append('sszcw_favored=' + ','.join(str(x) for x in soft.get('favored_hits')[:4]))
+            bullets.append('市场偏好：' + '、'.join(str(x) for x in soft.get('favored_hits')[:4]))
         if soft.get('risk_hits'):
-            bullets.append('sszcw_risk=' + ','.join(str(x) for x in soft.get('risk_hits')[:4]))
+            bullets.append('市场风险方向：' + '、'.join(str(x) for x in soft.get('risk_hits')[:4]))
         if soft.get('market_stance'):
-            bullets.append(f"sszcw_stance={soft.get('market_stance')}")
+            bullets.append(f"市场情绪：{_market_stance_zh(soft.get('market_stance'))}")
         if soft.get('soft_context_valid') is not None:
-            bullets.append(f"soft_context_valid={soft.get('soft_context_valid')}")
+            bullets.append(f"市场情绪证据有效：{'是' if soft.get('soft_context_valid') else '否'}")
     return bullets[:10]
+
+
+def _profit_evidence_bullets(row: Dict[str, Any]) -> List[str]:
+    bullets: List[str] = []
+    for key, label in (
+        ('continuation_gene_score', '涨停基因强度'),
+        ('close_position_score', '盘中承接/收盘位置'),
+        ('volume_ratio', '成交量放大'),
+        ('expected_t1_profit_score', 'T+1获利证据分'),
+    ):
+        val = _f(row.get(key))
+        if val is not None:
+            bullets.append(f'{label}：{val:.3f}')
+    if row.get('previous_limitup') or row.get('was_yesterday_limitup'):
+        bullets.append('昨日涨停延续：是')
+    return bullets[:6]
 
 
 def _risk_bullets(row: Dict[str, Any], eligibility: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -129,9 +181,9 @@ def _risk_bullets(row: Dict[str, Any], eligibility: Optional[Dict[str, Any]] = N
     if capital.get('risk_codes'):
         bullets.extend(str(c) for c in list(capital.get('risk_codes') or [])[:4])
     if capital.get('risk_penalty_score') is not None:
-        bullets.append(f"capital_risk_penalty={_f(capital.get('risk_penalty_score')):.3f}")
+        bullets.append(f"资金风险惩罚：{_f(capital.get('risk_penalty_score')):.3f}")
     if row.get('risk_notice_penalty') is not None:
-        bullets.append(f"risk_notice_penalty={_f(row.get('risk_notice_penalty')):.3f}")
+        bullets.append(f"风险公告惩罚：{_f(row.get('risk_notice_penalty')):.3f}")
     for item in _list_head(row.get('risk_notice_evidence') or [], 2):
         if isinstance(item, dict):
             bullets.append(_clip_text(item.get('title') or item.get('text') or item, 80))
@@ -141,7 +193,7 @@ def _risk_bullets(row: Dict[str, Any], eligibility: Optional[Dict[str, Any]] = N
         row.get('paper_pick_eligibility') if isinstance(row.get('paper_pick_eligibility'), dict) else {}
     )
     for b in list(elig.get('blockers') or [])[:3]:
-        bullets.append(f'blocker:{b}')
+        bullets.append(f'门禁提示：{b}')
     for flag in list(row.get('risk_flags') or [])[:3]:
         bullets.append(str(flag))
     return bullets[:8]
@@ -200,6 +252,7 @@ def build_compact_evidence_card(
         'news': _news_bullets(row),
         'fund_flow': _fund_bullets(row),
         'main_theme': _theme_bullets(row, soft if isinstance(soft, dict) else None),
+        'profit_evidence': _profit_evidence_bullets(row),
         'risks': _risk_bullets(row),
         'social': {
             'sentiment_score': social,
@@ -218,8 +271,12 @@ def build_compact_evidence_card(
             'hard_gate': False,
             'force_pick': False,
         },
-        'repo_summary': _clip_text(row.get('repo_contribution_summary') or '', 240),
-        'decision_reason': _clip_text(reason or row.get('decision_reason') or '', 200),
+        # 仓库贡献只用于机器诊断，不进入正式出票依据，避免多套模型噪音污染。
+        'repo_summary': '',
+        'decision_reason': _clip_text(
+            _decision_reason_zh(reason or row.get('decision_reason') or ''),
+            200,
+        ),
         'similar_cases': list(similar_cases or [])[:5],
         'one_liner': '',
     }
@@ -227,12 +284,14 @@ def build_compact_evidence_card(
     if card['main_theme']:
         theme_bits.append(card['main_theme'][0])
     fund_bits = card['fund_flow'][:1]
+    profit_bits = card['profit_evidence'][:2]
     risk_bits = card['risks'][:1]
     parts = [f"{symbol} {name}".strip()]
     if score is not None:
-        parts.append(f'score={score:.2f}')
+        parts.append(f'综合分数：{score:.2f}')
     parts.extend(theme_bits)
     parts.extend(fund_bits)
+    parts.extend(profit_bits)
     parts.extend(risk_bits)
     card['one_liner'] = _clip_text(' | '.join(str(p) for p in parts if p), 220)
     return card
@@ -253,6 +312,8 @@ def evidence_card_to_selection_reason(card: Dict[str, Any], legacy_reason: str =
         'risks': list(card.get('risks') or [])[:4],
         'soft_context': card.get('soft_context') or {},
         'similar_cases': list(card.get('similar_cases') or [])[:3],
-        'legacy_repo_summary': _clip_text(legacy_reason or card.get('repo_summary') or '', 200),
-        'decision_reason': card.get('decision_reason') or '',
+        # Compatibility field for persisted payload readers. It is deliberately
+        # kept out of the evidence card and dashboard display.
+        'legacy_repo_summary': _clip_text(legacy_reason or '', 200),
+        'decision_reason': _clip_text(card.get('decision_reason') or '', 200),
     }

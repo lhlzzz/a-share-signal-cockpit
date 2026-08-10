@@ -2,7 +2,6 @@
 """Ensure the configured xiaogu PostgreSQL database is reachable at startup."""
 import argparse
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -12,8 +11,8 @@ from urllib.parse import urlparse
 
 BASE = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE_URL = "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"
-LOCAL_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1"}
 REQUIRED_SCAN_SESSION_COLUMNS = {
+    "source_id",
     "market_snapshot",
     "source_status",
     "source_counts",
@@ -30,6 +29,31 @@ REQUIRED_RETURNS_COLUMNS = {
     "next_day_drawdown",
     "high_to_close_retrace",
 }
+REQUIRED_LINEAGE_COLUMNS = {
+    "scan_sessions": {"production_run_id"},
+    "picks": {
+        "production_run_id",
+        "formal_rank_snapshot_id",
+        "formal_rank_snapshot_version",
+        "scoring_config_hash",
+    },
+    "returns": {
+        "production_run_id",
+        "candidate_snapshot_id",
+        "return_status",
+        "settlement_evidence",
+    },
+    "daily_candidates": {"production_run_id", "candidate_snapshot_id"},
+    "signals": {"production_run_id"},
+    "production_runs": {"production_run_id", "trade_date", "scan_session_id", "status"},
+    "production_run_steps": {"production_run_id", "step_name", "status", "required"},
+    "production_run_active": {
+        "trade_date",
+        "production_run_id",
+        "candidate_snapshot_id",
+        "active_pick_id",
+    },
+}
 REQUIRED_EXTENSIONS = {"vector"}
 
 
@@ -39,11 +63,6 @@ def database_target(database_url: str) -> tuple[str, int]:
     if not host:
         raise ValueError("DATABASE_URL must include a database host")
     return host, parsed.port or 5432
-
-
-def is_local_database(database_url: str) -> bool:
-    host, _ = database_target(database_url)
-    return host in LOCAL_DATABASE_HOSTS
 
 
 def is_database_reachable(target: tuple[str, int]) -> bool:
@@ -63,82 +82,6 @@ def wait_for_database(target: tuple[str, int], timeout_seconds: int) -> bool:
     return is_database_reachable(target)
 
 
-def start_host_postgresql() -> bool:
-    service = shutil.which("service")
-    if not service:
-        return False
-    result = subprocess.run(
-        [service, "postgresql", "start"],
-        cwd=BASE,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
-
-
-def docker_is_ready() -> bool:
-    docker = shutil.which("docker")
-    if not docker:
-        return False
-    result = subprocess.run(
-        [docker, "info"],
-        cwd=BASE,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
-
-
-def start_docker_daemon(timeout_seconds: int) -> None:
-    if docker_is_ready():
-        return
-
-    dockerd = shutil.which("dockerd")
-    if not dockerd:
-        raise RuntimeError("Docker daemon is not running and dockerd is unavailable")
-
-    subprocess.Popen(
-        [dockerd, "--host=unix:///var/run/docker.sock"],
-        cwd=BASE,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if docker_is_ready():
-            return
-        time.sleep(1)
-    raise RuntimeError("Docker daemon did not become ready")
-
-
-def compose_command() -> list[str]:
-    docker_compose = shutil.which("docker-compose")
-    if docker_compose:
-        return [docker_compose]
-
-    docker = shutil.which("docker")
-    if docker:
-        return [docker, "compose"]
-    raise RuntimeError("Docker Compose is unavailable")
-
-
-def start_local_database() -> None:
-    result = subprocess.run(
-        [*compose_command(), "up", "-d", "db"],
-        cwd=BASE,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        raise RuntimeError(f"Unable to start xiaogu database: {detail}")
-
-
 def has_required_schema(database_url: str) -> bool:
     from sqlalchemy import create_engine, text
 
@@ -149,7 +92,16 @@ def has_required_schema(database_url: str) -> bool:
                 SELECT table_name, column_name
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
-                  AND table_name IN ('scan_sessions', 'returns')
+                  AND table_name IN (
+                      'scan_sessions',
+                      'picks',
+                      'returns',
+                      'daily_candidates',
+                      'signals',
+                      'production_runs',
+                      'production_run_steps',
+                      'production_run_active'
+                  )
             """)
         )
         columns_by_table: dict[str, set[str]] = {}
@@ -167,6 +119,10 @@ def has_required_schema(database_url: str) -> bool:
     return (
         REQUIRED_SCAN_SESSION_COLUMNS.issubset(columns_by_table.get('scan_sessions', set()))
         and REQUIRED_RETURNS_COLUMNS.issubset(columns_by_table.get('returns', set()))
+        and all(
+            required_columns.issubset(columns_by_table.get(table_name, set()))
+            for table_name, required_columns in REQUIRED_LINEAGE_COLUMNS.items()
+        )
         and REQUIRED_EXTENSIONS.issubset(extensions)
     )
 
@@ -194,18 +150,7 @@ def ensure_schema(database_url: str) -> None:
 
 def ensure_database_ready(database_url: str, timeout_seconds: int = 60) -> bool:
     target = database_target(database_url)
-    if is_database_reachable(target):
-        ensure_schema(database_url)
-        return True
-
-    if is_local_database(database_url):
-        if start_host_postgresql() and wait_for_database(target, min(timeout_seconds, 15)):
-            ensure_schema(database_url)
-            return True
-        start_docker_daemon(timeout_seconds)
-        start_local_database()
-
-    if not wait_for_database(target, timeout_seconds):
+    if not is_database_reachable(target) and not wait_for_database(target, timeout_seconds):
         return False
     ensure_schema(database_url)
     return True

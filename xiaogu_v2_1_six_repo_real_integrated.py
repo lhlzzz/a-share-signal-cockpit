@@ -598,9 +598,8 @@ def integrated_score(c):
         f['market_bigups'],
     )
 
-    if not small_account_buyable:
-        reason = tradingagent_a_signal['small_account_reject_reason']
-        return None, [f'small_account_blocked:{reason}'], market_regime
+    # Account sizing is execution context, not a production scoring gate.
+    # The formal runner may apply an explicit real-cash check later.
 
     if f['market_breadth'] < 15:
         pass  # weak market noted but not a hard block
@@ -1303,10 +1302,10 @@ def fetch_all_sector_fund_flow():
 
 def load_sector_fund_flow_snapshot(date_str):
     """Load historical sector fund flow snapshot for prediction.
-    Returns dict with 'concept_boards' (题材强度榜 from CDP) and 'fund_flow' (资金流 from API).
+    Returns direct API concept-board and fund-flow snapshots.
     Falls back to old format (list) for backward compatibility."""
     import json as _json
-    snapshot_path = BASE / 'data' / 'live_scan' / date_str / 'eastmoney_web_tabs_scan_v0_1' / 'sector_fund_flow_snapshot.json'
+    snapshot_path = BASE / 'data' / 'live_scan' / date_str / 'eastmoney_scan_afternoon' / 'sector_fund_flow_snapshot.json'
     if not snapshot_path.exists():
         return []
     try:
@@ -1422,11 +1421,11 @@ def stock_trend_score(code, multi_day_snapshots):
     return min(100, avg_pct * 10 + days * 5)
 
 
-def extract_concept_board_ranking(cdp_concept_industry_rows):
-    """Extract concept board ranking (题材强度榜) from CDP concept_industry tab data.
+def extract_concept_board_ranking(concept_industry_rows):
+    """Extract concept board ranking from direct API concept-industry rows.
     Returns sorted list of {name, pct, up_count, down_count, leader, leader_pct, market_cap}."""
     boards = []
-    for row in cdp_concept_industry_rows:
+    for row in concept_industry_rows:
         cells = row.get('cells', [])
         if len(cells) < 10:
             continue

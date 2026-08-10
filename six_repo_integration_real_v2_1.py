@@ -12,13 +12,12 @@ from xiaogu_native_repo_runtime_v0_1 import (
     run_all_native_adapters,
 )
 
-FOUR_REPO_ORDER = ['tradingagent_a', 'VEI', 'Qlib', 'QuantDinger', 'Kaixin_Factors', 'UZI_Skill']
+FOUR_REPO_ORDER = ['tradingagent_a', 'VEI', 'Qlib', 'UZI_Skill', 'Kaixin_Factors']
 REPO_ORDER = FOUR_REPO_ORDER
 SCORE_CAP_BY_REPO = {
     'tradingagent_a': {'min': 0.0, 'max': 0.0},
     'VEI': {'min': -2.0, 'max': 2.0},
     'Qlib': {'min': -1.5, 'max': 1.5},
-    'QuantDinger': {'min': -2.0, 'max': 1.0},
     'UZI_Skill': {'min': -1.0, 'max': 1.0},
     'Kaixin_Factors': {'min': -1.5, 'max': 1.5},
 }

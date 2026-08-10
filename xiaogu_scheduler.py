@@ -95,7 +95,7 @@ def previous_trading_day(check_date=None):
 
 def scanner_summary_asof_time(output_dir: str) -> str:
     """Read scanner source_time HH:MM:SS for runner parity with daily_pipeline."""
-    summary_path = BASE / output_dir / "eastmoney_web_tabs_summary_runner.json"
+    summary_path = BASE / output_dir / "xiaogu_scan_summary_runner.json"
     try:
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         source_time = str(summary.get("source_time") or "")
@@ -121,7 +121,7 @@ def job_morning_scan():
 def job_afternoon_scan_and_pick():
     """14:30 — single authoritative live chain via daily_pipeline.sh.
 
-    Uses the same scan → social → runner --force → backfill → daily_closure path
+    Uses the same direct API scan → runner → backfill → daily_closure path
     as manual ops, so scheduler and crontab do not diverge into partial chains.
     """
     if not is_trading_day():
@@ -136,48 +136,56 @@ def job_result_fill():
     """15:30 — fill paper picks then T+1 validation ownership via daily_pipeline.
 
     One owner for post-close hygiene: return backfill + pick_id link + daily_closure
-    + bounded self-evolve (--apply-if-ready). Do not leave these as manual ops.
+    + observation-only self-evolve. Research never mutates production scoring.
     """
     if not is_trading_day():
         logger.info("[result_fill] skipped — not a trading day")
         return
-    run_cmd([
+    production_run_id = (
+        os.environ.get("XIAOGU_T1_PRODUCTION_RUN_ID", "").strip()
+        or os.environ.get("XIAOGU_PRODUCTION_RUN_ID", "").strip()
+    )
+    filler_args = [
         PYTHON, "xiaogu_forward_result_filler_v0_1.py",
-        "--fill-all-pending", "--auto-web",
-    ], "result_fill")
+        "--fill-all-pending", "--auto-eastmoney",
+    ]
+    if production_run_id:
+        filler_args.extend(["--production-run-id", production_run_id])
+    filler_rc = run_cmd(filler_args, "result_fill")
+    if filler_rc != 0:
+        raise RuntimeError(f"RESULT_FILL_FAILED:rc={filler_rc}")
+
     validation_date = datetime.now(TZ).date()
     input_date = previous_trading_day(validation_date)
     # Full T1 path owns: return_backfill (incl pick_id) → closure → safe_self_evolve
-    run_cmd([
+    t1_args = [
         "bash", "daily_pipeline.sh",
         "--manual-return-backfill", input_date.isoformat(),
         "--validate-on", validation_date.isoformat(),
-    ], "t1_validation_and_self_evolve")
+    ]
+    if production_run_id:
+        t1_args.extend(["--production-run-id", production_run_id])
+    t1_rc = run_cmd(t1_args, "t1_validation_and_self_evolve")
+    if t1_rc != 0:
+        raise RuntimeError(f"T1_VALIDATION_FAILED:rc={t1_rc}")
 
 
 def job_signal_effectiveness():
-    """20:00 — research persist + chain-owned bounded self-evolve (not blind --apply-weights)."""
+    """20:00 — persist T+1 diagnostics; research never changes production scoring."""
     run_cmd([
         PYTHON, "xiaogu_signal_effectiveness_v0_1.py",
         "--ledger", "forward_paper_ledger_v0_1.jsonl",
         "--min-samples", "20",
         "--persist",
     ], "signal_effectiveness")
-    # Production knobs: safe_self_evolve only when ranking gate READY_* (quality-first).
-    # Legacy XIAOGU_WEIGHT_AUTO_TUNE --apply-weights is intentionally not the production path.
+    # Research and self-evolution are observation-only. The production scorer
+    # has one owner and is never rewritten by a post-result analysis job.
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     run_cmd([
         PYTHON, "scripts/xiaogu_safe_self_evolve.py",
         "--date", today,
-        "--apply-if-ready",
+        "--dry-run",
     ], "safe_self_evolve")
-    if os.environ.get("XIAOGU_WEIGHT_AUTO_TUNE_LEGACY") == "1":
-        run_cmd([
-            PYTHON, "xiaogu_signal_effectiveness_v0_1.py",
-            "--ledger", "forward_paper_ledger_v0_1.jsonl",
-            "--min-samples", "3",
-            "--apply-weights",
-        ], "weight_auto_tune_legacy")
 
 
 def main():

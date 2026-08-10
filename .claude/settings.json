@@ -5,20 +5,10 @@
       "command": "/root/.local/bin/codebase-memory-mcp",
       "args": []
     },
-    "understand-anything": {
-      "type": "stdio",
-      "command": "/root/.local/bin/understand-anything-mcp",
-      "args": []
-    },
     "agentmemory": {
       "type": "stdio",
       "command": "/root/.local/bin/agentmemory",
       "args": ["mcp"]
-    },
-    "cloakbrowser": {
-      "type": "stdio",
-      "command": "/root/.local/bin/cloakbrowser-mcp",
-      "args": []
     }
   },
   "permissions": {
@@ -34,9 +24,6 @@
       "Bash(command -v *)",
       "Bash(git -C *)",
       "Bash(npm view *)",
-      "Bash(pm2 describe *)",
-      "Bash(pm2 list)",
-      "Bash(pm2 status)",
       "Bash(sqlite3 * .tables)",
       "Bash(sqlite3 * .schema *)",
       "Bash(sqlite3 * SELECT *)",

@@ -2,16 +2,16 @@
   "rule_version": "historical_backtest_rule_v0_3",
   "previous_rule_version": "historical_backtest_rule_v0_2",
   "frozen_at": "2026-05-23T19:39:01",
-  "change_reason": "Retune forward paper chain toward daily tickets: all A-share boards are eligible, one-lot cost must fit the 7000 capital ceiling, keep six-repo integration, and judge by next-day-high return under the new profit口径.",
+  "change_reason": "Production contract: T-day close buy, next trading day close sell, with T+1 close return as the only official profit metric.",
   "source_ledger": "/root/hermes/company-ai-system/workspaces/xiaogu/historical_backtest_ledger_v0_1.jsonl",
   "source_metrics": "/root/hermes/company-ai-system/workspaces/xiaogu/historical_backtest_ledger_v0_1_metrics.json",
   "source_metrics_summary": {
     "paper_pick_count": 30,
-    "win_if_any_positive_t1_t3": 0.9,
-    "holdout_win_if_any_positive_t1_t3": 1.0,
+    "t1_close_win_rate": 0.9,
+    "holdout_t1_close_win_rate": 1.0,
     "max_gain_ge_10_rate": 0.2,
-    "any_limit_up_t1_t3": 0.13333333333333333,
-    "metric_basis": "t1_t3_only; source v0.2 lacks t2_return; t2 must remain null until real forward fill"
+    "t1_close_limit_up_rate": 0.13333333333333333,
+    "metric_basis": "t1_close_only; historical alternative fields are audit-only"
   },
   "allowed_features_on_T_day": [
     "candidate_source",
@@ -69,13 +69,13 @@
   "thresholds": {
     "forward_acceptance_min_paper_pick_count": 20,
     "forward_acceptance_min_trading_days": 30,
-    "win_if_any_positive_t1_t3_min": 0.75,
+    "t1_close_win_rate_min": 0.75,
     "t1_negative_rate_max": 0.25,
     "worst_case_return_min": -0.05,
     "consecutive_loss_max": 2,
-    "small_account_one_lot_cost_max": 7000,
+    "small_account_one_lot_cost_max": null,
     "allowed_a_share_boards": "ALL",
-    "any_limit_up_t1_t3_min": 0.08,
+    "t1_close_limit_up_rate_min": 0.08,
     "no_data_leakage_required": true,
     "no_rewritten_decision_reason_required": true,
     "xiaochan_not_block_required": true,
@@ -119,9 +119,8 @@
     "2026-05-19",
     "2026-05-20"
   ],
-    "effect": "Do not force a formal PAPER_PICK from blocked candidates; emit RESEARCH_CANDIDATE or NO_PICK unless a same-day scan candidate passes all hard gates.",
+    "effect": "Do not force a formal PAPER_PICK from blocked candidates; emit NO_PICK unless a same-day scan candidate passes all hard gates.",
     "cooldown_decision_classes": [
-      "RESEARCH_CANDIDATE",
       "NO_PICK"
     ]
   },
@@ -136,21 +135,19 @@
     "opportunity hard block such as sideways low-elasticity heavy-overhang candidate -> NO_PICK and continue basket rollover",
     "Eastmoney full evidence pack missing announcements/risk_alerts/lhb/concept_industry/financials -> NO_PICK",
     "qualified_candidate false -> no formal PAPER_PICK",
-    "hard risk or buyability uncertainty -> NO_PICK or RESEARCH_CANDIDATE only",
+    "hard risk or buyability uncertainty -> NO_PICK only",
     "do not lower NO_PICK risk control to chase limit-up"
   ],
   "paper_pick_rules": [
     "only append PAPER_PICK when all T-day visible gates pass",
     "rule_version must equal historical_backtest_rule_v0_3",
     "historical metrics are research reference only, not live win-rate claim",
-    "t1/t2/t3 must be null at generation",
+    "t1_return must be null at generation and is filled only from the final T+1 close",
     "raw_data_snapshot_path required",
     "multiple symbols may be included only as paper_candidate_basket; official ledger remains one append-only DECISION per run"
   ],
   "research_candidate_rules": [
-    "blocked same-day scan candidates may be published only as paper-only research observation",
-    "research candidates must keep blocked_reasons and qualified_candidate=false",
-    "research candidates do not authorize trade and do not count as production-ready picks"
+    "research and watch observations are diagnostics only and cannot be recorded as official decisions or filled results"
   ],
   "xiaochan_review_session": "20260512_032444_394249",
   "paper_only": true,

@@ -33,8 +33,13 @@ def get_missing_returns_dates() -> List[date]:
         result = conn.execute(text('''
             SELECT DISTINCT p.trade_date
             FROM picks p
-            LEFT JOIN returns r ON p.trade_date = r.trade_date AND p.symbol = r.symbol
-            WHERE p.decision = 'PAPER_PICK' AND r.trade_date IS NULL
+            LEFT JOIN returns r
+              ON p.trade_date = r.trade_date
+             AND p.symbol = r.symbol
+             AND r.production_run_id IS NULL
+            WHERE p.decision = 'PAPER_PICK'
+              AND p.production_run_id IS NULL
+              AND r.trade_date IS NULL
             ORDER BY p.trade_date DESC
         '''))
         return [row[0] for row in result.fetchall()]
@@ -82,35 +87,18 @@ def fetch_kline_from_db(symbol: str, start_date: date, end_date: date) -> List[D
 
 
 def compute_returns(entry_price: float, klines: List[Dict[str, Any]], limit_threshold: float = 0.095) -> Dict[str, Any]:
-    """Compute T+1, T+2, T+3, T+5 returns from kline data."""
+    """Compute the only production result: T+1 close return."""
     if not klines or entry_price <= 0:
         return {}
 
-    result = {}
-
-    # T+1 return (close to close)
-    if len(klines) >= 1:
-        t1_close = klines[0]['close']
-        result['t1_return'] = (t1_close - entry_price) / entry_price
-        result['t1_return_high'] = (klines[0]['high'] - entry_price) / entry_price
-        result['is_limit_up'] = result['t1_return'] >= limit_threshold
-
-    # T+2 return
-    if len(klines) >= 2:
-        t2_close = klines[1]['close']
-        result['t2_return'] = (t2_close - entry_price) / entry_price
-
-    # T+3 return
-    if len(klines) >= 3:
-        t3_close = klines[2]['close']
-        result['t3_return'] = (t3_close - entry_price) / entry_price
-
-    # T+5 return
-    if len(klines) >= 5:
-        t5_close = klines[4]['close']
-        result['t5_return'] = (t5_close - entry_price) / entry_price
-
-    return result
+    if not klines:
+        return {}
+    t1_close = klines[0]['close']
+    t1_return = (t1_close - entry_price) / entry_price
+    return {
+        't1_return': t1_return,
+        'is_limit_up': t1_return >= limit_threshold,
+    }
 
 
 def backfill_returns(trade_date: date, dry_run: bool = True) -> Dict[str, Any]:
@@ -122,8 +110,14 @@ def backfill_returns(trade_date: date, dry_run: bool = True) -> Dict[str, Any]:
         result = conn.execute(text('''
             SELECT p.id, p.trade_date, p.symbol, p.features
             FROM picks p
-            LEFT JOIN returns r ON p.trade_date = r.trade_date AND p.symbol = r.symbol
-            WHERE p.trade_date = :trade_date AND p.decision = 'PAPER_PICK' AND r.trade_date IS NULL
+            LEFT JOIN returns r
+              ON p.trade_date = r.trade_date
+             AND p.symbol = r.symbol
+             AND r.production_run_id IS NULL
+            WHERE p.trade_date = :trade_date
+              AND p.decision = 'PAPER_PICK'
+              AND p.production_run_id IS NULL
+              AND r.trade_date IS NULL
         '''), {'trade_date': trade_date})
         picks = [dict(row) for row in result.mappings().all()]
 
@@ -151,7 +145,7 @@ def backfill_returns(trade_date: date, dry_run: bool = True) -> Dict[str, Any]:
             skipped += 1
             continue
 
-        # Fetch kline data including pick day and T+1 to T+5
+        # Fetch the pick day and the next trading day only.
         start_date = trade_date
         end_date = trade_date + timedelta(days=10)  # buffer for weekends
         all_klines = fetch_kline_from_db(symbol, start_date, end_date)
@@ -182,30 +176,17 @@ def backfill_returns(trade_date: date, dry_run: bool = True) -> Dict[str, Any]:
 
         # Insert into returns table
         if dry_run:
-            print(f'  [DRY RUN] Would fill {symbol}: t1={returns.get("t1_return", 0):.4f}, t2={returns.get("t2_return", 0):.4f}, t3={returns.get("t3_return", 0):.4f}, t5={returns.get("t5_return", 0):.4f}')
+            print(f'  [DRY RUN] Would fill {symbol}: t1={returns.get("t1_return", 0):.4f}')
         else:
-            with engine.connect() as conn:
-                conn.execute(text('''
-                    INSERT INTO returns (pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return, t1_return_high)
-                    VALUES (:pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return, :t1_return_high)
-                    ON CONFLICT (trade_date, symbol) DO UPDATE SET
-                        t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
-                        t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
-                        t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
-                        t5_return = COALESCE(EXCLUDED.t5_return, returns.t5_return),
-                        t1_return_high = COALESCE(EXCLUDED.t1_return_high, returns.t1_return_high),
-                        filled_at = NOW()
-                '''), {
-                    'pick_id': pick['id'],
-                    'trade_date': trade_date,
-                    'symbol': symbol,
-                    't1_return': returns.get('t1_return'),
-                    't2_return': returns.get('t2_return'),
-                    't3_return': returns.get('t3_return'),
-                    't5_return': returns.get('t5_return'),
-                    't1_return_high': returns.get('t1_return_high'),
-                })
-                conn.commit()
+            from xiaogu_db import upsert_return
+
+            upsert_return(
+                trade_date=trade_date,
+                symbol=symbol,
+                pick_id=pick['id'],
+                t1_return=returns.get('t1_return'),
+                legacy_backfill=True,
+            )
             print(f'  Filled {symbol}: t1={returns.get("t1_return", 0):.4f}')
         filled += 1
 

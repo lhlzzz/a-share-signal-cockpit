@@ -334,6 +334,7 @@ def backfill_from_ledger() -> int:
                     t1_return=rec['t1_return'],
                     t2_return=rec['t2_return'],
                     t3_return=rec['t3_return'],
+                    legacy_backfill=True,
                 )
                 count += 1
             except Exception as e:
@@ -351,7 +352,7 @@ def _parse_bundles(bundles_dir: Path) -> list:
     for date_dir in sorted(bundles_dir.iterdir()):
         if not date_dir.is_dir():
             continue
-        json_files = list(date_dir.glob('*_research_basket_candidate.json'))
+        json_files = list(date_dir.glob('*_candidate.json'))
         if not json_files:
             continue
 
@@ -447,7 +448,7 @@ def _parse_live_scan(scan_dir: Path) -> list:
             continue
 
         latest_summary = None
-        for summary_path in date_dir.glob('*/eastmoney_web_tabs_summary_runner.json'):
+        for summary_path in date_dir.glob('*/xiaogu_scan_summary_runner.json'):
             try:
                 summary = json.loads(summary_path.read_text(encoding='utf-8'))
             except (OSError, json.JSONDecodeError):
@@ -468,22 +469,22 @@ def _parse_live_scan(scan_dir: Path) -> list:
             })
             continue
 
-        base_scan = date_dir / 'eastmoney_web_tabs_scan_v0_1'
+        base_scan = date_dir / 'eastmoney_scan_afternoon'
         if not base_scan.exists():
             continue
-        scored_file = base_scan / 'eastmoney_web_tabs_scored.jsonl'
+        scored_file = base_scan / 'xiaogu_scan_summary_runner.json'
         if not scored_file.exists():
             continue
 
         candidates = []
-        with open(scored_file) as f:
-            for line in f:
-                try:
-                    rec = json.loads(line)
-                    if isinstance(rec, dict):
-                        candidates.append(rec)
-                except json.JSONDecodeError:
-                    continue
+        try:
+            payload = json.loads(scored_file.read_text(encoding='utf-8'))
+            candidates = [
+                row for row in (payload.get('paper_scoring_candidates') or [])
+                if isinstance(row, dict)
+            ]
+        except (OSError, json.JSONDecodeError):
+            candidates = []
 
         results.append({
             'date': date_dir.name,
@@ -683,9 +684,9 @@ def _retry_payload_paths(target_date: str = ''):
 def _summary_replay_paths(target_date: str = ''):
     live_root = ROOT / 'data' / 'live_scan'
     if target_date:
-        yield from sorted((live_root / target_date).glob('**/eastmoney_web_tabs_summary_runner.json'))
+        yield from sorted((live_root / target_date).glob('**/xiaogu_scan_summary_runner.json'))
         return
-    yield from sorted(live_root.glob('**/eastmoney_web_tabs_summary_runner.json'))
+    yield from sorted(live_root.glob('**/xiaogu_scan_summary_runner.json'))
 
 
 def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = '', end_date: str = '', dry_run: bool = False) -> dict:

@@ -21,16 +21,19 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from sqlalchemy import text
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from xiaogu_db import get_db
+
 SUMMARY = ROOT / "summary"
 LIVE_SCAN = ROOT / "data" / "live_scan"
 
 # Tradable universe aligned with project candidate rules (paper path).
 MAINBOARD_PREFIXES = ("600", "601", "603", "605", "000", "001", "002", "003")
-PRICE_CAP = 70.0
-# Limitup watch may exceed paper price cap (e.g. 通富微电 ~76) — shadow observation only.
+# Limitup watch may use a separate observation ceiling — shadow only.
 LIMITUP_PRICE_CAP = 150.0
 PCT_MIN = 0.5
 PCT_MAX = 9.5  # exclude sealed +10% chase by default for non-limitup seats
@@ -116,28 +119,17 @@ def next_weekday(day: date) -> date:
 
 
 def resolve_scan_dir(trade_date: str) -> Optional[Path]:
-    """Prefer afternoon / auxfull / full pool over bare eastmoney_scan."""
+    """Resolve only the canonical direct API scan for this date."""
     base = LIVE_SCAN / trade_date
     if not base.is_dir():
         return None
     preferred = (
         "eastmoney_scan_afternoon",
-        "eastmoney_scan_auxfull",
-        "eastmoney_scan_full400",
-        "eastmoney_scan_pool400",
-        "eastmoney_scan",
-        "eastmoney_web_tabs_scan_v0_1",
+        "eastmoney_scan_morning",
     )
     for name in preferred:
         path = base / name
-        scored = path / "eastmoney_web_tabs_scored.jsonl"
-        if scored.exists() and scored.stat().st_size > 0:
-            return path
-    # Fallback: any child with scored jsonl
-    for path in sorted(base.iterdir()):
-        if not path.is_dir():
-            continue
-        scored = path / "eastmoney_web_tabs_scored.jsonl"
+        scored = path / "xiaogu_scan_summary_runner.json"
         if scored.exists() and scored.stat().st_size > 0:
             return path
     return None
@@ -159,27 +151,23 @@ def scan_content_fingerprint(scan_dir: Path) -> str:
             flow_bytes += len(raw)
             h.update(name.encode("utf-8"))
             h.update(raw)
-    scored = scan_dir / "eastmoney_web_tabs_scored.jsonl"
+    scored = scan_dir / "xiaogu_scan_summary_runner.json"
     if scored.exists() and scored.stat().st_size > 0:
-        # Rank-stable sample: top codes by main-force net inflow among first 400 rows
+        # Rank-stable sample: top codes by main-force net inflow from the
+        # canonical runner summary.
         sample: List[Tuple[float, str]] = []
-        with scored.open(encoding="utf-8") as fh:
-            for i, line in enumerate(fh):
-                if i >= 400:
-                    break
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                code = _code(row)
-                net = _num(row.get("net_inflow_main")) or 0.0
-                if code:
-                    sample.append((net, code))
+        try:
+            summary = json.loads(scored.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            summary = {}
+        rows = summary.get("paper_scoring_candidates") if isinstance(summary, dict) else []
+        for row in (rows or [])[:400]:
+            if not isinstance(row, dict):
+                continue
+            code = _code(row)
+            net = _num(row.get("net_inflow_main")) or 0.0
+            if code:
+                sample.append((net, code))
         sample.sort(reverse=True)
         top_codes = [c for _, c in sample[:20]]
         h.update(b"top_codes")
@@ -384,8 +372,6 @@ def tradable_filter(row: Dict[str, Any]) -> Tuple[bool, str]:
     price = _num(row.get("price"))
     if price is None or price <= 0:
         return False, "missing_price"
-    if price > PRICE_CAP:
-        return False, "price_over_cap"
     pct = _num(row.get("signal_pct"))
     if pct is None:
         pct = _num(row.get("pct_chg"))
@@ -991,10 +977,9 @@ def save_rank_weights(fit: Dict[str, Any], path: Optional[Path] = None) -> Path:
 
 
 def _load_klines(symbol: str, begin: str, end: str) -> Tuple[List[Dict[str, Any]], str]:
-    """Eastmoney first, Tencent fallback (network best-effort)."""
+    """Load shadow T+1 evidence from the single Eastmoney source."""
     from xiaogu_forward_result_filler_v0_1 import (
         fetch_eastmoney_klines,
-        fetch_tencent_klines,
         parse_klines,
     )
 
@@ -1002,15 +987,11 @@ def _load_klines(symbol: str, begin: str, end: str) -> Tuple[List[Dict[str, Any]
     rows = parse_klines(payload)
     if rows:
         return rows, "eastmoney"
-    payload = fetch_tencent_klines(symbol, begin, end)
-    rows = parse_klines(payload)
-    if rows:
-        return rows, "tencent"
     return [], "none"
 
 
 def fetch_t1_return(symbol: str, trade_date: str) -> Dict[str, Any]:
-    """T+1 close return vs signal-day close (Eastmoney → Tencent)."""
+    """T+1 close return vs signal-day close from Eastmoney evidence."""
     day = date.fromisoformat(trade_date)
     t1 = next_weekday(day)
     today = date.today()
@@ -1108,8 +1089,15 @@ def run_for_date(
     if known_fingerprints is not None and fingerprint not in known_fingerprints:
         known_fingerprints[fingerprint] = trade_date
 
-    scored_path = resolved / "eastmoney_web_tabs_scored.jsonl"
-    scored = load_jsonl(scored_path)
+    scored_path = resolved / "xiaogu_scan_summary_runner.json"
+    try:
+        summary = json.loads(scored_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        summary = {}
+    scored = [
+        row for row in (summary.get("paper_scoring_candidates") or [])
+        if isinstance(row, dict)
+    ]
     sector_flow = load_sector_flows(resolved)
     limitup_merge_meta: Dict[str, Any] = {
         "limitup_total": 0,
@@ -1210,85 +1198,56 @@ def run_for_date(
 
 
 def load_official_paper_pick(trade_date: str) -> Dict[str, Any]:
-    """Best-effort official PAPER_PICK for the day (summary → ledger → empty)."""
-    formal = SUMMARY / f"{trade_date}_formal_paper_pick.json"
-    if formal.exists():
-        try:
-            payload = json.loads(formal.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                decision = str(payload.get("decision") or "").upper()
-                symbol = str(payload.get("symbol") or payload.get("code") or "").zfill(6)
-                if decision == "PAPER_PICK" and symbol and symbol != "000000":
-                    return {
-                        "source": str(formal.relative_to(ROOT)),
-                        "decision": "PAPER_PICK",
-                        "symbol": symbol,
-                        "name": payload.get("name") or payload.get("stock_name"),
-                        "score": _num(payload.get("score") if payload.get("score") is not None else payload.get("final_score")),
-                    }
-                if decision == "NO_PICK" or not symbol or symbol in ("", "NO_PICK"):
-                    return {
-                        "source": str(formal.relative_to(ROOT)),
-                        "decision": "NO_PICK",
-                        "symbol": None,
-                        "name": None,
-                        "score": None,
-                    }
-        except Exception:
-            pass
-
-    live = SUMMARY / f"{trade_date}_live_pick_result.json"
-    if live.exists():
-        try:
-            payload = json.loads(live.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                decision = str(payload.get("decision") or "").upper()
-                symbol = str(payload.get("symbol") or "").zfill(6) if payload.get("symbol") else None
-                if decision == "PAPER_PICK" and symbol:
-                    return {
-                        "source": str(live.relative_to(ROOT)),
-                        "decision": "PAPER_PICK",
-                        "symbol": symbol,
-                        "name": payload.get("name"),
-                        "score": _num(payload.get("score") or payload.get("final_score")),
-                    }
-        except Exception:
-            pass
-
-    ledger = ROOT / "forward_paper_ledger_v0_1.jsonl"
-    if ledger.exists():
-        last: Optional[Dict[str, Any]] = None
-        with ledger.open(encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if str(row.get("date") or row.get("trade_date") or "") == trade_date:
-                    last = row
-        if isinstance(last, dict):
-            decision = str(last.get("decision") or "").upper()
-            symbol = str(last.get("symbol") or "").zfill(6) if last.get("symbol") else None
-            if decision == "PAPER_PICK" and symbol and symbol not in ("NO_PICK", "000000"):
+    """Read the authoritative decision from the active production run."""
+    try:
+        with get_db() as db:
+            run = db.execute(text("""
+                SELECT production_run_id
+                FROM production_run_active
+                WHERE trade_date = CAST(:trade_date AS date)
+                LIMIT 1
+            """), {"trade_date": trade_date}).mappings().first()
+            if not run:
                 return {
-                    "source": "forward_paper_ledger_v0_1.jsonl",
-                    "decision": "PAPER_PICK",
-                    "symbol": symbol,
-                    "name": ((last.get("features_used") or {}).get("single_target_card") or {}).get("name"),
-                    "score": _num(((last.get("features_used") or {}).get("single_target_card") or {}).get("final_score")),
+                    "source": "production_run_active",
+                    "decision": "UNKNOWN",
+                    "symbol": None,
+                    "name": None,
+                    "score": None,
                 }
-            return {
-                "source": "forward_paper_ledger_v0_1.jsonl",
-                "decision": decision or "NO_PICK",
-                "symbol": None if decision != "PAPER_PICK" else symbol,
-                "name": None,
-                "score": None,
-            }
+            pick = db.execute(text("""
+                SELECT symbol, stock_name, final_score
+                FROM picks
+                WHERE production_run_id = :production_run_id
+                  AND decision = 'PAPER_PICK'
+                  AND COALESCE(features ->> 'superseded', 'false') <> 'true'
+                ORDER BY created_at, id
+                LIMIT 1
+            """), {"production_run_id": run["production_run_id"]}).mappings().first()
+    except Exception:
+        return {
+            "source": "production_run_active",
+            "decision": "UNKNOWN",
+            "symbol": None,
+            "name": None,
+            "score": None,
+        }
 
-    return {"source": None, "decision": "UNKNOWN", "symbol": None, "name": None, "score": None}
+    if not pick:
+        return {
+            "source": "production_run_active",
+            "decision": "NO_PICK",
+            "symbol": None,
+            "name": None,
+            "score": None,
+        }
+    return {
+        "source": "picks",
+        "decision": "PAPER_PICK",
+        "symbol": str(pick["symbol"] or "").zfill(6),
+        "name": pick.get("stock_name"),
+        "score": _num(pick.get("final_score")),
+    }
 
 
 def compare_shadow_vs_official(

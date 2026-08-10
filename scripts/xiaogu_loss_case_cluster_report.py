@@ -102,8 +102,6 @@ def load_from_knowledge(min_date: str, max_date: str) -> List[Dict[str, Any]]:
                 continue
             t1 = it.get('t1_return')
             if t1 is None:
-                t1 = it.get('t1_return_close')
-            if t1 is None:
                 continue
             try:
                 t1f = float(t1)
@@ -125,9 +123,7 @@ def load_from_knowledge(min_date: str, max_date: str) -> List[Dict[str, Any]]:
         for it in d.get('paper_pick_returns') or []:
             if not isinstance(it, dict):
                 continue
-            t1 = it.get('t1_return_close')
-            if t1 is None:
-                t1 = it.get('t1_return')
+            t1 = it.get('t1_return')
             if t1 is None:
                 continue
             try:

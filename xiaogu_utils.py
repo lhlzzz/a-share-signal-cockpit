@@ -6,6 +6,45 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+# Production contract: every official ticket is evaluated on the T-day close
+# and sold on the next trading day at the final close. Historical database
+# columns may remain for audit, but they are not production metrics.
+PRODUCTION_TRADE_MODE = 'T_DAY_BUY_T1_CLOSE_SELL'
+PRODUCTION_RETURN_FIELD = 't1_return'
+PRODUCTION_RETURN_FORMULA = '(t1_close - t_day_entry_close) / t_day_entry_close'
+PRODUCTION_DECISIONS = frozenset({'PAPER_PICK', 'NO_PICK'})
+
+
+def eastmoney_quote_prices(row: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    """Normalize Eastmoney quote aliases across clist and stock endpoints.
+
+    The paginated clist endpoint used by the scanner returns f2/f15/f16/f17,
+    while some stock endpoints expose the same values as f43/f44/f45/f46.
+    Prefer the canonical clist fields whenever they are present because the
+    f43-f46 aliases can represent unrelated metrics in clist responses.
+    """
+    row = row if isinstance(row, dict) else {}
+
+    def number(*keys: str) -> Optional[float]:
+        for key in keys:
+            value = row.get(key)
+            if value in (None, '', '-'):
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    return {
+        'close': number('close', 'price', 'p', 'f2', 'f43'),
+        'high': number('high', 'h', 'f15', 'f44'),
+        'low': number('low', 'l', 'f16', 'f45'),
+        'open': number('open', 'o', 'f17', 'f46'),
+        'prev_close': number('prev_close', 'pre_close', 'f18'),
+    }
+
+
 def now_iso() -> str:
     return dt.datetime.now().isoformat(timespec='seconds')
 

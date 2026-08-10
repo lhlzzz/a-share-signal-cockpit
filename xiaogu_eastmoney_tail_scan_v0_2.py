@@ -14,7 +14,7 @@ BASE = Path('/root/hermes/company-ai-system/workspaces/xiaogu')
 sys.path.insert(0, str(BASE))
 
 from six_repo_integration_real_v2_1 import aggregate_four_repo_native_signals
-from xiaogu_v2_1_six_repo_real_integrated import integrated_score
+from xiaogu_forward_d1_1450_runner_v0_1 import formal_candidate_sort_key, ranking_basis_adjustment_components
 
 EASTMONEY = 'https://push2delay.eastmoney.com/api/qt/clist/get'
 FIELDS = 'f12,f13,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18,f20,f21,f23,f62'
@@ -25,7 +25,6 @@ STAR_PREFIXES = ('688', '689')
 BEIJING_PREFIXES = ('920',)
 CORE_A_SHARE_BOARDS = ('main', 'chinext')
 A_SHARE_CODE_RE = re.compile(r'(?<!\d)(?:(?:600|601|603|605|000|001|002|003|300|301|688|689|920)\d{3}|(?:4|8)\d{5})(?!\d)')
-ONE_LOT_COST_CAP = 7000.0
 DIRECT_OPENER = build_opener(ProxyHandler({}))
 
 
@@ -168,8 +167,6 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
         q for q in quotes
         if min_pct <= q['pct_chg'] <= max_pct
         and q['price'] > 0
-        and q['price'] <= 70
-        and q['price'] * 100 <= ONE_LOT_COST_CAP
     ]
     tradable.sort(key=lambda q: (q['amount'], q['pct_chg']), reverse=True)
     tradable = tradable[:max_candidates]
@@ -227,10 +224,19 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
 
 
 def score_candidates(candidates):
+    """Score through the single production main-force T+1 chain.
+
+    This compatibility entrypoint no longer owns an independent technical or
+    hot-money score. It is retained only for historical tail-scan callers.
+    """
     scored = []
     block_reasons = Counter()
     for candidate in candidates:
-        score, reasons, regime = integrated_score(candidate)
+        score_key = formal_candidate_sort_key(candidate)
+        score = score_key[0] if score_key else None
+        adjustment = ranking_basis_adjustment_components(candidate)
+        reasons = list(adjustment.get('counter_evidence') or [])
+        regime = candidate.get('market_regime')
         repo_signals = aggregate_four_repo_native_signals(candidate)
         record = {
             'signal_date': candidate['signal_date'],
@@ -253,6 +259,11 @@ def score_candidates(candidates):
             'score': score,
             'market_regime': regime,
             'blocked_reasons': reasons,
+            'production_score': score,
+            'final_score': score,
+            'ranking_view': 'main_force_behavior_chain',
+            'score_source': 'formal_t1_profit_components',
+            'ranking_basis_adjustment': adjustment,
             'repo_delta_by_repo': repo_signals.get('score_delta_by_repo', {}),
             'paper_only': True,
             'no_trade': True,
@@ -273,7 +284,7 @@ def main():
     parser.add_argument('--max-pct', type=float, default=9.0)
     parser.add_argument('--max-candidates', type=int, default=80)
     parser.add_argument('--output-dir', default=None)
-    parser.add_argument('--quotes-json', default=None, help='optional local quotes JSON produced by browser MCP')
+    parser.add_argument('--quotes-json', default=None, help='optional local quotes JSON produced by the direct API scanner')
     args = parser.parse_args()
 
     source_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')

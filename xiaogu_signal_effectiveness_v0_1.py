@@ -385,7 +385,7 @@ def _file_candidate_rows(focus_symbols: set[str]) -> tuple[list[Dict[str, Any]],
             records_by_key[key] = _merge_record(records_by_key.get(key, {}), record)
             sources['bundles'] += 1
 
-    live_scan_files = sorted(LIVE_SCAN_ROOT.rglob('eastmoney_web_tabs_summary.json'))
+    live_scan_files = sorted(LIVE_SCAN_ROOT.rglob('xiaogu_scan_summary.json'))
     for path in live_scan_files:
         summary = read_json(path)
         rows = []
@@ -759,16 +759,12 @@ def persist_signal_effectiveness(
     analysis_result: Dict[str, Any],
     analysis_date: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Persist a complete factor-analysis snapshot through the DB owner."""
+    """Persist a factor-analysis snapshot without deleting prior DB evidence."""
     target_date = str(analysis_date or analysis_result.get('analysis_date') or dt.date.today().isoformat())[:10]
     from sqlalchemy import text as _sql
     from xiaogu_db import engine as _engine
 
     signals = analysis_result.get('signal_effectiveness') or []
-    delete_statement = _sql("""
-        DELETE FROM signal_effectiveness
-        WHERE analysis_date = CAST(:analysis_date AS date)
-    """)
     statement = _sql("""
         INSERT INTO signal_effectiveness (
             analysis_date, signal_key, present_count, limit_up_rate,
@@ -798,7 +794,6 @@ def persist_signal_effectiveness(
         for signal in signals
     ]
     with _engine.begin() as conn:
-        conn.execute(delete_statement, {'analysis_date': target_date})
         if payloads:
             conn.execute(statement, payloads)
     return {'persisted_count': len(payloads), 'analysis_date': target_date}
@@ -2354,76 +2349,6 @@ def build_horizon_replay(
     }
 
 
-WEIGHT_STEP = 0.1
-WEIGHT_MIN = 0.1
-WEIGHT_MAX = 3.0
-
-
-def apply_weight_suggestions(
-    analysis_result: Dict[str, Any],
-    db_url: Optional[str] = None,
-    dry_run: bool = True,
-) -> Dict[str, Any]:
-    """Write INCREASE/DECREASE suggestions back to scoring_config table.
-    Returns dict with applied, skipped, errors lists.
-    """
-    import os as _os
-    import datetime as _dt
-    import psycopg2 as _pg
-    db_url = db_url or _os.environ.get('XIAOGU_DB_URL')
-    signals = analysis_result.get('signal_effectiveness', [])
-    applied: list = []
-    skipped: list = []
-    errors: list = []
-
-    if not db_url:
-        return {'applied': [], 'skipped': [s['signal_key'] for s in signals], 'errors': ['no db_url'], 'dry_run': dry_run}
-
-    try:
-        conn = _pg.connect(db_url)
-        cur = conn.cursor()
-    except Exception as e:
-        return {'applied': [], 'skipped': [s['signal_key'] for s in signals], 'errors': [str(e)], 'dry_run': dry_run}
-
-    for sig in signals:
-        key = sig['signal_key']
-        suggestion = sig.get('weight_suggestion')
-        if suggestion not in ('INCREASE', 'DECREASE'):
-            skipped.append({'key': key, 'reason': suggestion})
-            continue
-        try:
-            cur.execute('SELECT config_value FROM scoring_config WHERE config_key = %s', (key,))
-            row = cur.fetchone()
-            current = float(row[0]) if row else 1.0
-            delta = WEIGHT_STEP if suggestion == 'INCREASE' else -WEIGHT_STEP
-            new_val = round(max(WEIGHT_MIN, min(WEIGHT_MAX, current + delta)), 4)
-            if dry_run:
-                applied.append({'key': key, 'old': current, 'new': new_val, 'suggestion': suggestion, 'dry_run': True})
-            else:
-                if row:
-                    cur.execute(
-                        'UPDATE scoring_config SET config_value=%s, updated_at=%s WHERE config_key=%s',
-                        (new_val, _dt.datetime.utcnow(), key),
-                    )
-                else:
-                    cur.execute(
-                        'INSERT INTO scoring_config(config_key, config_value, updated_at) VALUES(%s,%s,%s)',
-                        (key, new_val, _dt.datetime.utcnow()),
-                    )
-                applied.append({'key': key, 'old': current, 'new': new_val, 'suggestion': suggestion})
-        except Exception as e:
-            errors.append({'key': key, 'error': str(e)})
-
-    if not dry_run:
-        try:
-            conn.commit()
-        except Exception:
-            pass
-    cur.close()
-    conn.close()
-    return {'applied': applied, 'skipped': skipped, 'errors': errors, 'dry_run': dry_run}
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description='Analyze signal effectiveness from ledger')
     ap.add_argument('--ledger', type=Path, default=DEFAULT_LEDGER)
@@ -2436,8 +2361,6 @@ def main() -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     ap.add_argument('--persist', action='store_true',
                     help='Upsert the factor-analysis snapshot into signal_effectiveness')
-    ap.add_argument('--apply-weights', action='store_true', dest='apply_weights',
-                    help='Apply weight suggestions to scoring_config table (dry-run unless XIAOGU_WEIGHT_AUTO_TUNE=1)')
     args = ap.parse_args()
 
     focus_symbols = [symbol.strip() for symbol in str(args.focus_symbols or '').split(',') if symbol.strip()]
@@ -2488,20 +2411,6 @@ def main() -> None:
     print("Pool effectiveness:")
     for p in result['pool_effectiveness']:
         print(f"  {p['pool']:<40} count={p['count']:3d}  LU={p['limit_up_rate']:.1%}  avg={p['avg_return']:+.2%}")
-
-    if args.apply_weights:
-        import os as _os
-        db_url = _os.environ.get('XIAOGU_DB_URL')
-        dry = _os.environ.get('XIAOGU_WEIGHT_AUTO_TUNE') != '1'
-        tune = apply_weight_suggestions(result, db_url=db_url, dry_run=dry)
-        label = 'DRY RUN' if dry else 'LIVE'
-        print(f'\nWeight tuning ({label}):')
-        for item in tune['applied']:
-            print(f"  {item['key']}: {item.get('old','-')} -> {item['new']} ({item['suggestion']})")
-        if not tune['applied']:
-            print('  (nothing to apply)')
-        if tune['errors']:
-            print(f"  ERRORS: {tune['errors']}")
 
 
 if __name__ == '__main__':

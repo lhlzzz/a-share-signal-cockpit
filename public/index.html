@@ -427,6 +427,25 @@ function candidateRows(rows) {
   }).join('');
 }
 
+function adaptCandidateEvidence(candidate) {
+  const report = candidate.evidenceReport || {};
+  const coverage = report.data_coverage || {};
+  const explanation = report.selection_explanation || {};
+  const sources = coverage.sources || candidate.dataSources || [];
+  return {
+    basis_detail: report.t1_space?.basis || '主力行为链',
+    source_time: report.source_time || candidate.sourceTime || null,
+    source_metadata: sources,
+    missing_domains: coverage.missing_domains || report.risk?.missing_domains || [],
+    announcement_evidence: report.catalyst?.announcements || [],
+    direct_symbol_news: report.catalyst?.direct_symbol_news || [],
+    sector_news_evidence: report.sectors?.sector_news || [],
+    limitup_reasons: report.continuation?.reasons || [],
+    consecutive_limit_count: report.continuation?.consecutive_limit_count,
+    selection_explanation: explanation,
+  };
+}
+
 function renderDecision(data) {
   const paper = data.decision?.paper_pick;
   const entryPrice = data.decision?.paper_pick_entry_price;
@@ -497,41 +516,58 @@ const API_PREFIX = window.location.pathname.includes('/xiaogu') ? '/xiaogu' : ''
 function adaptFrontData(front) {
   const candidates = (front.candidates || []).map((candidate, index) => {
     const signal = candidate.signals?.[0] || {};
+    const evidenceReport = candidate.evidenceReport || {};
+    const recordedExplanation = candidate.selectionExplanation
+      || evidenceReport.selection_explanation
+      || {};
+    const officialSymbol = front.paperPick?.symbol || front.decision?.paper_pick?.symbol;
+    const isOfficial = (
+      candidate.decision === 'TRADING'
+      || candidate.decision === 'PAPER_PICK'
+      || candidate.symbol === officialSymbol
+    );
     const explanation = {
       '因子': [{ '名称': '主力行为链', '数值': String(candidate.score ?? '--'), '说明': '事件、板块、资金、空间与派发风险综合排序' }],
       '门禁': ['已通过最新主力行为链门禁'],
       '门禁中文': '已通过最新主力行为链门禁',
-      '中文摘要': signal.derivation ? [signal.derivation] : [],
+      '中文摘要': candidate.selectionBasisCn
+        || evidenceReport.selection_explanation?.中文摘要
+        || (signal.derivation ? [signal.derivation] : []),
       '排序口径': front.productionChain?.label || '主力行为视角正式排序',
+      ...recordedExplanation,
     };
-    const decision = candidate.decision === 'PAPER_PICK'
+    const decision = isOfficial
       ? 'PAPER_PICK'
       : candidate.decision === 'NO_PICK'
       ? 'NO_PICK'
       : 'TOP10_NOT_SELECTED';
     return {
-      trade_date: front.aShareMarket?.snapshotTradeDate || '',
+      trade_date: candidate.tradeDate || front.aShareMarket?.snapshotTradeDate || '',
       symbol: candidate.symbol,
       stock_name: candidate.name,
-      rank: index + 1,
+      rank: candidate.rank ?? index + 1,
       final_score: candidate.score,
       decision,
       selection_outcome: decision === 'PAPER_PICK' ? 'OFFICIAL_PICK' : 'TOP10_NOT_SELECTED',
-      is_official_pick: decision === 'PAPER_PICK',
+      is_official_pick: isOfficial,
       t1_return: candidate.t1Return,
       t1_result_complete: candidate.t1Return != null,
       t1_result_label: candidate.t1Return == null ? null : candidate.t1Return >= 0 ? '盈利' : '亏损',
       entry_price: candidate.entryPrice,
-      expected_t1_profit_score: null,
-      pct_chg: null,
+      expected_t1_profit_score: candidate.expectedT1ProfitScore
+        ?? evidenceReport.t1_space?.profit_edge_score
+        ?? null,
+      pct_chg: candidate.pctChg ?? null,
       fund_flow_momentum: candidate.capitalFlow,
-      theme_catalyst: '',
-      news_catalyst: '',
-      sentiment_catalyst: '',
+      theme_catalyst: candidate.themeCatalyst || '',
+      news_catalyst: candidate.newsCatalyst || '',
+      sentiment_catalyst: candidate.sentimentCatalyst || '',
       selection_explanation: explanation,
-      selection_basis_cn: explanation['中文摘要'],
-      risk_gates_cn: explanation['门禁'],
-      entry_evidence: { basis_detail: '主力行为链', source_metadata: [], missing_domains: [] },
+      selection_basis_cn: candidate.selectionBasisCn || explanation['中文摘要'] || [],
+      risk_gates_cn: candidate.riskGatesCn || explanation['门禁'] || [],
+      entry_evidence: candidate.entryEvidence || adaptCandidateEvidence(candidate),
+      evidenceReport,
+      dataSources: candidate.dataSources || [],
     };
   });
   const paperPick = candidates.find((row) => row.decision === 'PAPER_PICK') || null;

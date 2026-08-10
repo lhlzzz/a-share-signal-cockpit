@@ -1008,19 +1008,9 @@ def _resolve_scan_session_dir(trade_date: str) -> Optional[Path]:
     day_root = LIVE_SCAN_ROOT / str(trade_date)
     if not day_root.exists():
         return None
-    preferred = (
-        'eastmoney_scan_afternoon',
-        'eastmoney_web_tabs_scan_afternoon',
-        'eastmoney_scan_close',
-        'eastmoney_web_tabs_scan',
-    )
-    for name in preferred:
-        candidate = day_root / name
-        if candidate.exists() and (candidate / 'flow_industry.jsonl').exists():
-            return candidate
-    for child in sorted(day_root.iterdir()):
-        if child.is_dir() and (child / 'flow_industry.jsonl').exists():
-            return child
+    candidate = day_root / 'eastmoney_scan_afternoon'
+    if candidate.exists() and (candidate / 'flow_industry.jsonl').exists():
+        return candidate
     return None
 
 
@@ -1580,10 +1570,24 @@ def build_mainline_miss_daily_report(trade_date: str) -> Dict[str, Any]:
     if not day_rows:
         session_dir = _resolve_scan_session_dir(trade_date)
         if session_dir is not None:
-            scored = _load_jsonl_rows(session_dir / 'eastmoney_web_tabs_scored.jsonl')
+            scored = _load_jsonl_rows(session_dir / 'xiaogu_scored.jsonl')
             if scored:
                 day_rows = scored[:200]
                 source = source + '+scan_scored'
+
+    # A retained candidate archive is authoritative for historical diagnostics
+    # when the oversized runtime decision context has been purged.  Do not
+    # infer a production pick from a date/symbol lookup; require the archived
+    # row to carry the original PAPER_PICK decision or official flag.
+    if official is None and day_rows:
+        for row in day_rows:
+            if not isinstance(row, dict):
+                continue
+            decision = str(row.get('decision') or row.get('pick_type') or '').upper()
+            if decision == 'PAPER_PICK' or bool(row.get('is_official_pick')):
+                official = dict(row)
+                source = source + '+runtime_archive_official_row'
+                break
 
     # Enrich official pick from matching day-row snapshots when runtime purge left
     # only thin picks (missing limitup_reason_status / price). Diagnostic only.
@@ -2527,6 +2531,11 @@ def build_daily_closure(
     trade_date: str, report: Dict[str, Any], backfill_stats: Dict[str, Any], *,
     scan_completed: bool, paper_pick_written: bool, run_mode: str = 'LIVE_DAILY_PIPELINE',
     return_backfill_completed: Optional[bool] = None,
+    production_run_id: str = '',
+    candidate_snapshot_id: str = '',
+    active_pick_id: Optional[int] = None,
+    run_steps: Optional[List[Dict[str, Any]]] = None,
+    knowledge_status: str = '',
 ) -> Dict[str, Any]:
     failure_reasons = backfill_stats.get('failure_reasons') or {}
     timeout_count = sum(count for reason, count in failure_reasons.items() if 'TIMEOUT' in reason)
@@ -2550,8 +2559,21 @@ def build_daily_closure(
     )
     strategy_readiness = dict(report.get('strategy_readiness') or {})
     return_validation_status = 'PASS' if return_backfill_completed else 'PENDING'
+    performance_gate = report.get('paper_pick_performance_gate') or {}
+    limitup_gate = report.get('limitup_capture_gate') or {}
+    production_audit_conclusion = (
+        'FREEZABLE'
+        if performance_gate.get('status') == 'PASS' and limitup_gate.get('status') == 'PASS'
+        else 'NOT_FREEZABLE'
+    )
     return {
         'trade_date': trade_date, 'run_mode': run_mode,
+        'production_run_id': production_run_id or None,
+        'candidate_snapshot_id': candidate_snapshot_id or None,
+        'active_pick_id': active_pick_id,
+        'production_run_steps': list(run_steps or []),
+        'knowledge_status': knowledge_status or 'PENDING',
+        'production_audit_conclusion': production_audit_conclusion,
         'return_backfill': {
             'new_success_count': backfill_stats.get('new_success_count', backfill_stats.get('fetched', 0)),
             'new_failure_count': backfill_stats.get('new_failure_count', backfill_stats.get('fetch_failed', 0)),
@@ -2608,7 +2630,9 @@ def write_daily_closure(closure: Dict[str, Any], output_path: Optional[Path] = N
     if write_archive:
         trade_date = str(closure.get('trade_date') or 'unknown')
         run_mode = str(closure.get('run_mode') or 'UNKNOWN_RUN')
-        archive_name = f"daily_closure_{trade_date}_{run_mode}.json"
+        run_id = str(closure.get('production_run_id') or '').strip()
+        suffix = f"_{run_id}" if run_id else ''
+        archive_name = f"daily_closure_{trade_date}_{run_mode}{suffix}.json"
         archive_path = summary_dir / archive_name
         archive_path.write_text(payload)
         # Also expose a per-day latest for quick lookup across modes.
@@ -3327,6 +3351,89 @@ def production_path_redecision_for_day(
     }
 
 
+def production_scan_redecision_for_day(trade_date: str) -> Dict[str, Any]:
+    """Re-run the production runner from that day's persisted afternoon scan."""
+    from xiaogu_forward_d1_1450_runner_v0_1 import (
+        attach_paper_pick_eligibility,
+        build_research_basket_from_latest_scan,
+        evaluate_candidate_bundle,
+    )
+
+    scan_dir = find_best_scan_for_date(trade_date)
+    if scan_dir is None:
+        return {
+            'redecision_symbol': None,
+            'decision': 'NO_PICK',
+            'eligible_count': 0,
+            'excluded_count': 0,
+            'top3_formal_symbols': [],
+            'notes': 'NO_SAME_DAY_SCAN_SNAPSHOT',
+            'scan_snapshot_available': False,
+        }
+
+    asof_time = _scan_snapshot_asof_time(scan_dir, trade_date)
+    bundle = build_research_basket_from_latest_scan(trade_date, asof_time)
+    if not isinstance(bundle, dict) or not bundle.get('available'):
+        return {
+            'redecision_symbol': None,
+            'decision': 'NO_PICK',
+            'eligible_count': 0,
+            'excluded_count': 0,
+            'top3_formal_symbols': [],
+            'notes': 'SAME_DAY_SCAN_BUNDLE_UNAVAILABLE',
+            'scan_snapshot_available': True,
+            'scan_snapshot_path': str(scan_dir),
+            'asof_time': asof_time,
+        }
+
+    bundle['ranking_view'] = 'main_force_behavior_chain'
+    bundle['date'] = trade_date
+    bundle['source_market_date'] = trade_date
+    bundle['data_gate_status'] = bundle.get('data_gate_status') or 'PASS'
+    attach_paper_pick_eligibility(bundle)
+    decision, symbol, reason, features, flags = evaluate_candidate_bundle(
+        bundle,
+        trade_date,
+        allow_stale_data=True,
+    )
+    candidates = [
+        row for row in (bundle.get('paper_scoring_candidates') or [])
+        if isinstance(row, dict)
+    ]
+    formal_rows = sorted(
+        candidates,
+        key=lambda row: (
+            int(row.get('formal_rank') or 999999),
+            str(row.get('symbol') or row.get('code') or ''),
+        ),
+    )
+    return {
+        'redecision_symbol': symbol if decision == 'PAPER_PICK' else None,
+        'decision': decision,
+        'eligible_count': sum(
+            bool((row.get('paper_pick_eligibility') or {}).get('eligible'))
+            and not row.get('official_target_exclusion_reasons')
+            for row in candidates
+        ),
+        'excluded_count': sum(
+            not bool((row.get('paper_pick_eligibility') or {}).get('eligible'))
+            or bool(row.get('official_target_exclusion_reasons'))
+            for row in candidates
+        ),
+        'top3_formal_symbols': [
+            str(row.get('symbol') or row.get('code') or '')
+            for row in formal_rows[:3]
+        ],
+        'notes': reason,
+        'risk_flags': flags,
+        'candidate_features': features,
+        'scan_snapshot_available': True,
+        'scan_snapshot_path': str(scan_dir),
+        'asof_time': asof_time,
+        'candidate_rows': candidates,
+    }
+
+
 def build_production_path_redecision_compare(
     sample_dates: Optional[List[str]] = None,
     *,
@@ -3362,8 +3469,6 @@ def build_production_path_redecision_compare(
 
     for trade_date in sample_dates:
         input_date = date.fromisoformat(trade_date)
-        raw_rows = fetch_daily_candidates(input_date)
-        decision_rows = _sanitize_decision_snapshot_rows(raw_rows)
         pick_rows = fetch_picks(input_date)
         paper_picks = [
             row for row in pick_rows
@@ -3375,7 +3480,11 @@ def build_production_path_redecision_compare(
             default=None,
         )
         official_symbol = None if paper_pick is None else str(paper_pick.get('symbol') or '')
-        redecision = production_path_redecision_for_day(decision_rows)
+        redecision = production_scan_redecision_for_day(trade_date)
+        decision_rows = [
+            row for row in (redecision.get('candidate_rows') or [])
+            if isinstance(row, dict)
+        ]
         offline = offline_by_date.get(trade_date) or {}
         offline_formal = offline.get('new') or offline.get('offline_formal')
 
@@ -3426,6 +3535,9 @@ def build_production_path_redecision_compare(
             'top3_formal_symbols': redecision.get('top3_formal_symbols'),
             'notes': redecision.get('notes'),
             'pool_size': len(decision_rows),
+            'scan_snapshot_path': redecision.get('scan_snapshot_path'),
+            'scan_asof_time': redecision.get('asof_time'),
+            'scan_snapshot_available': redecision.get('scan_snapshot_available'),
         }
         daily.append(day_entry)
 
@@ -3449,8 +3561,8 @@ def build_production_path_redecision_compare(
     return {
         'validation_tier': 'L3_production_path_redecision',
         'validation_tier_declaration': (
-            'production-path re-decision from DB pre-decision snapshot via runner '
-            'eligibility+exclusion+formal sort; not full wall-clock live crawl; '
+            'production-path re-decision from the requested trade date afternoon '
+            'scanner snapshot via runner eligibility+exclusion+formal sort; '
             'L2 HISTORICAL_LIVE_REPLAY does not recompute official picks'
         ),
         'validation_tier_definitions': VALIDATION_TIER_DEFINITIONS,
@@ -3460,9 +3572,8 @@ def build_production_path_redecision_compare(
         'agree_rate_offline_vs_redecision': agree_rate,
         'miss_root_causes': miss_root_causes,
         'limits': [
-            'Uses DB snapshot hydrate + runner formal path; not full scanner wall-clock live',
+            'Uses the persisted same-day afternoon scan snapshot and re-executes the runner path',
             'L2 historical live replay does not close gap3 (no formal re-pick)',
-            'L4 full wall-clock 12-day crawl still not required',
             'offline formal source: ' + str(offline_path),
         ],
         'offline_limits': offline_payload.get('limits'),
@@ -3498,7 +3609,10 @@ def _classify_redecision_miss_root_cause(
         primary = 'HIT_DAY_BEST'
         detail = {'day_best_in_pool': True, 'hit': True, 'rank': day_best_row.get('rank')}
     else:
-        eligibility = paper_pick_eligibility_profile(day_best_row, {})
+        eligibility = paper_pick_eligibility_profile(
+            day_best_row,
+            {'ranking_view': 'main_force_behavior_chain'},
+        )
         day_best_row = {**day_best_row, 'paper_pick_eligibility': eligibility}
         exclusion = official_target_exclusion_reasons(day_best_row, {})
         detail = {
@@ -3515,7 +3629,10 @@ def _classify_redecision_miss_root_cause(
         else:
             winner_row = by_symbol.get(winner_symbol)
             if winner_row is not None:
-                winner_elig = paper_pick_eligibility_profile(winner_row, {})
+                winner_elig = paper_pick_eligibility_profile(
+                    winner_row,
+                    {'ranking_view': 'main_force_behavior_chain'},
+                )
                 winner_row = {**winner_row, 'paper_pick_eligibility': winner_elig}
                 detail['winner_sort_key'] = list(formal_candidate_sort_key(winner_row))[:6]
                 detail['day_best_sort_key'] = list(formal_candidate_sort_key(day_best_row))[:6]
@@ -4058,27 +4175,42 @@ def build_db_cohort_report(
 
 
 def find_best_scan_for_date(trade_date: str) -> Optional[Path]:
-    """Find the latest scan directory for a given trade date."""
+    """Find the canonical afternoon scanner snapshot for a given trade date."""
     scan_dir = LIVE_SCAN_ROOT / trade_date
     if not scan_dir.exists():
         return None
-    # Prefer realtime scans around 14:30 window, fall back to latest
     candidates = sorted([
         d for d in scan_dir.iterdir()
-        if d.is_dir() and 'realtime' in d.name
+        if d.is_dir() and d.name.startswith('eastmoney_scan')
     ])
     if not candidates:
         return None
-    # Prefer scan closest to 14:30 (1430), fall back to latest
+    afternoon = [d for d in candidates if 'afternoon' in d.name]
+    if afternoon:
+        candidates = afternoon
+
     def scan_time_key(d):
         name = d.name
         for part in name.split('_'):
             if part.isdigit() and len(part) == 6:
                 return int(part)
         return 0
-    # Find scan <= 1500 if possible, else latest
-    afternoon = [d for d in candidates if 1400 <= scan_time_key(d) <= 1500]
-    return afternoon[-1] if afternoon else candidates[-1]
+    intraday = [d for d in candidates if 1400 <= scan_time_key(d) <= 1500]
+    return sorted(intraday or candidates, key=lambda d: (scan_time_key(d), d.stat().st_mtime))[-1]
+
+
+def _scan_snapshot_asof_time(scan_dir: Optional[Path], trade_date: str) -> str:
+    if scan_dir is not None:
+        summary_path = scan_dir / 'xiaogu_scan_summary_runner.json'
+        if summary_path.exists():
+            try:
+                payload = json.loads(summary_path.read_text(encoding='utf-8'))
+                source_time = str(payload.get('source_time') or '')
+                if source_time.startswith(trade_date) and len(source_time) >= 19:
+                    return source_time[11:19]
+            except Exception:
+                pass
+    return '14:30:00'
 
 
 def find_bundle_for_date(trade_date: str) -> Optional[Path]:

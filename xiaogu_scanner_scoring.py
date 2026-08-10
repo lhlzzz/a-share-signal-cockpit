@@ -3,20 +3,14 @@
 """Production structured-scoring library for xiaogu scanner/runner.
 
 Live scan entrypoint: scrapy_scanner/runner_v2.py (HTTP/API-direct).
-This module hosts structured scores / research signals / coverage audit /
-v2 enrich helpers formerly living only under the web_tabs filename.
-
-Backward-compatible import surface also available via:
-  xiaogu_eastmoney_web_tabs_scan_v0_1 (thin re-export).
+This module hosts structured scores, research signals, coverage audit, and
+direct API enrichment helpers used by the production scanner.
 """
 import argparse
-import base64
 import hashlib
 import json
 import os
 import re
-import socket
-import struct
 import sys
 import time
 from collections import Counter, defaultdict
@@ -54,7 +48,7 @@ def last_trading_day(now=None):
 sys.path.insert(0, str(BASE))
 
 from six_repo_integration_real_v2_1 import aggregate_four_repo_native_signals
-from xiaogu_v2_1_six_repo_real_integrated import integrated_score, hot_money_score, fetch_all_sector_fund_flow, sector_fund_flow_stocks, extract_concept_board_ranking
+from xiaogu_v2_1_six_repo_real_integrated import fetch_all_sector_fund_flow, sector_fund_flow_stocks, extract_concept_board_ranking
 from xiaogu_eastmoney_tail_scan_v0_2 import A_SHARE_CODE_RE, board_for_code, collect_quotes as collect_eastmoney_page_quotes, fnum, is_a_share_code
 from xiaogu_forward_judge_scoreboard_v0_1 import (
     build_a_share_chain_scorecard,
@@ -64,13 +58,10 @@ from xiaogu_forward_judge_scoreboard_v0_1 import (
     load_rule_freeze_snapshot,
 )
 
-WEB_TABS_SOURCE = 'eastmoney_logged_in_web_tabs'
-PIPELINE_VERSION = 'eastmoney_web_tabs_scan_v0_1_four_repo'
-DEFAULT_CDP_URL = 'http://127.0.0.1:9333'
-REQUIRED_EASTMONEY_CDP_URL = DEFAULT_CDP_URL
+API_SCAN_SOURCE = 'eastmoney_api_scan_v2'
+PIPELINE_VERSION = 'v2_scanner_api'
 RISK_RECENT_DAYS = 45
 FULL_UNIVERSE_MIN_QUOTE_COUNT = 4000
-ONE_LOT_COST_CAP = 7000.0
 DIRECT_OPENER = build_opener(ProxyHandler({}))
 CORE_A_SHARE_BOARDS = ('main', 'chinext')
 
@@ -82,35 +73,6 @@ QUOTE_URL_TOKENS = ('quote.eastmoney.com/center/gridlist.html', 'hs_a_board')
 FUND_URL_TOKENS = ('data.eastmoney.com/zjlx/detail.html',)
 WATCHLIST_URL_TOKENS = ('quote.eastmoney.com/zixuan',)
 WATCHLIST_STOCK_CODE_RE = A_SHARE_CODE_RE
-REQUIRED_CDP_TAB_SOURCES = ('quote_rank', 'fund_flow', 'watchlist', 'announcements', 'lhb', 'concept_industry', 'financials')
-CDP_TAB_URLS = {
-    'quote_rank': 'https://quote.eastmoney.com/center/gridlist.html#hs_a_board',
-    'fund_flow': 'https://data.eastmoney.com/zjlx/detail.html',
-    'watchlist': 'https://quote.eastmoney.com/zixuan/',
-    'announcements': 'https://data.eastmoney.com/notices/',
-    'lhb': 'https://data.eastmoney.com/stock/lhb.html',
-    'concept_industry': 'https://quote.eastmoney.com/center/gridlist.html#concept_board',
-    'financials': 'https://data.eastmoney.com/bbsj/',
-    'limitup_pool': 'https://quote.eastmoney.com/ztb/detail#type=ztgc',
-    'broken_limit_pool': 'https://quote.eastmoney.com/ztb/detail#type=zbgc',
-    'consecutive_limit_pool': 'https://quote.eastmoney.com/ztb/detail#type=ztgc',
-    'yesterday_limit_pool': 'https://quote.eastmoney.com/ztb/detail#type=zrzt',
-    'popularity_rank': 'https://guba.eastmoney.com/rank/',
-    'industry_board': 'https://quote.eastmoney.com/center/gridlist.html#industry_board',
-    'sector_fund_flow': 'https://data.eastmoney.com/bkzj/hy.html',
-    'concept_capital_flow': 'https://data.eastmoney.com/bkzj/gn.html',
-    'margin_trading': 'https://data.eastmoney.com/rzrq/',
-    'block_trades': 'https://data.eastmoney.com/dzjy/default.html',
-    'lockup_expiry': 'https://data.eastmoney.com/dxf/',
-    'shareholder_changes': 'https://data.eastmoney.com/gdhs/',
-    'research_reports': 'https://data.eastmoney.com/report/',
-    'earnings_preview': 'https://data.eastmoney.com/bbsj/yjyg.html',
-    'ipo_calendar': 'https://data.eastmoney.com/xg/',
-    'trading_halts': 'https://data.eastmoney.com/tfpxx/',
-}
-REQUIRED_CDP_TAB_URLS = CDP_TAB_URLS
-DEFAULT_ENHANCED_CDP_TAB_URLS = CDP_TAB_URLS
-EXPERIMENTAL_ENHANCED_CDP_TAB_URLS = CDP_TAB_URLS
 EASTMONEY_DATA_DIRECTORY_CATALOG = [
     {
         'key': 'hot_data',
@@ -159,7 +121,6 @@ EASTMONEY_DATA_DIRECTORY_CATALOG = [
             {'key': 'valuation_analysis', 'title': '估值分析', 'url': 'https://data.eastmoney.com/gzfx/'},
             {'key': 'institution_survey', 'title': '机构调研', 'url': 'https://data.eastmoney.com/jgdy/'},
             {'key': 'lhb_list', 'title': '龙虎榜单', 'url': 'https://data.eastmoney.com/stock/lhb.html'},
-            {'key': 'margin_trading', 'title': '融资融券', 'url': 'https://data.eastmoney.com/rzrq/'},
             {'key': 'trading_halts', 'title': '停复牌信息', 'url': 'https://data.eastmoney.com/tfpxx/'},
             {'key': 'main_force_data', 'title': '主力数据', 'url': 'https://data.eastmoney.com/zlsj/'},
             {'key': 'registration_review', 'title': '注册审核', 'url': 'https://data.eastmoney.com/xg/zczsh.html'},
@@ -242,18 +203,6 @@ EASTMONEY_DATA_DIRECTORY_CATALOG = [
         ],
     },
 ]
-DEFAULT_ENHANCED_CDP_TAB_SOURCES = tuple(DEFAULT_ENHANCED_CDP_TAB_URLS)
-EXPERIMENTAL_ENHANCED_CDP_TAB_SOURCES = tuple(EXPERIMENTAL_ENHANCED_CDP_TAB_URLS)
-DEFAULT_ENHANCED_CDP_TAB_URL_ALIASES = {
-    'industry_board': ('boardlist.html#concept_board', 'boardlist.html#industry_board', 'gridlist.html#industry_board'),
-}
-EXPERIMENTAL_ENHANCED_CDP_TAB_URL_ALIASES = {
-    'block_trades': ('data.eastmoney.com/dzjy/', '/dzjy/'),
-}
-ENHANCED_CDP_TAB_URLS = {**DEFAULT_ENHANCED_CDP_TAB_URLS, **EXPERIMENTAL_ENHANCED_CDP_TAB_URLS}
-ENHANCED_CDP_TAB_SOURCES = tuple(ENHANCED_CDP_TAB_URLS)
-ENHANCED_CDP_TAB_URL_ALIASES = {**DEFAULT_ENHANCED_CDP_TAB_URL_ALIASES, **EXPERIMENTAL_ENHANCED_CDP_TAB_URL_ALIASES}
-ALL_ENHANCED_CDP_TAB_SOURCES = ENHANCED_CDP_TAB_SOURCES
 EVIDENCE_DOMAINS = ('announcements', 'risk_alerts', 'lhb', 'concept_industry', 'financials')
 CORE_ENHANCED_EVIDENCE_DOMAINS = (
     'limitup_strength', 'broken_limit_risk', 'consecutive_limit_strength', 'yesterday_limit_strength',
@@ -262,7 +211,7 @@ CORE_ENHANCED_EVIDENCE_DOMAINS = (
     'candidate_announcement_recheck', 'candidate_intraday_replay',
 )
 EXPERIMENTAL_EVIDENCE_DOMAINS = (
-    'margin_trading', 'block_trades', 'lockup_expiry', 'shareholder_changes',
+    'block_trades', 'lockup_expiry', 'shareholder_changes',
     'research_reports', 'earnings_preview', 'ipo_calendar', 'trading_halts',
 )
 ENHANCED_EVIDENCE_DOMAINS = CORE_ENHANCED_EVIDENCE_DOMAINS + EXPERIMENTAL_EVIDENCE_DOMAINS
@@ -294,7 +243,6 @@ DOMAIN_PAGE_HINTS = {
     'candidate_fund_recheck': ('个股资金流', '主力净流入'),
     'candidate_lhb_recheck': ('龙虎榜详情', '买卖席位'),
     'candidate_announcement_recheck': ('个股公告', '公告详情'),
-    'margin_trading': ('融资融券', '融资余额', '融券余额'),
     'block_trades': ('大宗交易', '折价', '溢价'),
     'lockup_expiry': ('解禁', '限售股'),
     'shareholder_changes': ('股东', '增持', '减持', '机构持仓', '股东户数'),
@@ -321,7 +269,6 @@ DOMAIN_URL_TOKENS = {
     'candidate_fund_recheck': ('data.eastmoney.com/zjlx/0', 'data.eastmoney.com/zjlx/3', 'data.eastmoney.com/zjlx/6'),
     'candidate_lhb_recheck': ('data.eastmoney.com/stock/lhb,', 'lhb_stock'),
     'candidate_announcement_recheck': ('notices/stock', 'securitycode='),
-    'margin_trading': ('rzrq',),
     'block_trades': ('dzjy',),
     'lockup_expiry': ('dxf',),
     'shareholder_changes': ('gdhs',),
@@ -348,12 +295,11 @@ REGULATORY_PAGE_CHROME_HINTS = (
 )
 CATALYST_KEYWORDS = ('重大合同', '中标', '重组', '增持', '回购', '业绩预增', '扭亏', '订单', '项目', '涨停', '连板', '买入', '上调')
 FINANCIAL_RISK_KEYWORDS = ('亏损', '业绩预亏', '大幅下降', '减值', '退市风险', '净利润为负')
-ENHANCED_RISK_KEYWORDS = ('炸板', '减持', '解禁', '折价', '停牌', '融券', '下调')
+ENHANCED_RISK_KEYWORDS = ('炸板', '减持', '解禁', '折价', '停牌', '下调')
 
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--cdp-url', default=DEFAULT_CDP_URL)
     ap.add_argument('--quotes-json', default='')
     ap.add_argument('--funds-json', default='')
     ap.add_argument('--risk-json', default='')
@@ -371,14 +317,9 @@ def parse_args():
     ap.add_argument('--pages', type=int, default=80)
     ap.add_argument('--page-size', type=int, default=100)
     ap.add_argument('--risk-recent-days', type=int, default=RISK_RECENT_DAYS)
-    ap.add_argument('--allow-missing-cdp', action='store_true')
-    ap.add_argument('--open-required-cdp-tabs', action='store_true', help='auto-open required tabs plus default core enhanced tabs')
-    ap.add_argument('--open-enhanced-cdp-tabs', action='store_true', default=False, help='explicit opt-in for experimental enhanced evidence tabs only')
     ap.add_argument('--enhanced-candidate-tab-topn', type=int, default=3)
     ap.add_argument('--no-page-endpoint-fallback', action='store_true')
     ap.add_argument('--summarize-raw-jsonl', default='')
-    ap.add_argument('--list-cdp-tabs', action='store_true')
-    ap.add_argument('--offline', action='store_true', help='read from latest existing live_scan data, skip CDP entirely')
     return ap.parse_args()
 
 
@@ -417,11 +358,18 @@ def load_records(path, use_cache=True):
 
 
 def load_v2_scanner_data(scan_date=None):
-    """Load data from v2 scanner output (eastmoney_scan directory)."""
+    """Load data from the canonical direct API scanner output."""
     if not scan_date:
         scan_date = datetime.now().strftime('%Y-%m-%d')
-    scan_dir = BASE / 'data' / 'live_scan' / scan_date / 'eastmoney_scan'
-    if not scan_dir.exists():
+    scan_dir = next(
+        (
+            BASE / 'data' / 'live_scan' / scan_date / label
+            for label in ('eastmoney_scan_afternoon', 'eastmoney_scan_morning')
+            if (BASE / 'data' / 'live_scan' / scan_date / label).exists()
+        ),
+        None,
+    )
+    if scan_dir is None or not scan_dir.exists():
         return {}
     
     data = {'scan_date': scan_date}
@@ -458,7 +406,7 @@ def enrich_candidates_with_v2_data(candidates, v2_data):
     stock_by_code = {}
     scan_date = v2_data.get('scan_date', '')
     if scan_date:
-        stock_file = BASE / 'data' / 'live_scan' / scan_date / 'eastmoney_scan' / 'stock_all_a.jsonl'
+        stock_file = scan_dir / 'stock_all_a.jsonl'
         if stock_file.exists():
             try:
                 with open(stock_file) as f:
@@ -803,7 +751,7 @@ def build_data_directory_content_records(item, rows, snapshot, source_time):
             'ts': ts,
             'date': trade_date,
             'domain': 'data_directory_content',
-            'source': 'eastmoney_data_directory_cdp_table',
+            'source': 'eastmoney_data_directory_api_table',
             'section_key': item.get('section_key'),
             'section_title': item.get('section_title'),
             'section_url': item.get('section_url'),
@@ -836,7 +784,7 @@ def build_data_directory_content_records(item, rows, snapshot, source_time):
     return records
 
 
-DATA_DIRECTORY_CONTENT_CDP_TAB_URLS = build_data_directory_catalog_content_source_map()
+DATA_DIRECTORY_CONTENT_SOURCE_MAP = build_data_directory_catalog_content_source_map()
 
 
 def normalize_code(value):
@@ -976,7 +924,7 @@ def merge_funds(quotes, fund_rows):
             quote['net_inflow_main'] = num(
                 fund.get('net_inflow_main', fund.get('main_net_inflow', fund.get('主力净流入', quote.get('net_inflow_main'))))
             )
-            quote['fund_flow_source'] = fund.get('source', 'eastmoney_web_tabs_fund_flow')
+            quote['fund_flow_source'] = fund.get('source', 'eastmoney_api_scan_v2_fund_flow')
         merged.append(quote)
     return merged
 
@@ -1119,7 +1067,7 @@ def build_evidence_pack(evidence_rows_by_domain, source_time, recent_days):
                 'date': event_date.date().isoformat() if event_date else None,
                 'age_days': age_days,
                 'text': text[:500],
-                'source': row.get('source', 'eastmoney_web_tabs_evidence'),
+                'source': row.get('source', 'eastmoney_api_scan_v2_evidence'),
             }
             if age_days is not None and (age_days < 0 or age_days > recent_days) and domain in HARD_BLOCK_DOMAINS:
                 historical_notes.setdefault(code, []).append(record)
@@ -1212,7 +1160,6 @@ def evidence_flags(evidence):
         'board_strength_tags': [row.get('text', '') for row in (evidence.get('industry_board', []) + evidence.get('sector_fund_flow', []))[:5]],
         'candidate_quote_recheck_tags': [row.get('text', '') for row in evidence.get('candidate_quote_recheck', [])[:5]],
         'candidate_fund_recheck_tags': texts_matching(evidence, 'candidate_fund_recheck', ('主力', '净流入', '资金'))[:5],
-        'margin_risk_flags': texts_matching(evidence, 'margin_trading', ('融资', '融券'))[:5],
         'block_trade_flags': texts_matching(evidence, 'block_trades', ('大宗交易', '折价', '溢价'))[:5],
         'lockup_risk_flags': texts_matching(evidence, 'lockup_expiry', ('解禁', '限售'))[:5],
         'shareholder_change_flags': texts_matching(evidence, 'shareholder_changes', ('增持', '减持', '股东'))[:5],
@@ -1250,17 +1197,6 @@ def candidate_evidence_status(evidence):
 def watchlist_stock_codes_from_snapshot(snapshot):
     text = str(snapshot.get('text', '')) if isinstance(snapshot, dict) else ''
     return sorted(set(WATCHLIST_STOCK_CODE_RE.findall(text)))
-
-
-def domain_alias_coverage(domain, local_rows_by_domain, cdp_payloads):
-    aliases = {'industry_board': ('concept_industry',)}.get(domain, ())
-    domain_tabs = cdp_payloads.get('domain_tabs', {}) if isinstance(cdp_payloads, dict) else {}
-    for alias in aliases:
-        count = len(local_rows_by_domain.get(alias, [])) + len(cdp_payloads.get(alias, []))
-        tab_count = len(domain_tabs.get(alias, [])) if isinstance(domain_tabs, dict) else 0
-        if count or tab_count:
-            return alias
-    return ''
 
 
 def structured_ts(source_time):
@@ -2329,7 +2265,6 @@ def extract_hsgt_signals(data_directory_content_rows, source_time):
 def extract_experimental_signals(evidence_by_domain, source_time):
     experimental_signals = []
     signal_mapping = {
-        'margin_trading': ('margin_signal', ('融资余额', '融券余额', '融资买入', '融资净买入')),
         'block_trades': ('block_trade_signal', ('大宗交易', '溢价', '折价')),
         'lockup_expiry': ('lockup_risk_signal', ('解禁', '限售', '流通')),
         'shareholder_changes': ('shareholder_signal', ('增持', '减持', '回购', '股东')),
@@ -2428,19 +2363,7 @@ def extract_order_book_snapshots(rows_by_domain, source_time, candidate_names=No
             ask_levels.append({'price': price, 'volume': num(volume_raw, 0)})
             basis.append(price_key or volume_key or f'ask{idx}')
         if not bid_levels and not ask_levels:
-            raw_text = str(row.get('raw_text') or '')
-            if raw_text and '买一' in raw_text and '卖一' in raw_text:
-                parsed = parse_cdp_dom_order_book(raw_text)
-                if parsed:
-                    bid_levels = parsed['bid_levels']
-                    ask_levels = parsed['ask_levels']
-                    basis = parsed['basis']
-                    weibie = parsed.get('weibie')
-                    weicha = parsed.get('weicha')
-                    neipan = parsed.get('neipan')
-                    waipan = parsed.get('waipan')
-            if not bid_levels and not ask_levels:
-                continue
+            continue
         if code in seen_symbols:
             continue
         seen_symbols.add(code)
@@ -2475,63 +2398,6 @@ def extract_order_book_snapshots(rows_by_domain, source_time, candidate_names=No
     return snapshots
 
 
-def parse_cdp_dom_order_book(text):
-    bid_levels = []
-    ask_levels = []
-    basis = []
-    weibie = None
-    weicha = None
-    neipan = None
-    waipan = None
-    label_map = {
-        '买一': ('bid', 1), '买二': ('bid', 2), '买三': ('bid', 3), '买四': ('bid', 4), '买五': ('bid', 5),
-        '卖一': ('ask', 1), '卖二': ('ask', 2), '卖三': ('ask', 3), '卖四': ('ask', 4), '卖五': ('ask', 5),
-    }
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        for label, (side, level) in label_map.items():
-            if line.startswith(label):
-                parts = line.replace('\xa0', ' ').split('\t')
-                if len(parts) >= 3:
-                    price = num(parts[1], None)
-                    volume = num(parts[2], 0)
-                    if price is not None:
-                        entry = {'price': price, 'volume': volume}
-                        if side == 'bid':
-                            bid_levels.append(entry)
-                            basis.append(f'cdp_dom_{label}')
-                        else:
-                            ask_levels.append(entry)
-                            basis.append(f'cdp_dom_{label}')
-        m = re.search(r'委比[：:]\s*(-?\d+\.?\d*)%', line)
-        if m:
-            weibie = num(m.group(1), None)
-        m = re.search(r'委差[：:]\s*(-?\d+)', line)
-        if m:
-            weicha = num(m.group(1), None)
-        m = re.search(r'内盘[：:]\s*([\d.]+万?)', line)
-        if m:
-            neipan = num(m.group(1), None)
-        m = re.search(r'外盘[：:]\s*([\d.]+万?)', line)
-        if m:
-            waipan = num(m.group(1), None)
-    bid_levels = bid_levels[:5]
-    ask_levels = ask_levels[:5]
-    if not bid_levels and not ask_levels:
-        return None
-    return {
-        'bid_levels': bid_levels,
-        'ask_levels': ask_levels,
-        'basis': basis,
-        'weibie': weibie,
-        'weicha': weicha,
-        'neipan': neipan,
-        'waipan': waipan,
-    }
-
-
 def extract_replay_structures(rows_by_domain, source_time, candidate_names=None):
     candidate_names = candidate_names or {}
     records = []
@@ -2561,9 +2427,9 @@ def extract_replay_structures(rows_by_domain, source_time, candidate_names=None)
             'has_stock_profile': any(token in text for token in ('个股概况', '深度数据', '公司亮点')),
             'raw_ref': {'domain': row.get('domain'), 'source': source},
         }
-        if source.endswith('zjlx_cdp') or 'zjlx/' in record['page_url']:
+        if 'zjlx/' in record['page_url']:
             record['replay_type'] = 'capital_flow_replay'
-        elif source.endswith('stockdata_cdp') or 'stockdata/' in record['page_url']:
+        elif 'stockdata/' in record['page_url']:
             record['replay_type'] = 'stockdata_replay'
         else:
             record['replay_type'] = 'intraday_trade_replay'
@@ -3008,7 +2874,6 @@ def build_information_coverage_audit(source_status_map, candidates, structured_o
     # 主力/游资视角覆盖审计 (NN2: 缺失不可静默)
     main_force_sources = {
         'concept_capital_flow': domain_status('concept_capital_flow'),
-        'margin_trading': domain_status('margin_trading'),
         'block_trades': domain_status('block_trades'),
         'shareholder_changes': domain_status('shareholder_changes'),
         'lockup_expiry': domain_status('lockup_expiry'),
@@ -3437,15 +3302,19 @@ def build_structured_scores(scored_rows, structured_bundle):
             'news_quality': round(min(1.0, component_score(len(news_rows), 3) * 0.65 + news_confidence * 0.25 + positive_news * 0.1), 4),
             'limitup_reason_strength': round(min(1.0, component_score(len(limitup_rows), 2) * 0.45 + limitup_strength * 0.55), 4),
             'lhb_seat_strength': round(min(1.0, component_score(len(lhb_rows), 5) * 0.45 + min(1.0, lhb_net / 50000000) * 0.3 + lhb_seat_bonus), 4),
-            'sector_propagation': round(min(1.0, component_score(sector_counts.get(code, 0), 3) * 0.55 + component_score(graph_degrees.get(code, 0), 6) * 0.25 + replay_industry_bonus * 0.20), 4),
+            # candidate_intraday_replay is retained as provenance/audit data.
+            # Research snapshots must not manufacture production sector strength.
+            'sector_propagation': round(min(1.0, component_score(sector_counts.get(code, 0), 3) * 0.55 + component_score(graph_degrees.get(code, 0), 6) * 0.25), 4),
             'popularity_momentum': round(min(1.0, component_score(len(popularity_rows), 2) * 0.3 + popularity_score * 0.7), 4),
-            'fund_flow_momentum': round(min(1.0, component_score(len(fund_rows), 2) * 0.20 + min(1.0, fund_inflow / 100000000) * 0.45 + replay_fund_bonus * 0.25 + replay_ratio_bonus * 0.10), 4),
+            # Direct candidate_fund_recheck / fund-flow snapshots are the only
+            # production capital input. Replay flow/ratio remains diagnostic.
+            'fund_flow_momentum': round(min(1.0, component_score(len(fund_rows), 2) * 0.20 + min(1.0, fund_inflow / 100000000) * 0.45), 4),
             'seal_order_strength': round(min(1.0, component_score(len(seal_rows), 2) * 0.35 + seal_strength * 0.65), 4),
             'order_book_pressure': round(min(1.0, component_score(len(order_rows), 1) * 0.3 + order_pressure * 0.7), 4),
-            'time_series_momentum': round(min(1.0, component_score(len(delta_rows), 3) * 0.20 + time_series_momentum * 0.55 + (0.25 if replay_has_history_flow else 0.0)), 4),
+            'time_series_momentum': round(min(1.0, component_score(len(delta_rows), 3) * 0.20 + time_series_momentum * 0.55), 4),
             'relationship_graph_centrality': component_score(graph_degrees.get(code, 0), 8),
             'low_position_catalyst_score': round(low_position_catalyst_score, 4),
-            'main_theme_alignment_score': round(min(1.0, main_theme_alignment_score + (0.10 if replay_has_stock_profile else 0.0) + (0.10 if replay_has_history_flow else 0.0)), 4),
+            'main_theme_alignment_score': round(min(1.0, main_theme_alignment_score), 4),
             'main_theme_core_score': round(main_theme_core_score, 4),
             'hsgt_institutional_flow': round(min(1.0, hsgt_inflow + hsgt_accumulation), 4),
             'experimental_catalyst_signal': round(min(1.0, max(0.0, experimental_positive + experimental_negative)), 4),
@@ -3549,7 +3418,6 @@ def build_structured_scores(scored_rows, structured_bundle):
             'limitup_capture_reasons': limitup_capture['limitup_capture_reasons'],
             'research_signals': research_signals,
             'structured_score_version': 'structured_alpha_v0_4_active',
-            'final_shadow_score': round((base_score or 0) + structured_score, 4) if base_score is not None else structured_score,
             'mode': 'active_scoring_support',
         }
         rows.append(attach_checksum(freeze_vei(structured_scores_obj)))
@@ -3653,11 +3521,6 @@ def http_json(url, method='GET'):
         if m:
             text = m.group(1)
     return json.loads(text)
-
-
-def open_enhanced_cdp_tabs(*args, **kwargs):
-    raise RuntimeError('CDP tab helpers removed; use scrapy_scanner.runner_v2')
-
 
 
 def exception_brief(exc):
@@ -4114,7 +3977,7 @@ def merge_concept_stocks_into_quotes(concept_stocks, existing_quotes, max_per_bo
             'price': stock.get('price') or 0,
             'pct_chg': stock.get('pct_change'),
             'net_inflow_main': stock.get('main_force_net_inflow'),
-            'source': 'eastmoney_concept_detail_cdp',
+            'source': 'eastmoney_concept_detail_api',
             'from_concept_board': stock.get('board_code', ''),
             'from_concept_board_name': board_name,
             'concept_sector_tag': board_name,
@@ -4195,284 +4058,6 @@ def rows_from_candidate_fund_recheck(candidate, quote_rows, source_time):
     if rows:
         return rows
     return rows_from_candidate_fund_flow_api(candidate, source_time)
-
-
-def _collect_stock_detail_evidence(cdp_url, tab_id, code, name, source_time, rows_by_domain):
-    """Navigate to stock data detail page and extract enhanced evidence via CDP JS evaluation."""
-    js_extract = """
-    (() => {
-        const result = {};
-        const bodyText = document.body.innerText || '';
-        const sectorMatch = bodyText.match(/所属板块\\s*(.+)/);
-        if (sectorMatch) {
-            result.stock_sectors = sectorMatch[1].trim().split(/[,，、\\s]+/).filter(s => s.length >= 2 && s.length <= 20);
-        }
-        const tables = document.querySelectorAll('table');
-        tables.forEach((t, i) => {
-            const text = (t.innerText || '').substring(0, 300);
-            const rows = [];
-            t.querySelectorAll('tr').forEach(tr => {
-                const cells = Array.from(tr.querySelectorAll('td, th')).map(c => c.innerText.trim());
-                if (cells.length > 2) rows.push(cells);
-            });
-            if (text.includes('融资') && text.includes('融券') && rows.length > 0) {
-                result.margin_trading = rows.slice(0, 10);
-            }
-            if (text.includes('主力') && text.includes('净流入') && !result.fund_flow) {
-                result.fund_flow = rows.slice(0, 10);
-            }
-            if (text.includes('大宗交易') || (text.includes('折溢率') && text.includes('成交额'))) {
-                result.block_trades = rows.slice(0, 10);
-            }
-            if (text.includes('研报') || text.includes('评级') || text.includes('目标价')) {
-                result.research_reports = rows.slice(0, 5);
-            }
-            if (text.includes('股东名称') && text.includes('持股数') && !result.shareholders) {
-                result.shareholders = rows.slice(0, 10);
-            }
-        });
-        return JSON.stringify(result);
-    })()
-    """
-    try:
-        ws_url = None
-        tabs = http_json(cdp_url.rstrip('/') + '/json')
-        for t in tabs:
-            if t.get('id') == tab_id and t.get('webSocketDebuggerUrl'):
-                ws_url = t['webSocketDebuggerUrl']
-                break
-        if not ws_url:
-            return
-
-        import websocket as _ws
-        sock = _ws.create_connection(ws_url, timeout=8)
-        sock.settimeout(8)
-        msg = json.dumps({'id': 1, 'method': 'Runtime.evaluate', 'params': {'expression': js_extract, 'returnByValue': True, 'awaitPromise': True}})
-        sock.send(msg)
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            raw = sock.recv()
-            if raw:
-                p = json.loads(raw)
-                if p.get('id') == 1:
-                    val = p.get('result', {}).get('result', {}).get('value')
-                    if val:
-                        detail = json.loads(val)
-                        for domain_key, target_domain in [
-                            ('margin_trading', 'margin_trading'),
-                            ('fund_flow', 'concept_capital_flow'),
-                            ('block_trades', 'block_trades'),
-                            ('research_reports', 'research_reports'),
-                            ('shareholders', 'shareholder_changes'),
-                        ]:
-                            if detail.get(domain_key):
-                                for row in detail[domain_key]:
-                                    rows_by_domain[target_domain].append({
-                                        'code': code, 'name': name,
-                                        'cells': row, 'domain': target_domain,
-                                        'source': 'eastmoney_stock_detail_cdp',
-                                        'date': source_time[:10]
-                                    })
-                        if detail.get('stock_sectors'):
-                            rows_by_domain.setdefault('_stock_sectors_map', {})[code] = detail['stock_sectors']
-                    break
-        sock.close()
-    except Exception:
-        pass
-
-
-def websocket_frame(payload):
-    data = payload.encode('utf-8')
-    header = bytearray([0x81])
-    length = len(data)
-    if length < 126:
-        header.append(0x80 | length)
-    elif length < 65536:
-        header.append(0x80 | 126)
-        header.extend(struct.pack('!H', length))
-    else:
-        header.append(0x80 | 127)
-        header.extend(struct.pack('!Q', length))
-    mask = b'\x11\x22\x33\x44'
-    header.extend(mask)
-    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
-    return bytes(header) + masked
-
-
-def read_exact(sock, size):
-    chunks = []
-    remaining = size
-    while remaining:
-        chunk = sock.recv(remaining)
-        if not chunk:
-            raise RuntimeError('websocket closed')
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b''.join(chunks)
-
-
-def websocket_read(sock):
-    first = read_exact(sock, 2)
-    opcode = first[0] & 0x0F
-    length = first[1] & 0x7F
-    masked = first[1] & 0x80
-    if length == 126:
-        length = struct.unpack('!H', read_exact(sock, 2))[0]
-    elif length == 127:
-        length = struct.unpack('!Q', read_exact(sock, 8))[0]
-    mask = read_exact(sock, 4) if masked else b''
-    payload = read_exact(sock, length) if length else b''
-    if masked:
-        payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    if opcode == 8:
-        raise RuntimeError('websocket closed')
-    if opcode in (1, 2):
-        return payload.decode('utf-8')
-    return ''
-
-
-def ws_request(ws_url, message):
-    parsed = urlparse(ws_url)
-    host = parsed.hostname or '127.0.0.1'
-    port = parsed.port or 80
-    key = base64.b64encode(hashlib.sha1(f'{datetime.now().timestamp()}'.encode()).digest()[:16]).decode()
-    path = parsed.path + (('?' + parsed.query) if parsed.query else '')
-    sock = socket.create_connection((host, port), timeout=5)
-    sock.settimeout(10)
-    try:
-        request = (
-            f'GET {path} HTTP/1.1\r\n'
-            f'Host: {host}:{port}\r\n'
-            'Upgrade: websocket\r\n'
-            'Connection: Upgrade\r\n'
-            f'Sec-WebSocket-Key: {key}\r\n'
-            f'Sec-WebSocket-Version: 13\r\n\r\n'
-        )
-        sock.sendall(request.encode('ascii'))
-        response = sock.recv(4096)
-        if b' 101 ' not in response.split(b'\r\n', 1)[0]:
-            raise RuntimeError('cdp websocket handshake not ready')
-        sock.sendall(websocket_frame(json.dumps(message)))
-        target_id = message['id']
-        deadline = time.time() + 12
-        while True:
-            if time.time() > deadline:
-                raise RuntimeError('cdp websocket read timeout (12s)')
-            raw = websocket_read(sock)
-            if not raw:
-                continue
-            payload = json.loads(raw)
-            if payload.get('id') == target_id:
-                return payload
-    finally:
-        sock.close()
-
-
-def tab_snapshot_expression():
-    return r"""
-(() => {
-  const visibleText = (el) => (el && el.innerText ? el.innerText.trim() : '');
-  const tables = Array.from(document.querySelectorAll('table')).slice(0, 20).map((table) => ({
-    rows: Array.from(table.querySelectorAll('tr')).slice(0, 500).map((tr) =>
-      Array.from(tr.querySelectorAll('th,td')).map((td) => visibleText(td))
-    ).filter((row) => row.length)
-  })).filter((table) => table.rows.length);
-  return {
-    url: location.href,
-    title: document.title,
-    text: document.body ? document.body.innerText.slice(0, 200000) : '',
-    tables
-  };
-})()
-"""
-
-
-def domain_for_tab(url, title):
-    lowered_url = str(url).lower()
-    text = str(url) + ' ' + str(title)
-    for domain, tokens in DOMAIN_URL_TOKENS.items():
-        if any(token in lowered_url for token in tokens):
-            return domain
-    for domain, hints in DOMAIN_PAGE_HINTS.items():
-        if any(hint in text for hint in hints):
-            return domain
-    return ''
-
-
-def page_marker_row(snapshot, domain):
-    text = ' '.join(str(snapshot.get(key, '')) for key in ('url', 'title', 'matched_url', 'matched_title'))
-    code = normalize_code(text)
-    if not code:
-        return None
-    return {
-        'code': code,
-        'SECURITY_CODE': code,
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'title': snapshot.get('title') or snapshot.get('matched_title') or domain,
-        'summary': str(snapshot.get('text', ''))[:500],
-        'domain': domain,
-        'source': 'eastmoney_web_tabs_page_marker',
-    }
-
-
-def risk_rows_from_text(text, domain='risk_alerts'):
-    rows = []
-    for line in str(text).splitlines():
-        if not any(keyword in line for keyword in RISK_KEYWORDS + CATALYST_KEYWORDS + FINANCIAL_RISK_KEYWORDS):
-            continue
-        code = normalize_code(line)
-        if not code:
-            continue
-        rows.append({'code': code, 'title': line, 'date': line, 'domain': domain, 'source': 'eastmoney_web_tabs_risk_text'})
-    return rows
-
-
-def unique_quotes(rows):
-    seen = {}
-    for row in rows:
-        quote = normalize_quote(row, row.get('source', WEB_TABS_SOURCE))
-        if not quote['code'] or not is_a_share_code(quote['code']) or quote['price'] <= 0:
-            continue
-        old = seen.get(quote['code'])
-        if old is None or quote['amount'] > old['amount']:
-            seen[quote['code']] = quote
-    return list(seen.values())
-
-
-def limit_touch_threshold(board):
-    if board in ('chinext', 'star'):
-        return 19.0
-    if board == 'beijing':
-        return 29.0
-    return 9.5
-
-
-def quote_reversal_risk(quote, close_position_score):
-    high = quote.get('high')
-    prev_close = quote.get('prev_close')
-    signal_pct = quote.get('pct_chg')
-    board = quote.get('board') or board_for_code(quote.get('code'))
-    intraday_high_pct = None
-    pullback_from_high_pct = None
-    broken_limit_risk = False
-    intraday_pullback_risk = False
-    broken_limit_risk_reason = None
-    if high and prev_close and prev_close > 0:
-        intraday_high_pct = round((high / prev_close - 1) * 100, 4)
-        pullback_from_high_pct = round(intraday_high_pct - signal_pct, 4)
-        threshold = limit_touch_threshold(board)
-        if intraday_high_pct >= threshold and signal_pct < threshold:
-            broken_limit_risk = True
-            broken_limit_risk_reason = f'TOUCHED_{str(board or "unknown").upper()}_LIMIT_THEN_FADED'
-        if pullback_from_high_pct >= 2.0 and close_position_score is not None and close_position_score < 0.8:
-            intraday_pullback_risk = True
-    return {
-        'intraday_high_pct': intraday_high_pct,
-        'pullback_from_high_pct': pullback_from_high_pct,
-        'broken_limit_risk': broken_limit_risk,
-        'broken_limit_risk_reason': broken_limit_risk_reason,
-        'intraday_pullback_risk': intraday_pullback_risk,
-    }
 
 
 def percentile_rank(value, values):
@@ -4758,8 +4343,6 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
     full_tradable = [
         q for q in quotes
         if q['price'] > 0
-        and q['price'] <= 70
-        and q['price'] * 100 <= ONE_LOT_COST_CAP
         and (q.get('board') or '') in CORE_A_SHARE_BOARDS
         and (q.get('pct_chg') or 0.0) < 9.5  # 排除涨停票
     ]
@@ -4921,7 +4504,7 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
             'signal_pct': pct_val,
             'candidate_stage': q['_candidate_stage'],
             'signal_amount': q.get('amount'),
-            'market_regime': 'eastmoney_web_tabs',
+            'market_regime': 'direct_api',
             'market_limitups': market_limitups,
             'market_bigups': market_bigups,
             'market_breadth_up_pct': market_breadth,
@@ -4944,7 +4527,7 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
             'news_catalyst_quality_categories': q.get('_news_catalyst_quality_categories', []),
             'theme_strength': min(12.0, max(0.0, q['pct_chg'], q['_underwater_recovery_score'] / 10)),
             'theme_big_strength': min(12.0, max(0.0, q['pct_chg']) * 0.6 + q['_underwater_recovery_score'] / 20),
-            'top_theme_token': 'EASTMONEY_WEB_TABS_FULL_UNIVERSE_LAYERED_SCAN',
+            'top_theme_token': 'EASTMONEY_API_FULL_UNIVERSE_LAYERED_SCAN',
             'setup_type': q['_setup_type'],
             'source_layers': q['_source_layers'],
             'underwater_recovery_score': q['_underwater_recovery_score'],
@@ -4968,10 +4551,10 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
             'weak_close_risk': reversal_risk['intraday_pullback_risk'],
             'source_time': source_time,
             'data_cutoff': source_time,
-            'evidence_path': str(output_dir / 'eastmoney_web_tabs_summary.json'),
-            'score_asof_provenance': 'eastmoney_logged_in_web_tabs_full_universe_layered_sample',
+            'evidence_path': str(output_dir / 'xiaogu_scan_summary.json'),
+            'score_asof_provenance': 'eastmoney_direct_api_full_universe_layered_sample',
             'candidate_pool_count': len(full_tradable),
-            'source_row_hash': f"eastmoney_web_tabs:{source_time}:{q.get('code','')}:{q.get('price',0)}:{q.get('pct_chg',0)}:{q.get('amount',0)}",
+            'source_row_hash': f"eastmoney_direct_api:{source_time}:{q.get('code','')}:{q.get('price',0)}:{q.get('pct_chg',0)}:{q.get('amount',0)}",
             'paper_only': True,
             'no_trade': True,
         })
@@ -4997,285 +4580,48 @@ def build_candidates(quotes, min_pct, max_pct, max_candidates, source_time, outp
     }
 
 
-def sector_enriched_scoring(candidates, risk_map, evidence_pack=None, evidence_rows_by_domain=None):
-    """统一评分: 实时题材 + 多日趋势 + 技术面 + 主力视角。
-    
-    权重分配:
-    - 实时题材强度: 30% (CDP实时数据)
-    - 多日趋势: 20% (历史快照验证)
-    - 技术面: 30% (integrated_score)
-    - 主力视角: 20% (hot_money_score)
+def score_candidates(candidates, risk_map=None, evidence_pack=None, evidence_rows_by_domain=None):
+    """Compatibility surface backed by the single main-force T+1 chain.
+
+    The scanner library no longer owns a separate technical/hot-money score.
+    ``risk_map`` and evidence arguments remain accepted for old callers, but
+    formal ranking is delegated to the production runner only.
     """
-    from xiaogu_v2_1_six_repo_real_integrated import (
-        sector_prediction, load_multi_day_snapshots, sector_trend_score,
-        extract_concept_board_ranking, integrated_score, hot_money_score
+    del risk_map, evidence_pack, evidence_rows_by_domain
+    from xiaogu_forward_d1_1450_runner_v0_1 import (
+        formal_candidate_sort_key,
+        ranking_basis_adjustment_components,
     )
-    evidence_pack = evidence_pack or {}
-    evidence_rows_by_domain = evidence_rows_by_domain or {}
 
-    # Step 1: 实时题材强度榜 (CDP浏览器数据)
-    concept_rows = evidence_rows_by_domain.get('concept_industry', [])
-    realtime_boards = extract_concept_board_ranking(concept_rows)
-    if realtime_boards:
-        # 实时涨幅 >= 3% 的题材
-        predicted_sectors = {b['name']: b for b in realtime_boards if b.get('pct', 0) >= 3.0}
-        print(f'SCAN: 实时题材强度榜 TOP5: {[b["name"] for b in realtime_boards[:5]]}', file=sys.stderr, flush=True)
-    else:
-        predicted_sectors = {}
-        print('SCAN: CDP题材数据不可用', file=sys.stderr, flush=True)
-
-    # Step 2: 加载多日快照算趋势 (如果有的话)
-    multi_day = load_multi_day_snapshots(days=5)
-    sector_trends = {}
-    for date_str, snap in multi_day:
-        if isinstance(snap, dict) and snap.get('concept_boards'):
-            for b in snap['concept_boards']:
-                name = b.get('name', '')
-                if name and name not in sector_trends:
-                    sector_trends[name] = sector_trend_score(name, multi_day)
-
-    # Step 3: 从 CDP 数据提取领涨股
-    sector_lead_stocks = {}
-    for domain in ('concept_capital_flow', 'sector_fund_flow'):
-        for row in evidence_rows_by_domain.get(domain, []):
-            cells = row.get('cells', [])
-            if len(cells) >= 2:
-                sector_name = str(cells[1]).strip()
-                lead_stock = str(cells[-1]).strip() if cells else ''
-                if sector_name in predicted_sectors and lead_stock and lead_stock not in ('净占比', '净额', '名称'):
-                    code = code_from_name(lead_stock)
-                    if code:
-                        sector_lead_stocks[code] = sector_name
-
-    # Step 4: API concept members 补充
-    import urllib.request
-    from concurrent.futures import ThreadPoolExecutor
-    try:
-        url = 'https://push2.eastmoney.com/api/qt/clist/get?fid=f3&po=1&pz=500&pn=1&np=1&fltt=2&invt=2&fs=m:90+t:3&fields=f12,f14'
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        resp = urllib.request.urlopen(req, timeout=10)
-        api_boards = {d['f14']: d['f12'] for d in json.loads(resp.read()).get('data', {}).get('diff', [])}
-        matched = {n: api_boards[n] for n in predicted_sectors if n in api_boards}
-        def _fetch(code):
-            try:
-                u = f'https://push2.eastmoney.com/api/qt/clist/get?fid=f3&po=1&pz=50&pn=1&np=1&fltt=2&invt=2&fs=b:{code}&fields=f12,f14'
-                r = urllib.request.Request(u, headers={'User-Agent': 'Mozilla/5.0'})
-                d = json.loads(urllib.request.urlopen(r, timeout=5).read())
-                return [(x['f12'], x['f14']) for x in d.get('data', {}).get('diff', []) if x.get('f12')]
-            except:
-                return []
-        with ThreadPoolExecutor(5) as pool:
-            futures = {pool.submit(_fetch, c): n for n, c in matched.items()}
-            for f in futures:
-                try:
-                    members = f.result(timeout=8)
-                    for code, name in members:
-                        if code not in sector_lead_stocks:
-                            # 找到这个code属于哪个sector
-                            for s_name in predicted_sectors:
-                                if api_boards.get(s_name) == n:
-                                    sector_lead_stocks[code] = s_name
-                                    break
-                except:
-                    pass
-    except:
-        pass
-
-    # Step 5: 统一评分
     scored = []
     block_reasons = Counter()
-    for candidate in candidates:
-        code = candidate['code']
-        in_predicted_sector = code in sector_lead_stocks
-        matched_sector_name = sector_lead_stocks.get(code)
-
-        evidence = evidence_pack.get(code, {})
-        coverage = candidate_evidence_status(evidence)
-        flags = evidence_flags(evidence) if evidence else evidence_flags({})
-        regulatory_reasons = risk_map.get(code, []) or flags['risk_reasons'] or flags['financial_risk_flags'] or flags['lhb_risk_flags']
-
-        if regulatory_reasons:
-            score = None
-            reasons = ['regulatory_hard_block:' + ';'.join(regulatory_reasons)]
-            regime = candidate.get('market_regime')
-        else:
-            score, reasons, regime = integrated_score(candidate)
-
-        hm_score, hm_features = hot_money_score(candidate)
-
-        # 实时题材强度分 (0-100)
-        realtime_score = 0
-        if matched_sector_name and matched_sector_name in predicted_sectors:
-            realtime_score = min(100, predicted_sectors[matched_sector_name]['pct'] * 10)
-
-        # 多日趋势分 (0-100)
-        trend_score = 0
-        if matched_sector_name and matched_sector_name in sector_trends:
-            trend_score = sector_trends[matched_sector_name]['trend_score']
-
-        # 综合评分: 实时题材30% + 趋势20% + 技术面30% + 主力20%
-        if in_predicted_sector:
-            if score is not None:
-                final_score = (
-                    realtime_score * 0.30 +
-                    trend_score * 0.20 +
-                    score * 0.30 +
-                    hm_score * 0.20
-                )
-            elif not regulatory_reasons:
-                final_score = realtime_score * 0.4 + trend_score * 0.3 + hm_score * 0.3
-            else:
-                final_score = None
-        else:
-            # 非热点板块，只用技术面+主力
-            if score is not None:
-                final_score = score * 0.7 + hm_score * 0.3
-            elif not regulatory_reasons:
-                final_score = hm_score * 0.5
-            else:
-                final_score = None
-
-        repo_signals = aggregate_four_repo_native_signals(candidate)
-        repo_contributions = repo_signals.get('repo_contributions', {})
-        repo_contribution_summary = repo_signals.get('repo_contribution_summary', '')
-        final_score_explanation = (
-            f"final={final_score:.1f}; "
-            f"realtime={realtime_score:.0f}; "
-            f"trend={trend_score:.0f}; "
-            f"int={score if score else 0:.0f}; "
-            f"hm={hm_score:.0f}"
-        ) if final_score is not None else "final_score=None"
-        if in_predicted_sector:
-            final_score_explanation += f"; SECTOR={matched_sector_name}"
-        selection_reason = build_candidate_selection_reason(
-            candidate,
-            final_score,
-            score,
-            hm_score,
-            matched_sector_name,
-            realtime_score,
-            trend_score,
-            repo_contribution_summary,
-        )
-        if not selection_reason and final_score_explanation:
-            selection_reason = final_score_explanation
-        sentiment_catalyst = candidate.get('news_catalyst_quality_categories', [])
-        theme_catalyst = matched_sector_name or ','.join((candidate.get('sector_opportunity_tags') or [])[:3])
-        positive_catalyst = selection_reason
-        evidence_status = 'PASS' if evidence else 'SOURCE_COVERED_NO_MATCHING_RECORD'
-        record = {
-            'signal_date': candidate['signal_date'],
-            'asof_time': candidate['asof_time'],
-            'code': code,
-            'name': candidate['name'],
-            'board': candidate.get('board') or board_for_code(code),
-            'price': candidate['price'],
-            'signal_pct': candidate['signal_pct'],
-            'signal_amount': candidate['signal_amount'],
-            'rank': candidate['rank'],
-            'amount_pctile_rule': candidate['amount_pctile_rule'],
-            'setup_type': candidate.get('setup_type'),
-            'source_layers': candidate.get('source_layers', []),
-            'underwater_recovery_score': candidate.get('underwater_recovery_score'),
-            'full_universe_rank': candidate.get('full_universe_rank'),
-            'full_universe_quote_count': candidate.get('full_universe_quote_count'),
-            'full_universe_tradable_count': candidate.get('full_universe_tradable_count'),
-            'full_universe_amount_pctile': candidate.get('full_universe_amount_pctile'),
-            'full_universe_fund_pctile': candidate.get('full_universe_fund_pctile'),
-            'market_breadth_up_pct': candidate['market_breadth_up_pct'],
-            'market_limitups': candidate.get('market_limitups'),
-            'market_bigups': candidate.get('market_bigups'),
-            'net_inflow_main': candidate.get('net_inflow_main'),
-            'close_position_score': candidate.get('close_position_score'),
-            'turnover_rate': candidate.get('turnover_rate'),
-            'volume_ratio': candidate.get('volume_ratio'),
-            'search_layer_hint': candidate.get('search_layer_hint'),
-            'search_priority': candidate.get('search_priority'),
-            'news_catalyst_strength': candidate.get('news_catalyst_strength'),
-            'sector_news_strength': candidate.get('sector_news_strength'),
-            'sector_opportunity_score': candidate.get('sector_opportunity_score'),
-            'sector_catalyst_score': candidate.get('sector_catalyst_score'),
-            'sector_opportunity_tags': candidate.get('sector_opportunity_tags', []),
-            'topic_propagation_score': candidate.get('topic_propagation_score'),
-            'intraday_alert_strength': candidate.get('intraday_alert_strength'),
-            'limitup_reason_propagation_score': candidate.get('limitup_reason_propagation_score'),
-            'low_position_catalyst_score': candidate.get('low_position_catalyst_score'),
-            'limitup_capture_score': candidate.get('limitup_capture_score'),
-            'limitup_capture_profile': candidate.get('limitup_capture_profile'),
-            'limitup_capture_confirmed': candidate.get('limitup_capture_confirmed'),
-            'limitup_capture_reasons': candidate.get('limitup_capture_reasons', []),
-            'news_catalyst_quality_categories': candidate.get('news_catalyst_quality_categories', []),
-            'score': final_score,
-            'integrated_score': score,
-            'hot_money_score': hm_score,
-            'hot_money_features': hm_features,
-            'sector_prediction_boost': 15 if in_predicted_sector else 0,
-            'predicted_sector': in_predicted_sector,
-            'market_regime': regime,
+    for candidate in candidates or []:
+        row = dict(candidate) if isinstance(candidate, dict) else {}
+        key = formal_candidate_sort_key(row)
+        adjustment = ranking_basis_adjustment_components(row)
+        score = float(key[0]) if key else None
+        reasons = list(adjustment.get('counter_evidence') or [])
+        row.update({
+            'score': score,
+            'final_score': score,
+            'production_score': score,
+            'ranking_view': 'main_force_behavior_chain',
+            'score_source': 'formal_t1_profit_components',
+            'ranking_basis_adjustment': adjustment,
             'blocked_reasons': reasons,
-            'repo_delta_by_repo': repo_signals.get('score_delta_by_repo', {}),
-            'regulatory_hard_block': ';'.join(regulatory_reasons) if regulatory_reasons else None,
-            'eastmoney_evidence_status': evidence_status,
-            'candidate_evidence_status': coverage['status'],
-            'candidate_evidence_domain_counts': coverage['domain_counts'],
-            'candidate_evidence_matched_domains': coverage['matched_domains'],
-            'candidate_evidence_missing_domains': coverage['missing_domains'],
-            'enhanced_evidence_domain_counts': coverage['enhanced_domain_counts'],
-            'enhanced_evidence_matched_domains': coverage['enhanced_matched_domains'],
-            'enhanced_evidence_missing_domains': coverage['enhanced_missing_domains'],
-            'experimental_evidence_domain_counts': coverage['experimental_domain_counts'],
-            'experimental_evidence_matched_domains': coverage['experimental_matched_domains'],
-            'experimental_evidence_missing_domains': coverage['experimental_missing_domains'],
-            'risk_evidence_count': len(flags['risk_reasons']),
-            'catalyst_evidence_count': len(flags['catalysts']),
-            'financial_risk_flags': flags['financial_risk_flags'],
-            'lhb_risk_flags': flags['lhb_risk_flags'],
-            'concept_industry_tags': flags['concept_industry_tags'],
-            'limitup_strength_tags': flags['limitup_strength_tags'],
-            'broken_limit_risk_flags': flags['broken_limit_risk_flags'],
-            'board_strength_tags': flags['board_strength_tags'],
-            'candidate_quote_recheck_tags': flags['candidate_quote_recheck_tags'],
-            'candidate_fund_recheck_tags': flags['candidate_fund_recheck_tags'],
-            'margin_risk_flags': flags['margin_risk_flags'],
-            'block_trade_flags': flags['block_trade_flags'],
-            'lockup_risk_flags': flags['lockup_risk_flags'],
-            'shareholder_change_flags': flags['shareholder_change_flags'],
-            'research_rating_tags': flags['research_rating_tags'],
-            'earnings_preview_flags': flags['earnings_preview_flags'],
-            'ipo_calendar_tags': flags['ipo_calendar_tags'],
-            'trading_halt_flags': flags['trading_halt_flags'],
-            'research_signals': candidate.get('research_signals'),
-            'score_delta_by_repo': repo_signals.get('score_delta_by_repo', {}),
-            'repo_delta_by_repo': repo_signals.get('score_delta_by_repo', {}),
-            'repo_contributions': repo_contributions,
-            'repo_contribution_summary': repo_contribution_summary,
-            'selection_reason': selection_reason,
-            'sentiment_catalyst': sentiment_catalyst,
-            'theme_catalyst': theme_catalyst,
-            'news_catalyst': candidate.get('news_catalyst_strength'),
-            'positive_catalyst': positive_catalyst,
-            'final_score': final_score,
-            'final_score_explanation': final_score_explanation,
             'paper_only': True,
             'no_trade': True,
-        }
-        if final_score is None:
-            for reason in reasons:
-                block_reasons[str(reason).split(':')[0]] += 1
-        scored.append(record)
+        })
+        for reason in reasons:
+            block_reasons[str(reason).split(':')[0]] += 1
+        scored.append(row)
 
-    passed = sorted([record for record in scored if record['score'] is not None], key=lambda r: r['score'], reverse=True)
-    return scored, passed, dict(block_reasons), {'predicted_sectors': list(predicted_sectors), 'sector_lead_stocks': list(sector_lead_stocks)}
-
-
-def score_candidates(candidates, risk_map, evidence_pack=None, evidence_rows_by_domain=None):
-    scored, passed, block_reasons, _ = sector_enriched_scoring(
-        candidates,
-        risk_map,
-        evidence_pack=evidence_pack,
-        evidence_rows_by_domain=evidence_rows_by_domain,
+    passed = sorted(
+        [row for row in scored if row.get('score') is not None],
+        key=lambda row: row['score'],
+        reverse=True,
     )
-    return scored, passed, block_reasons
+    return scored, passed, dict(block_reasons)
 
 
 def build_candidate_selection_reason(candidate, final_score, integrated_score_value, hm_score, matched_sector_name, realtime_score, trend_score, repo_contribution_summary):
@@ -5362,7 +4708,6 @@ def signal_records_from_candidate(row, source_time):
         ('early_opportunity_score', row.get('early_opportunity_score')),
         ('close_position_score', row.get('close_position_score')),
         ('structured_score', row.get('structured_score')),
-        ('final_shadow_score', row.get('final_shadow_score')),
     ]
     for key, value in component_scores.items():
         records.append((f'structured_component_{key}', value))
@@ -5545,58 +4890,19 @@ def build_stock_capital_flow_map(evidence_by_stock, raw_rows):
     return stock_flow
 
 
-def _find_latest_scan_data():
-    scan_base = BASE / 'data' / 'live_scan'
-    candidates = []
-    for d in sorted(scan_base.iterdir(), reverse=True):
-        if not d.is_dir() or not re.match(r'\d{4}-\d{2}-\d{2}', d.name):
-            continue
-        for sub in d.iterdir():
-            if sub.is_dir() and 'eastmoney_web_tabs_scan' in sub.name:
-                summary = sub / 'eastmoney_web_tabs_summary.json'
-                if summary.exists() and summary.stat().st_size > 1000:
-                    candidates.append((d.name, sub, summary))
-    return candidates[0] if candidates else None
-
-
-
-
-# --- removed CDP live path (production uses scrapy_scanner/runner_v2 HTTP) ---
-# Thin stubs preserve import surfaces used by historical tests; they do not open browsers.
-
-def collect_cdp_payloads(*args, **kwargs):
-    raise RuntimeError('CDP live path removed; use scrapy_scanner.runner_v2')
-
-
-def collect_candidate_detail_evidence(*args, **kwargs):
-    raise RuntimeError('CDP candidate detail path removed; use runner_v2 API evidence')
-
-
-def collect_candidate_detail_evidence_parallel(*args, **kwargs):
-    raise RuntimeError('CDP candidate detail path removed; use runner_v2 API evidence')
-
-
 def rows_from_candidate_intraday_replay(*args, **kwargs):
     return []
 
 
-def source_status(local_rows_by_domain=None, cdp_payloads=None, quote_count=0, fund_count=0):
-    """Minimal non-CDP source_status for offline helpers/tests."""
+def source_status(local_rows_by_domain=None, source_rows=None, quote_count=0, fund_count=0):
+    """Build direct API source status for offline helpers and tests."""
     local_rows_by_domain = local_rows_by_domain or {}
     quote_count = int(quote_count or 0)
     fund_count = int(fund_count or 0)
     return {
         'quote_rank': {'status': 'PASS' if quote_count else 'MISSING', 'record_count': quote_count},
         'fund_flow': {'status': 'PASS' if fund_count else 'MISSING', 'record_count': fund_count},
-        'required_cdp_tabs': {'status': 'PASS', 'mode': 'api_direct', 'missing': []},
-        'enhanced_cdp_tabs': {'status': 'PASS', 'mode': 'api_direct', 'missing': []},
-        'experimental_cdp_tabs': {'status': 'PASS', 'mode': 'api_direct', 'missing': []},
+        'scanner_transport': 'direct_api',
+        'production_source': API_SCAN_SOURCE,
         'source_incomplete_flags': [],
     }
-
-
-def main(*args, **kwargs):
-    raise SystemExit('CDP web_tabs live main removed. Use: python3 scrapy_scanner/runner_v2.py')
-
-if __name__ == '__main__':
-    raise SystemExit('CDP web_tabs live main removed. Use: python3 scrapy_scanner/runner_v2.py')

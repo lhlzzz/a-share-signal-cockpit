@@ -31,19 +31,27 @@ ALTER TABLE picks ADD COLUMN IF NOT EXISTS risk_flags JSONB DEFAULT '[]';
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS auxiliary_evidence_status VARCHAR(20);
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS information_coverage_audit_snapshot JSONB DEFAULT '{}';
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS source_summary_path VARCHAR(500);
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS formal_rank_snapshot_id VARCHAR(128);
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS formal_rank_snapshot_version VARCHAR(128);
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS scoring_config_hash VARCHAR(128);
+CREATE INDEX IF NOT EXISTS idx_picks_production_run ON picks(production_run_id, trade_date, decision);
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
         SELECT 1
         FROM pg_constraint
         WHERE conrelid = 'picks'::regclass
           AND conname = 'uq_picks_trade_date_symbol_decision'
     ) THEN
-        ALTER TABLE picks
-            ADD CONSTRAINT uq_picks_trade_date_symbol_decision
-            UNIQUE (trade_date, symbol, decision);
+        ALTER TABLE picks DROP CONSTRAINT uq_picks_trade_date_symbol_decision;
     END IF;
 END $$;
+DROP INDEX IF EXISTS idx_picks_unique_pick;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_picks_legacy_trade_date_symbol_decision
+    ON picks(trade_date, symbol, decision) WHERE production_run_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_picks_production_run_symbol_decision
+    ON picks(production_run_id, symbol, decision) WHERE production_run_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_picks_trade_date ON picks(trade_date);
 CREATE INDEX IF NOT EXISTS idx_picks_symbol ON picks(symbol);
@@ -115,6 +123,30 @@ ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_low_return FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_gap_return FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_drawdown FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS high_to_close_retrace FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS candidate_snapshot_id VARCHAR(128);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS return_status VARCHAR(20) DEFAULT 'PENDING';
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS settlement_evidence JSONB DEFAULT '{}';
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS correction_of_id INT REFERENCES returns(id);
+CREATE INDEX IF NOT EXISTS idx_returns_production_run ON returns(production_run_id, trade_date, symbol);
+CREATE INDEX IF NOT EXISTS idx_returns_candidate_snapshot ON returns(candidate_snapshot_id, symbol);
+DO $$
+DECLARE constraint_name text;
+BEGIN
+    SELECT conname INTO constraint_name
+    FROM pg_constraint
+    WHERE conrelid = 'returns'::regclass
+      AND contype = 'u'
+      AND pg_get_constraintdef(oid) LIKE 'UNIQUE (trade_date, symbol)%'
+    LIMIT 1;
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE returns DROP CONSTRAINT %I', constraint_name);
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_returns_legacy_trade_date_symbol
+    ON returns(trade_date, symbol) WHERE production_run_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_returns_production_run_symbol
+    ON returns(production_run_id, symbol) WHERE production_run_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_returns_trade_date ON returns(trade_date);
 CREATE INDEX IF NOT EXISTS idx_returns_symbol ON returns(symbol);
@@ -124,7 +156,7 @@ CREATE TABLE IF NOT EXISTS scan_sessions (
     id SERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
     scan_time TIMESTAMPTZ NOT NULL,
-    cdp_url VARCHAR(100),
+    source_id VARCHAR(100),
     quotes_count INT DEFAULT 0,
     scored_count INT DEFAULT 0,
     passed_count INT DEFAULT 0,
@@ -140,6 +172,55 @@ ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS market_snapshot JSONB DEFAULT
 ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS source_status JSONB DEFAULT '{}';
 ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS source_counts JSONB DEFAULT '{}';
 ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS source_diagnostics JSONB DEFAULT '{}';
+ALTER TABLE scan_sessions ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+
+-- Immutable production run lineage. Legacy rows remain queryable with NULL run ids.
+CREATE TABLE IF NOT EXISTS production_runs (
+    production_run_id VARCHAR(128) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    scan_session_id INT REFERENCES scan_sessions(id),
+    run_mode VARCHAR(40) NOT NULL DEFAULT 'LIVE_DAILY_PIPELINE',
+    rule_version VARCHAR(50),
+    runner_version VARCHAR(100),
+    scanner_version VARCHAR(100),
+    schema_version VARCHAR(100),
+    scoring_config_snapshot JSONB DEFAULT '{}',
+    scoring_config_hash VARCHAR(128),
+    input_payload_hash VARCHAR(128),
+    status VARCHAR(40) NOT NULL DEFAULT 'PENDING',
+    error_message TEXT,
+    retry_command TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_production_runs_trade_date ON production_runs(trade_date, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_production_runs_status ON production_runs(status);
+
+CREATE TABLE IF NOT EXISTS production_run_steps (
+    production_run_id VARCHAR(128) NOT NULL REFERENCES production_runs(production_run_id) ON DELETE CASCADE,
+    step_name VARCHAR(80) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error_message TEXT,
+    retry_command TEXT,
+    metadata JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (production_run_id, step_name)
+);
+CREATE INDEX IF NOT EXISTS idx_production_run_steps_status ON production_run_steps(production_run_id, status, required);
+
+CREATE TABLE IF NOT EXISTS production_run_active (
+    trade_date DATE PRIMARY KEY,
+    production_run_id VARCHAR(128) NOT NULL REFERENCES production_runs(production_run_id),
+    candidate_snapshot_id VARCHAR(128),
+    active_pick_id INT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_production_run_active_run ON production_run_active(production_run_id);
 
 -- scan_market_data: one raw payload per source domain for each scan session.
 -- This is the DB replay source; JSONL files are an operational export only.
@@ -188,10 +269,29 @@ CREATE TABLE IF NOT EXISTS signals (
     data_version VARCHAR(64),
     UNIQUE(trade_date, symbol, signal_key)
 );
+ALTER TABLE signals ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+DO $$
+DECLARE constraint_name text;
+BEGIN
+    SELECT conname INTO constraint_name
+    FROM pg_constraint
+    WHERE conrelid = 'signals'::regclass
+      AND contype = 'u'
+      AND pg_get_constraintdef(oid) LIKE 'UNIQUE (trade_date, symbol, signal_key)%'
+    LIMIT 1;
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE signals DROP CONSTRAINT %I', constraint_name);
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_signals_legacy_trade_date_symbol_key
+    ON signals(trade_date, symbol, signal_key) WHERE production_run_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_signals_production_run_symbol_key
+    ON signals(production_run_id, symbol, signal_key) WHERE production_run_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_signals_date ON signals(trade_date);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
 CREATE INDEX IF NOT EXISTS idx_signals_key ON signals(signal_key);
+CREATE INDEX IF NOT EXISTS idx_signals_production_run ON signals(production_run_id, trade_date, symbol);
 
 -- research_runs: 研究/扫描运行版本信息
 CREATE TABLE IF NOT EXISTS research_runs (
@@ -200,7 +300,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
     run_type VARCHAR(30) NOT NULL,
     run_time TIMESTAMPTZ,
     rule_version VARCHAR(50),
-    cdp_url VARCHAR(100),
+    source_id VARCHAR(100),
     scanner_version VARCHAR(50),
     runner_version VARCHAR(50),
     quotes_count INT DEFAULT 0,
@@ -276,6 +376,26 @@ ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS cohort VARCHAR(40);
 ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS cohort_quality VARCHAR(40);
 ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS cohort_status_flags JSONB DEFAULT '[]';
 ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS reconstruction_provenance JSONB DEFAULT '{}';
+ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+ALTER TABLE daily_candidates ADD COLUMN IF NOT EXISTS candidate_snapshot_id VARCHAR(128);
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'daily_candidates'::regclass
+          AND conname = 'daily_candidates_trade_date_symbol_key'
+    ) THEN
+        ALTER TABLE daily_candidates DROP CONSTRAINT daily_candidates_trade_date_symbol_key;
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_candidates_legacy_trade_date_symbol
+    ON daily_candidates(trade_date, symbol) WHERE production_run_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_candidates_production_run_symbol
+    ON daily_candidates(production_run_id, symbol) WHERE production_run_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_dc_production_run ON daily_candidates(production_run_id, trade_date, rank);
+CREATE INDEX IF NOT EXISTS idx_dc_snapshot ON daily_candidates(candidate_snapshot_id);
 
 CREATE INDEX IF NOT EXISTS idx_dc_date ON daily_candidates(trade_date);
 CREATE INDEX IF NOT EXISTS idx_dc_symbol ON daily_candidates(symbol);

@@ -166,7 +166,7 @@ def test_embed_text_normalized_and_boost_bounded():
     assert loss_boost.get('soft_only') is True
 
 
-def test_embed_backend_auto_allows_network_by_default_and_can_force_offline(monkeypatch):
+def test_embed_backend_auto_is_offline_by_default_and_can_opt_in_network(monkeypatch):
     import sys
     import types
 
@@ -196,10 +196,12 @@ def test_embed_backend_auto_allows_network_by_default_and_can_force_offline(monk
 
     assert vector_store.resolve_embed_backend() == 'structured'
     assert calls['name'] == vector_store.neural_model_name()
-    assert calls['kwargs'].get('local_files_only') is False
-    assert os.environ.get('HF_HUB_OFFLINE') is None
-    assert os.environ.get('TRANSFORMERS_OFFLINE') is None
+    assert calls['kwargs'].get('local_files_only') is True
+    assert os.environ.get('HF_HUB_OFFLINE') == '1'
+    assert os.environ.get('TRANSFORMERS_OFFLINE') == '1'
 
+    monkeypatch.setenv('XIAOGU_EMBED_ALLOW_NETWORK', '1')
+    assert vector_store._allow_network_fetch() is True
     monkeypatch.setenv('XIAOGU_EMBED_ALLOW_NETWORK', '0')
     vector_store._resolved_backend = None
     vector_store._neural_model = None

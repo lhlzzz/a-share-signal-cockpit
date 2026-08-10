@@ -6,16 +6,16 @@ True vector stack:
 - Storage: Postgres `vector` extension (pgvector) + optional HNSW cosine index
 - Retrieval: `embedding <=> query` cosine distance
 - Embedding backends:
-  1) **neural** (default when available): sentence-transformers multilingual MiniLM
+  1) **neural** (explicit opt-in): sentence-transformers multilingual MiniLM
      (384-d, L2-normalized). Real semantic vectors for Chinese case text.
   2) **structured** (fallback): structured hybrid v2 (numeric channels + multi-probe
      hashed bag-of-words, 64-d). Deterministic, no model download.
 
 Env:
-  XIAOGU_EMBED_BACKEND=neural|structured|auto  (default: auto → neural if loadable)
+  XIAOGU_EMBED_BACKEND=neural|structured|auto  (default: structured)
   XIAOGU_EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
   XIAOGU_CASE_EMBED_DIM= only used by structured backend (default 64)
-  XIAOGU_EMBED_ALLOW_NETWORK=0 to force offline/local-only; default is network-allowed.
+  XIAOGU_EMBED_ALLOW_NETWORK=1 to permit model download; default is offline/local-only.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ _neural_error: Optional[str] = None
 
 
 def _requested_backend() -> str:
-    raw = str(os.environ.get('XIAOGU_EMBED_BACKEND', 'auto') or 'auto').strip().lower()
+    raw = str(os.environ.get('XIAOGU_EMBED_BACKEND', 'structured') or 'structured').strip().lower()
     if raw in ('neural', 'structured', 'auto'):
         return raw
     return 'auto'
@@ -53,7 +53,7 @@ def neural_model_name() -> str:
 
 
 def _allow_network_fetch() -> bool:
-    raw = str(os.environ.get('XIAOGU_EMBED_ALLOW_NETWORK', '1') or '1').strip().lower()
+    raw = str(os.environ.get('XIAOGU_EMBED_ALLOW_NETWORK', '0') or '0').strip().lower()
     if raw in {'0', 'false', 'no', 'off'}:
         return False
     if raw in {'1', 'true', 'yes', 'on'}:
@@ -403,7 +403,7 @@ def _current_table_embed_dim(db, text) -> Optional[int]:
 
 
 def migrate_embedding_dimension(target_dim: int) -> Dict[str, Any]:
-    """Drop/recreate embedding column when dim changes (pgvector cannot cast dims)."""
+    """Refuse dimension changes so existing embeddings cannot be destroyed."""
     try:
         from xiaogu_db import get_db
         from sqlalchemy import text
@@ -414,27 +414,12 @@ def migrate_embedding_dimension(target_dim: int) -> Dict[str, Any]:
         current = _current_table_embed_dim(db, text)
         if current == target_dim:
             return {'status': 'OK', 'action': 'noop', 'dim': target_dim}
-        # Drop HNSW first if present.
-        try:
-            db.execute(text(f'DROP INDEX IF EXISTS idx_{TABLE}_embedding_hnsw'))
-        except Exception:
-            pass
-        # Safer path: drop column + re-add (nulls all embeddings → requires rebuild).
-        db.execute(text(f'ALTER TABLE {TABLE} DROP COLUMN IF EXISTS embedding'))
-        db.execute(text(f'ALTER TABLE {TABLE} ADD COLUMN embedding vector({target_dim})'))
-        try:
-            db.execute(text(
-                f'CREATE INDEX IF NOT EXISTS idx_{TABLE}_embedding_hnsw '
-                f'ON {TABLE} USING hnsw (embedding vector_cosine_ops)'
-            ))
-        except Exception:
-            pass
         return {
-            'status': 'OK',
-            'action': 'recreated_column',
+            'status': 'REFUSED',
+            'action': 'preserve_existing_embeddings',
             'from_dim': current,
             'to_dim': target_dim,
-            'note': 'embeddings null until rebuild_all_case_embeddings',
+            'note': 'dimension migration requires an explicit non-destructive migration',
         }
 
 
@@ -459,6 +444,7 @@ def ensure_case_embedding_table() -> Dict[str, Any]:
         trade_date DATE NOT NULL,
         symbol VARCHAR(10) NOT NULL,
         decision VARCHAR(20) NOT NULL DEFAULT 'PAPER_PICK',
+        production_run_id VARCHAR(128),
         stock_name VARCHAR(30),
         final_score FLOAT,
         case_text TEXT NOT NULL,
@@ -466,11 +452,26 @@ def ensure_case_embedding_table() -> Dict[str, Any]:
         metadata JSONB DEFAULT '{{}}',
         t1_return FLOAT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ,
-        UNIQUE (trade_date, symbol, decision)
+        updated_at TIMESTAMPTZ
     );
+    ALTER TABLE {TABLE} ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
+    DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = '{TABLE}'::regclass
+              AND conname = '{TABLE}_trade_date_symbol_decision_key'
+        ) THEN
+            ALTER TABLE {TABLE} DROP CONSTRAINT {TABLE}_trade_date_symbol_decision_key;
+        END IF;
+    END $$;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_{TABLE}_legacy_trade_date_symbol_decision
+        ON {TABLE}(trade_date, symbol, decision) WHERE production_run_id IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_{TABLE}_production_run_symbol_decision
+        ON {TABLE}(production_run_id, symbol, decision) WHERE production_run_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_{TABLE}_trade_date ON {TABLE}(trade_date);
     CREATE INDEX IF NOT EXISTS idx_{TABLE}_symbol ON {TABLE}(symbol);
+    CREATE INDEX IF NOT EXISTS idx_{TABLE}_production_run ON {TABLE}(production_run_id, trade_date);
     """
     try:
         with get_db() as db:
@@ -510,12 +511,14 @@ def upsert_pick_case(
     reason: str = '',
     metadata: Optional[Dict[str, Any]] = None,
     t1_return: Optional[float] = None,
+    production_run_id: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Store or update a pick/top candidate case embedding for later similarity search."""
-    allowed = {
-        'PAPER_PICK', 'RESEARCH_CANDIDATE', 'TOP10', 'CANDIDATE', 'OFFICIAL_PICK',
-    }
+    # The same case store owns both the official signal and its Top10
+    # observation cohort. Both remain read-only evidence for production
+    # ranking; TOP10 must not be confused with a second pick path.
+    allowed = {'PAPER_PICK', 'TOP10'}
     if dry_run or decision not in allowed:
         return {'status': 'SKIPPED', 'reason': 'dry_run_or_non_pick'}
     ensure = ensure_case_embedding_table()
@@ -546,6 +549,7 @@ def upsert_pick_case(
     vec_lit = _vector_literal(emb)
     td = trade_date if isinstance(trade_date, date) else date.fromisoformat(str(trade_date)[:10])
     meta = dict(metadata or {})
+    meta['production_run_id'] = production_run_id or None
     meta['embed_dim'] = dim
     meta['embed_method'] = embed_method_name()
     meta['embed_backend'] = resolve_embed_backend()
@@ -558,13 +562,19 @@ def upsert_pick_case(
     if reason:
         meta.setdefault('reason', str(reason)[:400])
 
+    conflict_target = (
+        "ON CONFLICT (production_run_id, symbol, decision) WHERE production_run_id IS NOT NULL"
+        if production_run_id else
+        "ON CONFLICT (trade_date, symbol, decision) WHERE production_run_id IS NULL"
+    )
     sql = text(f"""
         INSERT INTO {TABLE}
-            (trade_date, symbol, decision, stock_name, final_score, case_text, embedding, metadata, t1_return, updated_at)
+            (trade_date, symbol, decision, production_run_id, stock_name, final_score,
+             case_text, embedding, metadata, t1_return, updated_at)
         VALUES
-            (:trade_date, :symbol, :decision, :stock_name, :final_score, :case_text,
-             CAST(:embedding AS vector), CAST(:metadata AS jsonb), :t1_return, NOW())
-        ON CONFLICT (trade_date, symbol, decision) DO UPDATE SET
+            (:trade_date, :symbol, :decision, :production_run_id, :stock_name, :final_score,
+             :case_text, CAST(:embedding AS vector), CAST(:metadata AS jsonb), :t1_return, NOW())
+        {conflict_target} DO UPDATE SET
             stock_name = EXCLUDED.stock_name,
             final_score = EXCLUDED.final_score,
             case_text = EXCLUDED.case_text,
@@ -580,6 +590,7 @@ def upsert_pick_case(
                 'trade_date': td,
                 'symbol': symbol,
                 'decision': decision,
+                'production_run_id': production_run_id,
                 'stock_name': name[:30],
                 'final_score': final_score,
                 'case_text': case_text[:8000],
@@ -870,7 +881,10 @@ def rebuild_all_case_embeddings(*, limit: Optional[int] = None) -> Dict[str, Any
     return stats
 
 
-def upsert_top10_cases_from_db(trade_date: date | str) -> Dict[str, Any]:
+def upsert_top10_cases_from_db(
+    trade_date: date | str,
+    production_run_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Persist top10 daily_candidates as TOP10 vectors + attach t1_return when present."""
     ensure = ensure_case_embedding_table()
     if ensure.get('status') != 'OK':
@@ -884,25 +898,37 @@ def upsert_top10_cases_from_db(trade_date: date | str) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         'status': 'OK',
         'trade_date': td.isoformat(),
+        'production_run_id': production_run_id or None,
         'upserted': 0,
         'failed': 0,
         'items': [],
         'embed_method': embed_method_name(),
         'embed_backend': resolve_embed_backend(),
     }
+    run_clause = (
+        'AND dc.production_run_id = :production_run_id'
+        if production_run_id
+        else 'AND dc.production_run_id IS NULL'
+    )
+    return_join = (
+        'r.production_run_id = dc.production_run_id AND r.symbol = dc.symbol'
+        if production_run_id
+        else 'r.trade_date = dc.trade_date AND r.symbol = dc.symbol AND r.production_run_id IS NULL'
+    )
     with get_db() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT dc.symbol, dc.stock_name, dc.rank, dc.final_score, dc.decision,
                    dc.selection_outcome, dc.selection_reason, dc.ticket_reason,
                    dc.not_selected_reason, dc.auxiliary_evidence_snapshot,
                    dc.ranking_basis, dc.is_official_pick,
-                   r.t1_return, r.t1_return_close, r.t1_return_high
+                   r.t1_return
             FROM daily_candidates dc
             LEFT JOIN returns r
-              ON r.trade_date = dc.trade_date AND r.symbol = dc.symbol
+              ON {return_join}
             WHERE dc.trade_date = :td AND dc.rank IS NOT NULL AND dc.rank <= 10
+              """ + run_clause + """
             ORDER BY dc.rank
-        """), {'td': td}).mappings().all()
+        """), {'td': td, 'production_run_id': production_run_id}).mappings().all()
     for row in rows:
         d = dict(row)
         reason_bits = [
@@ -922,7 +948,7 @@ def upsert_top10_cases_from_db(trade_date: date | str) -> Dict[str, Any]:
             'is_official_pick': d.get('is_official_pick'),
             'auxiliary_evidence_snapshot': d.get('auxiliary_evidence_snapshot'),
             'ranking_basis': d.get('ranking_basis'),
-            't1_return': d.get('t1_return') if d.get('t1_return') is not None else d.get('t1_return_close'),
+            't1_return': d.get('t1_return'),
         }
         res = upsert_pick_case(
             trade_date=td,
@@ -934,14 +960,15 @@ def upsert_top10_cases_from_db(trade_date: date | str) -> Dict[str, Any]:
             reason=reason,
             metadata={
                 'cohort': 'top10',
+                'production_run_id': production_run_id or None,
                 'rank': d.get('rank'),
                 'selection_outcome': d.get('selection_outcome'),
                 't1_return_high': d.get('t1_return_high'),
             },
             t1_return=(
-                float(d['t1_return']) if d.get('t1_return') is not None
-                else (float(d['t1_return_close']) if d.get('t1_return_close') is not None else None)
+                float(d['t1_return']) if d.get('t1_return') is not None else None
             ),
+            production_run_id=production_run_id,
         )
         if res.get('status') == 'OK':
             out['upserted'] += 1

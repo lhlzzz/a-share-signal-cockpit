@@ -12,13 +12,20 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict
-from xiaogu_utils import now_iso, read_json as load_json, append_jsonl
+from xiaogu_utils import (
+    PRODUCTION_DECISIONS,
+    PRODUCTION_RETURN_FIELD,
+    PRODUCTION_TRADE_MODE,
+    append_jsonl,
+    now_iso,
+    read_json as load_json,
+)
 
 BASE = Path(__file__).resolve().parent
 RULE_FREEZE = BASE / 'rule_freeze_v0_1.json'
 FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
-VALID_DECISIONS = {'PAPER_PICK', 'NO_PICK', 'RESEARCH_CANDIDATE'}
+VALID_DECISIONS = set(PRODUCTION_DECISIONS)
 LOCKED_AT_GENERATION = ['date','generated_at','asof_time','symbol','decision','rule_version','features_used','raw_data_snapshot_path','decision_reason','xiaochan_gate_status','xiaoshuju_data_gate_status','paper_only','no_trade','production_ready']
 
 
@@ -73,6 +80,7 @@ def main() -> None:
     ap.add_argument('--generated-at', default=now_iso())
     ap.add_argument('--dry-run', action='store_true', help='write snapshot to /tmp preview only; do not append ledger')
     ap.add_argument('--correction-of', default='', help='append correction record id instead of modifying old record')
+    ap.add_argument('--production-run-id', default='')
     args = ap.parse_args()
 
     rule = load_json(RULE_FREEZE)
@@ -89,6 +97,7 @@ def main() -> None:
         'symbol': symbol,
         'decision': args.decision,
         'rule_version': rule_version,
+        'production_run_id': args.production_run_id or None,
         'features_used': features,
         'source': 'forward_paper_recorder_v0_1',
         'paper_only': True,
@@ -112,6 +121,7 @@ def main() -> None:
         'symbol': symbol,
         'decision': args.decision,
         'rule_version': rule_version,
+        'production_run_id': args.production_run_id or None,
         'features_used': features,
         'raw_data_snapshot_path': str(snap),
         'raw_data_snapshot_sha256': snapshot_hash,
@@ -126,14 +136,14 @@ def main() -> None:
         'auto_order': False,
         'broker_connected': False,
         'result_status': 'PENDING',
-        't1_return': None,
-        't2_return': None,
-        't3_return': None,
+        PRODUCTION_RETURN_FIELD: None,
         'result_filled_at': None,
         'post_result_locked': False,
         'locked_fields': LOCKED_AT_GENERATION,
         'append_only_policy': 'Never overwrite old records. Corrections append a new CORRECTION record.',
         'data_leakage_check': {'t_plus_fields_at_generation': False, 'status': 'PASS'},
+        'production_trade_mode': PRODUCTION_TRADE_MODE,
+        'production_return_formula': '(T+1 close - T-day entry close) / T-day entry close',
     }
 
     if args.dry_run:

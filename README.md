@@ -6,20 +6,38 @@ Research-only A-share signal system for data collection, multi-factor scoring, c
 
 ```bash
 pip install -r requirements.txt
-DEMO_MODE=1 uvicorn xiaogu_api:app --reload
 ```
 
-Open `http://127.0.0.1:8000/demo/cockpit` for deterministic sample data, or open `public/index.html` as a static case study.
+Xiaogu uses the local PostgreSQL service configured by `DATABASE_URL`
+(default: `postgresql://xiaogu:xiaogu@127.0.0.1:5432/xiaogu`). Database
+lifecycle is managed outside this repository.
+
+Start the read API with `bash start_api.sh`.
+Open `http://localhost:8000/dashboard/` for the operator frontend.
+The frontend reads `http://localhost:8000/api/os/front-data`.
+
+Run the scheduler separately when the daily paper-trading workflow is required:
+
+```bash
+python3 xiaogu_scheduler.py
+```
 
 ## Architecture
 
-`scanner -> runner -> paper recorder -> return filler -> PostgreSQL -> FastAPI`
+`direct Eastmoney API scanner -> runner -> paper recorder -> Eastmoney T+1 filler -> PostgreSQL -> FastAPI`
 
 - Scanner: `scrapy_scanner/runner_v2.py`
 - Decision runner: `xiaogu_forward_d1_1450_runner_v0_1.py`
 - Scheduler: `xiaogu_scheduler.py`
 - API: `xiaogu_api.py`
 - Persistence: `xiaogu_db.py`
+
+Production has one chain and one transport: direct Eastmoney API data only.
+Legacy browser scanners, alternate market-data providers, and
+candidate promotion fallbacks are not production inputs.
+
+Optional research adapters are intentionally not vendored. A missing adapter
+is recorded as unavailable and cannot create a `PAPER_PICK`.
 
 ## API
 
@@ -34,11 +52,10 @@ Open `http://127.0.0.1:8000/demo/cockpit` for deterministic sample data, or open
 ## Validation
 
 ```bash
-pytest tests/test_db_backfill.py -q
-python -m py_compile xiaogu_api.py xiaogu_db.py
+pytest tests/ -x -q
+python -m compileall -q scrapy_scanner scripts xiaogu_*.py
 ```
 
 ## Evidence and Limits
 
-Forward validation and backtest files are research evidence, not a performance guarantee. The publication audit in the workspace root identifies large historical artifacts and local state that must be reviewed before any public push.
-
+Forward validation and backtest data are stored in PostgreSQL and Obsidian; they are not a performance guarantee.

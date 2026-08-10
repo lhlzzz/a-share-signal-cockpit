@@ -33,7 +33,7 @@ def _runner_module():
 
 def _scanner_module():
     import importlib
-    return importlib.import_module('xiaogu_eastmoney_web_tabs_scan_v0_1')
+    return importlib.import_module('scrapy_scanner.runner_v2')
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -108,7 +108,7 @@ def _iter_result_evidence_files(root: Path) -> Iterable[Path]:
 def _find_scan_summary_for_date(date_str: str) -> Optional[Path]:
     roots = [BASE / 'data' / 'live_scan', BASE / 'data' / 'forward_raw_runtime']
     for root in roots:
-        for path in sorted(root.glob(f'{date_str}/**/eastmoney_web_tabs_summary.json')):
+        for path in sorted(root.glob(f'{date_str}/**/xiaogu_scan_summary.json')):
             return path
     return None
 
@@ -160,9 +160,7 @@ def _normalize_daily_decision(value: Any, is_official_pick: bool) -> str:
 def _normalize_market_regime(value: Any) -> str:
     regime = str(value or '').strip()
     if not regime:
-        return 'eastmoney_web_tabs'
-    if regime == 'eastmoney_web_tabs_live':
-        return 'eastmoney_web_tabs'
+        return 'direct_api'
     return regime[:20]
 
 
@@ -301,9 +299,9 @@ def _insert_scan_session(session: Dict[str, Any]) -> int:
         result = db.execute(
             text("""
                 INSERT INTO scan_sessions
-                    (trade_date, scan_time, cdp_url, quotes_count, scored_count, passed_count, scan_dir, status)
+                    (trade_date, scan_time, source_id, quotes_count, scored_count, passed_count, scan_dir, status)
                 VALUES
-                    (:trade_date, :scan_time, :cdp_url, :quotes_count, :scored_count, :passed_count, :scan_dir, :status)
+                    (:trade_date, :scan_time, :source_id, :quotes_count, :scored_count, :passed_count, :scan_dir, :status)
                 RETURNING id
             """),
             session,
@@ -322,7 +320,7 @@ def _write_bundle(bundle: Dict[str, Any], fallback_date: Optional[str] = None) -
     scan_session_id = _insert_scan_session({
         'trade_date': trade_date,
         'scan_time': scan_time or datetime.datetime.combine(trade_date, datetime.time(15, 0)).isoformat(),
-        'cdp_url': str(bundle.get('eastmoney_cdp_url') or bundle.get('cdp_url') or ''),
+        'source_id': str(bundle.get('eastmoney_source_id') or bundle.get('source_id') or ''),
         'quotes_count': int((bundle.get('full_universe_scan') or {}).get('quote_count') or bundle.get('universe_quote_count') or 0),
         'scored_count': int(bundle.get('scored_count') or len(bundle.get('paper_scoring_candidates') or [])),
         'passed_count': int(bundle.get('passed_count') or len([r for r in bundle.get('paper_scoring_candidates') or [] if r.get('decision') == 'PAPER_PICK'])),
@@ -393,7 +391,7 @@ def _write_bundle(bundle: Dict[str, Any], fallback_date: Optional[str] = None) -
                 sector_catalyst_score=row.get('sector_catalyst_score') or row.get('sector_opportunity_score'),
                 early_opportunity_score=row.get('early_opportunity_score'),
                 topic_propagation_score=row.get('topic_propagation_score'),
-                market_regime=_normalize_market_regime(row.get('market_regime') or 'eastmoney_web_tabs'),
+                market_regime=_normalize_market_regime(row.get('market_regime') or 'direct_api'),
                 sentiment_catalyst=str(row.get('sentiment_catalyst') or ''),
                 theme_catalyst=str(row.get('theme_catalyst') or ''),
                 news_catalyst=str(row.get('news_catalyst') or ''),
@@ -464,6 +462,7 @@ def _write_bundle(bundle: Dict[str, Any], fallback_date: Optional[str] = None) -
                         t2_return=fill.get('t2_return'),
                         t3_return=fill.get('t3_return'),
                         t5_return=fill.get('t5_return'),
+                        legacy_backfill=True,
                     )
             inserted += 1
     return inserted
@@ -558,19 +557,16 @@ def migrate_history(
                         t3 = fill.get('t3_return')
                         t5 = fill.get('t5_return')
                         if any(v is not None for v in [t1, t2, t3, t5]):
-                            db.execute(
-                                text("""
-                                    INSERT INTO returns (pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return)
-                                    VALUES (:pick_id, :trade_date, :symbol, :t1, :t2, :t3, :t5)
-                                    ON CONFLICT (trade_date, symbol) DO UPDATE SET
-                                        t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
-                                        t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
-                                        t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
-                                        t5_return = COALESCE(EXCLUDED.t5_return, returns.t5_return),
-                                        filled_at = NOW()
-                                """),
-                                {'pick_id': pick_id, 'trade_date': date_str, 'symbol': symbol,
-                                 't1': t1, 't2': t2, 't3': t3, 't5': t5},
+                            upsert_return(
+                                trade_date=datetime.date.fromisoformat(date_str),
+                                symbol=symbol,
+                                pick_id=pick_id,
+                                t1_return=t1,
+                                t2_return=t2,
+                                t3_return=t3,
+                                t5_return=t5,
+                                legacy_backfill=True,
+                                db=db,
                             )
         return summary
 
@@ -641,37 +637,16 @@ def migrate_history(
             continue
         returns = _return_from_evidence_payload(date_str, symbol, float(entry_price), payload)
         pick_id = _pick_id_for_trade_date_symbol(trade_date, symbol)
-        if pick_id is None:
-            with get_db() as db:
-                existing = db.execute(
-                    text('SELECT id FROM returns WHERE trade_date = :trade_date AND symbol = :symbol'),
-                    {'trade_date': trade_date, 'symbol': symbol},
-                ).fetchone()
-                if existing:
-                    pick_id = None
-        with get_db() as db:
-            db.execute(
-                text("""
-                    INSERT INTO returns (pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return)
-                    VALUES (:pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return)
-                    ON CONFLICT (trade_date, symbol) DO UPDATE SET
-                        pick_id = COALESCE(EXCLUDED.pick_id, returns.pick_id),
-                        t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
-                        t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
-                        t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
-                        t5_return = COALESCE(EXCLUDED.t5_return, returns.t5_return),
-                        filled_at = NOW()
-                """),
-                {
-                    'pick_id': pick_id,
-                    'trade_date': trade_date,
-                    'symbol': symbol,
-                    't1_return': returns.get('t1_return'),
-                    't2_return': returns.get('t2_return'),
-                    't3_return': returns.get('t3_return'),
-                    't5_return': returns.get('t5_return'),
-                },
-            )
+        upsert_return(
+            trade_date=trade_date,
+            symbol=symbol,
+            pick_id=pick_id,
+            t1_return=returns.get('t1_return'),
+            t2_return=returns.get('t2_return'),
+            t3_return=returns.get('t3_return'),
+            t5_return=returns.get('t5_return'),
+            legacy_backfill=True,
+        )
         summary['inserted_rows'] += 1
 
     return summary

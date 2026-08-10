@@ -4,21 +4,6 @@ from __future__ import annotations
 import xiaogu_forward_d1_1450_runner_v0_1 as runner
 
 
-def test_load_profit_shadow_watchlist_observation_only_for_known_day():
-    watch = runner.load_profit_shadow_watchlist("2026-07-24", top_n=5)
-    assert watch["observation_only"] is True
-    assert watch["not_official_paper_pick"] is True
-    assert watch["official_gates_unchanged"] is True
-    assert watch["allow_trade"] is False
-    assert watch["auto_order"] is False
-    assert watch["paper_only"] is True
-    assert watch["status"] in {"OK", "STALE_SCAN", "EMPTY", "MISSING", "ERROR", "NO_SCAN"}
-    if watch["status"] == "OK":
-        assert watch["candidates"]
-        assert watch["candidates"][0]["symbol"]
-        assert watch["candidates"][0]["observation_only"] is True
-
-
 def test_soft_mainline_fund_bias_prefers_day_mainline_sector():
     semi = {
         "trade_date": "2026-07-24",

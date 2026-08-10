@@ -134,13 +134,11 @@ def test_normalize_timeline_row_marks_reply_and_parent():
 
 
 def test_parse_jina_markdown_extracts_posts():
-    from scrapy_scanner.spiders.sszcw_timeline import parse_jina_markdown
-
     md = """
 [@sszcw](https://x.com/sszcw)  [1h](https://x.com/sszcw/status/2081012362459697472)   在牛市行情中，任何的消息面都能起作用，相反，在熊市当中，消息面一点卵用都没有。   5  16 [](https://x.com/sszcw/status/2081012362459697472/quotes)[3.7K]
 [@sszcw](https://x.com/sszcw)  [2h](https://twitter.com/sszcw/status/2080968264184963092)   下周一还得跌，到我说的那个点位。
 """
-    posts = parse_jina_markdown(md)
+    posts = sszcw.parse_jina_markdown(md)
     assert len(posts) >= 2
     assert posts[0]["id"] == "2081012362459697472"
     assert "牛市" in posts[0]["text"]
@@ -149,16 +147,12 @@ def test_parse_jina_markdown_extracts_posts():
 
 
 def test_parse_twitter_created_at_rfc2822():
-    from scrapy_scanner.spiders.sszcw_timeline import _parse_twitter_created_at
-
-    iso = _parse_twitter_created_at("Sat Jul 25 10:47:51 +0000 2026")
+    iso = sszcw._parse_twitter_created_at("Sat Jul 25 10:47:51 +0000 2026")
     assert iso.startswith("2026-07-25")
     assert "T" in iso
 
 
 def test_parse_fxtwitter_status_reply_flag():
-    from scrapy_scanner.spiders.sszcw_timeline import parse_fxtwitter_status
-
     payload = {
         "tweet": {
             "id": "1",
@@ -168,7 +162,7 @@ def test_parse_fxtwitter_status_reply_flag():
             "replying_to_status": "99",
         }
     }
-    row = parse_fxtwitter_status(payload)
+    row = sszcw.parse_fxtwitter_status(payload)
     assert row is not None
     assert row["kind"] == "reply"
     assert row["in_reply_to_tweet_id"] == "99"
@@ -176,8 +170,6 @@ def test_parse_fxtwitter_status_reply_flag():
 
 
 def test_merge_prefers_longer_full_text():
-    from scrapy_scanner.spiders.sszcw_timeline import _merge_post_row, parse_fxtwitter_status
-
     short = {"id": "1", "text": "下周一还得跌", "source": "scrapy_jina", "kind": "post"}
     long = {
         "id": "1",
@@ -186,7 +178,7 @@ def test_merge_prefers_longer_full_text():
         "kind": "post",
         "created_at": "2026-07-25T18:47:51+08:00",
     }
-    merged = _merge_post_row(short, long)
+    merged = sszcw._merge_post_row(short, long)
     assert merged["text"] == long["text"]
     assert merged["source"] == "scrapy_fxtwitter"
 
@@ -199,7 +191,7 @@ def test_merge_prefers_longer_full_text():
             "created_at": "Sat Jul 25 10:47:51 +0000 2026",
         }
     }
-    fx = parse_fxtwitter_status(payload)
+    fx = sszcw.parse_fxtwitter_status(payload)
     assert fx is not None
     assert "full body" in fx["text"]
     assert fx.get("full_text") == fx["text"]

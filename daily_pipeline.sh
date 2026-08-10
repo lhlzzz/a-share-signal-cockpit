@@ -12,14 +12,25 @@ python3 scripts/xiaogu_ensure_database.py
 if [ "${1:-}" = "--manual-return-backfill" ]; then
     INPUT_TRADE_DATE="${2:-}"
     if [ -z "$INPUT_TRADE_DATE" ] || [ "${3:-}" != "--validate-on" ] || [ -z "${4:-}" ]; then
-        echo "Usage: bash daily_pipeline.sh --manual-return-backfill YYYY-MM-DD --validate-on YYYY-MM-DD" >&2
+        echo "Usage: bash daily_pipeline.sh --manual-return-backfill YYYY-MM-DD --validate-on YYYY-MM-DD [--production-run-id RUN_ID]" >&2
         exit 2
     fi
     VALIDATION_TRADE_DATE="$4"
+    MANUAL_RUN_ID=""
+    if [ "${5:-}" = "--production-run-id" ]; then
+        MANUAL_RUN_ID="${6:-}"
+        if [ -z "$MANUAL_RUN_ID" ]; then
+            echo "--production-run-id requires a value" >&2
+            exit 2
+        fi
+    fi
     echo "Running T1_VALIDATION: ${INPUT_TRADE_DATE} -> ${VALIDATION_TRADE_DATE}"
-    python3 scripts/xiaogu_return_backfill.py --trade-date "$INPUT_TRADE_DATE" --validate-on "$VALIDATION_TRADE_DATE"
-    # pick_id hygiene is owned by xiaogu_return_backfill (backfill_return_pick_ids after writes)
-    python3 - "$INPUT_TRADE_DATE" "$VALIDATION_TRADE_DATE" <<'PY'
+    BACKFILL_ARGS=(--trade-date "$INPUT_TRADE_DATE" --validate-on "$VALIDATION_TRADE_DATE")
+    if [ -n "$MANUAL_RUN_ID" ]; then
+        BACKFILL_ARGS+=(--production-run-id "$MANUAL_RUN_ID")
+    fi
+    python3 scripts/xiaogu_return_backfill.py "${BACKFILL_ARGS[@]}"
+    python3 - "$INPUT_TRADE_DATE" "$VALIDATION_TRADE_DATE" "$MANUAL_RUN_ID" <<'PY'
 import json
 import sys
 from datetime import date
@@ -29,19 +40,41 @@ from xiaogu_backtest_v0_1 import (
     _limitup_gene_signal_audit, build_daily_closure, build_db_cohort_report,
     build_db_completeness_gate, build_historical_live_replay_closure, write_daily_closure,
 )
-from xiaogu_db import fetch_daily_candidates
+from xiaogu_db import (
+    fetch_active_production_run,
+    fetch_daily_candidates,
+    fetch_latest_scan_session,
+    fetch_picks,
+    fetch_production_run_steps,
+    fetch_returns,
+    fetch_signals,
+)
 
-input_trade_date, validation_trade_date = sys.argv[1:]
+input_trade_date, validation_trade_date, requested_run_id = sys.argv[1:]
+trade_day = date.fromisoformat(input_trade_date)
+active = (
+    {'production_run_id': requested_run_id}
+    if requested_run_id
+    else fetch_active_production_run(trade_day)
+)
+if not active or not active.get('production_run_id'):
+    raise SystemExit('PRODUCTION_RUN_NOT_FOUND_FOR_MANUAL_T1_VALIDATION')
+production_run_id = str(active['production_run_id'])
 summary_path = Path('summary/return_backfill_results.json')
 backfill_stats = json.loads(summary_path.read_text()) if summary_path.exists() else {}
 report = build_db_cohort_report()
 db_gate = build_db_completeness_gate(
     input_trade_date, mode='T1_VALIDATION', validation_trade_date=validation_trade_date,
+    candidate_rows=fetch_daily_candidates(trade_day, production_run_id=production_run_id),
+    pick_rows=fetch_picks(trade_day, production_run_id=production_run_id),
+    return_rows=fetch_returns(trade_day, production_run_id=production_run_id),
+    signal_rows=fetch_signals(trade_day, production_run_id=production_run_id),
+    scan_session=fetch_latest_scan_session(trade_day, production_run_id=production_run_id),
 )
 replay = build_historical_live_replay_closure(
     input_trade_date, validation_trade_date, backfill_stats=backfill_stats,
 )
-candidates = fetch_daily_candidates(date.fromisoformat(input_trade_date))
+candidates = fetch_daily_candidates(trade_day, production_run_id=production_run_id)
 manual_status = 'FAIL' if backfill_stats.get('fatal_error') else db_gate['status']
 closure = build_daily_closure(
     input_trade_date, report, backfill_stats,
@@ -49,6 +82,10 @@ closure = build_daily_closure(
     paper_pick_written=db_gate['checks']['paper_pick_persisted'],
     return_backfill_completed=db_gate['checks']['t1_return_available'],
     run_mode='T1_VALIDATION',
+    production_run_id=production_run_id,
+    candidate_snapshot_id=str(active.get('candidate_snapshot_id') or production_run_id),
+    active_pick_id=active.get('active_pick_id'),
+    run_steps=fetch_production_run_steps(production_run_id),
 )
 closure.update({
     'validation_trade_date': validation_trade_date,
@@ -86,7 +123,7 @@ closure.update({
     ),
 })
 output_path = write_daily_closure(closure)
-print(json.dumps(closure, ensure_ascii=False, sort_keys=True))
+print(json.dumps(closure, ensure_ascii=False, sort_keys=True, default=str))
 print(f'  daily_closure_latest: {output_path}')
 PY
     # After T+1 validation: refresh shadow profit candidates with returns + vs-official compare.
@@ -97,10 +134,10 @@ PY
       --top "${XIAOGU_PROFIT_CANDIDATES_TOP:-5}" \
       --with-returns \
       --compare-official 2>&1 | tail -20 || true
-    # After T+1 validation closure is fresh: chain self-evolves bounded knobs when gate READY.
+    # Research diagnostics stay observation-only; they never mutate production scoring.
     echo ""
-    echo "[T1] 有界因子自进化（gate READY 时自动 apply）..."
-    python3 scripts/xiaogu_safe_self_evolve.py --date "${INPUT_TRADE_DATE}" --apply-if-ready 2>&1 | tail -12 || true
+    echo "[T1] 有界因子自进化（仅 dry-run）..."
+    python3 scripts/xiaogu_safe_self_evolve.py --date "${INPUT_TRADE_DATE}" --dry-run 2>&1 | tail -12 || true
     exit 0
 fi
 
@@ -125,7 +162,7 @@ closure = build_historical_live_replay_closure(
     sys.argv[1], sys.argv[2], backfill_stats=backfill_stats,
 )
 output_path = write_daily_closure(closure)
-print(json.dumps(closure, ensure_ascii=False, sort_keys=True))
+print(json.dumps(closure, ensure_ascii=False, sort_keys=True, default=str))
 print(f'  daily_closure_latest: {output_path}')
 PY
     exit 0
@@ -144,10 +181,42 @@ else
 fi
 HOUR=$(date +%H)
 PIPELINE_STARTED_SECONDS=$SECONDS
+export XIAOGU_PRODUCTION_RUN_ID="${XIAOGU_PRODUCTION_RUN_ID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
+PIPELINE_REQUIRED_FAILURE=0
 
 echo "=========================================="
 echo "xiaogu 出票流程 (v2 Scanner) - ${DATE}"
+echo "production_run_id: ${XIAOGU_PRODUCTION_RUN_ID}"
 echo "=========================================="
+
+write_failure_closure() {
+  python3 - "${DATE}" "${XIAOGU_PRODUCTION_RUN_ID}" "$1" <<'PY'
+import json
+import sys
+from xiaogu_backtest_v0_1 import build_daily_closure, write_daily_closure
+from xiaogu_db import fetch_production_run_steps
+
+trade_date, run_id, reason = sys.argv[1:]
+closure = build_daily_closure(
+    trade_date,
+    {},
+    {'fatal_error': reason, 'failure_reasons': {reason: 1}},
+    scan_completed=False,
+    paper_pick_written=False,
+    return_backfill_completed=False,
+    production_run_id=run_id,
+    candidate_snapshot_id=run_id,
+    run_steps=fetch_production_run_steps(run_id),
+    knowledge_status='FAIL',
+)
+closure['production_audit_conclusion'] = 'NOT_FREEZABLE'
+closure['required_failure'] = reason
+closure['production_run_steps'] = fetch_production_run_steps(run_id)
+path = write_daily_closure(closure)
+print(json.dumps(closure, ensure_ascii=False, sort_keys=True, default=str))
+print(f'  daily_closure_latest: {path}')
+PY
+}
 
 # 根据时间选择扫描目录
 if [ $HOUR -lt 12 ]; then
@@ -165,90 +234,60 @@ echo ""
 echo ""
 echo "[1/6] 运行 v2 Scanner..."
 SCANNER_STARTED_SECONDS=$SECONDS
-python3 scrapy_scanner/runner_v2.py \
-  --output-dir "data/live_scan/${DATE}/${SCAN_DIR}" 2>&1 | tail -10
+if ! python3 scrapy_scanner/runner_v2.py \
+  --output-dir "data/live_scan/${DATE}/${SCAN_DIR}" 2>&1 | tail -10; then
+  python3 - "${DATE}" "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
+import sys
+from datetime import date
+from xiaogu_db import (
+    create_production_run,
+    fetch_production_run,
+    update_production_run_status,
+    update_production_run_step,
+)
+trade_date, run_id = sys.argv[1:]
+if not fetch_production_run(run_id):
+    create_production_run(date.fromisoformat(trade_date), run_id)
+update_production_run_step(run_id, 'scanner', 'FAIL', required=True, error_message='SCANNER_FAILED')
+update_production_run_status(run_id, 'FAIL', error_message='SCANNER_FAILED')
+PY
+  write_failure_closure "SCANNER_FAILED"
+  exit 1
+fi
 SCANNER_ELAPSED_SECONDS=$((SECONDS - SCANNER_STARTED_SECONDS))
 echo "  Scanner elapsed: ${SCANNER_ELAPSED_SECONDS}s"
 
-# Step 2: 创建 symlink 让 Runner 找到数据
+# Step 2: 运行 Runner。Runner 只读取本次 direct API 扫描产物。
 echo ""
-echo "[2/6] 创建 symlink..."
-ln -sf "${SCAN_DIR}" "data/live_scan/${DATE}/eastmoney_web_tabs_scan_v0_1" 2>/dev/null || true
-ln -sf "${SCAN_DIR}" "data/live_scan/${DATE}/eastmoney_scan" 2>/dev/null || true
-echo "  symlink 创建完成"
-
-# Social sidecar: Eastmoney Guba via public JSON API (HTML/CDP only as fallback).
-# Failure remains explicit and cannot bypass the official risk gates.
-SOCIAL_GATE_STATUS="DISABLED"
-SOCIAL_GATE_REASON="XIAOGU_SOCIAL_DISABLED"
-if [ "${XIAOGU_SOCIAL_ENABLED:-1}" = "1" ]; then
-    echo ""
-    echo "[2/6] 收集东财股吧证据..."
-    SOCIAL_SOURCES="${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba}"
-    # Expanded default coverage (was 25–50); still bounded, not full 400 LLM read.
-    SOCIAL_TOPN="${XIAOGU_SOCIAL_TOPN:-150}"
-    SOCIAL_STATUS_FILE="$(mktemp -t xiaogu_social_status.XXXXXX)"
-    # Compact status line for gate detection (avoid rg on multi-MB pretty JSON).
-    SOCIAL_OUTPUT="$(python3 xiaogu_social_sentiment.py \
-        --trade-date "${DATE}" \
-        --from-scan "data/live_scan/${DATE}/${SCAN_DIR}/eastmoney_web_tabs_summary_runner.json" \
-        --sources "${SOCIAL_SOURCES}" \
-        --topn "${SOCIAL_TOPN}" \
-        --ensure-formal-top10 \
-        --status-file "${SOCIAL_STATUS_FILE}" 2>&1)" || true
-    printf '%s\n' "$SOCIAL_OUTPUT" | tail -8
-    SOCIAL_TOP_STATUS=""
-    if [ -s "${SOCIAL_STATUS_FILE}" ]; then
-        SOCIAL_TOP_STATUS="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "${SOCIAL_STATUS_FILE}" 2>/dev/null || true)"
-    fi
-    rm -f "${SOCIAL_STATUS_FILE}" || true
-    if [ "${SOCIAL_TOP_STATUS}" = "PASS" ] || printf '%s\n' "$SOCIAL_OUTPUT" | rg -q '"status": "PASS"'; then
-        SOCIAL_GATE_STATUS="PASS"
-        SOCIAL_GATE_REASON=""
-    else
-        SOCIAL_GATE_STATUS="WARN"
-        SOCIAL_GATE_REASON="SOCIAL_SOURCE_UNAVAILABLE"
-    fi
-    echo "  social_gate=${SOCIAL_GATE_STATUS} top_status=${SOCIAL_TOP_STATUS:-unknown}"
-fi
-export SOCIAL_GATE_STATUS SOCIAL_GATE_REASON
-
-# Pre-pick soft market context from @sszcw last 3 days (diagnostic + soft sector bias only).
-# Live primary: CloakChrome/CDP rendered timeline, then Scrapy/public fallback.
-# Optional: X_BEARER_TOKEN / XIAOGU_SSZCW_LIVE_URL / live_inbox.jsonl for extra replies.
-# Seed only as fallback. Never forces PAPER_PICK.
-echo ""
-echo "[2.5/6] 生成 @sszcw 近3日市场上下文（soft only, live prefer）..."
-python3 scripts/xiaogu_sszcw_market_context.py \
-    --date "${DATE}" \
-    --days 3 \
-    --prefer-live \
-    --no-seed \
-    --handles "${XIAOGU_SSZCW_HANDLES:-sszcw}" 2>&1 | tail -12 || true
-
-# Step 3: 运行 Runner
-echo ""
-echo "[3/6] 运行 Runner..."
+echo "[2/5] 运行 Runner..."
 FORWARD_STARTED_SECONDS=$SECONDS
 RUNNER_ARGS=(--date "${DATE}" --asof-time "$(date +%H:%M:%S)")
 # The scanner has just produced a realtime snapshot in this explicit date
 # directory. The runner must consume that same directory rather than silently
 # substituting a prior completed trading day during pre-market execution.
 RUNNER_ARGS+=(--no-runtime-date-adjust --force)
-NO_AUTO_TRADE=1 NO_ORDER_EXECUTION=1 python3 xiaogu_forward_d1_1450_runner_v0_1.py "${RUNNER_ARGS[@]}" 2>&1 | tail -10
+if ! env NO_AUTO_TRADE=1 NO_ORDER_EXECUTION=1 python3 xiaogu_forward_d1_1450_runner_v0_1.py "${RUNNER_ARGS[@]}" 2>&1 | tail -10; then
+  python3 - "${DATE}" "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
+import sys
+from datetime import date
+from xiaogu_db import (
+    create_production_run,
+    fetch_production_run,
+    update_production_run_status,
+    update_production_run_step,
+)
+trade_date, run_id = sys.argv[1:]
+if not fetch_production_run(run_id):
+    create_production_run(date.fromisoformat(trade_date), run_id)
+update_production_run_step(run_id, 'scanner', 'PASS', required=True)
+update_production_run_step(run_id, 'decision_persistence', 'FAIL', required=True, error_message='RUNNER_FAILED')
+update_production_run_status(run_id, 'FAIL', error_message='RUNNER_FAILED')
+PY
+  write_failure_closure "RUNNER_FAILED"
+  exit 1
+fi
 FORWARD_ELAPSED_SECONDS=$((SECONDS - FORWARD_STARTED_SECONDS))
 TOTAL_ELAPSED_SECONDS=$((SECONDS - PIPELINE_STARTED_SECONDS))
-
-# Soft social backfill after runner so formal PAPER_PICK + top10 always have gbapi evidence.
-if [ "${XIAOGU_SOCIAL_ENABLED:-1}" = "1" ]; then
-    echo ""
-    echo "[3.2/6] 补采 social（正式票 + top10）..."
-    python3 xiaogu_social_sentiment.py \
-        --trade-date "${DATE}" \
-        --ensure-formal-top10 \
-        --topn 20 \
-        --sources "${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba}" 2>&1 | tail -6 || true
-fi
 echo "  Forward elapsed: ${FORWARD_ELAPSED_SECONDS}s"
 echo "  Total elapsed: ${TOTAL_ELAPSED_SECONDS}s"
 
@@ -256,14 +295,18 @@ echo "  Total elapsed: ${TOTAL_ELAPSED_SECONDS}s"
 # remains pending until the return filler records T+1.
 DATABASE_URL="${DATABASE_URL:-postgresql://xiaogu:xiaogu@localhost:5432/xiaogu}" python3 - "${DATE}" <<'PY'
 import json
+import os
 import sys
 from datetime import date
 from xiaogu_db import fetch_daily_candidates, fetch_returns
 
 trade_date = date.fromisoformat(sys.argv[1])
-candidates = fetch_daily_candidates(trade_date)
+candidates = fetch_daily_candidates(trade_date, production_run_id=os.environ['XIAOGU_PRODUCTION_RUN_ID'])
 full_chain = [row for row in candidates if row.get('cohort_quality') == 'FULL_CHAIN_COMPLETE']
-returns = {str(row.get('symbol') or ''): row.get('t1_return') for row in fetch_returns(trade_date)}
+returns = {
+    str(row.get('symbol') or ''): row.get('t1_return')
+    for row in fetch_returns(trade_date, production_run_id=os.environ['XIAOGU_PRODUCTION_RUN_ID'])
+}
 ready_day_count = int(bool(full_chain and any(returns.get(str(row.get('symbol') or '')) is not None for row in full_chain)))
 pending_day_count = int(bool(full_chain and not ready_day_count))
 full_chain_gate = {
@@ -282,20 +325,15 @@ PY
 
 if [ "$MANUAL_LIVE_DECISION_DAY" = "1" ]; then
     echo ""
-    echo "[4/6] 跳过收益回填：当天仅持久化事前决策证据..."
+    echo "[3/5] 跳过收益回填：当天仅持久化事前决策证据..."
 else
     echo ""
-    echo "[4/6] 回填可用历史收益..."
+    echo "[3/5] 回填可用历史收益..."
     BACKFILL_STARTED_SECONDS=$SECONDS
-    python3 scripts/xiaogu_return_backfill.py 2>&1 | tail -20
-    # Explicit filler path for same-day pending T+1 (blocked until exit day 15:05).
-    python3 xiaogu_forward_result_filler_v0_1.py --date "${DATE}" --fill-all-pending --auto-eastmoney 2>&1 | tail -15 || true
-    # Hygiene: link returns.pick_id by trade_date+symbol when possible (PAPER_PICK JOIN path).
-    python3 - <<'PY'
-from xiaogu_db import backfill_return_pick_ids
-stats = backfill_return_pick_ids()
-print(f"  returns.pick_id backfill: linked={stats.get('linked')} null_remaining={stats.get('null_pick_id_remaining')} total={stats.get('returns_total')}")
-PY
+    if ! python3 scripts/xiaogu_return_backfill.py 2>&1 | tail -20; then
+        PIPELINE_REQUIRED_FAILURE=1
+        echo "  T+1 settlement required step failed; closure will record FAIL" >&2
+    fi
     BACKFILL_ELAPSED_SECONDS=$((SECONDS - BACKFILL_STARTED_SECONDS))
     echo "  Return backfill elapsed: ${BACKFILL_ELAPSED_SECONDS}s"
 fi
@@ -303,29 +341,90 @@ fi
 # Bounded data-disk hygiene: force-rerun garbage / oversized runtime JSON.
 # Never deletes DB picks/returns. Safe for pick chain.
 echo ""
-echo "[4.5/6] 数据盘有界清理（force 重跑垃圾 / oversized runtime）..."
+echo "[3.5/5] 数据盘有界清理（force 重跑垃圾 / oversized runtime）..."
 python3 scripts/xiaogu_data_retention.py --apply --keep-runtimes "${XIAOGU_KEEP_RUNTIMES_PER_DAY:-3}" --keep-snapshots "${XIAOGU_KEEP_SNAPSHOTS_PER_DAY:-5}" 2>&1 | tail -12 || true
 
+# Knowledge assets are required evidence for an active production run. The DB
+# snapshot remains authoritative; vector/Obsidian failures therefore fail the
+# run visibly instead of being silently downgraded.
 echo ""
-echo "[5/6] 生成 cohort 与系统闭环门禁..."
-DATABASE_URL="${DATABASE_URL:-postgresql://xiaogu:xiaogu@localhost:5432/xiaogu}" python3 - "${DATE}" "${MANUAL_LIVE_DECISION_DAY}" <<'PY'
+echo "[4/5] 知识资产导出（正式票+前十 why/returns → summary/Obsidian/pgvector）..."
+python3 - "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
+import sys
+from xiaogu_db import update_production_run_step
+update_production_run_step(sys.argv[1], 'knowledge_export', 'RUNNING', required=True)
+PY
+if ! python3 scripts/xiaogu_knowledge_asset_export.py --date "${DATE}" --production-run-id "${XIAOGU_PRODUCTION_RUN_ID}" 2>&1 | tail -12; then
+  python3 - "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
+import sys
+from xiaogu_db import update_production_run_status, update_production_run_step
+run_id = sys.argv[1]
+update_production_run_step(run_id, 'knowledge_export', 'FAIL', required=True, error_message='KNOWLEDGE_EXPORT_FAILED')
+update_production_run_status(run_id, 'FAIL', error_message='KNOWLEDGE_EXPORT_FAILED')
+PY
+  PIPELINE_REQUIRED_FAILURE=1
+else
+  python3 - "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
+import sys
+from xiaogu_db import update_production_run_step
+update_production_run_step(sys.argv[1], 'knowledge_export', 'PASS', required=True)
+PY
+fi
+
+echo ""
+echo "[5/5] 生成 cohort 与系统闭环门禁..."
+DATABASE_URL="${DATABASE_URL:-postgresql://xiaogu:xiaogu@localhost:5432/xiaogu}" python3 - "${DATE}" "${MANUAL_LIVE_DECISION_DAY}" "${XIAOGU_PRODUCTION_RUN_ID}" "${PIPELINE_REQUIRED_FAILURE}" <<'PY'
 import json
 import sys
 from datetime import date
 from pathlib import Path
 
 from xiaogu_backtest_v0_1 import _limitup_gene_signal_audit, build_daily_closure, build_db_cohort_report, build_db_completeness_gate, write_daily_closure
-from xiaogu_db import fetch_daily_candidates, fetch_picks
+from xiaogu_db import (
+    fetch_daily_candidates,
+    fetch_picks,
+    fetch_production_run_steps,
+    fetch_returns,
+    fetch_signals,
+    fetch_latest_scan_session,
+    get_db,
+    set_active_production_run,
+    update_production_run_status,
+    update_production_run_step,
+)
 
 trade_date = date.fromisoformat(sys.argv[1])
 manual_live_decision_day = sys.argv[2] == '1'
+production_run_id = sys.argv[3]
+required_failure = sys.argv[4] == '1'
+update_production_run_step(production_run_id, 'closure', 'RUNNING', required=True)
+run_steps = fetch_production_run_steps(production_run_id)
+knowledge_status = next(
+    (str(step.get('status') or '') for step in run_steps if step.get('step_name') == 'knowledge_export'),
+    'PENDING',
+)
 summary_path = Path('summary/return_backfill_results.json')
 backfill_stats = {} if manual_live_decision_day else (json.loads(summary_path.read_text()) if summary_path.exists() else {})
 report = build_db_cohort_report()
-paper_pick_written = any(str(row.get('decision') or '').upper() == 'PAPER_PICK' for row in fetch_picks(trade_date))
+candidate_rows = fetch_daily_candidates(trade_date, production_run_id=production_run_id)
+pick_rows = fetch_picks(trade_date, production_run_id=production_run_id)
+candidate_snapshot_id = str(next(
+    (row.get('candidate_snapshot_id') for row in candidate_rows if row.get('candidate_snapshot_id')),
+    production_run_id,
+))
+active_pick_id = next((row.get('id') for row in pick_rows if row.get('id') is not None), None)
+paper_pick_written = any(
+    str(row.get('decision') or '').upper() == 'PAPER_PICK'
+    for row in pick_rows
+)
 db_gate = build_db_completeness_gate(
     sys.argv[1],
     mode='LIVE_DECISION_DAY',
+    candidate_rows=candidate_rows,
+    pick_rows=pick_rows,
+    return_rows=fetch_returns(trade_date, production_run_id=production_run_id),
+    signal_rows=fetch_signals(trade_date, production_run_id=production_run_id),
+    scan_session=fetch_latest_scan_session(trade_date, production_run_id=production_run_id),
 )
 closure = build_daily_closure(
     sys.argv[1], report, backfill_stats,
@@ -333,6 +432,11 @@ closure = build_daily_closure(
     paper_pick_written=paper_pick_written,
     return_backfill_completed=False if manual_live_decision_day else None,
     run_mode='LIVE_DECISION_DAY' if manual_live_decision_day else 'LIVE_DAILY_PIPELINE',
+    production_run_id=production_run_id,
+    candidate_snapshot_id=candidate_snapshot_id,
+    active_pick_id=active_pick_id,
+    run_steps=run_steps,
+    knowledge_status=knowledge_status,
 )
 closure['db_completeness_gate'] = db_gate
 closure['db_completeness_summary'] = db_gate['db_completeness_summary']
@@ -342,13 +446,15 @@ closure['data_completeness_gate'] = {
     'candidate_pool_status': db_gate['candidate_pool_status'],
     'reason': db_gate['candidate_pool_warning_reason'],
 }
-closure['social_signal_gate'] = {
-    'status': __import__('os').environ.get('SOCIAL_GATE_STATUS', 'DISABLED'),
-    'reason': __import__('os').environ.get('SOCIAL_GATE_REASON', ''),
-    'used_for_official_ranking': False,
+closure['production_chain'] = {
+    'scanner': 'scrapy_scanner/runner_v2.py',
+    'transport': 'direct_api',
+    'runner': 'xiaogu_forward_d1_1450_runner_v0_1.py',
+    'fallbacks': [],
+    'sidecars': [],
 }
 if manual_live_decision_day:
-    candidates = fetch_daily_candidates(trade_date)
+    candidates = fetch_daily_candidates(trade_date, production_run_id=production_run_id)
     closure.update({
         'data_source': 'LIVE_SCAN_TO_DB_SNAPSHOT',
         'uses_future_data_for_decision': False,
@@ -360,35 +466,69 @@ if manual_live_decision_day:
             {'daily_cases': []}, run_mode='LIVE_DECISION_DAY',
         ),
     })
+closure_status = 'FAIL' if required_failure else 'PASS'
+if closure_status == 'PASS':
+    try:
+        with get_db() as db:
+            update_production_run_step(production_run_id, 'closure', 'PASS', required=True, db=db)
+            update_production_run_status(production_run_id, 'PASS', db=db)
+            set_active_production_run(
+                trade_date,
+                production_run_id,
+                candidate_snapshot_id=candidate_snapshot_id,
+                active_pick_id=active_pick_id,
+                db=db,
+            )
+    except Exception as exc:
+        closure_status = 'FAIL'
+        closure['active_publication_error'] = repr(exc)[:500]
+        update_production_run_step(
+            production_run_id,
+            'closure',
+            'FAIL',
+            required=True,
+            error_message='ACTIVE_PUBLICATION_FAILED',
+        )
+        update_production_run_status(
+            production_run_id,
+            'FAIL',
+            error_message='ACTIVE_PUBLICATION_FAILED',
+        )
+else:
+    update_production_run_step(
+        production_run_id,
+        'closure',
+        'FAIL',
+        required=True,
+        error_message='CLOSURE_BUILD_FAILED',
+    )
+    update_production_run_status(production_run_id, 'FAIL', error_message='CLOSURE_BUILD_FAILED')
+closure['production_run_steps'] = fetch_production_run_steps(production_run_id)
 output_path = write_daily_closure(closure)
-print(json.dumps(closure, ensure_ascii=False, sort_keys=True))
+print(json.dumps(closure, ensure_ascii=False, sort_keys=True, default=str))
 print(f'  daily_closure_latest: {output_path}')
+if closure_status != 'PASS':
+    raise SystemExit(1)
 PY
+
+if [ "$PIPELINE_REQUIRED_FAILURE" = "1" ]; then
+    exit 1
+fi
 
 # Shadow profit candidates (主力/游资主线): always write even on NO_PICK days.
 # Diagnostic only — does NOT change official PAPER_PICK gates or ledger.
 echo ""
-echo "[5.4/6] 影子获利候选（主线资金+主力净流入，observation_only）..."
+echo "[4.2/5] 影子获利候选（主线资金+主力净流入，observation_only）..."
 python3 scripts/xiaogu_profit_candidates_shadow.py \
   --date "${DATE}" \
   --top "${XIAOGU_PROFIT_CANDIDATES_TOP:-5}" \
   --compare-official 2>&1 | tail -20 || true
 
-# Bounded self-evolution is owned by the pick chain (not a manual operator step).
-# --apply-if-ready writes scoring_config knobs only when production_ranking_change_gate is READY_*.
-# Still forbids formal sort-key rewrite and freeze_paper_pick.
+# Bounded self-evolution is observation-only. Production scoring has one owner:
+# the runner's frozen scoring/config path, never a post-result research job.
 echo ""
-echo "[5.5/6] 有界因子自进化（gate READY 时自动 apply）..."
-if [ "${XIAOGU_SAFE_SELF_EVOLVE_DRY_RUN:-0}" = "1" ]; then
-    python3 scripts/xiaogu_safe_self_evolve.py --date "${DATE}" --dry-run 2>&1 | tail -12 || true
-else
-    python3 scripts/xiaogu_safe_self_evolve.py --date "${DATE}" --apply-if-ready 2>&1 | tail -12 || true
-fi
-
-# Second-brain knowledge assets: formal pick + top10 why/returns → summary + Obsidian + TOP10 vectors.
-echo ""
-echo "[5.6/6] 知识资产导出（正式票+前十 why/returns → summary/Obsidian/pgvector）..."
-python3 scripts/xiaogu_knowledge_asset_export.py --date "${DATE}" 2>&1 | tail -12 || true
+echo "[4.3/5] 有界因子自进化（仅 dry-run）..."
+python3 scripts/xiaogu_safe_self_evolve.py --date "${DATE}" --dry-run 2>&1 | tail -12 || true
 
 # 输出结果
 echo ""

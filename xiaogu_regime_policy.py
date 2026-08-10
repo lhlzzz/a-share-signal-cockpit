@@ -191,7 +191,6 @@ SELF_EVOLVE_BOUNDS: Dict[str, Tuple[float, float, float]] = {
     "evidence_broken_limit_penalty_weight": (1.0, 2.5, 0.10),
     "l2_limit_strength_bonus": (1.0, 150.0, 5.0),
     "sector_catalyst_penalty": (1.0, 150.0, 5.0),
-    "delayed_setup_theme_min_score": (0.3, 0.8, 0.05),
     "instant_momentum_min_confirmations": (1.0, 3.0, 1.0),
 }
 

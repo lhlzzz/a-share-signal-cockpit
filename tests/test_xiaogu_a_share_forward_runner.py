@@ -647,7 +647,26 @@ def full_real_scan_source_status() -> dict:
 
 
 def load_real_bundle() -> dict:
-    bundle = runner.read_json(REAL_BUNDLE_PATH)
+    if REAL_BUNDLE_PATH.exists():
+        bundle = runner.read_json(REAL_BUNDLE_PATH)
+    else:
+        bundle = make_bundle(
+            [
+                make_candidate(
+                    '600000',
+                    'In-Memory Test Fixture',
+                    score=80.0,
+                    rank=1,
+                    sector_score=0.65,
+                    source_time='2026-06-10 14:49:54',
+                )
+            ],
+            candidate_source=gates.PRODUCTION_SOURCE,
+            source_status=complete_source_status(),
+            asof_time='2026-06-10 15:10:00',
+        )
+        bundle['date'] = '2026-06-10'
+        bundle['source_time'] = '2026-06-10 14:49:54'
     bundle['_runner_asof_time'] = '23:59:59'
     runner.attach_paper_pick_eligibility(bundle)
     return bundle
@@ -1233,7 +1252,7 @@ def test_single_target_card_exposes_held_profit_protect() -> None:
     assert card['current_position_profile']['symbol'] == '002379'
 
 
-def test_paper_pick_eligibility_does_not_use_fixed_one_lot_cap() -> None:
+def test_paper_pick_eligibility_enforces_price_cap() -> None:
     source_status = load_real_bundle()['source_status']
     required_counts, enhanced_counts = full_candidate_evidence_counts()
     bundle = make_bundle(
@@ -1260,15 +1279,24 @@ def test_paper_pick_eligibility_does_not_use_fixed_one_lot_cap() -> None:
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
     assert eligibility['signals']['one_lot_cost_cap'] is None
+    assert eligibility['signals']['price_cap'] == 70.0
+    assert 'price<=70' in eligibility['positive_conditions']
     assert 'one_lot_cost<=account_cash' not in eligibility['positive_conditions']
     assert 'one_lot_cost>account_cash' not in eligibility['blockers']
 
-    candidate['price'] = 170.01
-    candidate['one_lot_cost'] = 17001.0
+    candidate['price'] = 70.0
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
 
+    assert 'price<=70' in eligibility['positive_conditions']
     assert 'one_lot_cost>account_cash' not in eligibility['blockers']
     assert 'one_lot_cost<=account_cash' not in eligibility['missing_conditions']
+
+    candidate['price'] = 70.01
+    eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
+
+    assert 'price>70' in eligibility['blockers']
+    assert 'price<=70' in eligibility['missing_conditions']
+    assert eligibility['eligible'] is False
 
 
 def test_liugang_style_risk_news_candidate_remains_no_pick() -> None:
@@ -2613,6 +2641,389 @@ def test_daily_candidate_persist_dry_run_does_not_write(monkeypatch):
     assert result['dry_run'] is True
     assert result['written'] == 0
     assert result['candidate_count_expected'] == 1
+
+
+def test_production_candidate_persistence_rolls_back_and_marks_run_failed(monkeypatch):
+    import xiaogu_db
+
+    payloads = {
+        'status': 'OK',
+        'scan_session': {
+            'trade_date': dt.date(2026, 7, 14),
+            'scan_time': dt.datetime(2026, 7, 14, 14, 50),
+            'source_id': 'eastmoney_api_scan_v2',
+            'quotes_count': 2,
+            'scored_count': 2,
+            'passed_count': 1,
+            'scan_dir': '/tmp/scan',
+        },
+        'daily_candidates': [
+            {'trade_date': dt.date(2026, 7, 14), 'symbol': '600001'},
+            {'trade_date': dt.date(2026, 7, 14), 'symbol': '600002'},
+        ],
+        'limitup_gene_signals': [
+            {'trade_date': dt.date(2026, 7, 14), 'symbol': '600001', 'candidate': {}},
+            {'trade_date': dt.date(2026, 7, 14), 'symbol': '600002', 'candidate': {}},
+        ],
+    }
+    calls = []
+
+    class FakeDb:
+        def __enter__(self):
+            calls.append(('transaction', 'begin'))
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(('transaction', 'rollback' if exc_type else 'commit'))
+            return False
+
+    monkeypatch.setattr(runner, 'build_daily_candidate_persistence_payloads', lambda *args: payloads)
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+    monkeypatch.setattr(xiaogu_db, 'create_production_run', lambda *args, **kwargs: calls.append(('run', kwargs.get('db'))))
+    monkeypatch.setattr(
+        xiaogu_db,
+        'update_production_run_step',
+        lambda run_id, step_name, status, **kwargs: calls.append(('step', step_name, status, kwargs.get('db'))),
+    )
+    monkeypatch.setattr(xiaogu_db, 'update_production_run_status', lambda *args, **kwargs: calls.append(('run_status', args[1])))
+    monkeypatch.setattr(xiaogu_db, 'insert_scan_session', lambda **kwargs: calls.append(('scan', kwargs['production_run_id'])) or 1)
+
+    def fail_second_candidate(**kwargs):
+        calls.append(('candidate', kwargs['symbol'], kwargs['production_run_id']))
+        if kwargs['symbol'] == '600002':
+            raise RuntimeError('candidate write failed')
+
+    monkeypatch.setattr(xiaogu_db, 'upsert_daily_candidate', fail_second_candidate)
+    monkeypatch.setattr(xiaogu_db, 'upsert_limitup_gene_signals', lambda **kwargs: calls.append(('signal', kwargs['production_run_id'])))
+    monkeypatch.setattr(xiaogu_db, 'insert_pick', lambda **kwargs: pytest.fail('pick must not commit after candidate failure'))
+
+    result = runner.persist_daily_candidate_snapshot(
+        '2026-07-14',
+        {},
+        {},
+        'PAPER_PICK',
+        'selected',
+        production_run_id='run-rollback',
+        pick_payload={'trade_date': dt.date(2026, 7, 14), 'symbol': '600001', 'decision': 'PAPER_PICK'},
+    )
+
+    assert result['status'] == 'FAILED_PERSISTENCE'
+    assert result['production_run_id'] == 'run-rollback'
+    assert ('transaction', 'rollback') in calls
+    assert ('run_status', 'FAILED_PERSISTENCE') in calls
+    assert ('step', 'candidate_snapshot', 'FAILED_PERSISTENCE', None) in calls
+    assert ('step', 'pick_persistence', 'FAILED_PERSISTENCE', None) in calls
+
+
+def test_production_candidate_persistence_commits_pick_without_publishing_active_run(monkeypatch):
+    import xiaogu_db
+
+    payloads = {
+        'status': 'OK',
+        'scan_session': {
+            'trade_date': dt.date(2026, 7, 14),
+            'scan_time': dt.datetime(2026, 7, 14, 14, 50),
+            'source_id': 'eastmoney_api_scan_v2',
+            'quotes_count': 1,
+            'scored_count': 1,
+            'passed_count': 1,
+            'scan_dir': '/tmp/scan',
+        },
+        'daily_candidates': [{'trade_date': dt.date(2026, 7, 14), 'symbol': '600001'}],
+        'limitup_gene_signals': [{'trade_date': dt.date(2026, 7, 14), 'symbol': '600001', 'candidate': {}}],
+    }
+    calls = []
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(('transaction', 'rollback' if exc_type else 'commit'))
+            return False
+
+    monkeypatch.setattr(runner, 'build_daily_candidate_persistence_payloads', lambda *args: payloads)
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+    monkeypatch.setattr(xiaogu_db, 'create_production_run', lambda *args, **kwargs: calls.append(('run', kwargs['db'])))
+    monkeypatch.setattr(xiaogu_db, 'update_production_run_step', lambda run_id, step_name, status, **kwargs: calls.append(('step', step_name, status, kwargs['db'])))
+    monkeypatch.setattr(xiaogu_db, 'update_production_run_status', lambda run_id, status, **kwargs: calls.append(('run_status', status, kwargs['db'])))
+    monkeypatch.setattr(xiaogu_db, 'insert_scan_session', lambda **kwargs: calls.append(('scan', kwargs['production_run_id'], kwargs['db'])) or 1)
+    monkeypatch.setattr(xiaogu_db, 'upsert_daily_candidate', lambda **kwargs: calls.append(('candidate', kwargs['production_run_id'], kwargs['candidate_snapshot_id'], kwargs['db'])))
+    monkeypatch.setattr(xiaogu_db, 'upsert_limitup_gene_signals', lambda **kwargs: calls.append(('signal', kwargs['production_run_id'], kwargs['db'])))
+    monkeypatch.setattr(xiaogu_db, 'insert_pick', lambda **kwargs: calls.append(('pick', kwargs['production_run_id'], kwargs['db'])) or 42)
+
+    result = runner.persist_daily_candidate_snapshot(
+        '2026-07-14',
+        {},
+        {},
+        'PAPER_PICK',
+        'selected',
+        production_run_id='run-success',
+        pick_payload={'trade_date': dt.date(2026, 7, 14), 'symbol': '600001', 'decision': 'PAPER_PICK'},
+    )
+
+    assert result['status'] == 'OK'
+    assert result['production_run_id'] == 'run-success'
+    assert result['candidate_snapshot_id'] == 'run-success'
+    assert result['pick_id'] == 42
+    assert ('transaction', 'commit') in calls
+    assert any(call[:3] == ('candidate', 'run-success', 'run-success') for call in calls)
+    assert any(call[:2] == ('pick', 'run-success') for call in calls)
+    assert not any(call[0] == 'active' for call in calls)
+    assert any(call[:3] == ('step', 'scanner', 'PASS') for call in calls)
+
+
+def test_finalize_production_run_commits_status_and_active_pointer_together(monkeypatch):
+    import xiaogu_db
+
+    calls = []
+
+    class FakeDb:
+        def __enter__(self):
+            calls.append(('transaction', 'begin'))
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(('transaction', 'rollback' if exc_type else 'commit'))
+            return False
+
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+    monkeypatch.setattr(
+        xiaogu_db,
+        'update_production_run_status',
+        lambda run_id, status, **kwargs: calls.append(('status', run_id, status, kwargs['db'])),
+    )
+    monkeypatch.setattr(
+        xiaogu_db,
+        'set_active_production_run',
+        lambda trade_day, run_id, **kwargs: calls.append(
+            ('active', trade_day, run_id, kwargs['candidate_snapshot_id'], kwargs['active_pick_id'], kwargs['db'])
+        ),
+    )
+
+    runner.finalize_production_run(
+        dt.date(2026, 8, 10),
+        'run-success',
+        candidate_snapshot_id='run-success',
+        active_pick_id=42,
+        publish_active=True,
+    )
+
+    assert [call[:3] for call in calls] == [
+        ('transaction', 'begin'),
+        ('status', 'run-success', 'PASS'),
+        ('active', dt.date(2026, 8, 10), 'run-success'),
+        ('transaction', 'commit'),
+    ]
+    assert calls[1][3] is calls[2][5]
+
+
+class _ProductionRunResult:
+    def __init__(self, row=None, rows=None):
+        self._row = row
+        self._rows = list(rows or [])
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+    def all(self):
+        return self._rows
+
+
+class _ProductionRunDb:
+    def __init__(self):
+        self.run = None
+        self.statements = []
+
+    def execute(self, statement, params):
+        sql = str(statement)
+        self.statements.append((sql, dict(params)))
+        if sql.lstrip().startswith('SELECT trade_date, scan_session_id'):
+            return _ProductionRunResult(row=self.run)
+        if sql.lstrip().startswith('INSERT INTO production_runs'):
+            self.run = {
+                key: params.get(key)
+                for key in (
+                    'trade_date', 'scan_session_id', 'run_mode', 'rule_version',
+                    'runner_version', 'scanner_version', 'schema_version',
+                    'scoring_config_hash', 'input_payload_hash',
+                )
+            }
+            self.run['status'] = 'RUNNING'
+            return _ProductionRunResult()
+        if sql.lstrip().startswith('UPDATE production_runs'):
+            self.run['scan_session_id'] = params['scan_session_id']
+            return _ProductionRunResult()
+        raise AssertionError(f'unexpected production-run SQL: {sql}')
+
+
+def _production_run_kwargs():
+    return {
+        'production_run_id': 'immutable-run',
+        'scan_session_id': 17,
+        'run_mode': 'LIVE_DAILY_PIPELINE',
+        'rule_version': 'rule-1',
+        'runner_version': 'runner-1',
+        'scanner_version': 'scanner-1',
+        'schema_version': 'schema-1',
+        'scoring_config_snapshot': {'config': {'max_score_cap': '88'}},
+        'scoring_config_hash': 'config-hash-1',
+        'input_payload_hash': 'input-hash-1',
+    }
+
+
+def test_production_run_creation_is_idempotent_and_terminal_metadata_is_immutable():
+    import xiaogu_db
+
+    db = _ProductionRunDb()
+    kwargs = _production_run_kwargs()
+    xiaogu_db.create_production_run(dt.date(2026, 8, 7), db=db, **kwargs)
+    before = dict(db.run)
+    xiaogu_db.create_production_run(dt.date(2026, 8, 7), db=db, **kwargs)
+    assert db.run == before
+    assert sum('INSERT INTO production_runs' in sql for sql, _ in db.statements) == 1
+
+    db.run['status'] = 'PASS'
+    xiaogu_db.create_production_run(dt.date(2026, 8, 7), db=db, **kwargs)
+    assert db.run['status'] == 'PASS'
+    assert sum('UPDATE production_runs' in sql for sql, _ in db.statements) == 0
+
+    db.run['status'] = 'FAILED_PERSISTENCE'
+    xiaogu_db.create_production_run(dt.date(2026, 8, 7), db=db, **kwargs)
+    assert db.run['status'] == 'FAILED_PERSISTENCE'
+
+
+@pytest.mark.parametrize('field', [
+    'trade_date', 'run_mode', 'rule_version', 'runner_version',
+    'scanner_version', 'schema_version', 'scoring_config_hash',
+    'input_payload_hash',
+])
+def test_production_run_rejects_immutable_fact_mismatch(field):
+    import xiaogu_db
+
+    db = _ProductionRunDb()
+    kwargs = _production_run_kwargs()
+    xiaogu_db.create_production_run(dt.date(2026, 8, 7), db=db, **kwargs)
+    retry = dict(kwargs)
+    retry[field] = (
+        dt.date(2026, 8, 8)
+        if field == 'trade_date'
+        else f'{retry[field]}-changed'
+    )
+    retry_date = retry.pop('trade_date', dt.date(2026, 8, 7))
+    with pytest.raises(ValueError, match='PRODUCTION_RUN_IMMUTABLE_MISMATCH'):
+        xiaogu_db.create_production_run(retry_date, db=db, **retry)
+
+
+class _ActiveRunDb:
+    def __init__(self, status='PASS', steps=None, active_pick_run='active-run', has_candidate=True):
+        self.status = status
+        self.steps = steps if steps is not None else [
+            {'step_name': 'candidate_snapshot', 'status': 'PASS'},
+            {'step_name': 'pick_persistence', 'status': 'PASS'},
+            {'step_name': 'scanner', 'status': 'PASS'},
+        ]
+        self.active_pick_run = active_pick_run
+        self.has_candidate = has_candidate
+        self.active_value = {'production_run_id': 'old-active'}
+
+    def execute(self, statement, params):
+        sql = str(statement)
+        if 'FROM production_runs' in sql:
+            return _ProductionRunResult(row={
+                'trade_date': dt.date(2026, 8, 7),
+                'status': self.status,
+            })
+        if 'FROM production_run_steps' in sql:
+            return _ProductionRunResult(rows=self.steps)
+        if 'FROM picks' in sql:
+            return _ProductionRunResult(row={'production_run_id': self.active_pick_run})
+        if 'FROM daily_candidates' in sql:
+            return _ProductionRunResult(row=(1,) if self.has_candidate else None)
+        if 'INSERT INTO production_run_active' in sql:
+            self.active_value = {
+                'production_run_id': params['production_run_id'],
+                'candidate_snapshot_id': params['candidate_snapshot_id'],
+                'active_pick_id': params['active_pick_id'],
+            }
+            return _ProductionRunResult()
+        raise AssertionError(f'unexpected active-run SQL: {sql}')
+
+
+@pytest.mark.parametrize('status', ['RUNNING', 'FAIL', 'FAILED_PERSISTENCE'])
+def test_non_pass_production_run_cannot_become_active(status):
+    import xiaogu_db
+
+    db = _ActiveRunDb(status=status)
+    with pytest.raises(ValueError, match='PRODUCTION_RUN_NOT_READY_FOR_ACTIVE'):
+        xiaogu_db.set_active_production_run(
+            dt.date(2026, 8, 7),
+            'active-run',
+            candidate_snapshot_id='snapshot-1',
+            active_pick_id=7,
+            db=db,
+        )
+    assert db.active_value == {'production_run_id': 'old-active'}
+
+
+def test_pass_production_run_can_become_active_only_after_all_required_steps_pass():
+    import xiaogu_db
+
+    db = _ActiveRunDb()
+    xiaogu_db.set_active_production_run(
+        dt.date(2026, 8, 7),
+        'active-run',
+        candidate_snapshot_id='snapshot-1',
+        active_pick_id=7,
+        db=db,
+    )
+    assert db.active_value == {
+        'production_run_id': 'active-run',
+        'candidate_snapshot_id': 'snapshot-1',
+        'active_pick_id': 7,
+    }
+
+    not_ready = _ActiveRunDb(
+        steps=[{'step_name': 'scanner', 'status': 'PASS'},
+               {'step_name': 'closure', 'status': 'RUNNING'}],
+    )
+    with pytest.raises(ValueError, match='PRODUCTION_RUN_NOT_READY_FOR_ACTIVE'):
+        xiaogu_db.set_active_production_run(
+            dt.date(2026, 8, 7),
+            'active-run',
+            candidate_snapshot_id='snapshot-1',
+            active_pick_id=7,
+            db=not_ready,
+        )
+
+
+def test_failed_active_publication_preserves_existing_pointer_and_rejects_cross_run_links():
+    import xiaogu_db
+
+    wrong_pick = _ActiveRunDb(active_pick_run='other-run')
+    with pytest.raises(ValueError, match='PRODUCTION_RUN_ACTIVE_PICK_MISMATCH'):
+        xiaogu_db.set_active_production_run(
+            dt.date(2026, 8, 7),
+            'active-run',
+            candidate_snapshot_id='snapshot-1',
+            active_pick_id=7,
+            db=wrong_pick,
+        )
+    assert wrong_pick.active_value == {'production_run_id': 'old-active'}
+
+    missing_snapshot = _ActiveRunDb(has_candidate=False)
+    with pytest.raises(ValueError, match='PRODUCTION_RUN_CANDIDATE_SNAPSHOT_MISMATCH'):
+        xiaogu_db.set_active_production_run(
+            dt.date(2026, 8, 7),
+            'active-run',
+            candidate_snapshot_id='snapshot-1',
+            active_pick_id=7,
+            db=missing_snapshot,
+        )
+    assert missing_snapshot.active_value == {'production_run_id': 'old-active'}
 
 
 def test_build_daily_candidate_persistence_payloads_keeps_replay_snapshots() -> None:
@@ -6354,17 +6765,40 @@ def test_below_water_ambush_signal_in_structured_score():
     assert 'L11_LOW_POSITION_AMBUSH' in src or 'close_position_score' in src or 'below_water' in src
 
 
-def test_ledger_migrate_dry_run():
-    """dry-run migration returns correct decisions, 0 skipped, inserted_picks==total_decisions."""
+def test_ledger_migrate_dry_run(tmp_path):
+    """Dry-run migration counts an external ledger without writing the database."""
     import sys
     from pathlib import Path
     BASE = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(BASE))
     from scripts.xiaogu_ledger_migrate import migrate_history
-    ledger = BASE / 'forward_paper_ledger_v0_1.jsonl'
+    ledger = tmp_path / 'ledger.jsonl'
+    ledger.write_text(
+        '\n'.join([
+            json.dumps({
+                'record_type': 'DECISION',
+                'date': '2026-07-20',
+                'symbol': '600001',
+                'decision': 'PAPER_PICK',
+            }),
+            json.dumps({
+                'record_type': 'RESULT_FILL',
+                'date': '2026-07-20',
+                'symbol': '600001',
+                't1_return': 0.01,
+            }),
+            json.dumps({
+                'record_type': 'CORRECTION',
+                'date': '2026-07-21',
+                'symbol': '600002',
+                'decision': 'NO_PICK',
+            }),
+        ]) + '\n',
+        encoding='utf-8',
+    )
     result = migrate_history(ledger, dry_run=True)
-    assert result['total_decisions'] >= 34, f"Expected >= 34 decisions, got {result['total_decisions']}"
-    assert result['skipped'] == 0, f"Expected 0 skipped, got {result['skipped']}"
+    assert result['total_decisions'] == 2
+    assert result['skipped'] == 0
     assert result['inserted_picks'] == result['total_decisions'], (
         f"inserted_picks {result['inserted_picks']} != total_decisions {result['total_decisions']}"
     )
@@ -9665,7 +10099,39 @@ def test_structure_candidate_writes_why_not_official_machine_codes():
     assert codes
 
 
-def test_mainline_miss_daily_report_2026_07_21_tags():
+def test_mainline_miss_daily_report_2026_07_21_tags(monkeypatch):
+    official = {
+        'symbol': '603115',
+        'name': '海星股份',
+        'decision': 'PAPER_PICK',
+        'price': 68.5,
+        'limitup_reason_status': 'PROXY',
+        'mainboard_auxiliary_evidence_status': 'PARTIAL',
+        'main_theme_core_score': 0.0,
+        'main_theme_alignment_score': 0.0,
+        'continuation_gene_score': 0.0,
+    }
+    alternative = {
+        'symbol': '600475',
+        'name': '华光环能',
+        'decision': 'CANDIDATE',
+        'predicted_sector': '环保',
+        'continuation_gene_score': 0.7,
+        'sector_news_catalyst_score': 0.7,
+    }
+    monkeypatch.setattr(backtest, '_load_official_pick_from_runtime', lambda _date: dict(official))
+    monkeypatch.setattr(backtest, 'fetch_daily_candidates', lambda _date: [dict(official), dict(alternative)])
+    monkeypatch.setattr(
+        backtest,
+        '_sector_flow_rows_from_scan',
+        lambda _date: {
+            'status': 'PASS',
+            'reason': '',
+            'session_dir': None,
+            'industry_rows': [{'theme': '环保', 'pct_chg': 4.2, 'net_inflow': 1_200_000_000, 'code': 'BK0001'}],
+            'concept_rows': [],
+        },
+    )
     report = backtest.build_mainline_miss_daily_report('2026-07-21')
     assert report['production_mutation_allowed'] is False
     assert report['selected_for_production'] is False

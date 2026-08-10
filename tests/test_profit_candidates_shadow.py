@@ -21,7 +21,7 @@ def test_tradable_filter_mainboard_and_chase():
     ok, reason = pcs.tradable_filter(
         {"code": "002185", "price": 80.0, "signal_pct": 5.2, "net_inflow_main": 1e8}
     )
-    assert not ok and reason == "price_over_cap"
+    assert ok and reason == "ok"
 
     ok, reason = pcs.tradable_filter(
         {"code": "002185", "price": 12.0, "signal_pct": 10.0, "net_inflow_main": 1e8}
@@ -183,9 +183,29 @@ def test_industry_mainline_outranks_concept_only_mega_inflow():
 
 
 def test_compare_shadow_vs_official_no_pick_day(tmp_path, monkeypatch):
-    monkeypatch.setattr(pcs, "SUMMARY", tmp_path)
-    formal = tmp_path / "2026-07-24_formal_paper_pick.json"
-    formal.write_text(json.dumps({"trade_date": "2026-07-24", "decision": "NO_PICK", "symbol": ""}), encoding="utf-8")
+    class FakeResult:
+        def __init__(self, row):
+            self.row = row
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self.row
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, statement, params):
+            if "FROM production_run_active" in str(statement):
+                return FakeResult({"production_run_id": "run-no-pick"})
+            return FakeResult(None)
+
+    monkeypatch.setattr(pcs, "get_db", lambda: FakeDb())
     shadow_day = {
         "candidates": [
             {
@@ -223,7 +243,7 @@ def test_scan_fingerprint_matches_identical_flow(tmp_path: Path):
                     ensure_ascii=False,
                 )
             )
-        (base / "eastmoney_web_tabs_scored.jsonl").write_text("\n".join(lines), encoding="utf-8")
+        (base / "xiaogu_scored.jsonl").write_text("\n".join(lines), encoding="utf-8")
         return base
 
     flow = json.dumps({"f14": "半导体", "f62": 9e9, "f3": 1.0, "f12": "BK1"}, ensure_ascii=False) + "\n"
@@ -317,8 +337,13 @@ def test_run_for_date_marks_stale_and_excludes_from_conclusion(tmp_path, monkeyp
                 "candidate_stage": "flat_0_to_3",
             },
         ]
-        (scan / "eastmoney_web_tabs_scored.jsonl").write_text(
-            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows),
+        (scan / "xiaogu_scan_summary_runner.json").write_text(
+            json.dumps({
+                "source": "eastmoney_api_scan_v2",
+                "pipeline_version": "v2_scanner_api",
+                "source_time": f"{day} 14:30:00",
+                "paper_scoring_candidates": rows,
+            }, ensure_ascii=False),
             encoding="utf-8",
         )
 

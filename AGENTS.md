@@ -197,6 +197,12 @@ python3 xiaogu_forward_d1_1450_runner_v0_1.py --date $(date +%Y-%m-%d) --force
    - 知识有变：Obsidian `Project/A股`（inbox/状态/任务）+ 神临（想法池/总索引/项目接口，仅跨域）
    - 成功标准全部打勾才算完成；主链绿但记忆/笔记漏写 = **未完成**
 
+### 浏览器验证规则
+
+- 浏览器不属于生产链，也不是日常验证前提。
+- 默认使用 source code、数据库、API、测试和服务日志验证。
+- 任何任务不得因浏览器不可用而绕过生产链、直接改库或把 dry-run 结果当正式事实。
+
 ---
 
 ## Historical Decisions
@@ -214,8 +220,8 @@ python3 xiaogu_forward_d1_1450_runner_v0_1.py --date $(date +%Y-%m-%d) --force
 - 2026-06-26: Return methodology: T+1 close as primary, high/vwap as reference
 - 2026-06-26: Score cap (95) for win rate improvement
 - 2026-06-26: Weekday blocklist (Mon/Fri blocked) for win rate improvement
-- 2026-06-26: Social sentiment integration via CloakChrome CDP (东财股吧 + X/Twitter)
-- 2026-06-29: Architecture overhaul — sector prediction first (full market API fund flow → predict hot sector → select stocks). `fetch_all_sector_fund_flow()` replaces CDP concept_capital_flow. 创新药 = 36.96亿 #1 net inflow on 6/26.
+- 2026-06-26: Historical social-sentiment experiment retired; it is not part of the production chain.
+- 2026-06-29: Architecture overhaul — sector prediction first (full market API fund flow → predict hot sector → select stocks).
 - 2026-06-29: Main force/hot money perspective is PRIMARY scoring dimension. `hm*0.6 + int*0.4` for sector-matched, `hm*0.2 + int*0.8` for unmatched.
 
 ## Codebase Memory MCP

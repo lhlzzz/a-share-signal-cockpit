@@ -5,6 +5,7 @@ import xiaogu_forward_d1_1450_runner_v0_1 as runner  # noqa: F401 — binds elig
 from xiaogu_forward_eligibility import (
     _inferred_sealed_limit_up,
     _mainboard_like_limit_seal_threshold,
+    broken_limitup_continuation_exception,
     filter_current_day_tradable_candidates,
     filter_t1_profit_candidates,
     paper_pick_buyability_block_reason,
@@ -63,6 +64,138 @@ def test_current_day_limitup_is_removed_but_underwater_candidate_survives():
     assert summary['dropped_count'] == 1
     assert summary['drop_reasons'] == {'CURRENT_DAY_LIMIT_UP_NOT_TRADABLE': 1}
     assert summary['dropped'][0]['symbol'] == '002212'
+
+
+def test_regulatory_hard_block_is_removed_from_tradable_pool():
+    row = {
+        'symbol': '002969',
+        'name': '嘉美包装',
+        'signal_pct': 4.2,
+        'research_signals': {
+            'catalyst_quality': {
+                'category': 'regulatory_notice',
+                'regulatory_hard_block': True,
+            },
+            'a_share_risk_review': {
+                'disqualified_for_paper_pick': True,
+            },
+        },
+    }
+
+    kept, summary = filter_current_day_tradable_candidates([row])
+
+    assert kept == []
+    assert summary['drop_reasons'] == {'REGULATORY_HARD_BLOCK:regulatory_notice': 1}
+
+
+def test_single_historical_nonprofit_result_does_not_remove_candidate(monkeypatch):
+    row = {
+        'symbol': '002452',
+        'name': '长高电气',
+        'signal_pct': 4.2,
+        'close_position_score': 0.82,
+        'volume_ratio': 1.55,
+        'net_inflow_main': 80_000_000,
+        'fund_flow_momentum': 0.62,
+        'continuation_gene_score': 0.20,
+        'main_theme_core_score': 0.70,
+        'main_theme_alignment_score': 0.85,
+        'in_limitup_pool': False,
+    }
+
+    monkeypatch.setattr(runner, 'historical_t1_loss_streak_before', lambda *_args: (1, -0.047279))
+    kept, summary = filter_t1_profit_candidates([row], {'date': '2026-07-29'})
+
+    assert len(kept) == 1
+    assert 'RECENT_T1_NONPROFIT_HARD_BLOCK' not in summary['drop_reasons']
+
+
+def _strong_limitup_continuation_row() -> dict:
+    return {
+        'symbol': '600475',
+        'name': '华光环能',
+        'signal_pct': 8.53,
+        'close_position_score': 0.96,
+        'volume_ratio': 2.91,
+        'fund_flow_momentum': 0.58,
+        'net_inflow_main': 50_000_000,
+        'continuation_gene_score': 0.70,
+        'previous_limitup': True,
+        'mainboard_auxiliary_evidence_status': 'PARTIAL',
+        'structured_component_details': {
+            'pre_limitup_anomaly': 0.86,
+            'intraday_alert_strength': 0.78,
+        },
+    }
+
+
+def test_controlled_limitup_continuation_exception_admits_strong_buyable_row():
+    result = broken_limitup_continuation_exception(
+        _strong_limitup_continuation_row(),
+        {
+            'market_regime': 'weak',
+            'market_snapshot': {
+                'market_regime': 'weak',
+                'limitup_broken_ratio': 0.98,
+            },
+        },
+    )
+
+    assert result['eligible'] is True
+    assert '昨日涨停延续，当前仍可交易' in result['reasons_zh']
+    assert '涨停基因/延续性' in result['reasons_zh']
+
+
+def test_controlled_limitup_continuation_exception_keeps_hard_blocks():
+    sealed = _strong_limitup_continuation_row()
+    sealed.update({'signal_pct': 10.0, 'in_limitup_pool': True})
+    assert broken_limitup_continuation_exception(sealed)['eligible'] is False
+
+    regulatory = _strong_limitup_continuation_row()
+    regulatory['regulatory_hard_block'] = '监管风险提示'
+    result = broken_limitup_continuation_exception(regulatory)
+    assert result['eligible'] is False
+    assert any('监管硬阻断' in item for item in result['hard_blockers'])
+
+
+def test_controlled_limitup_continuation_exception_rejects_weak_close_in_weak_market():
+    row = _strong_limitup_continuation_row()
+    row['close_position_score'] = 0.80
+    result = broken_limitup_continuation_exception(
+        row,
+        {
+            'market_regime': 'weak',
+            'market_snapshot': {
+                'market_regime': 'weak',
+                'limitup_broken_ratio': 0.78,
+            },
+        },
+    )
+
+    assert result['eligible'] is False
+    assert any('收盘位置不足0.84' in item for item in result['hard_blockers'])
+
+
+def test_consecutive_historical_nonprofit_results_remove_candidate(monkeypatch):
+    row = {
+        'symbol': '002452',
+        'name': '长高电气',
+        'signal_pct': 4.2,
+        'close_position_score': 0.82,
+        'volume_ratio': 1.55,
+        'net_inflow_main': 80_000_000,
+        'fund_flow_momentum': 0.62,
+        'continuation_gene_score': 0.20,
+        'main_theme_core_score': 0.70,
+        'main_theme_alignment_score': 0.85,
+        'in_limitup_pool': False,
+    }
+
+    monkeypatch.setattr(runner, 'historical_t1_loss_streak_before', lambda *_args: (2, -0.047279))
+    kept, summary = filter_t1_profit_candidates([row], {'date': '2026-07-29'})
+
+    assert kept == []
+    assert summary['drop_reasons']['RECENT_T1_NONPROFIT_HARD_BLOCK'] == 1
 
 
 def test_underwater_reversal_can_enter_profit_candidate_pool():

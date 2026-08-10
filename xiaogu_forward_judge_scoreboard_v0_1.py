@@ -12,19 +12,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from xiaogu_utils import PRODUCTION_RETURN_FIELD, PRODUCTION_TRADE_MODE
+
 BASE = Path(__file__).resolve().parent
 RULE_VERSION = "xiaogu_forward_judge_scoreboard_v0_1"
 HORIZON_FIELDS = {
-    "d1": "d1_return",
-    "d20": "d20_return",
-    "d60": "d60_return",
-    "d120": "d120_return",
-    "d250": "d250_return",
+    "d1": PRODUCTION_RETURN_FIELD,
 }
 LEDGER_HORIZON_MAP = {
-    "d1_return": "t1_return",
-    "d2_return": "t2_return",
-    "d3_return": "t3_return",
+    "d1_return": PRODUCTION_RETURN_FIELD,
 }
 ACTIVE_DECISION_RECORD_TYPES = {"DECISION", "CORRECTION"}
 GUARDRAILS = [
@@ -62,6 +58,7 @@ FAILURE_TAGS = {
     "FRIED_BOARD_RISK",
     "FRIED_BOARD_UNVERIFIED",
 }
+PRODUCTION_DECISIONS = {"PAPER_PICK", "NO_PICK"}
 MISS_LIMITUP_TAGS = {"NO_LIMIT_UP_EVIDENCE"}
 
 
@@ -105,11 +102,10 @@ def summarize_returns(values: Iterable[float]) -> Dict[str, Any]:
 
 
 def first_available_return_pct(row: Dict[str, Any]) -> Optional[float]:
-    for field in ("d1_return", "d2_return", "d3_return", "d20_return", "d60_return", "d120_return", "d250_return"):
-        ret = fnum(row.get(field))
-        if ret is not None:
-            return ret
-    return None
+    value = row.get(PRODUCTION_RETURN_FIELD)
+    if value is None:
+        value = row.get("d1_return")
+    return fnum(value)
 
 
 def has_limit_up_evidence(row: Dict[str, Any]) -> bool:
@@ -304,6 +300,9 @@ def classify_forward_observation(row: Dict[str, Any], low_return_pct: float = 3.
     tags: List[str] = []
     reasons: List[str] = []
     decision = row.get("decision")
+    if decision not in PRODUCTION_DECISIONS:
+        tags.append("LEGACY_DECISION_IGNORED")
+        decision = "NO_PICK"
     ret = first_available_return_pct(row)
     signal_pct = fnum(row.get("signal_pct"))
     close_position_score = fnum(row.get("close_position_score"))
@@ -311,8 +310,6 @@ def classify_forward_observation(row: Dict[str, Any], low_return_pct: float = 3.
 
     if decision == "NO_PICK":
         tags.append("NO_PICK_OBSERVATION")
-    if decision == "RESEARCH_CANDIDATE":
-        tags.append("RESEARCH_ONLY")
     if decision == "PAPER_PICK" and ret is None:
         tags.append("RESULT_PENDING")
         reasons.append("PAPER_PICK has no filled forward return yet")
@@ -331,7 +328,7 @@ def classify_forward_observation(row: Dict[str, Any], low_return_pct: float = 3.
             tags.append("NO_LIMIT_UP_EVIDENCE")
             reasons.append(f"no explicit limit-up evidence and forward high return {ret:.2f}% < {limit_up_return_pct:.2f}%")
 
-    if decision in {"NO_PICK", "RESEARCH_CANDIDATE"} and ret is not None and (ret >= limit_up_return_pct or has_limit_up_evidence(row)):
+    if decision == "NO_PICK" and ret is not None and (ret >= limit_up_return_pct or has_limit_up_evidence(row)):
         tags.append("MISSED_LIMITUP")
         tags.append("FALSE_NEGATIVE")
         reasons.append("non-PAPER_PICK row later showed limit-up-like return or evidence")
@@ -504,7 +501,6 @@ def build_forward_review(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     problem_rows = []
     pending_rows = []
     no_pick_rows = []
-    research_rows = []
     paper_pick_returns = []
     paper_pick_count = 0
     paper_pick_limitup_capture_evidence_count = 0
@@ -513,6 +509,8 @@ def build_forward_review(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     for row in rows or []:
         decision = row.get("decision") or "UNKNOWN"
+        if decision not in PRODUCTION_DECISIONS:
+            decision = "NO_PICK"
         by_decision[decision] += 1
         for tag in row.get("review_tags") or []:
             tag_counts[tag] += 1
@@ -535,8 +533,6 @@ def build_forward_review(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             pending_rows.append(compact)
         if decision == "NO_PICK":
             no_pick_rows.append(compact)
-        if decision == "RESEARCH_CANDIDATE":
-            research_rows.append(compact)
 
     libraries = build_diagnosis_libraries(rows or [])
     return {
@@ -560,7 +556,6 @@ def build_forward_review(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "problem_rows": problem_rows,
         "pending_rows": pending_rows,
         "no_pick_rows": no_pick_rows,
-        "research_rows": research_rows,
     }
 
 
@@ -619,7 +614,7 @@ def build_a_share_chain_scorecard(rows: List[Dict[str, Any]], rows_with_evidence
     false_positive_count = sum(1 for row in paper_rows if "FALSE_POSITIVE" in set(row.get("review_tags") or []))
     limitup_capture_count = sum(1 for row in paper_rows if has_limitup_capture_evidence(row))
     strong_limitup_capture_count = sum(1 for row in paper_rows if str(row.get("limitup_capture_profile") or "") == "STRONG_LIMITUP_CAPTURE")
-    non_pick_rows = [row for row in rows or [] if row.get("decision") in {"NO_PICK", "RESEARCH_CANDIDATE"}]
+    non_pick_rows = [row for row in rows or [] if row.get("decision") == "NO_PICK"]
     false_negative_count = sum(1 for row in non_pick_rows if "FALSE_NEGATIVE" in set(row.get("review_tags") or []))
     total_rows = len(rows or [])
     evidence_health = rows_with_evidence / total_rows if total_rows else 0.0
@@ -704,6 +699,8 @@ def build_forward_judge_scoreboard(rows: List[Dict[str, Any]], asof_ts: Optional
         "paper_only": True,
         "no_trade": True,
         "trade_action_allowed": False,
+        "production_trade_mode": PRODUCTION_TRADE_MODE,
+        "production_return_field": PRODUCTION_RETURN_FIELD,
         "decision": decision,
         "blockers": blockers,
         "guardrails": GUARDRAILS,
@@ -817,7 +814,7 @@ def merge_forward_ledger(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     decisions = [
         r for r in rows
         if is_active_decision_record(r, corrected_ids, superseded)
-        and r.get('decision') in {'PAPER_PICK', 'RESEARCH_CANDIDATE', 'NO_PICK'}
+        and r.get('decision') in {'PAPER_PICK', 'NO_PICK'}
     ]
     fills = [r for r in rows if r.get('record_type') == 'RESULT_FILL' or (r.get('record_type') == 'CORRECTION' and not r.get('decision'))]
     out = []
@@ -830,7 +827,7 @@ def merge_forward_ledger(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             'asof_time': decision.get('asof_time'),
             'symbol': symbol,
             'name': features.get('name'),
-            'decision': decision.get('decision'),
+        'decision': decision.get('decision') if decision.get('decision') in {'PAPER_PICK', 'NO_PICK'} else 'NO_PICK',
             'entry_price': features.get('entry_price') or features.get('price') or features.get('signal_close'),
             'signal_pct': features.get('signal_pct') or features.get('pct_chg') or features.get('change_pct'),
             'close_position_score': features.get('close_position_score'),

@@ -51,16 +51,43 @@ def _jsonable(obj: Any) -> Any:
     return obj
 
 
-def load_day_knowledge(trade_date: date) -> Dict[str, Any]:
+def resolve_production_run_id(trade_date: date, production_run_id: str = '') -> str:
+    """Use an explicit historical run or the active run for this decision date."""
+    with get_db() as db:
+        if production_run_id:
+            row = db.execute(text("""
+                SELECT production_run_id
+                FROM production_runs
+                WHERE production_run_id = :production_run_id
+                  AND trade_date = :trade_date
+            """), {
+                'production_run_id': production_run_id,
+                'trade_date': trade_date,
+            }).fetchone()
+        else:
+            row = db.execute(text("""
+                SELECT production_run_id
+                FROM production_run_active
+                WHERE trade_date = :trade_date
+            """), {'trade_date': trade_date}).fetchone()
+    if not row:
+        raise ValueError('PRODUCTION_RUN_NOT_FOUND_FOR_KNOWLEDGE_EXPORT')
+    return str(row[0])
+
+
+def load_day_knowledge(trade_date: date, production_run_id: str = '') -> Dict[str, Any]:
+    production_run_id = resolve_production_run_id(trade_date, production_run_id)
+    params = {'td': trade_date, 'production_run_id': production_run_id}
     with get_db() as db:
         picks = db.execute(text("""
             SELECT id, symbol, stock_name, decision, final_score, rank,
                    features, selection_reason, ticket_reason, auxiliary_evidence_status,
                    ranking_basis, paper_pick_eligibility, created_at, updated_at
-            FROM picks
-            WHERE trade_date = :td
+            FROM picks p
+            WHERE p.trade_date = :td
+              AND p.production_run_id = :production_run_id
             ORDER BY created_at
-        """), {'td': trade_date}).mappings().all()
+        """), params).mappings().all()
         active = []
         superseded = []
         for p in picks:
@@ -83,28 +110,29 @@ def load_day_knowledge(trade_date: date) -> Dict[str, Any]:
                    dc.selection_outcome, dc.is_official_pick, dc.selection_reason,
                    dc.ticket_reason, dc.not_selected_reason,
                    dc.auxiliary_evidence_snapshot, dc.ranking_basis,
-                   r.t1_return, r.t1_return_close, r.t1_return_high,
-                   r.next_day_open_return, r.next_day_high_return, r.pick_id
+                   r.t1_return, r.pick_id
             FROM daily_candidates dc
             LEFT JOIN returns r
-              ON r.trade_date = dc.trade_date AND r.symbol = dc.symbol
-            WHERE dc.trade_date = :td AND dc.rank IS NOT NULL AND dc.rank <= 10
+              ON r.production_run_id = dc.production_run_id AND r.symbol = dc.symbol
+            WHERE dc.trade_date = :td
+              AND dc.production_run_id = :production_run_id
+              AND dc.rank IS NOT NULL AND dc.rank <= 10
             ORDER BY dc.rank
-        """), {'td': trade_date}).mappings().all()
+        """), params).mappings().all()
 
         paper_returns = db.execute(text("""
-            SELECT p.symbol, p.stock_name, p.final_score, r.t1_return, r.t1_return_close,
-                   r.t1_return_high, r.pick_id
+            SELECT p.symbol, p.stock_name, p.final_score, r.t1_return, r.pick_id
             FROM picks p
-            LEFT JOIN returns r ON r.trade_date = p.trade_date AND r.symbol = p.symbol
+            LEFT JOIN returns r ON r.production_run_id = p.production_run_id AND r.symbol = p.symbol
             WHERE p.trade_date = :td AND p.decision = 'PAPER_PICK'
+              AND p.production_run_id = :production_run_id
               AND COALESCE(p.features ->> 'superseded', 'false') <> 'true'
-        """), {'td': trade_date}).mappings().all()
+        """), params).mappings().all()
 
     top10_list = [_jsonable(dict(x)) for x in top10]
     with_t1 = sum(
         1 for x in top10_list
-        if x.get('t1_return') is not None or x.get('t1_return_close') is not None
+        if x.get('t1_return') is not None
     )
     formal = None
     for p in active:
@@ -128,6 +156,7 @@ def load_day_knowledge(trade_date: date) -> Dict[str, Any]:
 
     return {
         'trade_date': trade_date.isoformat(),
+        'production_run_id': production_run_id or None,
         'generated_at': datetime.now().isoformat(timespec='seconds'),
         'formal_paper_pick': formal,
         'active_picks': [
@@ -179,20 +208,26 @@ def historical_knowledge_dates(
 ) -> List[date]:
     """Return dates with persisted top10 candidates or formal paper picks."""
     with get_db() as db:
-        rows = db.execute(text("""
-            SELECT trade_date
-            FROM daily_candidates
-            WHERE rank IS NOT NULL AND rank <= 10
-              AND (:start_date IS NULL OR trade_date >= CAST(:start_date AS date))
-              AND (:end_date IS NULL OR trade_date <= CAST(:end_date AS date))
+        rows = db.execute(text(f"""
+            SELECT dc.trade_date
+            FROM daily_candidates dc
+            JOIN production_run_active pra
+              ON pra.trade_date = dc.trade_date
+             AND pra.production_run_id = dc.production_run_id
+            WHERE dc.rank IS NOT NULL AND dc.rank <= 10
+              AND (:start_date IS NULL OR dc.trade_date >= CAST(:start_date AS date))
+              AND (:end_date IS NULL OR dc.trade_date <= CAST(:end_date AS date))
             UNION
-            SELECT trade_date
-            FROM picks
-            WHERE decision = 'PAPER_PICK'
-              AND COALESCE(features ->> 'superseded', 'false') <> 'true'
-              AND (:start_date IS NULL OR trade_date >= CAST(:start_date AS date))
-              AND (:end_date IS NULL OR trade_date <= CAST(:end_date AS date))
-            ORDER BY trade_date
+            SELECT p.trade_date
+            FROM picks p
+            JOIN production_run_active pra
+              ON pra.trade_date = p.trade_date
+             AND pra.production_run_id = p.production_run_id
+            WHERE p.decision = 'PAPER_PICK'
+              AND COALESCE(p.features ->> 'superseded', 'false') <> 'true'
+              AND (:start_date IS NULL OR p.trade_date >= CAST(:start_date AS date))
+              AND (:end_date IS NULL OR p.trade_date <= CAST(:end_date AS date))
+            ORDER BY 1
         """), {
             'start_date': start_date,
             'end_date': end_date,
@@ -200,26 +235,41 @@ def historical_knowledge_dates(
     return [value if isinstance(value, date) else date.fromisoformat(str(value)[:10]) for value in rows]
 
 
-def upsert_paper_pick_cases_from_db(trade_date: date) -> Dict[str, Any]:
+def upsert_paper_pick_cases_from_db(
+    trade_date: date,
+    production_run_id: str = '',
+) -> Dict[str, Any]:
     """Persist active historical PAPER_PICK rows as retrieval cases."""
+    pick_run_filter = (
+        'AND p.production_run_id = :production_run_id'
+        if production_run_id
+        else 'AND p.production_run_id IS NULL'
+    )
+    return_join = (
+        'r.production_run_id = p.production_run_id AND r.symbol = p.symbol'
+        if production_run_id
+        else 'r.trade_date = p.trade_date AND r.symbol = p.symbol AND r.production_run_id IS NULL'
+    )
     with get_db() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT p.id, p.symbol, p.stock_name, p.final_score, p.rank,
                    p.features, p.selection_reason, p.ticket_reason,
                    p.ranking_basis, p.auxiliary_evidence_status,
-                   r.t1_return, r.t1_return_close, r.t1_return_high
+                   r.t1_return
             FROM picks p
             LEFT JOIN returns r
-              ON r.trade_date = p.trade_date AND r.symbol = p.symbol
+              ON {return_join}
             WHERE p.trade_date = :td
+              {pick_run_filter}
               AND p.decision = 'PAPER_PICK'
               AND COALESCE(p.features ->> 'superseded', 'false') <> 'true'
             ORDER BY p.created_at, p.id
-        """), {'td': trade_date}).mappings().all()
+        """), {'td': trade_date, 'production_run_id': production_run_id}).mappings().all()
 
     out = {
         'status': 'OK',
         'trade_date': trade_date.isoformat(),
+        'production_run_id': production_run_id,
         'upserted': 0,
         'failed': 0,
     }
@@ -236,8 +286,7 @@ def upsert_paper_pick_cases_from_db(trade_date: date) -> Dict[str, Any]:
             'rank': item.get('rank'),
             'ranking_basis': item.get('ranking_basis'),
             'auxiliary_evidence_status': item.get('auxiliary_evidence_status'),
-            't1_return': item.get('t1_return') if item.get('t1_return') is not None
-            else item.get('t1_return_close'),
+            't1_return': item.get('t1_return'),
         })
         reason = json.dumps({
             'selection_reason': _jsonable(item.get('selection_reason')),
@@ -253,11 +302,12 @@ def upsert_paper_pick_cases_from_db(trade_date: date) -> Dict[str, Any]:
             reason=reason,
             metadata={
                 'cohort': 'paper_pick',
+                'production_run_id': production_run_id,
                 'pick_id': item.get('id'),
                 'rank': item.get('rank'),
-                't1_return_high': item.get('t1_return_high'),
             },
             t1_return=features.get('t1_return'),
+            production_run_id=production_run_id,
         )
         if result.get('status') == 'OK':
             out['upserted'] += 1
@@ -367,7 +417,9 @@ def write_historical_obsidian(report: Dict[str, Any]) -> Dict[str, Any]:
 
 def write_summary(payload: Dict[str, Any], trade_date: date) -> Path:
     SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
-    path = SUMMARY_DIR / f'{trade_date.isoformat()}_top10_knowledge.json'
+    run_id = str(payload.get('production_run_id') or '').strip()
+    suffix = f'_{run_id}' if run_id else ''
+    path = SUMMARY_DIR / f'{trade_date.isoformat()}_top10_knowledge{suffix}.json'
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
     latest = SUMMARY_DIR / 'top10_knowledge_latest.json'
     latest.write_text(path.read_text(encoding='utf-8'), encoding='utf-8')
@@ -382,6 +434,42 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
     inbox.mkdir(parents=True, exist_ok=True)
     formal = payload.get('formal_paper_pick') or {}
     top10 = payload.get('top10') or []
+    review_cases = [
+        row for row in top10
+        if isinstance(row.get('t1_return'), (int, float))
+        and row.get('t1_return') < 0.01
+    ]
+    for row in payload.get('paper_pick_returns') or []:
+        if (
+            isinstance(row, dict)
+            and isinstance(row.get('t1_return'), (int, float))
+            and row.get('t1_return') < 0.01
+            and not any(
+                existing.get('symbol') == row.get('symbol')
+                and existing.get('t1_return') == row.get('t1_return')
+                for existing in review_cases
+            )
+        ):
+            review_cases.append({
+                **row,
+                'decision': 'PAPER_PICK',
+                'selection_reason': '正式票 T+1 低收益复盘',
+            })
+    vector_upsert = payload.get('top10_vector_upsert') or {}
+    vector_upserted = int(vector_upsert.get('upserted') or 0)
+    vector_failed = int(vector_upsert.get('failed') or 0)
+    if vector_failed == 0 and vector_upserted >= len(top10):
+        vector_status = f"- TOP10 已全部写入 `decision=TOP10`（{vector_upserted}/{len(top10)}）"
+    elif vector_upserted:
+        vector_status = (
+            f"- TOP10 向量部分写入（{vector_upserted}/{len(top10)}，"
+            f"失败 {vector_failed} 条；不得视为完整）"
+        )
+    else:
+        vector_status = (
+            f"- TOP10 向量写入未完成（0/{len(top10)}，失败 {vector_failed} 条；"
+            "当前仅展示已有 pgvector 记录）"
+        )
     lines = [
         f'# {trade_date.isoformat()} 知识资产 · 正式票 + 前十 why/returns',
         '',
@@ -411,8 +499,6 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
     ]
     for row in top10:
         t1 = row.get('t1_return')
-        if t1 is None:
-            t1 = row.get('t1_return_close')
         t1s = f'{t1:.4f}' if isinstance(t1, (int, float)) else '—'
         why = str(row.get('selection_reason') or row.get('ticket_reason') or row.get('not_selected_reason') or '')[:80].replace('|', '/')
         lines.append(
@@ -421,11 +507,37 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
         )
     lines.extend([
         '',
+        '## 亏损 / 低收益复盘（主力行为链升级输入）',
+        '',
+        '- 规则：`t1_return < 0.01`；亏损票全部纳入，盈利但低于 1% 的票作为低收益案例。',
+        '- 用途：只用于复盘、证据归因和下一轮主力行为链升级，不直接生成 PAPER_PICK。',
+        '',
+        '| date | symbol | score | t1 | review | why |',
+        '|---|---|---:|---:|---|---|',
+    ])
+    for row in review_cases:
+        t1 = row.get('t1_return')
+        t1s = f'{t1:.4f}' if isinstance(t1, (int, float)) else '—'
+        review = '亏损' if isinstance(t1, (int, float)) and t1 < 0 else '低收益'
+        why = str(
+            row.get('selection_reason')
+            or row.get('ticket_reason')
+            or row.get('not_selected_reason')
+            or ''
+        )[:120].replace('|', '/')
+        lines.append(
+            f"| {row.get('trade_date') or trade_date.isoformat()} | {row.get('symbol')} | "
+            f"{row.get('final_score')} | {t1s} | {review} | {why} |"
+        )
+    if not review_cases:
+        lines.append('| — | — | — | — | 无 | 当前没有已回填的亏损/低收益案例 |')
+    lines.extend([
+        '',
         '## 向量层',
         '',
         f"- storage: **pgvector** table `pick_case_embeddings`",
         f"- embed_method: `{payload.get('vector_layer', {}).get('embed_method')}`",
-        f"- top10 已 upsert 为 decision=TOP10（可相似检索）",
+        vector_status,
         '',
         '## 用途（第二大脑）',
         '',
@@ -446,22 +558,29 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
         stamp = f'## {trade_date.isoformat()} · 正式票锁定与知识资产'
         body = status_path.read_text(encoding='utf-8')
         block = (
-            f'\n{stamp}\n\n'
+            f'{stamp}\n\n'
             f"- 正式票: **{formal.get('symbol')} {formal.get('stock_name')}** "
             f"score={formal.get('final_score')} pick_id={formal.get('pick_id')}\n"
             f"- Top10 知识: `summary/{trade_date.isoformat()}_top10_knowledge.json`\n"
-            f"- 向量: pgvector + `{embed_method_name()}`；TOP10 cohort 已写入\n"
+            f"- 向量: pgvector + `{embed_method_name()}`；"
+            f"TOP10 upsert={vector_upserted}/{len(top10)}，failed={vector_failed}\n"
             f"- Obsidian inbox: `{note_path.name}`\n"
         )
-        if stamp not in body:
+        if stamp in body:
+            start = body.index(stamp)
+            end = body.find('\n## ', start + len(stamp))
+            if end < 0:
+                end = len(body)
+            body = body[:start] + block.rstrip() + body[end:]
+        else:
             # Insert after first H1 block if present, else prepend.
             if body.startswith('# '):
                 parts = body.split('\n', 1)
-                body = parts[0] + '\n' + block + (parts[1] if len(parts) > 1 else '')
+                body = parts[0] + '\n\n' + block + '\n' + (parts[1] if len(parts) > 1 else '')
             else:
-                body = block + body
-            status_path.write_text(body, encoding='utf-8')
-            result['paths'].append(str(status_path))
+                body = block + '\n' + body
+        status_path.write_text(body, encoding='utf-8')
+        result['paths'].append(str(status_path))
 
     # Cross-domain pointer only if 神临 exists.
     if OBSIDIAN_SHENLIN.exists():
@@ -469,11 +588,14 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
         if pool.exists() or True:
             pool.mkdir(parents=True, exist_ok=True)
             pointer = pool / f'{trade_date.isoformat()}-xiaogu知识资产指针.md'
+            run_id = str(payload.get('production_run_id') or '').strip()
+            summary_suffix = f'_{run_id}' if run_id else ''
             pointer.write_text(
                 f'# xiaogu 知识资产指针 {trade_date.isoformat()}\n\n'
                 f'- 正式票: {formal.get("symbol")} {formal.get("stock_name")}\n'
                 f'- A股 inbox: `Project/A股/inbox/{note_path.name}`\n'
-                f'- summary: `summary/{trade_date.isoformat()}_top10_knowledge.json`\n'
+                f'- production_run_id: `{run_id or "legacy"}`\n'
+                f'- summary: `summary/{trade_date.isoformat()}_top10_knowledge{summary_suffix}.json`\n'
                 f'- vector: pgvector `{embed_method_name()}`\n',
                 encoding='utf-8',
             )
@@ -484,6 +606,7 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
 def main() -> int:
     ap = argparse.ArgumentParser(description='Export top10/formal pick knowledge assets')
     ap.add_argument('--date', default=date.today().isoformat())
+    ap.add_argument('--production-run-id', default='')
     ap.add_argument('--historical', action='store_true', help='load all historical top10/PAPER_PICK cases')
     ap.add_argument('--start-date', default='', help='historical window start, YYYY-MM-DD')
     ap.add_argument('--end-date', default='', help='historical window end, YYYY-MM-DD')
@@ -520,12 +643,14 @@ def main() -> int:
 
     top10_vec = None
     if not args.skip_top10_vector:
-        top10_vec = upsert_top10_cases_from_db(td)
+        production_run_id = resolve_production_run_id(td, args.production_run_id)
+        top10_vec = upsert_top10_cases_from_db(td, production_run_id)
         print('top10_vector', json.dumps({
             k: top10_vec.get(k) for k in ('status', 'trade_date', 'upserted', 'failed')
         }, ensure_ascii=False))
 
-    payload = load_day_knowledge(td)
+    production_run_id = resolve_production_run_id(td, args.production_run_id)
+    payload = load_day_knowledge(td, production_run_id)
     payload['top10_vector_upsert'] = {
         k: top10_vec.get(k) for k in ('status', 'upserted', 'failed')
     } if top10_vec else None

@@ -16,6 +16,8 @@ import hashlib
 import json
 import os
 
+from xiaogu_utils import eastmoney_quote_prices
+
 
 _HOST = None
 
@@ -24,6 +26,10 @@ REQUIRED_FROM_HOST = (
     'CANDIDATE_BUNDLE_ROOT',
     'LIVE_SCAN_ROOT',
     'RAW_ROOT',
+    'PRODUCTION_CHAIN_MODE',
+    'PRODUCTION_RANKING_VIEW',
+    'PRODUCTION_RANK_SOURCE',
+    'PRODUCTION_SCORE_SOURCE',
     'RULE_VERSION',
     'SCAN_SUMMARY_NAME',
     'SCAN_SUMMARY_RUNNER_NAME',
@@ -37,7 +43,6 @@ REQUIRED_FROM_HOST = (
     'basket_candidate',
     'build_daily_ticket_search_rows',
     'build_rank_alignment_diagnostic',
-    'build_research_basket_from_db',
     'build_research_basket_from_latest_scan',
     'build_weak_market_shadow_ticket',
     'candidate_capital_risk_profile',
@@ -61,7 +66,9 @@ REQUIRED_FROM_HOST = (
     'social_confirmation_profile',
     'structured_formal_impact_summary',
     'symbol_for',
-    'unique_text_values'
+    'unique_text_values',
+    'validate_active_production_chain',
+    'validate_formal_rank_snapshot',
 )
 
 def bind_host(host_module) -> None:
@@ -152,86 +159,71 @@ def summary_file_rows(summary_path: Path, summary: Dict[str, Any], file_key: str
     return []
 
 def load_candidate_bundle(date: str, asof_time: str | None = None) -> Dict[str, Any]:
-    db_bundle = build_research_basket_from_db(date)
-    if isinstance(db_bundle, dict) and db_bundle.get('available'):
-        source_time = str(db_bundle.get('source_time', '') or '')
-        if not asof_time:
-            latest_scan = load_latest_eastmoney_scan(date, asof_time)
-            if latest_scan is not None:
-                return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-            return db_bundle
-        if source_time.startswith(date):
-            age_minutes = scan_age_minutes(source_time, date, asof_time)
-            if age_minutes is None or age_minutes <= 0:
-                latest_scan = load_latest_eastmoney_scan(date, asof_time)
-                if latest_scan is not None:
-                    return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-                return db_bundle
-
-    patterns = [
-        str(CANDIDATE_BUNDLE_ROOT / date / '*.json'),
-        str(BASE / f'forward_candidate_bundle_{date}.json'),
-    ]
-    files: List[str] = []
-    for pat in patterns:
-        files.extend(glob.glob(pat))
     latest_scan = load_latest_eastmoney_scan(date, asof_time)
-    if asof_time and latest_scan is not None:
+    if latest_scan is not None:
         return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-    if not files:
-        if latest_scan is not None:
-            return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-        return build_research_basket_from_latest_scan(date, asof_time)
-    latest = max(files, key=os.path.getmtime)
-    if latest_scan is not None and os.path.getmtime(latest_scan[0]) > os.path.getmtime(latest):
-        return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-    try:
-        data = read_json(Path(latest))
-        normalize_bundle_vei_tags(data)
-        data['_bundle_path'] = latest
-        data['available'] = True
-        attach_scan_summary_information_coverage_audit(
-            data,
-            latest_scan[0] if latest_scan is not None else None,
-            latest_scan[1] if latest_scan is not None else None,
-        )
-        data['sector_catalyst_diagnostics'] = scan_summary_sector_catalyst_diagnostics(
-            latest_scan[1] if latest_scan is not None else None
-        )
-        if latest_scan is not None and (
-            active_chain_governance_flags(data, date)
-            or 'structured_observation_basket' not in data
-            or 'structured_sector_observation_basket' not in data
-            or 'structured_formal_impact' not in data
-            or 'sector_opportunity_candidates' not in (data.get('structured_formal_impact') or {})
-            or 'paper_pick_eligibility' not in (data.get('candidate') or {})
-        ):
-            if latest_scan is not None:
-                return _ensure_current_realtime_bundle_path(date, build_research_basket_from_latest_scan(date, asof_time), latest_scan[0])
-            return build_research_basket_from_latest_scan(date, asof_time)
-        return data
-    except Exception as e:
-        return {'available': False, 'reason': 'CANDIDATE_BUNDLE_UNREADABLE', 'error': repr(e), 'path': latest}
+    return {'available': False, 'reason': 'PRODUCTION_SCAN_REQUIRED', 'date': date}
 
 def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Dict[str, Any]:
     source_time = str(summary.get('source_time', ''))
     data_gate_status = 'PASS' if source_time.startswith(summary_path.parent.parent.name) else 'PARTIAL_OR_FAIL'
-    full_pool_rows = (
-        summary_bundle_rows(summary, 'full_candidate_pool')
-        or summary_file_rows(summary_path, summary, 'full_candidate_pool')
-    )
-    scored_rows = (
-        summary_bundle_rows(summary, 'scored_candidates')
-        or summary_bundle_rows(summary, 'paper_scoring_candidates')
-        or summary_bundle_rows(summary, 'scored_rows')
-        or summary_file_rows(summary_path, summary, 'scored')
-    )
+    stock_rows = summary_file_rows(summary_path, summary, 'stock_all_a')
+    quote_truth_by_symbol: Dict[str, Dict[str, Any]] = {}
+    for stock in stock_rows:
+        symbol = str(stock.get('f12') or stock.get('symbol') or stock.get('code') or '').zfill(6)
+        if not symbol:
+            continue
+        quote = eastmoney_quote_prices(stock)
+        if quote.get('close') and quote.get('high') and quote.get('low') and quote.get('open'):
+            quote_truth_by_symbol[symbol] = quote
+
+    def apply_quote_truth(row: Dict[str, Any]) -> Dict[str, Any]:
+        symbol = str(row.get('symbol') or row.get('code') or '').zfill(6)
+        quote = quote_truth_by_symbol.get(symbol)
+        if not quote:
+            return row
+        merged = dict(row)
+        merged.update({
+            'price': quote['close'],
+            'close': quote['close'],
+            'open': quote['open'],
+            'high': quote['high'],
+            'low': quote['low'],
+            'prev_close': quote['prev_close'],
+            'quote_truth_source': 'stock_all_a',
+            'quote_truth_fields': 'f2/f15/f16/f17_or_f43/f44/f45/f46',
+        })
+        high = float(quote['high'])
+        low = float(quote['low'])
+        close = float(quote['close'])
+        merged['close_position_score'] = round((close - low) / (high - low), 6) if high > low else 0.5
+        return merged
+
+    full_pool_rows = summary_bundle_rows(summary, 'full_candidate_pool')
+    scored_rows = summary_bundle_rows(summary, 'scored_candidates')
     if not full_pool_rows:
         full_pool_rows = scored_rows[:200]
-    structured_scores = summary_bundle_rows(summary, 'structured_scores') or summary_file_rows(summary_path, summary, 'structured_scores')
+    structured_scores = summary_bundle_rows(summary, 'structured_scores')
     if not scored_rows:
         return {'available': False, 'reason': 'NO_SCORED_ROWS_FOR_SAME_DAY_SCAN', 'summary_path': str(summary_path)}
     structured_scores_by_symbol = {symbol_for(row): row for row in structured_scores if symbol_for(row)}
+    broken_limitup_rows = (
+        summary_bundle_rows(summary, 'limitup_broken')
+        or summary_file_rows(summary_path, summary, 'limitup_broken')
+    )
+    broken_limitup_by_symbol = {}
+    for broken_row in broken_limitup_rows:
+        if not isinstance(broken_row, dict):
+            continue
+        broken_symbol = str(
+            broken_row.get('c')
+            or broken_row.get('f12')
+            or broken_row.get('symbol')
+            or broken_row.get('code')
+            or ''
+        ).strip().zfill(6)
+        if broken_symbol:
+            broken_limitup_by_symbol[broken_symbol] = broken_row
 
     def with_structured_score(row: Dict[str, Any]) -> Dict[str, Any]:
         structured = structured_scores_by_symbol.get(symbol_for(row))
@@ -256,7 +248,6 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         merged['limitup_capture_profile'] = first_defined(structured.get('limitup_capture_profile'), structured_details.get('limitup_capture_profile'), row.get('limitup_capture_profile'))
         merged['limitup_capture_confirmed'] = first_defined(structured.get('limitup_capture_confirmed'), structured_details.get('limitup_capture_confirmed'), row.get('limitup_capture_confirmed'))
         merged['limitup_capture_reasons'] = first_defined(structured.get('limitup_capture_reasons'), structured_details.get('limitup_capture_reasons'), row.get('limitup_capture_reasons'))
-        merged['final_shadow_score'] = first_defined(structured.get('final_shadow_score'), row.get('final_shadow_score'))
         merged['structured_score_mode'] = first_defined(structured.get('mode'), row.get('structured_score_mode'))
         merged['search_layer_hint'] = first_defined(structured_details.get('search_layer_hint'), row.get('search_layer_hint'))
         merged['news_catalyst_strength'] = first_defined(structured_details.get('news_catalyst_strength'), row.get('news_catalyst_strength'))
@@ -274,6 +265,11 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         merged['research_panel_overall'] = research_signals.get('research_panel', {}).get('overall') if isinstance(research_signals.get('research_panel'), dict) else row.get('research_panel_overall')
         merged['catalyst_quality_category'] = research_signals.get('catalyst_quality', {}).get('category') if isinstance(research_signals.get('catalyst_quality'), dict) else row.get('catalyst_quality_category')
         merged['a_share_risk_review_disqualified_for_paper_pick'] = bool((research_signals.get('a_share_risk_review') or {}).get('disqualified_for_paper_pick')) if isinstance(research_signals, dict) else bool(row.get('a_share_risk_review_disqualified_for_paper_pick'))
+        catalyst_quality = research_signals.get('catalyst_quality') if isinstance(research_signals.get('catalyst_quality'), dict) else {}
+        if catalyst_quality.get('regulatory_hard_block') or catalyst_quality.get('category') in ('risk_notice', 'regulatory_notice'):
+            merged['regulatory_hard_block'] = str(catalyst_quality.get('category') or 'regulatory_notice')
+        elif merged['a_share_risk_review_disqualified_for_paper_pick']:
+            merged['regulatory_hard_block'] = 'a_share_risk_review_disqualified'
         merged['historical_pattern_name'] = research_signals.get('historical_pattern', {}).get('pattern_name') if isinstance(research_signals.get('historical_pattern'), dict) else row.get('historical_pattern_name')
         market_snapshot = summary.get('market_snapshot') or {}
         merged['market_regime'] = first_defined(summary.get('market_regime'), market_snapshot.get('market_regime'), row.get('market_regime'), structured.get('market_regime'))
@@ -285,8 +281,31 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         merged['broken_limitups'] = first_defined(summary.get('broken_limitups'), market_snapshot.get('broken_limitups'), row.get('broken_limitups'), structured.get('broken_limitups'))
         return merged
 
-    enriched_rows = [with_structured_score(r) for r in scored_rows]
-    enriched_full_pool = [with_structured_score(r) for r in full_pool_rows]
+    def with_broken_limitup_evidence(row: Dict[str, Any]) -> Dict[str, Any]:
+        symbol = symbol_for(row)
+        broken_row = broken_limitup_by_symbol.get(symbol)
+        if not broken_row:
+            return row
+        merged = dict(row)
+        merged['broken_limitup'] = True
+        merged['failed_limitup'] = True
+        merged['broken_limitup_evidence'] = {
+            'eligible': True,
+            'status': 'PASS',
+            'source': 'limitup_broken',
+            'symbol': symbol,
+            'record': broken_row,
+        }
+        return merged
+
+    enriched_rows = [
+        apply_quote_truth(with_broken_limitup_evidence(with_structured_score(r)))
+        for r in scored_rows
+    ]
+    enriched_full_pool = [
+        apply_quote_truth(with_broken_limitup_evidence(with_structured_score(r)))
+        for r in full_pool_rows
+    ]
     enriched_rows, scored_tradable_filter = filter_t1_profit_candidates(
         enriched_rows,
         {'date': source_time[:10], 'source_time': source_time},
@@ -309,7 +328,10 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'source_market_date': source_time[:10] if len(source_time) >= 10 else '',
         'source_time': source_time,
         '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': summary.get('pipeline_version') or summary.get('source') or 'eastmoney_web_tabs_scan',
+        'candidate_source': summary.get('source') or 'eastmoney_api_scan_v2',
+        'ranking_view': PRODUCTION_RANKING_VIEW,
+        'rank_source': PRODUCTION_RANK_SOURCE,
+        'score_source': PRODUCTION_SCORE_SOURCE,
         'rule_version': RULE_VERSION,
         'paper_only': True,
         'no_trade': True,
@@ -331,6 +353,7 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
             'market_follow_through_score': summary.get('market_follow_through_score'),
             'limitup_broken_ratio': summary.get('limitup_broken_ratio'),
             'broken_limitups': (summary.get('market_snapshot') or {}).get('broken_limitups'),
+            'limitup_broken_evidence_count': len(broken_limitup_by_symbol),
             'max_consecutive': summary.get('max_consecutive'),
             'sentiment_score': summary.get('sentiment_score'),
             'market_main_inflow': summary.get('market_main_inflow'),
@@ -339,8 +362,8 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
             'sector_snapshot': summary.get('sector_snapshot') or (summary.get('market_snapshot') or {}).get('sector_snapshot') or [],
             'source_status': summary.get('source_status', {}),
             'hard_block_source_status': summary.get('hard_block_source_status', {}),
-            'eastmoney_web_tabs': summary.get('eastmoney_web_tabs', []),
-            'eastmoney_cdp_url': summary.get('eastmoney_cdp_url') or summary.get('cdp_url', ''),
+            'scanner_sources': summary.get('scanner_sources', []),
+            'scanner_transport': summary.get('scanner_transport') or 'direct_api',
         },
     }
     search_context = build_daily_ticket_search_rows(enriched_rows, bundle_context)
@@ -358,7 +381,10 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         formal_ranked_full_pool or formal_ranked_scored,
         first_clean_row,
     )
-    decision_class = 'PAPER_PICK' if search_rows else 'RESEARCH_CANDIDATE'
+    # A bundle never creates a second research-ticket path. It either
+    # contains formal candidates for the runner or produces the single
+    # official NO_PICK outcome.
+    decision_class = 'PAPER_PICK' if search_rows else 'NO_PICK'
     selected = [basket_candidate(r, decision_class) for r in search_rows]
     structured_formal_impact = structured_formal_impact_summary(formal_ranked_scored, selected, bundle_context)
     weak_market_shadow_ticket = build_weak_market_shadow_ticket(
@@ -379,7 +405,10 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'source_market_date': source_time[:10] if len(source_time) >= 10 else '',
         'source_time': source_time,
         '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': summary.get('pipeline_version') or summary.get('source') or 'eastmoney_web_tabs_scan',
+        'candidate_source': summary.get('source') or 'eastmoney_api_scan_v2',
+        'ranking_view': PRODUCTION_RANKING_VIEW,
+        'rank_source': PRODUCTION_RANK_SOURCE,
+        'score_source': PRODUCTION_SCORE_SOURCE,
         'rule_version': RULE_VERSION,
         'paper_only': True,
         'no_trade': True,
@@ -397,6 +426,15 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         },
         'xiaochan_gate_status': 'ALLOW_FORWARD_PAPER_NO_TRADE',
         'paper_scoring_candidates': selected,
+        'formal_ranked_pool': formal_ranked_full_pool,
+        'formal_rank_snapshot_id': (
+            formal_ranked_full_pool[0].get('formal_rank_snapshot_id')
+            if formal_ranked_full_pool else ''
+        ),
+        'formal_rank_snapshot_version': (
+            formal_ranked_full_pool[0].get('formal_rank_snapshot_version')
+            if formal_ranked_full_pool else ''
+        ),
         'candidate': first_clean_row if first_clean_row is not None else {},
         'first_search_candidate_diagnostic': selected[0] if selected else {},
         'blocked_candidate_diagnostics': blocked_candidate_diagnostics,
@@ -417,9 +455,9 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
             **bundle_context['market_snapshot'],
         },
         'structured_scores': structured_scores,
-        'research_signals': summary_bundle_rows(summary, 'research_signals') or summary_file_rows(summary_path, summary, 'research_signals'),
-        'structured_score_components': summary_bundle_rows(summary, 'structured_score_components') or summary_file_rows(summary_path, summary, 'structured_score_components'),
-        'structured_component_details': summary_bundle_rows(summary, 'structured_component_details') or summary_file_rows(summary_path, summary, 'structured_component_details'),
+        'research_signals': summary_bundle_rows(summary, 'research_signals'),
+        'structured_score_components': summary_bundle_rows(summary, 'structured_score_components'),
+        'structured_component_details': summary_bundle_rows(summary, 'structured_component_details'),
         'mainboard_policy': summary.get('mainboard_policy') or (summary.get('full_universe_scan') or {}).get('candidate_board_policy') or 'main_only',
         'hsgt_diagnostics': summary.get('hsgt_diagnostics', {}),
         'domain_timings': summary.get('domain_timings', {}),
@@ -432,14 +470,16 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'data_directory_content_records_path': '',
         'source_status': summary.get('source_status', {}),
         'full_universe_scan': summary.get('full_universe_scan', {}),
-        'eastmoney_web_tabs': summary.get('eastmoney_web_tabs', []),
-        'eastmoney_cdp_url': summary.get('eastmoney_cdp_url') or summary.get('cdp_url', ''),
+        'scanner_sources': summary.get('scanner_sources', []),
+        'scanner_transport': summary.get('scanner_transport') or 'direct_api',
         'risk_flags': [] if search_rows else ['NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS'],
         'decision_reason': 'SAME_DAY_SCAN_PASSED_CANDIDATE' if search_rows else 'NO_CLEAN_CANDIDATE_AFTER_ALL_LAYERS',
+        'production_chain_mode': PRODUCTION_CHAIN_MODE,
+        'production_snapshot_origin': 'scan_formal_snapshot',
         'source_evidence': {
             'summary_path': str(summary_path),
             'scan_files': summary.get('files', {}),
-            'cdp_url': summary.get('cdp_url', ''),
+            'scanner_transport': summary.get('scanner_transport') or 'direct_api',
         },
         'scan_summary_path': str(summary_path),
         'scan_summary_source_time': source_time,
@@ -452,46 +492,46 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
     return bundle
 
 def load_latest_eastmoney_scan(date: str, asof_time: str | None = None) -> Tuple[Path, Dict[str, Any]] | None:
-    # Prefer runner-consumable minimal summary (113KB vs 26MB)
-    # Prefer current API snapshots by session recency.
-    scan_dir = None
-    for label in ('eastmoney_scan_afternoon', 'eastmoney_scan_morning', 'eastmoney_scan_v2', 'eastmoney_scan'):
-        candidate = LIVE_SCAN_ROOT / date / label
-        if candidate.exists():
-            scan_dir = candidate
-            break
-    if scan_dir is None:
-        scan_dir = LIVE_SCAN_ROOT / date / 'eastmoney_scan'
-    runner_summary = scan_dir / SCAN_SUMMARY_RUNNER_NAME
-    if runner_summary.exists():
+    # Directory labels are scheduling metadata only. Select the latest valid
+    # same-day direct-API snapshot by its recorded source_time.
+    summary_paths = sorted(
+        (
+            Path(path)
+            for path in glob.glob(
+                str(LIVE_SCAN_ROOT / date / '**' / SCAN_SUMMARY_RUNNER_NAME),
+                recursive=True,
+            )
+        ),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    candidates: List[Tuple[dt.datetime, Path, Dict[str, Any]]] = []
+    for runner_summary in summary_paths:
         try:
             summary = read_json(runner_summary)
-            source_time = str(summary.get('source_time', ''))
-            # 允许使用同日或次日的数据（历史回放场景）
-            if source_time[:10] == date or source_time[:10] > date:
-                return runner_summary, summary
-        except Exception:
-            pass
-    # Fallback to full summary
-    candidates = []
-    for summary_path in scan_summary_paths(date):
-        try:
-            summary = read_json(summary_path)
         except Exception:
             continue
         source_time = str(summary.get('source_time', ''))
-        if not source_time.startswith(date):
+        if source_time[:10] != date:
+            continue
+        if not is_active_api_source(summary.get('pipeline_version') or summary.get('source')):
+            continue
+        if str(summary.get('scanner_transport') or '') != 'direct_api':
+            continue
+        try:
+            source_dt = dt.datetime.fromisoformat(source_time.replace('Z', '+00:00')).replace(tzinfo=None)
+        except (TypeError, ValueError):
             continue
         if asof_time:
             age_minutes = scan_age_minutes(source_time, date, asof_time)
             if age_minutes is None or age_minutes > 0:
                 continue
-        candidates.append((summary_path, summary, source_time))
+        candidates.append((source_dt, runner_summary, summary))
+
     if not candidates:
         return None
-    # Return the latest scan by source_time
-    candidates.sort(key=lambda x: x[2], reverse=True)
-    return candidates[0][0], candidates[0][1]
+    source_dt, runner_summary, summary = max(candidates, key=lambda item: item[0])
+    return runner_summary, summary
 
 def scan_date_for_runtime(target_date: str) -> str:
     try:
@@ -505,18 +545,55 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
     import datetime as _dt
     from xiaogu_db import classify_candidate_cohort, limitup_gene_signal_values
 
+    strict_production = bundle.get('strict_production_chain') is True
+    formal_snapshot = bundle.get('formal_ranked_pool')
+    formal_snapshot_is_explicit = isinstance(formal_snapshot, list) and bool(formal_snapshot)
     full_candidate_pool = bundle.get('full_candidate_pool')
     full_pool_is_explicit = isinstance(full_candidate_pool, list) and bool(full_candidate_pool)
     source_candidates = [
         candidate
-        for candidate in (full_candidate_pool or bundle.get('paper_scoring_candidates') or [])
+        for candidate in (
+            formal_snapshot
+            if formal_snapshot_is_explicit
+            else (full_candidate_pool or bundle.get('paper_scoring_candidates') or [])
+        )
         if isinstance(candidate, dict)
     ]
-    source_candidates, current_day_tradable_filter = filter_t1_profit_candidates(
-        source_candidates,
-        bundle,
-        enforce=bool(bundle.get('t1_profit_gate_enabled')),
-    )
+    if strict_production:
+        validation = validate_active_production_chain(bundle, date)
+        if not validation.get('valid'):
+            return {
+                'status': 'PRODUCTION_CHAIN_INVALID',
+                'error': validation,
+                'scan_session': None,
+                'daily_candidates': [],
+                'limitup_gene_signals': [],
+            }
+        source_candidates = [
+            candidate for candidate in formal_snapshot
+            if isinstance(candidate, dict)
+        ]
+        current_day_tradable_filter = dict(bundle.get('current_day_tradable_filter') or {})
+    elif formal_snapshot_is_explicit:
+        validation = validate_formal_rank_snapshot(source_candidates)
+        if not validation.get('valid'):
+            return {
+                'status': 'FORMAL_RANK_SNAPSHOT_INVALID',
+                'error': validation,
+                'scan_session': None,
+                'daily_candidates': [],
+                'limitup_gene_signals': [],
+            }
+        current_day_tradable_filter = dict(bundle.get('current_day_tradable_filter') or {})
+    else:
+        source_candidates, current_day_tradable_filter = filter_t1_profit_candidates(
+            source_candidates,
+            bundle,
+            enforce=bool(bundle.get('t1_profit_gate_enabled')),
+        )
+        # Research/replay callers may rebuild an observation snapshot.
+        # Strict production bundles are rejected above and never enter here.
+        source_candidates = apply_formal_profit_ranks(source_candidates)
     if not source_candidates:
         return {'status': 'NO_CANDIDATES', 'scan_session': None, 'daily_candidates': [], 'limitup_gene_signals': []}
 
@@ -549,6 +626,13 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
     pool_exclusion_summary.setdefault('target_count', target_count)
     pool_exclusion_summary.setdefault('legacy_partial_pool', not bool(full_candidate_pool))
     pool_exclusion_summary.setdefault('source_status', 'LEGACY' if not full_candidate_pool else 'PASS')
+    pool_exclusion_summary['formal_rank_snapshot_id'] = (
+        source_candidates[0].get('formal_rank_snapshot_id') if source_candidates else ''
+    )
+    pool_exclusion_summary['formal_rank_snapshot_version'] = (
+        source_candidates[0].get('formal_rank_snapshot_version')
+        if source_candidates else ''
+    )
     drop_diagnostics = [
         item for item in (bundle.get('candidate_drop_diagnostics') or [])
         if isinstance(item, dict)
@@ -564,14 +648,18 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
     }
     with_candidates = candidates
     scan_dir = str(bundle.get('_bundle_path') or bundle.get('raw_dir') or '')
+    market_snap = bundle.get('market_snapshot') or {}
     scan_session = {
         'trade_date': trade_date,
         'scan_time': _dt.datetime.now(),
-        'cdp_url': 'manual_pipeline_snapshot',
-        'quotes_count': int((bundle.get('market_snapshot') or {}).get('universe_quote_count') or len(candidates)),
+        'source_id': 'eastmoney_api_scan_v2',
+        'quotes_count': int(market_snap.get('universe_quote_count') or len(candidates)),
         'scored_count': len([candidate for candidate in (bundle.get('scored_candidates') or candidates) if isinstance(candidate, dict)]),
         'passed_count': len([candidate for candidate in (bundle.get('passed_candidates') or []) if isinstance(candidate, dict)]),
         'scan_dir': scan_dir,
+        'market_snapshot': market_snap if market_snap else None,
+        'source_status': bundle.get('source_status'),
+        'source_counts': bundle.get('source_counts'),
     }
     daily_candidates = []
     limitup_gene_signals = []
@@ -587,6 +675,26 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
         candidate_features.setdefault('code', symbol)
         candidate_features.setdefault('name', row.get('name') or row.get('stock_name') or '')
         candidate_features.setdefault('final_score', row.get('final_score') or row.get('score'))
+        # Persist the canonical production contract inside the candidate
+        # feature snapshot as well as ranking_basis, so downstream readers
+        # cannot fall back to an unlabeled legacy score.
+        candidate_features['production_score'] = (
+            row.get('production_score')
+            or row.get('formal_primary_score')
+            or row.get('final_score')
+            or row.get('score')
+        )
+        candidate_features['formal_primary_score'] = (
+            row.get('formal_primary_score')
+            or candidate_features.get('production_score')
+        )
+        candidate_features['rank_source'] = row.get('rank_source') or 'formal_profit_first'
+        candidate_features['ranking_view'] = row.get('ranking_view') or 'main_force_behavior_chain'
+        candidate_features['score_source'] = row.get('score_source') or 'formal_t1_profit_components'
+        candidate_features['formal_rank_snapshot_id'] = row.get('formal_rank_snapshot_id') or ''
+        candidate_features['formal_rank_snapshot_version'] = (
+            row.get('formal_rank_snapshot_version') or ''
+        )
         candidate_features.setdefault('source_layers', list(row.get('source_layers') or []))
         candidate_features.setdefault('selection_reason', row.get('selection_reason') or reason)
         candidate_features['candidate_pool_context'] = {
@@ -595,11 +703,17 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'persisted_candidate_count': len(candidates),
         }
         candidate_diagnostic = dict(top10_by_symbol.get(symbol) or {})
-        evaluated_decision = str(
+        candidate_evaluation_decision = str(
             candidate_diagnostic.get('official_decision_if_evaluated')
             or row.get('decision')
-            or ('PAPER_PICK' if official_pick_symbol and symbol == official_pick_symbol else 'CANDIDATE')
+            or ('PAPER_PICK' if official_pick_symbol and symbol == official_pick_symbol else 'NO_PICK')
         )
+        if candidate_evaluation_decision not in {'PAPER_PICK', 'NO_PICK'}:
+            candidate_evaluation_decision = 'NO_PICK'
+        is_official_pick = bool(official_pick_symbol and symbol == official_pick_symbol)
+        # A candidate-level gate pass is diagnostic evidence only. The
+        # production decision is owned by the single official pick symbol.
+        evaluated_decision = 'PAPER_PICK' if is_official_pick else 'NO_PICK'
         is_top10 = int(row.get('rank') or 999999) <= 10
         selection_outcome = str(candidate_diagnostic.get('selection_outcome') or (
             'OFFICIAL_PICK' if official_pick_symbol and symbol == official_pick_symbol
@@ -632,6 +746,8 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'not_selected_reasons': list(candidate_diagnostic.get('not_selected_reasons') or candidate_diagnostic.get('blockers') or []),
             'why_candidate': list(candidate_diagnostic.get('why_candidate') or []),
             'why_not_selected': list(candidate_diagnostic.get('why_not_selected') or []),
+            'candidate_evaluation_decision': candidate_evaluation_decision,
+            'candidate_evaluation_reason': candidate_diagnostic.get('official_decision_reason_if_evaluated') or selection_outcome_reason,
             'official_decision_if_evaluated': candidate_diagnostic.get('official_decision_if_evaluated') or row.get('decision') or '',
             'official_decision_reason_if_evaluated': candidate_diagnostic.get('official_decision_reason_if_evaluated') or selection_outcome_reason,
             'candidate_pool_context': candidate_features['candidate_pool_context'],
@@ -693,12 +809,17 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
         }
         ranking_basis_snapshot = {
             'basis': row.get('ranking_basis') or row.get('rank_source') or 'formal_profit_first',
+            'ranking_view': row.get('ranking_view') or 'main_force_behavior_chain',
+            'score_source': row.get('score_source') or 'formal_t1_profit_components',
             'rank': row.get('rank'),
             'pool_rank': row.get('pool_rank'),
             'formal_rank': row.get('formal_rank'),
             'scanner_rank': row.get('scanner_rank'),
             'rank_source': row.get('rank_source') or 'formal_profit_first',
             'formal_primary_score': row.get('formal_primary_score'),
+            'production_score': row.get('production_score') or row.get('formal_primary_score'),
+            'formal_rank_snapshot_id': row.get('formal_rank_snapshot_id') or '',
+            'formal_rank_snapshot_version': row.get('formal_rank_snapshot_version') or '',
             'selection_key': list(candidate_diagnostic.get('selection_key') or []),
             'structured_priority_score': row.get('structured_priority_score'),
             'ranking_basis_adjustment_components': ranking_basis_adjustment_components(row),
@@ -708,6 +829,7 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
         }
         ticket_reason = {
             'decision': evaluated_decision,
+            'candidate_evaluation_decision': candidate_evaluation_decision,
             'selection_outcome': selection_outcome,
             'reason': selection_outcome_reason,
         }
@@ -718,6 +840,11 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
         ):
             candidate_features.setdefault(key, row.get(key, 0))
         candidate_features['decision'] = evaluated_decision
+        candidate_features['candidate_evaluation_decision'] = candidate_evaluation_decision
+        candidate_features['candidate_evaluation_reason'] = (
+            candidate_diagnostic.get('official_decision_reason_if_evaluated')
+            or selection_outcome_reason
+        )
         candidate_features['selection_outcome'] = selection_outcome
         candidate_features['selection_outcome_reason'] = selection_outcome_reason
         candidate_features['selection_diagnostics'] = selection_diagnostics
@@ -747,7 +874,7 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'rank': row.get('rank'),
             'final_score': row.get('final_score') or row.get('score'),
             'decision': evaluated_decision,
-            'is_official_pick': bool(official_pick_symbol and symbol == official_pick_symbol),
+            'is_official_pick': is_official_pick,
             'open_price': row.get('open') or row.get('open_price'),
             'close_price': row.get('close') or row.get('close_price') or row.get('price'),
             'high_price': row.get('high') or row.get('high_price'),
@@ -786,10 +913,6 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'postmortem_snapshot': {},
             'future_return_fields_placeholder': {
                 't1_return': None,
-                't2_return': None,
-                't3_return': None,
-                't5_return': None,
-                'is_limit_up': None,
             },
             'cohort': cohort_info['cohort'],
             'cohort_quality': cohort_info['cohort_quality'],
@@ -820,13 +943,19 @@ def persist_daily_candidate_snapshot(
     dry_run: bool = False,
     replace_existing: bool = False,
     correction_of: str = "",
+    production_run_id: str = "",
+    pick_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     try:
         from xiaogu_db import (
+            create_production_run,
             fetch_daily_candidates,
+            get_db,
             has_returns_for_trade_date,
             insert_scan_session,
-            prune_daily_candidates_to_symbols,
+            insert_pick,
+            update_production_run_status,
+            update_production_run_step,
             upsert_daily_candidate,
             upsert_limitup_gene_signals,
         )
@@ -893,37 +1022,159 @@ def persist_daily_candidate_snapshot(
                 'error': f'CANDIDATE_SNAPSHOT_CORRECTION_ARCHIVE_FAILED:{exc!r}',
             }
 
+    run_id = str(production_run_id or features.get('production_run_id') or bundle.get('production_run_id') or '')
+    candidate_snapshot_id = str(bundle.get('candidate_snapshot_id') or run_id or '')
+    retry_command = f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {date} --force'
     written = 0
     persisted_signal_rows = 0
     errors: List[Dict[str, Any]] = []
-    try:
-        if payloads.get('scan_session'):
-            insert_scan_session(**payloads['scan_session'])
-    except Exception as exc:
-        errors.append({'scan_session': 'persist_failed', 'error': repr(exc)[:300]})
-
-    signal_payloads = payloads.get('limitup_gene_signals') or []
-    for index, candidate_kwargs in enumerate(candidates):
-        symbol = str(candidate_kwargs.get('symbol') or '')
-        signal_kwargs = signal_payloads[index] if index < len(signal_payloads) and isinstance(signal_payloads[index], dict) else {}
+    if run_id:
         try:
-            upsert_daily_candidate(**candidate_kwargs)
-            written += 1
-            if signal_kwargs:
-                upsert_limitup_gene_signals(**signal_kwargs)
-                persisted_signal_rows += 6
+            with get_db() as db:
+                if not isinstance(pick_payload, dict):
+                    raise RuntimeError('PICK_PAYLOAD_REQUIRED')
+                scan_payload = dict(payloads.get('scan_session') or {})
+                if not scan_payload:
+                    raise RuntimeError('SCAN_SESSION_PAYLOAD_REQUIRED')
+                scan_payload.update({'production_run_id': run_id, 'db': db})
+                scan_session_id = insert_scan_session(**scan_payload)
+                if scan_session_id < 0:
+                    raise RuntimeError('SCAN_SESSION_INSERT_DID_NOT_RETURN_ID')
+                create_production_run(
+                    dt.date.fromisoformat(date),
+                    run_id,
+                    scan_session_id=scan_session_id,
+                    rule_version=str(features.get('rule_version') or RULE_VERSION),
+                    scoring_config_snapshot=dict(features.get('scoring_config_snapshot') or {}),
+                    scoring_config_hash=str(features.get('scoring_config_hash') or ''),
+                    input_payload_hash=str(features.get('input_payload_hash') or ''),
+                    db=db,
+                )
+                update_production_run_step(
+                    run_id,
+                    'scanner',
+                    'PASS',
+                    required=True,
+                    metadata={'scan_session_id': scan_session_id},
+                    db=db,
+                )
+                update_production_run_step(
+                    run_id, 'candidate_snapshot', 'RUNNING', required=True,
+                    retry_command=retry_command, db=db,
+                )
+                update_production_run_step(
+                    run_id, 'pick_persistence', 'RUNNING', required=True,
+                    retry_command=retry_command, db=db,
+                )
+                signal_payloads = payloads.get('limitup_gene_signals') or []
+                for index, candidate_kwargs in enumerate(candidates):
+                    candidate_payload = dict(candidate_kwargs)
+                    candidate_payload.update({
+                        'production_run_id': run_id,
+                        'candidate_snapshot_id': candidate_snapshot_id,
+                        'db': db,
+                    })
+                    upsert_daily_candidate(**candidate_payload)
+                    written += 1
+                    signal_kwargs = (
+                        signal_payloads[index]
+                        if index < len(signal_payloads) and isinstance(signal_payloads[index], dict)
+                        else {}
+                    )
+                    if not signal_kwargs:
+                        raise RuntimeError(
+                            f'LIMITUP_SIGNAL_PAYLOAD_REQUIRED:{candidate_payload.get("symbol") or ""}'
+                        )
+                    upsert_limitup_gene_signals(
+                        **signal_kwargs,
+                        db=db,
+                        production_run_id=run_id,
+                    )
+                    persisted_signal_rows += 6
+                update_production_run_step(
+                    run_id, 'candidate_snapshot', 'PASS', required=True,
+                    metadata={'candidate_count': written, 'candidate_snapshot_id': candidate_snapshot_id}, db=db,
+                )
+                persisted_pick_payload = dict(pick_payload)
+                persisted_pick_payload.update({
+                    'production_run_id': run_id,
+                    'db': db,
+                })
+                pick_id = insert_pick(**persisted_pick_payload)
+                if pick_id < 0:
+                    raise RuntimeError('PICK_INSERT_DID_NOT_RETURN_ID')
+                update_production_run_step(
+                    run_id, 'pick_persistence', 'PASS', required=True,
+                    metadata={'pick_id': pick_id}, db=db,
+                )
         except Exception as exc:
-            errors.append({'symbol': symbol, 'error': repr(exc)[:300]})
-            continue
-    pruned_stale_count = 0
-    if replace_existing and not errors:
-        try:
-            pruned_stale_count = prune_daily_candidates_to_symbols(
-                dt.date.fromisoformat(date),
-                [str(candidate.get('symbol') or '') for candidate in candidates],
+            error = repr(exc)[:500]
+            errors.append({'persistence': 'rollback', 'error': error})
+            try:
+                create_production_run(
+                    dt.date.fromisoformat(date),
+                    run_id,
+                    rule_version=str(features.get('rule_version') or RULE_VERSION),
+                    scoring_config_snapshot=dict(features.get('scoring_config_snapshot') or {}),
+                    scoring_config_hash=str(features.get('scoring_config_hash') or ''),
+                    input_payload_hash=str(features.get('input_payload_hash') or ''),
+                )
+                update_production_run_step(
+                    run_id, 'candidate_snapshot', 'FAILED_PERSISTENCE', required=True,
+                    error_message=error, retry_command=retry_command,
+                )
+                update_production_run_step(
+                    run_id, 'pick_persistence', 'FAILED_PERSISTENCE', required=True,
+                    error_message=error, retry_command=retry_command,
+                )
+                update_production_run_status(
+                    run_id, 'FAILED_PERSISTENCE',
+                    error_message=error,
+                    retry_command=retry_command,
+                )
+            except Exception as step_exc:
+                errors.append({'production_run_step': 'persist_failed', 'error': repr(step_exc)[:300]})
+            return {
+                'status': 'FAILED_PERSISTENCE', 'written': 0, 'candidate_count_expected': len(candidates),
+                'persisted_signal_rows': 0, 'expected_signal_rows': len(candidates) * 6,
+                'production_run_id': run_id, 'candidate_snapshot_id': candidate_snapshot_id,
+                'error': error, 'retry_command': retry_command, 'errors': errors,
+            }
+    else:
+        scan_payload = dict(payloads.get('scan_session') or {})
+        if scan_payload:
+            try:
+                insert_scan_session(**scan_payload)
+            except Exception as exc:
+                errors.append({'scan_session': 'persist_failed', 'error': repr(exc)[:300]})
+        signal_payloads = payloads.get('limitup_gene_signals') or []
+        for index, candidate_kwargs in enumerate(candidates):
+            symbol = str(candidate_kwargs.get('symbol') or '')
+            signal_kwargs = (
+                signal_payloads[index]
+                if index < len(signal_payloads) and isinstance(signal_payloads[index], dict)
+                else {}
             )
-        except Exception as exc:
-            errors.append({'candidate_snapshot_prune': 'failed', 'error': repr(exc)[:300]})
+            try:
+                upsert_daily_candidate(**candidate_kwargs)
+                written += 1
+                if signal_kwargs:
+                    upsert_limitup_gene_signals(**signal_kwargs)
+                    persisted_signal_rows += 6
+            except Exception as exc:
+                errors.append({'symbol': symbol, 'error': repr(exc)[:300]})
+    preserved_stale_count = 0
+    if replace_existing and prior_rows:
+        current_symbols = {
+            str(candidate.get('symbol') or '').strip()
+            for candidate in candidates
+            if str(candidate.get('symbol') or '').strip()
+        }
+        preserved_stale_count = sum(
+            1
+            for row in prior_rows
+            if str(row.get('symbol') or '').strip() not in current_symbols
+        )
     status = 'OK' if not errors else ('PARTIAL' if written else 'FAILED')
     return {
         'status': status,
@@ -933,9 +1184,18 @@ def persist_daily_candidate_snapshot(
         'persisted_signal_rows': persisted_signal_rows,
         'expected_signal_rows': len(candidates) * 6,
         'replaced_existing_snapshot': bool(replace_existing),
-        'pruned_stale_count': pruned_stale_count,
+        'pruned_stale_count': 0,
+        'preserved_stale_count': preserved_stale_count,
         'correction_archive': correction_archive,
         'errors': errors,
+        **(
+            {
+                'production_run_id': run_id,
+                'candidate_snapshot_id': candidate_snapshot_id,
+                'pick_id': pick_id,
+            }
+            if run_id else {}
+        ),
     }
 
 def write_daily_candidate_persist_retry_payload(path: Path, date: str, bundle: Dict[str, Any], features: Dict[str, Any], decision: str, reason: str, persist_result: Dict[str, Any]) -> str:

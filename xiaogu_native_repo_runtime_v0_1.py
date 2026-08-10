@@ -19,7 +19,6 @@ EXTERNAL = BASE / 'external_research'
 SHARED_EXTERNAL_REPOS = ROOT / 'tools' / 'external' / 'repos'
 EVIDENCE_ROOT = BASE / 'data' / 'native_repo_runtime' / 'v0_1'
 TODAY = dt.date.today().isoformat()
-LEGACY_ONE_LOT_COST_CAP = 7000.0
 
 # Load .env if available
 try:
@@ -37,16 +36,20 @@ REPO_PATHS = {
     'Kaixin_Factors': BASE,  # 凯心因子集成
     'MiMo_Reasoning': BASE,
 }
-ACTIVE_REPO_ORDER = tuple(REPO_PATHS.keys())
+ACTIVE_REPO_ORDER = (
+    'tradingagent_a',
+    'VEI',
+    'Qlib',
+    'UZI_Skill',
+    'Kaixin_Factors',
+)
 
 _SCORE_CAPS = {
     'tradingagent_a': {'min': -1.0, 'max': 1.0},
     'VEI': {'min': -2.0, 'max': 2.0},
     'Qlib': {'min': -1.5, 'max': 1.5},
-    'QuantDinger': {'min': -2.0, 'max': 1.0},
     'UZI_Skill': {'min': -1.0, 'max': 1.0},
     'Kaixin_Factors': {'min': -1.0, 'max': 1.0},
-    'MiMo_Reasoning': {'min': -2.0, 'max': 2.0},
 }
 
 _MODULE_CACHE: Dict[str, Any] = {}
@@ -105,12 +108,8 @@ def small_account_buyable(
     if price <= 0:
         return False, 'price_invalid'
     cap = one_lot_cost_cap if one_lot_cost_cap is not None else available_cash
-    if cap is None or cap <= 0:
-        cap = LEGACY_ONE_LOT_COST_CAP
-    if price * 100 > cap:
+    if cap is not None and cap > 0 and price * 100 > cap:
         return False, 'one_lot_cost_gt_cap'
-    if price > 70:
-        return False, 'price_too_high'
     return True, None
 
 
@@ -122,19 +121,11 @@ def _load_scan_summary() -> Dict[str, Any]:
     if _SCAN_SUMMARY_CACHE:
         return _SCAN_SUMMARY_CACHE
     live_scan_dir = BASE / 'data' / 'live_scan'
-    # Try today first, then fall back to most recent date
+    # Read only today's canonical direct API artifacts.
     dates_to_try = [TODAY]
-    if live_scan_dir.exists():
-        try:
-            available = sorted([d.name for d in live_scan_dir.iterdir() if d.is_dir()], reverse=True)
-            for d in available:
-                if d not in dates_to_try:
-                    dates_to_try.append(d)
-        except Exception:
-            pass
     for date_str in dates_to_try:
-        for subdir in ('eastmoney_scan_v2', 'eastmoney_scan'):
-            summary_path = live_scan_dir / date_str / subdir / 'eastmoney_web_tabs_summary_runner.json'
+        for subdir in ('eastmoney_scan_afternoon', 'eastmoney_scan_morning'):
+            summary_path = live_scan_dir / date_str / subdir / 'xiaogu_scan_summary_runner.json'
             if summary_path.exists():
                 try:
                     with open(summary_path, 'r', encoding='utf-8') as fh:
@@ -495,17 +486,6 @@ def repo_contribution_summary_text(repo_contributions: Dict[str, Any]) -> str:
             noise_parts.append(text)
         else:
             parts.append(text)
-    for repo_name in sorted(repo_contributions):
-        if repo_name in ACTIVE_REPO_ORDER:
-            continue
-        entry = repo_contributions.get(repo_name)
-        if not isinstance(entry, dict):
-            continue
-        text = _fmt(repo_name, entry)
-        if '(noise)' in text:
-            noise_parts.append(text)
-        else:
-            parts.append(text)
     # Active scoring first; noise last so selection_reason is not dominated by guards.
     return '; '.join(parts + noise_parts)
 
@@ -710,8 +690,8 @@ def tradingagent_a_native_adapter(candidate: Dict[str, Any]) -> Dict[str, Any]:
         one_lot_cost_cap = fnum(candidate.get('account_available_cash'))
         cap_source = 'account_available_cash'
     if one_lot_cost_cap <= 0:
-        one_lot_cost_cap = LEGACY_ONE_LOT_COST_CAP
-        cap_source = 'legacy_static_cap'
+        one_lot_cost_cap = None
+        cap_source = 'account_snapshot_unavailable'
     account_available_cash = fnum(candidate.get('account_available_cash'))
     buyable, reject_reason = small_account_buyable(
         plain,
@@ -1705,4 +1685,4 @@ def native_adapter_for_repo(repo_name: str, candidate: Dict[str, Any]) -> Dict[s
 
 
 def run_all_native_adapters(candidate: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [native_adapter_for_repo(repo_name, candidate) for repo_name in ['tradingagent_a', 'VEI', 'Qlib', 'QuantDinger', 'UZI_Skill', 'Kaixin_Factors', 'MiMo_Reasoning']]
+    return [native_adapter_for_repo(repo_name, candidate) for repo_name in ACTIVE_REPO_ORDER]

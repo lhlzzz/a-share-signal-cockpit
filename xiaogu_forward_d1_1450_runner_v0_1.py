@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -8979,6 +8980,9 @@ def run_recorder(
         '--xiaochan-gate-status', str(features.get('xiaochan_gate_status', 'ALLOW_FORWARD_PAPER_NO_TRADE')),
         '--xiaoshuju-data-gate-status', str(features.get('xiaoshuju_data_gate_status', features.get('data_gate_status', 'NOT_CALLED'))),
     ]
+    production_run_id = str(features.get('production_run_id') or '').strip()
+    if production_run_id:
+        cmd.extend(['--production-run-id', production_run_id])
     if correction_of:
         cmd.extend(['--correction-of', correction_of])
     if dry_run:
@@ -8997,6 +9001,29 @@ def run_recorder(
         }
     except subprocess.TimeoutExpired as exc:
         return {'cmd': cmd, 'returncode': 124, 'stdout': exc.stdout or '', 'stderr': 'RECORDER_TIMEOUT', 'features_path': str(features_path)}
+
+
+def finalize_production_run(
+    trade_day: dt.date,
+    production_run_id: str,
+    *,
+    candidate_snapshot_id: str,
+    active_pick_id: Optional[int],
+    publish_active: bool,
+) -> None:
+    """Commit the terminal run state and active pointer as one DB transaction."""
+    from xiaogu_db import get_db, set_active_production_run, update_production_run_status
+
+    with get_db() as db:
+        update_production_run_status(production_run_id, 'PASS', db=db)
+        if publish_active:
+            set_active_production_run(
+                trade_day,
+                production_run_id,
+                candidate_snapshot_id=candidate_snapshot_id,
+                active_pick_id=active_pick_id,
+                db=db,
+            )
 
 
 def _unique_persistence_candidates(candidates: List[Dict[str, Any]], target_count: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
@@ -9084,6 +9111,11 @@ def main() -> None:
         if runtime_date != args.date:
             print(f'RUNTIME_DATE_ADJUSTED: {args.date} -> {runtime_date}', file=sys.stderr, flush=True)
             args.date = runtime_date
+    production_run_id = ''
+    if not args.dry_run:
+        production_run_id = str(
+            os.environ.get('XIAOGU_PRODUCTION_RUN_ID', '').strip() or uuid.uuid4()
+        )
 
     # The runner consumes only the same-day direct API scan produced by the pipeline.
     latest = load_latest_eastmoney_scan(args.date)
@@ -9115,6 +9147,9 @@ def main() -> None:
 
     if isinstance(bundle, dict) and bundle.get('production_chain_mode') == PRODUCTION_CHAIN_MODE:
         bundle['strict_production_chain'] = True
+    if production_run_id:
+        bundle['production_run_id'] = production_run_id
+        bundle['candidate_snapshot_id'] = production_run_id
     
     try:
         from xiaogu_db import fetch_scan_data_directory_content
@@ -9330,6 +9365,11 @@ def main() -> None:
         'asof_time': args.asof_time,
         'generated_at': now_iso(),
         'rule_version': RULE_VERSION,
+        'production_run_id': production_run_id,
+        'candidate_snapshot_id': production_run_id,
+        'formal_rank_snapshot_id': str(bundle.get('formal_rank_snapshot_id') or ''),
+        'formal_rank_snapshot_version': str(bundle.get('formal_rank_snapshot_version') or ''),
+        'scoring_config_snapshot': get_scoring_config_snapshot(),
         'runtime_market_snapshot': snapshot,
         'candidate_bundle_status': slim_bundle_for_runtime(bundle),
         'research_signals': candidate_features.get('research_signals') or (bundle.get('candidate') or {}).get('research_signals') or {},
@@ -9367,6 +9407,22 @@ def main() -> None:
         'payload_policy': 'slim_runtime_v1',
         **LOCKED_SAFETY,
     }
+    features['scoring_config_hash'] = hashlib.sha256(
+        json.dumps(features['scoring_config_snapshot'], ensure_ascii=False, sort_keys=True, default=str).encode('utf-8')
+    ).hexdigest()
+    features['input_payload_hash'] = hashlib.sha256(
+        json.dumps(
+            {
+                'bundle_path': bundle.get('_bundle_path') or bundle.get('scan_summary_path') or '',
+                'source_time': bundle.get('scan_summary_source_time') or source_time,
+                'formal_rank_snapshot_id': features['formal_rank_snapshot_id'],
+                'formal_rank_snapshot_version': features['formal_rank_snapshot_version'],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode('utf-8')
+    ).hexdigest()
 
     def generate_structured_reasons(features: Dict[str, Any], bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
         """生成结构化出票理由。"""
@@ -9757,60 +9813,18 @@ def main() -> None:
     failure_conditions = generate_failure_conditions(features, bundle)
     features['failure_conditions'] = failure_conditions
 
-    daily_candidate_persist_result = persist_daily_candidate_snapshot(
-        args.date,
-        bundle,
-        features,
-        decision,
-        reason,
-        dry_run=bool(args.dry_run),
-        replace_existing=bool(args.force),
-        correction_of=correction_of,
-    )
+    daily_candidate_persist_result: Dict[str, Any] = {'status': 'PENDING'}
     daily_candidate_persist_retry_payload_path = ''
-    if daily_candidate_persist_result.get('status') in ('PARTIAL', 'FAILED', 'UNAVAILABLE'):
-        daily_candidate_persist_retry_payload_path = write_daily_candidate_persist_retry_payload(
-            runtime_snapshot_path,
-            args.date,
-            bundle,
-            features,
-            decision,
-            reason,
-            daily_candidate_persist_result,
-        )
-    if args.force and not args.dry_run and daily_candidate_persist_result.get('status') != 'OK':
-        print(json.dumps({
-            'status': 'CORRECTION_NOT_RECORDED',
-            'date': args.date,
-            'reason': 'CANDIDATE_SNAPSHOT_REPLACEMENT_NOT_COMPLETE',
-            'daily_candidate_persist_result': daily_candidate_persist_result,
-        }, ensure_ascii=False, indent=2))
-        clear_runner_file_cache()
-        raise SystemExit(2)
-    if correction_of:
-        features['candidate_snapshot_correction'] = {
-            **(daily_candidate_persist_result.get('correction_archive') or {}),
-            'pruned_stale_count': daily_candidate_persist_result.get('pruned_stale_count', 0),
-            'status': daily_candidate_persist_result.get('status'),
-        }
-        write_json(
-            runtime_snapshot_path,
-            build_runtime_decision_context(features, decision, symbol, reason, single_target_card),
-        )
+    rec: Dict[str, Any] = {
+        'returncode': 0,
+        'stdout': '',
+        'stderr': '',
+    }
 
-    rec = run_recorder(
-        args.date,
-        args.asof_time,
-        decision,
-        symbol,
-        features,
-        reason,
-        args.dry_run,
-        correction_of=correction_of,
-    )
-
-    # Write pick to PostgreSQL (best-effort; never block ticket output on DB failure)
+    # Production decision persistence is required. Recorder publication follows
+    # only after scan, candidates, pick, and active pointer commit together.
     db_pick_correction: Dict[str, Any] = {}
+    production_run_published = False
     try:
         import datetime as _dt
         from xiaogu_db import (
@@ -9818,6 +9832,8 @@ def main() -> None:
             insert_pick,
             mark_pick_active_correction,
             supersede_active_picks_for_correction,
+            update_production_run_status,
+            update_production_run_step,
         )
         trade_day = _dt.date.fromisoformat(args.date)
         # Evening force / same-day re-run: if a USER_LOCKED formal pick already exists,
@@ -9903,59 +9919,146 @@ def main() -> None:
         if correction_of:
             _pick_features['correction_context'] = dict(features.get('correction_context') or {})
             _pick_features['candidate_snapshot_correction'] = dict(features.get('candidate_snapshot_correction') or {})
-        if db_pick_correction.get('record_type') == 'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE':
-            inserted_pick_id = None
-        else:
-            inserted_pick_id = insert_pick(
-                trade_date=trade_day,
-                symbol=symbol or '',
-                decision=decision,
-                final_score=float(_score) if _score is not None else None,
-                blockers=_blockers,
-                features=_pick_features,
-                source_layers=_layers,
-                rule_version=RULE_VERSION,
-                scan_dir=str(snapshot.get('raw_dir') or ''),
-                dry_run=bool(args.dry_run),
-                stock_name=str(_candidate.get('name') or _candidate.get('stock_name') or ''),
-                rank=int(_candidate.get('rank')) if safe_float(_candidate.get('rank')) is not None else None,
-                structured_score=safe_float(_candidate.get('structured_score')),
-                ranking_basis={
-                    'basis': 'capital_behavior_t1_profit',
-                    'ranking_view': 'main_force_behavior_chain',
-                    'rank_source': _candidate.get('rank_source') or 'formal_profit_first',
-                    'formal_rank': _candidate.get('formal_rank'),
-                    'formal_primary_score': _candidate.get('formal_primary_score'),
-                    'capital_behavior_score': (
-                        _candidate.get('capital_behavior_score')
-                        or (_candidate.get('ranking_basis_adjustment_components') or {}).get('capital_behavior_score')
-                    ),
-                    'structured_priority_score': _candidate.get('structured_priority_score'),
-                    'rank': _candidate.get('rank'),
-                },
-                ticket_reason={
-                    'decision': decision,
-                    'reason': reason,
-                    'structured_reasons': features.get('structured_reasons', []),
-                    'evidence_card_one_liner': (features.get('evidence_card') or {}).get('one_liner') if isinstance(features.get('evidence_card'), dict) else '',
-                },
-                selection_reason=(
-                    features.get('selection_reason')
-                    if isinstance(features.get('selection_reason'), dict)
-                    else {
-                        'format': 'legacy_repo_summary',
-                        'candidate_entry_reason': (_pick_features.get('official_explanation_summary') or {}).get('why_selected') or [],
-                        'decision_reason': reason,
-                        'evidence_card': features.get('evidence_card') or {},
-                    }
+        pick_payload = {
+            'trade_date': trade_day,
+            'symbol': symbol or '',
+            'decision': decision,
+            'final_score': float(_score) if _score is not None else None,
+            'blockers': _blockers,
+            'features': _pick_features,
+            'source_layers': _layers,
+            'rule_version': RULE_VERSION,
+            'scan_dir': str(snapshot.get('raw_dir') or ''),
+            'dry_run': bool(args.dry_run),
+            'stock_name': str(_candidate.get('name') or _candidate.get('stock_name') or ''),
+            'rank': int(_candidate.get('rank')) if safe_float(_candidate.get('rank')) is not None else None,
+            'structured_score': safe_float(_candidate.get('structured_score')),
+            'ranking_basis': {
+                'basis': 'capital_behavior_t1_profit',
+                'ranking_view': 'main_force_behavior_chain',
+                'rank_source': _candidate.get('rank_source') or 'formal_profit_first',
+                'formal_rank': _candidate.get('formal_rank'),
+                'formal_primary_score': _candidate.get('formal_primary_score'),
+                'formal_sort_tuple': list(_candidate.get('formal_sort_tuple') or ()),
+                'capital_behavior_score': (
+                    _candidate.get('capital_behavior_score')
+                    or (_candidate.get('ranking_basis_adjustment_components') or {}).get('capital_behavior_score')
                 ),
-                paper_pick_eligibility=dict(_candidate.get('paper_pick_eligibility') or {}),
-                official_target_exclusion_reasons=list(_candidate.get('official_target_exclusion_reasons') or []),
-                risk_flags=unique_text_values([*risk_flags, *((_candidate.get('capital_risk_profile') or {}).get('risk_codes') or [])]),
-                auxiliary_evidence_status=str(_candidate.get('mainboard_auxiliary_evidence_status') or ''),
-                information_coverage_audit_snapshot=dict(bundle.get('information_coverage_audit') or {}),
-                source_summary_path=str(bundle.get('scan_summary_path') or ''),
+                'structured_priority_score': _candidate.get('structured_priority_score'),
+                'rank': _candidate.get('rank'),
+            },
+            'ticket_reason': {
+                'decision': decision,
+                'reason': reason,
+                'structured_reasons': features.get('structured_reasons', []),
+                'evidence_card_one_liner': (
+                    (features.get('evidence_card') or {}).get('one_liner')
+                    if isinstance(features.get('evidence_card'), dict) else ''
+                ),
+            },
+            'selection_reason': (
+                features.get('selection_reason')
+                if isinstance(features.get('selection_reason'), dict)
+                else {
+                    'format': 'legacy_repo_summary',
+                    'candidate_entry_reason': (
+                        _pick_features.get('official_explanation_summary') or {}
+                    ).get('why_selected') or [],
+                    'decision_reason': reason,
+                    'evidence_card': features.get('evidence_card') or {},
+                }
+            ),
+            'paper_pick_eligibility': dict(_candidate.get('paper_pick_eligibility') or {}),
+            'official_target_exclusion_reasons': list(_candidate.get('official_target_exclusion_reasons') or []),
+            'risk_flags': unique_text_values(
+                [*risk_flags, *((_candidate.get('capital_risk_profile') or {}).get('risk_codes') or [])]
+            ),
+            'auxiliary_evidence_status': str(_candidate.get('mainboard_auxiliary_evidence_status') or ''),
+            'information_coverage_audit_snapshot': dict(bundle.get('information_coverage_audit') or {}),
+            'source_summary_path': str(bundle.get('scan_summary_path') or ''),
+            'formal_rank_snapshot_id': str(
+                _candidate.get('formal_rank_snapshot_id') or features.get('formal_rank_snapshot_id') or ''
+            ),
+            'formal_rank_snapshot_version': str(
+                _candidate.get('formal_rank_snapshot_version')
+                or features.get('formal_rank_snapshot_version') or ''
+            ),
+            'scoring_config_hash': str(features.get('scoring_config_hash') or ''),
+        }
+        daily_candidate_persist_result = persist_daily_candidate_snapshot(
+            args.date,
+            bundle,
+            features,
+            decision,
+            reason,
+            dry_run=bool(args.dry_run),
+            replace_existing=bool(args.force),
+            correction_of=correction_of,
+            production_run_id=production_run_id,
+            pick_payload=pick_payload if production_run_id else None,
+        )
+        if daily_candidate_persist_result.get('status') not in ('OK', 'DRY_RUN'):
+            daily_candidate_persist_retry_payload_path = write_daily_candidate_persist_retry_payload(
+                runtime_snapshot_path,
+                args.date,
+                bundle,
+                features,
+                decision,
+                reason,
+                daily_candidate_persist_result,
             )
+            print(json.dumps({
+                'status': 'FAILED_PERSISTENCE',
+                'date': args.date,
+                'production_run_id': production_run_id,
+                'daily_candidate_persist_result': daily_candidate_persist_result,
+            }, ensure_ascii=False, indent=2))
+            clear_runner_file_cache()
+            raise SystemExit(2)
+        if args.dry_run:
+            inserted_pick_id = insert_pick(**pick_payload)
+        else:
+            inserted_pick_id = daily_candidate_persist_result.get('pick_id')
+        if correction_of:
+            features['candidate_snapshot_correction'] = {
+                **(daily_candidate_persist_result.get('correction_archive') or {}),
+                'pruned_stale_count': daily_candidate_persist_result.get('pruned_stale_count', 0),
+                'status': daily_candidate_persist_result.get('status'),
+            }
+            write_json(
+                runtime_snapshot_path,
+                build_runtime_decision_context(features, decision, symbol, reason, single_target_card),
+            )
+        rec = run_recorder(
+            args.date,
+            args.asof_time,
+            decision,
+            symbol,
+            features,
+            reason,
+            args.dry_run,
+            correction_of=correction_of,
+        )
+        if production_run_id:
+            recorder_status = 'PASS' if rec['returncode'] == 0 else 'FAIL'
+            update_production_run_step(
+                production_run_id,
+                'recorder',
+                recorder_status,
+                required=True,
+                error_message='' if rec['returncode'] == 0 else str(rec.get('stderr') or 'RECORDER_FAILED')[:500],
+                retry_command=(
+                    f'XIAOGU_PRODUCTION_RUN_ID={production_run_id} '
+                    f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {args.date} --force'
+                ),
+            )
+            if rec['returncode'] != 0:
+                update_production_run_status(
+                    production_run_id,
+                    'FAIL',
+                    error_message=str(rec.get('stderr') or 'RECORDER_FAILED')[:500],
+                )
+                raise SystemExit(rec['returncode'])
         # pgvector: store pick case so future formal sort can retrieve similar winners.
         if (
             decision == 'PAPER_PICK'
@@ -10048,8 +10151,45 @@ def main() -> None:
                     'superseded_count': superseded_count,
                     'active_pick_count': active_count,
                 }
+        if production_run_id:
+            publish_active = db_pick_correction.get('record_type') not in {
+                'CORRECTION_BLOCKED_BY_USER_LOCK_PREWRITE',
+                'CORRECTION_BLOCKED_BY_USER_LOCK',
+            }
+            finalize_production_run(
+                trade_day,
+                production_run_id,
+                candidate_snapshot_id=str(daily_candidate_persist_result.get('candidate_snapshot_id') or production_run_id),
+                active_pick_id=inserted_pick_id,
+                publish_active=publish_active,
+            )
+            production_run_published = publish_active
     except Exception as exc:
-        print(f'WARN: insert_pick failed: {exc}', file=sys.stderr, flush=True)
+        if production_run_id:
+            try:
+                from xiaogu_db import update_production_run_status, update_production_run_step
+                failure = repr(exc)[:500]
+                update_production_run_step(
+                    production_run_id,
+                    'pick_persistence',
+                    'FAILED_PERSISTENCE',
+                    required=True,
+                    error_message=failure,
+                    retry_command=(
+                        f'XIAOGU_PRODUCTION_RUN_ID={production_run_id} '
+                        f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {args.date} --force'
+                    ),
+                )
+                update_production_run_status(
+                    production_run_id,
+                    'FAILED_PERSISTENCE',
+                    error_message=failure,
+                )
+            except Exception:
+                pass
+        print(f'FAILED_PERSISTENCE: {exc}', file=sys.stderr, flush=True)
+        clear_runner_file_cache()
+        raise SystemExit(2)
 
     out = {
         'date': args.date,
@@ -10077,6 +10217,8 @@ def main() -> None:
         **({'daily_best_paper_watch': daily_best_paper_watch} if daily_best_paper_watch is not None else {}),
         **({'profit_candidate_shadow_watch': profit_candidate_shadow_watch} if profit_candidate_shadow_watch is not None else {}),
         'rule_version': RULE_VERSION,
+        'production_run_id': production_run_id,
+        'production_run_published': production_run_published,
         'ledger_path': str(LEDGER),
         'runtime_decision_context_path': str(runtime_snapshot_path),
         'raw_runtime_snapshot_dir': snapshot.get('raw_dir'),

@@ -72,7 +72,7 @@ def test_social_collection_failure_preserves_operational_signal_values(monkeypat
             (trade_date, symbol, signal_key, signal_value, raw_json)
         ),
     )
-    failed = social.normalize_social_signal('eastmoney_guba', {'error': 'no_cdp_tab'})
+    failed = social.normalize_social_signal('eastmoney_guba', {'error': 'no_direct_source'})
 
     result = social._store_social_payload(date(2026, 7, 10), '600001', [failed])
 
@@ -80,7 +80,7 @@ def test_social_collection_failure_preserves_operational_signal_values(monkeypat
     assert [item[2] for item in written] == ['social_collection_status']
     assert written[0][4]['preserved_existing_social_values'] is True
     assert written[0][4]['collection_errors'][0]['source'] == 'eastmoney_guba'
-    assert written[0][4]['collection_errors'][0]['error'] == 'no_cdp_tab'
+    assert written[0][4]['collection_errors'][0]['error'] == 'no_direct_source'
 
 
 def test_social_attachment_retains_valid_values_and_surfaces_collection_warning(monkeypatch):
@@ -103,7 +103,7 @@ def test_social_attachment_retains_valid_values_and_surfaces_collection_warning(
                 'signal_value': None,
                 'raw_json': {
                     'collection_status': 'WARN',
-                    'collection_errors': [{'source': 'eastmoney_guba', 'error': 'no_cdp_tab'}],
+                    'collection_errors': [{'source': 'eastmoney_guba', 'error': 'no_direct_source'}],
                     'source_layers': ['eastmoney_guba'],
                     'social_signal_quality': 'MEDIUM',
                 },
@@ -121,10 +121,10 @@ def test_social_attachment_retains_valid_values_and_surfaces_collection_warning(
     assert attached[0]['social_signal_error'][0]['source'] == 'eastmoney_guba'
 
 
-def test_social_collectors_use_direct_public_pages_before_cdp(monkeypatch):
+def test_social_collectors_use_direct_public_pages(monkeypatch):
     import xiaogu_social_sentiment as social
 
-    # Primary path is gbapi JSON (not captcha HTML). CDP must not be required.
+    # Primary path is gbapi JSON.
     api_payload = json.dumps(
         {
             'count': 2,
@@ -142,11 +142,6 @@ def test_social_collectors_use_direct_public_pages_before_cdp(monkeypatch):
         pytest.fail(f'unexpected fetch url for primary path: {url}')
 
     monkeypatch.setattr(social, '_fetch_public_text', fake_fetch)
-    monkeypatch.setattr(
-        social,
-        'cdp_get_tabs',
-        lambda: pytest.fail('direct collector should not request a CDP tab'),
-    )
 
     guba = social.scrape_eastmoney_guba('600001')
 
@@ -155,29 +150,19 @@ def test_social_collectors_use_direct_public_pages_before_cdp(monkeypatch):
     assert guba.get('transport') == 'gbapi_articlelist'
 
 
-def test_social_collectors_fall_back_to_html_when_api_empty(monkeypatch):
+def test_social_collectors_fail_closed_when_api_empty(monkeypatch):
     import xiaogu_social_sentiment as social
-
-    guba_html = """
-        <div class="title">芯片利好，明天涨停</div>
-        <div class="title">资金回流，继续看多</div>
-    """
 
     def fake_fetch(url, *, timeout=15, direct=False, accept=''):
         if 'gbapi.eastmoney.com' in url:
             return json.dumps({'count': 0, 're': []})
-        return guba_html
+        pytest.fail(f'unexpected fallback fetch: {url}')
 
     monkeypatch.setattr(social, '_fetch_public_text', fake_fetch)
-    monkeypatch.setattr(
-        social,
-        'cdp_get_tabs',
-        lambda: pytest.fail('html fallback should not request a CDP tab'),
-    )
 
     guba = social.scrape_eastmoney_guba('600001')
-    assert guba['post_count'] == 2
-    assert guba.get('transport') == 'public_html'
+    assert 'error' in guba
+    assert guba['symbol'] == '600001'
 
 
 def test_collect_and_store_ignores_obsolete_external_sources(monkeypatch):
@@ -212,53 +197,44 @@ def test_collect_and_store_ignores_obsolete_external_sources(monkeypatch):
     assert set(written).isdisjoint(obsolete_signal_keys)
 
 
-def test_daily_pipeline_defaults_social_provider_to_eastmoney_only():
+def test_daily_pipeline_has_one_authoritative_chain():
     script = Path('daily_pipeline.sh').read_text(encoding='utf-8')
 
-    obsolete_env_keys = [
-        'SOCIAL_' + 'X_PROVIDER',
-        'XIAOGU_SOCIAL_' + 'X_HANDLES',
-        'XIAOGU_' + 'GR' + 'OK_ENABLED',
-    ]
-    assert 'SOCIAL_SOURCES="${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba}"' in script
-    assert 'SOCIAL_SOURCES="${XIAOGU_SOCIAL_SOURCES:-eastmoney_guba,x}"' not in script
-    assert all(key not in script for key in obsolete_env_keys)
-    # Gate detection must use compact status-file, not only rg on multi-MB JSON.
-    assert '--status-file' in script
-    assert 'social_gate=' in script
-    assert '--ensure-formal-top10' in script
-    assert '补采 social' in script or 'ensure-formal-top10' in script
+    assert 'scrapy_scanner/runner_v2.py' in script
+    assert 'xiaogu_forward_d1_1450_runner_v0_1.py' in script
+    assert 'scripts/xiaogu_return_backfill.py' in script
+    assert '--fill-all-pending' not in script
+    assert 'scripts/xiaogu_knowledge_asset_export.py' in script
+    assert 'xiaogu_social_sentiment.py' not in script
+    assert 'xiaogu_sszcw_market_context.py' not in script
+    assert 'legacy_browser_scan' not in script
 
 
-def test_daily_pipeline_hooks_sszcw_pre_pick_and_safe_self_evolve():
+def test_daily_pipeline_keeps_safe_self_evolve_observation_only():
     script = Path('daily_pipeline.sh').read_text(encoding='utf-8')
-    assert 'scripts/xiaogu_sszcw_market_context.py' in script
     assert 'scripts/xiaogu_safe_self_evolve.py' in script
-    assert 'backfill_return_pick_ids' in script
-    # Chain auto-applies when gate READY (not a manual ops checklist)
-    assert '--apply-if-ready' in script
-    assert 'XIAOGU_SAFE_SELF_EVOLVE_DRY_RUN' in script
-    # Soft context must run before runner
-    assert script.index('xiaogu_sszcw_market_context.py') < script.index('xiaogu_forward_d1_1450_runner_v0_1.py')
-    # T1 validation path also owns self-evolve
-    assert script.index('--manual-return-backfill') < script.index('--apply-if-ready')
+    assert 'backfill_return_pick_ids' not in script
+    # Research self-evolution is observation-only and cannot mutate production scoring.
+    assert '--dry-run' in script
+    assert '--apply-if-ready' not in script
+    # T1 validation path owns observation-only self-evolution.
+    assert script.index('--manual-return-backfill') < script.index('--dry-run')
     # Shadow profit candidates: main LIVE path after runner; T1 path refreshes with --with-returns
     assert 'scripts/xiaogu_profit_candidates_shadow.py' in script
     assert '--compare-official' in script
     assert script.count('xiaogu_profit_candidates_shadow.py') >= 2
     assert '--with-returns' in script
     # Main LIVE path block: runner appears before the post-decision profit shadow step marker
-    live_marker = '[5.4/6] 影子获利候选'
+    live_marker = '[4.2/5] 影子获利候选'
     assert live_marker in script
     assert script.index('xiaogu_forward_d1_1450_runner_v0_1.py') < script.index(live_marker)
-    assert script.index(live_marker) < script.index('[5.5/6] 有界因子自进化')
+    assert script.index(live_marker) < script.index('[4.3/5] 有界因子自进化')
 
-def test_forced_candidate_snapshot_archives_then_prunes_stale_rows(monkeypatch, tmp_path):
+def test_forced_candidate_snapshot_archives_and_preserves_stale_rows(monkeypatch, tmp_path):
     import xiaogu_forward_d1_1450_runner_v0_1 as runner
 
     trade_date = date(2026, 7, 13)
     written = []
-    pruned = []
     payloads = {
         'status': 'OK',
         'scan_session': None,
@@ -273,11 +249,6 @@ def test_forced_candidate_snapshot_archives_then_prunes_stale_rows(monkeypatch, 
     monkeypatch.setattr('xiaogu_db.insert_scan_session', lambda **kwargs: 1)
     monkeypatch.setattr('xiaogu_db.upsert_daily_candidate', lambda **kwargs: written.append(kwargs))
     monkeypatch.setattr('xiaogu_db.upsert_limitup_gene_signals', lambda **kwargs: {})
-    monkeypatch.setattr(
-        'xiaogu_db.prune_daily_candidates_to_symbols',
-        lambda _date, symbols: pruned.append((_date, symbols)) or 1,
-    )
-
     result = runner.persist_daily_candidate_snapshot(
         '2026-07-13',
         {'_runner_asof_time': '17:22:57'},
@@ -290,12 +261,26 @@ def test_forced_candidate_snapshot_archives_then_prunes_stale_rows(monkeypatch, 
 
     assert result['status'] == 'OK'
     assert result['written'] == 1
-    assert result['pruned_stale_count'] == 1
-    assert pruned == [(trade_date, ['600001'])]
+    assert result['pruned_stale_count'] == 0
+    assert result['preserved_stale_count'] == 1
     archive = json.loads(Path(result['correction_archive']['archive_path']).read_text(encoding='utf-8'))
     assert archive['correction_of'] == 'old-ledger-reference'
     assert archive['rows'] == [{'symbol': '600999'}]
     assert written[0]['symbol'] == '600001'
+
+
+def test_runtime_database_writes_have_no_destructive_sql():
+    sources = [
+        Path('xiaogu_db.py'),
+        Path('xiaogu_forward_bundle_io.py'),
+        Path('xiaogu_signal_effectiveness_v0_1.py'),
+        Path('xiaogu_case_vector_store.py'),
+    ]
+    source = '\n'.join(path.read_text(encoding='utf-8') for path in sources)
+    assert 'DELETE FROM' not in source
+    assert 'TRUNCATE' not in source
+    assert 'DROP TABLE' not in source
+    assert 'DROP COLUMN' not in source
 
 
 def test_run_recorder_passes_correction_reference(monkeypatch, tmp_path):
@@ -379,7 +364,7 @@ def test_replay_daily_candidate_snapshots_falls_back_to_scan_summary(monkeypatch
     import scripts.xiaogu_db_backfill as backfill
     import xiaogu_forward_d1_1450_runner_v0_1 as runner
 
-    summary_path = tmp_path / '2026-07-17' / 'eastmoney_scan_afternoon' / 'eastmoney_web_tabs_summary_runner.json'
+    summary_path = tmp_path / '2026-07-17' / 'eastmoney_scan_afternoon' / 'xiaogu_scan_summary_runner.json'
     summary_path.parent.mkdir(parents=True)
     summary_path.write_text(json.dumps({'source_time': '2026-07-17 13:58:16'}, ensure_ascii=False), encoding='utf-8')
     bundle = {
@@ -470,7 +455,7 @@ def test_bundles_backfill_dry_run(tmp_path):
     """Verify bundle parser extracts candidates correctly."""
     bundle_dir = tmp_path / "bundles" / "2026-06-10"
     bundle_dir.mkdir(parents=True)
-    bundle_file = bundle_dir / "2026-06-10_eastmoney_web_tabs_v0_1_research_basket_candidate.json"
+    bundle_file = bundle_dir / "2026-06-10_eastmoney_api_scan_v2_candidate.json"
     bundle_data = {
         "date": "2026-06-10",
         "paper_scoring_candidates": [
@@ -496,18 +481,23 @@ def test_bundles_backfill_dry_run(tmp_path):
 
 def test_live_scan_backfill_dry_run(tmp_path):
     """Verify live scan parser extracts scored candidates."""
-    scan_dir = tmp_path / "scan" / "2026-06-10" / "eastmoney_web_tabs_scan_v0_1"
+    scan_dir = tmp_path / "scan" / "2026-06-10" / "eastmoney_scan_afternoon"
     scan_dir.mkdir(parents=True)
-    scored_file = scan_dir / "eastmoney_web_tabs_scored.jsonl"
     records = [
         {"code": "601816", "name": "京沪高铁", "rank": 1, "score": 67.96,
          "final_score": 67.96, "signal_pct": 1.77, "setup_type": "INTRADAY_ALERT_REVERSAL"},
         {"code": "600210", "name": "紫江企业", "rank": 2, "score": 82.0,
          "final_score": 82.0, "signal_pct": 2.1},
     ]
-    with open(scored_file, 'w') as f:
-        for r in records:
-            f.write(json.dumps(r) + '\n')
+    (scan_dir / "xiaogu_scan_summary_runner.json").write_text(
+        json.dumps({
+            "source": "eastmoney_api_scan_v2",
+            "pipeline_version": "v2_scanner_api",
+            "source_time": "2026-06-10 14:30:00",
+            "paper_scoring_candidates": records,
+        }),
+        encoding="utf-8",
+    )
 
     from scripts.xiaogu_db_backfill import _parse_live_scan
     parsed = _parse_live_scan(tmp_path / "scan")
@@ -522,14 +512,14 @@ def test_live_scan_parser_prefers_latest_summary_runner(tmp_path):
     morning_dir.mkdir(parents=True)
     afternoon_dir.mkdir(parents=True)
 
-    (morning_dir / "eastmoney_web_tabs_summary_runner.json").write_text(
+    (morning_dir / "xiaogu_scan_summary_runner.json").write_text(
         json.dumps({
             "source_time": "2026-06-10 09:25:00",
             "paper_scoring_candidates": [{"symbol": "600001", "rank": 1}],
         }),
         encoding="utf-8",
     )
-    (afternoon_dir / "eastmoney_web_tabs_summary_runner.json").write_text(
+    (afternoon_dir / "xiaogu_scan_summary_runner.json").write_text(
         json.dumps({
             "source_time": "2026-06-10 14:30:00",
             "paper_scoring_candidates": [{"symbol": "600002", "rank": 1}],
@@ -575,8 +565,8 @@ def test_factors_backfill_dry_run(tmp_path):
     assert len(parsed[0]['candidates']) == 2
 
 
-def test_return_backfill_next_day_execution_metrics(monkeypatch):
-    """Verify T+1 execution metrics are emitted for backtest rows."""
+def test_return_backfill_emits_only_t1_close_return(monkeypatch):
+    """Verify backfill emits only the official T+1 close result."""
     import scripts.xiaogu_return_backfill as backfill
 
     class FakeBaoStock:
@@ -598,7 +588,7 @@ def test_return_backfill_next_day_execution_metrics(monkeypatch):
         def execute(self, query):
             FakeConn.calls += 1
             rows = (
-                [(date(2026, 6, 22), '300001', 80.0)]
+                [(date(2026, 6, 22), '300001', 80.0, False, 1, 'run-622', 'snapshot-622', 101)]
                 if FakeConn.calls == 1
                 else []
             )
@@ -621,26 +611,8 @@ def test_return_backfill_next_day_execution_metrics(monkeypatch):
     stats = backfill.backfill_returns(dry_run=True)
     row = stats['results'][0]
 
-    assert row['next_day_open_return'] == -0.02
-    assert row['next_day_close_return'] == 0.04
-    assert row['next_day_high_return'] == 0.08
-    assert row['next_day_low_return'] == -0.04
-    assert row['next_day_gap_return'] == -0.02
-    assert row['next_day_drawdown'] == -0.1111
-    assert row['high_to_close_retrace'] == -0.037
-    assert row['sellable_profit'] == pytest.approx(0.056)
-    assert row['sellable_profit_v1_conservative'] == 0.044
-    assert row['sellable_profit_v2_normal'] == pytest.approx(0.056)
-    assert row['sellable_profit_v3_aggressive'] == pytest.approx(0.056)
-    assert row['sell_strategy_used'] == '冲高回落卖'
-    assert row['sell_signal_time'] == '10:30'
-    assert row['sell_signal_price'] == 10.56
-    assert row['max_profit_before_sell'] == 0.08
-    assert row['profit_capture_ratio'] == pytest.approx(0.70)
-    assert row['missed_profit'] == pytest.approx(0.024)
-    assert row['panic_sell_avoided'] is True
-    assert row['should_wait_rebound'] is True
-    assert row['failure_exit_triggered'] is False
+    assert row['returns'] == {'t1': 0.04}
+    assert set(row) == {'date', 'symbol', 'score', 'entry', 'returns', 'production_trade_mode'}
 
 
 def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
@@ -671,7 +643,7 @@ def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
         def execute(self, query):
             FakeConn.calls += 1
             rows = (
-                [(date(2026, 7, 10), '002558', 67.17, True, 10)]
+                [(date(2026, 7, 10), '002558', 67.17, True, 10, 'run-710', 'snapshot-710', 102)]
                 if FakeConn.calls == 1
                 else []
             )
@@ -696,9 +668,7 @@ def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
     assert stats['new_success_count'] == 1
     row = stats['results'][0]
     assert row['returns']['t1'] == -0.0365
-    assert row['next_day_open_return'] == -0.0186
-    assert row['next_day_high_return'] == -0.0071
-    assert row['next_day_low_return'] == -0.0697
+    assert set(row['returns']) == {'t1'}
 
 
 def test_return_backfill_rejects_mismatched_validation_date():
@@ -748,109 +718,18 @@ def test_eastmoney_realtime_ohlc_only_stamps_today(monkeypatch):
     assert row == {'date': today, 'open': 9.5, 'high': 11.0, 'low': 9.0, 'close': 10.0}
 
 
-def test_estimate_sellable_profit_classifies_exit_strategies():
-    """Verify sellable-profit rules distinguish key T+1 exit tactics."""
+def test_return_backfill_exposes_only_t1_close_metrics():
     import scripts.xiaogu_return_backfill as backfill
 
-    cases = [
-        (
-            '低开等待反弹',
-            dict(entry_price=10, open_return=-0.02, high_return=0.03, low_return=-0.035,
-                 close_return=0.01, high_to_close_retrace=-0.019, limit_touched=False),
-        ),
-        (
-            '高开冲高卖',
-            dict(entry_price=10, open_return=0.025, high_return=0.07, low_return=0.01,
-                 close_return=0.03, high_to_close_retrace=-0.037, limit_touched=False),
-        ),
-        (
-            '涨停炸板卖',
-            dict(entry_price=10, open_return=0.03, high_return=0.10, low_return=0.01,
-                 close_return=0.055, high_to_close_retrace=-0.041, limit_touched=True),
-        ),
-        (
-            '失败止损卖',
-            dict(entry_price=10, open_return=-0.015, high_return=0.01, low_return=-0.06,
-                 close_return=-0.04, high_to_close_retrace=-0.049, limit_touched=False),
-        ),
-    ]
-
-    for expected, kwargs in cases:
-        profile = backfill.estimate_sellable_profit(**kwargs)
-        assert profile['sell_strategy_used'] == expected
-        assert profile['sellable_profit'] <= kwargs['high_return']
-        assert profile['sellable_profit'] >= kwargs['low_return']
+    assert backfill.HORIZON_OFFSETS == {'t1': 1}
+    assert not hasattr(backfill, 'estimate_sellable_profit')
+    assert not hasattr(backfill, 'open_on_date')
+    assert not hasattr(backfill, 'high_on_date')
+    assert not hasattr(backfill, 'low_on_date')
 
 
-def test_estimate_sellable_profit_never_treats_intraday_high_as_a_certain_fill():
-    import scripts.xiaogu_return_backfill as backfill
-
-    profile = backfill.estimate_sellable_profit(
-        entry_price=10, open_return=0.01, high_return=0.10, low_return=-0.01,
-        close_return=0.03, high_to_close_retrace=-0.07, limit_touched=False,
-    )
-
-    assert profile['sellable_profit'] < 0.10
-    assert profile['profit_capture_ratio'] <= 0.70
-
-
-def test_return_backfill_strategy_report_explains_sell_rules(capsys):
-    """Verify strategy report names phase-1 sell tactics and risk handling."""
-    import scripts.xiaogu_return_backfill as backfill
-
-    stats = {
-        'total_picks': 1,
-        'already_filled': 0,
-        'missing_returns': 1,
-        'fetched': 1,
-        'fetch_failed': 0,
-        't1_filled': 1,
-        't2_filled': 0,
-        't3_filled': 0,
-        't5_filled': 0,
-        'results': [
-            {
-                'returns': {'t1': -0.01},
-                'next_day_high_return': 0.06,
-                'next_day_limit_touch': False,
-                'next_day_open_return': -0.02,
-                'next_day_low_return': -0.04,
-                'next_day_gap_return': -0.02,
-                'next_day_drawdown': -0.09,
-                'high_to_close_retrace': -0.04,
-                'sellable_profit': 0.04,
-                'sellable_profit_v1_conservative': 0.03,
-                'sellable_profit_v2_normal': 0.04,
-                'sellable_profit_v3_aggressive': 0.05,
-                'sell_strategy_used': '低开等待反弹',
-                'profit_capture_ratio': 0.6667,
-                'panic_sell_avoided': True,
-            }
-        ],
-    }
-
-    backfill.print_analysis(stats)
-    output = capsys.readouterr().out
-
-    for text in (
-        '高开冲高卖',
-        '冲高回落卖',
-        '10:00前不强卖',
-        '低开不能恐慌卖',
-        '等待反弹条件',
-        '必须止损条件',
-        'RULE-BASED SELLABLE PROFIT',
-        'Avg sellable profit',
-        'Avg profit capture ratio',
-        'Low-open rebound probability',
-        'Panic-sell avoided benefit',
-        'Sell strategy performance',
-    ):
-        assert text in output
-
-
-def test_upsert_return_persists_next_day_execution_metrics(monkeypatch):
-    """Verify DB upsert forwards all T+1 execution metric fields."""
+def test_upsert_return_persists_only_primary_t1_return(monkeypatch):
+    """The production writer may receive historical fields but only t1 is primary."""
     import xiaogu_db
 
     captured = {}
@@ -890,19 +769,11 @@ def test_upsert_return_persists_next_day_execution_metrics(monkeypatch):
         next_day_gap_return=-0.02,
         next_day_drawdown=-0.1111,
         high_to_close_retrace=-0.037,
+        legacy_backfill=True,
     )
 
-    for field in (
-        't1_return_close',
-        'next_day_open_return',
-        'next_day_high_return',
-        'next_day_low_return',
-        'next_day_gap_return',
-        'next_day_drawdown',
-        'high_to_close_retrace',
-    ):
-        assert field in captured['sql']
-        assert field in captured['params']
+    assert 't1_return' in captured['sql']
+    assert captured['params']['t1_return'] == 0.01
     # pick_id is auto-resolved when caller passes None
     assert captured['params']['pick_id'] == 42
     assert 'COALESCE(EXCLUDED.pick_id, returns.pick_id)' in captured['sql']
@@ -924,8 +795,8 @@ def test_return_backfill_timeout_continues_with_next_symbol(monkeypatch):
 
     trade_date = date(2026, 7, 1)
     rows = [
-        (trade_date, '000001', 80.0, False, 1),
-        (trade_date, '000002', 79.0, False, 2),
+        (trade_date, '000001', 80.0, False, 1, 'run-timeout', 'snapshot-timeout', 201),
+        (trade_date, '000002', 79.0, False, 2, 'run-timeout', 'snapshot-timeout', 202),
     ]
 
     class FakeResult:
@@ -944,7 +815,7 @@ def test_return_backfill_timeout_continues_with_next_symbol(monkeypatch):
 
         def execute(self, query):
             sql = str(query)
-            return FakeResult(rows if 'FROM daily_candidates' in sql else [])
+            return FakeResult(rows if 'FROM daily_candidates dc' in sql else [])
 
     class FakeBaoStock:
         def login(self):
@@ -984,6 +855,10 @@ def test_return_backfill_success_and_failure_persist_without_overwrite(monkeypat
 
     stored = {'returns': {}, 'failure_payloads': {}}
 
+    class FakeResult:
+        def fetchone(self):
+            return (1,)
+
     class FakeDb:
         def __enter__(self):
             return self
@@ -998,6 +873,7 @@ def test_return_backfill_success_and_failure_persist_without_overwrite(monkeypat
                 stored['returns'][key] = dict(params)
             elif 'return_backfill_failure' in params.get('payload', ''):
                 stored['failure_payloads'][key] = json.loads(params['payload'])['return_backfill_failure']
+            return FakeResult()
 
     monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
     trade_date = date(2026, 7, 1)
@@ -1009,6 +885,7 @@ def test_return_backfill_success_and_failure_persist_without_overwrite(monkeypat
         t1_return=0.025,
         next_day_open_return=0.01,
         next_day_high_return=0.04,
+        legacy_backfill=True,
     )
     success = stored['returns'][(trade_date, '000001')]
     assert success['t1_return'] == 0.025
@@ -1049,8 +926,10 @@ def test_return_backfill_resume_skips_existing_success(monkeypatch):
         def execute(self, query):
             sql = str(query)
             if 'FROM daily_candidates' in sql:
-                return FakeResult([(trade_date, '000001', 80.0, False, 1)])
-            return FakeResult([(trade_date, '000001', 0.01, 0.02, 0.03, 0.05, 0.02)])
+                return FakeResult([
+                    (trade_date, '000001', 80.0, False, 1, 'run-resume', 'snapshot-resume', 301),
+                ])
+            return FakeResult([('run-resume', '000001', 0.01)])
 
     class FakeBaoStock:
         def login(self):
@@ -1228,14 +1107,14 @@ def test_social_context_scopes_requested_handle_before_analysis(tmp_path, monkey
                     'id': 'sszcw-1',
                     'created_at': '2026-07-30T10:00:00+08:00',
                     'text': '白酒还能涨一阵子。',
-                    'source': 'cdp_live',
+                    'source': 'direct_api_live',
                     'author_handle': 'sszcw',
                 },
                 {
                     'id': 'other-1',
                     'created_at': '2026-07-30T10:01:00+08:00',
                     'text': '半导体继续看多。',
-                    'source': 'cdp_live',
+                    'source': 'direct_api_live',
                     'author_handle': 'naiyin04',
                 },
             )
@@ -1288,7 +1167,6 @@ def test_safe_self_evolve_proposes_only_when_gate_ready(monkeypatch, tmp_path):
     assert proposals
     assert proposals[0]['config_key'] == 'evidence_limitup_momentum_weight'
     assert proposals[0]['direction'] == 'INCREASE'
-    assert evolve.should_apply_if_ready(evolve._gate(closure)) is True
 
     (tmp_path / 'daily_closure_latest.json').write_text(
         json.dumps({'cohort_gates': {'production_ranking_change_gate': {'status': 'LOCKED'}}}),
@@ -1296,4 +1174,3 @@ def test_safe_self_evolve_proposes_only_when_gate_ready(monkeypatch, tmp_path):
     )
     locked = evolve._load_closure()
     assert evolve.propose_nudges(locked) == []
-    assert evolve.should_apply_if_ready(evolve._gate(locked)) is False

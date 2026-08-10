@@ -1,22 +1,14 @@
 #!/usr/bin/env python3
-"""Bounded factor/scoring self-evolution when production ranking gate is ready.
+"""Observation-only factor/scoring self-evolution diagnostics.
 
-Does NOT:
-- freeze PAPER_PICK
-- rewrite formal_candidate_sort_key
-- blindly --apply-weights on all signal keys
-
-Does:
-- read daily_closure production_ranking_change_gate
-- if READY_FOR_PROPOSAL / READY_FOR_SMALL_STEP_CHANGE, apply small scoring_config nudges
-  mapped from shadow/limitup-gene underweight evidence
-- audit to summary/safe_self_evolve_{date}.json
+The script proposes bounded scoring changes for review and writes an audit
+snapshot. Production scoring is owned by the runner and this module never
+updates ``scoring_config``.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -38,7 +30,6 @@ except Exception:  # pragma: no cover - bootstrap fallback
         "evidence_broken_limit_penalty_weight": (1.0, 2.5, 0.10),
         "l2_limit_strength_bonus": (1.0, 150.0, 5.0),
         "sector_catalyst_penalty": (1.0, 150.0, 5.0),
-        "delayed_setup_theme_min_score": (0.3, 0.8, 0.05),
         "instant_momentum_min_confirmations": (1.0, 3.0, 1.0),
     }
 
@@ -85,40 +76,6 @@ def _get_config_value(key: str) -> Optional[float]:
         return None
 
 
-def _set_config_value(key: str, value: float, dry_run: bool) -> None:
-    if dry_run:
-        return
-    from xiaogu_db import get_db
-    from sqlalchemy import text
-
-    with get_db() as db:
-        existing = db.execute(
-            text("SELECT 1 FROM scoring_config WHERE config_key = :k"),
-            {"k": key},
-        ).fetchone()
-        if existing:
-            db.execute(
-                text(
-                    """
-                    UPDATE scoring_config
-                    SET config_value = :v, updated_at = NOW()
-                    WHERE config_key = :k
-                    """
-                ),
-                {"k": key, "v": str(value)},
-            )
-        else:
-            db.execute(
-                text(
-                    """
-                    INSERT INTO scoring_config (config_key, config_value, updated_at)
-                    VALUES (:k, :v, NOW())
-                    """
-                ),
-                {"k": key, "v": str(value)},
-            )
-
-
 def propose_nudges(closure: Dict[str, Any]) -> List[Dict[str, Any]]:
     gate = _gate(closure)
     limitup = _limitup_gate(closure)
@@ -160,7 +117,6 @@ def propose_nudges(closure: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "evidence_broken_limit_penalty_weight": 1.5,
                 "l2_limit_strength_bonus": 2.0,
                 "sector_catalyst_penalty": 1.0,
-                "delayed_setup_theme_min_score": 0.5,
                 "instant_momentum_min_confirmations": 2.0,
             }
             current = float(defaults.get(key, lo))
@@ -205,68 +161,21 @@ def propose_nudges(closure: Dict[str, Any]) -> List[Dict[str, Any]]:
             "social_catalyst shadow selected (still soft evidence weight only)",
         )
 
-    # Cap daily changes; never emit keys outside ALLOWED_KEYS / regime table.
+    # Cap daily proposals; never emit keys outside ALLOWED_KEYS / regime table.
     return proposals[:3]
 
 
-def apply_proposals(proposals: List[Dict[str, Any]], dry_run: bool) -> List[Dict[str, Any]]:
-    applied = []
-    for item in proposals:
-        _set_config_value(item["config_key"], float(item["new"]), dry_run=dry_run)
-        applied.append({**item, "dry_run": dry_run})
-    return applied
-
-
-def should_apply_if_ready(gate: Dict[str, Any]) -> bool:
-    """True when production ranking gate has unlocked bounded factor apply."""
-    status = str(gate.get("status") or "LOCKED")
-    if status not in ("READY_FOR_PROPOSAL", "READY_FOR_SMALL_STEP_CHANGE"):
-        return False
-    self_evo = gate.get("self_evolution") if isinstance(gate.get("self_evolution"), dict) else {}
-    if self_evo:
-        return bool(self_evo.get("factor_weight_apply_allowed"))
-    allowed = gate.get("allowed_actions") or []
-    return "apply_bounded_factor_weights" in allowed
-
-
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Bounded self-evolution for scoring_config")
+    ap = argparse.ArgumentParser(description="Observation-only bounded self-evolution diagnostics")
     ap.add_argument("--date", default=date.today().isoformat())
-    ap.add_argument("--apply", action="store_true", help="Force write DB changes")
-    ap.add_argument(
-        "--apply-if-ready",
-        action="store_true",
-        help="Write DB only when production_ranking_change_gate is READY_* (chain default)",
-    )
-    ap.add_argument("--dry-run", action="store_true", help="Force dry-run even if apply flags set")
+    ap.add_argument("--dry-run", action="store_true", help="Compatibility flag; observation-only is always enforced")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
     closure = _load_closure()
     gate = _gate(closure)
 
-    # Chain default: --apply-if-ready auto-writes bounded knobs when gate READY.
-    # Still never rewrites formal sort key / freeze.
-    dry_run = True
-    apply_mode = "dry_run"
-    if args.dry_run:
-        dry_run = True
-        apply_mode = "forced_dry_run"
-    elif args.apply:
-        dry_run = False
-        apply_mode = "force_apply"
-    elif args.apply_if_ready and should_apply_if_ready(gate):
-        dry_run = False
-        apply_mode = "apply_if_ready"
-    elif args.apply_if_ready:
-        dry_run = True
-        apply_mode = "gate_not_ready"
-    elif os.environ.get("XIAOGU_SAFE_SELF_EVOLVE_APPLY") == "1":
-        dry_run = False
-        apply_mode = "env_apply"
-
     proposals = propose_nudges(closure)
-    applied = apply_proposals(proposals, dry_run=dry_run) if proposals else []
 
     payload = {
         "asof": args.date,
@@ -275,9 +184,9 @@ def main() -> None:
         "allowed_actions": gate.get("allowed_actions"),
         "self_evolution": gate.get("self_evolution"),
         "proposals": proposals,
-        "applied": applied,
-        "dry_run": dry_run,
-        "apply_mode": apply_mode,
+        "applied": [],
+        "dry_run": True,
+        "apply_mode": "observation_only",
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(),
     }
     SUMMARY.mkdir(parents=True, exist_ok=True)
@@ -289,11 +198,8 @@ def main() -> None:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
-    print(f"gate={payload['gate_status']} dry_run={dry_run} proposals={len(proposals)}")
-    for item in applied:
-        print(f"  {item['config_key']}: {item['old']} -> {item['new']} ({item['direction']})")
-    if not applied:
-        print("  (no changes)")
+    print(f"gate={payload['gate_status']} dry_run=True proposals={len(proposals)}")
+    print("  (observation-only; no scoring_config changes)")
     print(f"wrote {out}")
 
 

@@ -16,6 +16,7 @@ import re
 import time
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -46,6 +47,7 @@ QA_STOCK_RE = re.compile(
 )
 BULLISH_RE = re.compile(r"还会涨|继续看多|可以拿|持有|逢低|低吸|有机会|不急卖|趋势向上|强势|主升")
 BEARISH_RE = re.compile(r"趋势向下|透支|减仓|不追|别碰|风险|观望|走弱|鱼尾|高潮|出不完|不建议|规避")
+FX_STATUS = "https://api.fxtwitter.com/{screen}/status/{tid}"
 
 
 def _load_project_env() -> None:
@@ -126,6 +128,296 @@ def _normalize_handle(handle: str) -> str:
     return str(handle or "").strip().lstrip("@").lower()
 
 
+def _build_jina_profile_candidates(screen_name: str) -> tuple[str, str]:
+    screen = _normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0]
+    return (
+        f"https://r.jina.ai/https://x.com/{screen}",
+        f"https://r.jina.ai/https://twitter.com/{screen}",
+    )
+
+
+def _build_status_id_re(screen_name: str) -> re.Pattern[str]:
+    screen = re.escape(_normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0])
+    return re.compile(r"(?:https://(?:x|twitter)\.com)/" + screen + r"/status/(\d+)")
+
+
+def _build_jina_post_re(screen_name: str) -> re.Pattern[str]:
+    screen = re.escape(_normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0])
+    host = r"(?:https://(?:x|twitter)\.com)"
+    return re.compile(
+        r"\[@" + screen + r"\]\(" + host + r"/" + screen + r"\)\s*"
+        r"\[([^\]]+)\]\(" + host + r"/" + screen + r"/status/(\d+)\)\s*"
+        r"(.*?)(?=\s*(?:\*|\[!\[|\[@" + screen + r"\]|Pinned|$))",
+        re.S,
+    )
+
+
+def _build_syndication_url(screen_name: str) -> str:
+    screen = _normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0]
+    return "https://syndication.twitter.com/srv/timeline-profile/screen-name/" + screen
+
+
+def _parse_twitter_created_at(value: str) -> str:
+    """Normalize Twitter timestamps to ISO-8601 where possible."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = parsedate_to_datetime(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().isoformat()
+    except Exception:
+        pass
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().isoformat()
+    except Exception:
+        return text
+
+
+def _clean_jina_text(raw: str) -> str:
+    text = re.sub(r"\s+", " ", str(raw or "")).strip()
+    text = re.sub(r"\[!\[.*?$", "", text).strip()
+    text = re.sub(r"\s+\d+\s+\d+\s*\[.*?$", "", text).strip()
+    return re.sub(r"\s+\d+\s*$", "", text).strip()
+
+
+def parse_jina_markdown(markdown: str, screen_name: str = DEFAULT_SOCIAL_HANDLES[0]) -> List[Dict[str, Any]]:
+    """Parse jina.ai profile markdown into post stubs."""
+    posts: List[Dict[str, Any]] = []
+    seen = set()
+    for when, tweet_id, body in _build_jina_post_re(screen_name).findall(markdown or ""):
+        tweet_id = str(tweet_id)
+        if tweet_id in seen:
+            continue
+        seen.add(tweet_id)
+        text = _clean_jina_text(body)
+        if text:
+            posts.append(
+                {
+                    "id": tweet_id,
+                    "text": text,
+                    "when_label": str(when).strip(),
+                    "source": "scrapy_jina",
+                    "kind": "post",
+                }
+            )
+    if not posts:
+        for tweet_id in _build_status_id_re(screen_name).findall(markdown or ""):
+            if tweet_id in seen:
+                continue
+            seen.add(tweet_id)
+            posts.append({"id": tweet_id, "text": "", "source": "scrapy_jina", "kind": "post"})
+    return posts
+
+
+def parse_syndication_html(html: str) -> List[Dict[str, Any]]:
+    """Extract post rows embedded in Twitter syndication profile HTML."""
+    tweets: List[Dict[str, Any]] = []
+    for match in re.finditer(r'\{"id":0,"location":""', html or ""):
+        start = match.start()
+        depth = 0
+        blob = ""
+        for index, char in enumerate(html[start : start + 30000]):
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    blob = html[start : start + index + 1]
+                    break
+        if not blob:
+            continue
+        try:
+            payload = json.loads(blob)
+        except json.JSONDecodeError:
+            continue
+        tweet_id = str(payload.get("id_str") or "")
+        text = str(payload.get("full_text") or "").strip()
+        if not tweet_id or not text:
+            continue
+        is_reply = bool(payload.get("in_reply_to_status_id_str") or payload.get("in_reply_to_user_id_str"))
+        row: Dict[str, Any] = {
+            "id": tweet_id,
+            "created_at": _parse_twitter_created_at(str(payload.get("created_at") or "")),
+            "text": text,
+            "source": "scrapy_syndication",
+            "kind": "reply" if is_reply else "post",
+        }
+        if payload.get("in_reply_to_status_id_str"):
+            row["in_reply_to_tweet_id"] = str(payload["in_reply_to_status_id_str"])
+            row["referenced_tweet_id"] = row["in_reply_to_tweet_id"]
+        if payload.get("in_reply_to_screen_name"):
+            row["in_reply_to_screen_name"] = str(payload["in_reply_to_screen_name"])
+        tweets.append(row)
+    return list({str(row["id"]): row for row in tweets}.values())
+
+
+def _fx_extract_text(tweet: Dict[str, Any]) -> str:
+    note = tweet.get("note_tweet")
+    if isinstance(note, dict):
+        for key in ("text", "raw_text", "full_text"):
+            value = note.get(key)
+            if isinstance(value, dict):
+                value = value.get("text")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    raw = tweet.get("raw_text")
+    if isinstance(raw, dict):
+        value = raw.get("text")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    for key in ("text", "full_text"):
+        value = tweet.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _merge_post_row(previous: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge duplicate rows, retaining the fuller authoritative text."""
+    merged = dict(previous)
+    previous_text = str(previous.get("text") or "")
+    new_text = str(row.get("text") or "")
+    for key, value in row.items():
+        if not value:
+            continue
+        if key == "text":
+            prefer_new = len(new_text) > len(previous_text) or (
+                len(new_text) == len(previous_text)
+                and str(row.get("source") or "").startswith("scrapy_fxtwitter")
+            )
+            if prefer_new and new_text:
+                merged["text"] = new_text
+                if row.get("source"):
+                    merged["source"] = row["source"]
+                if row.get("full_text"):
+                    merged["full_text"] = row["full_text"]
+        elif key in ("parent_text", "question_text"):
+            if len(str(value)) >= len(str(merged.get(key) or "")):
+                merged[key] = value
+        elif key == "kind" and value == "reply":
+            merged[key] = "reply"
+        elif key == "created_at":
+            if not merged.get(key) or ("T" in str(value) and "T" not in str(merged.get(key) or "")):
+                merged[key] = value
+        elif not merged.get(key):
+            merged[key] = value
+    return merged
+
+
+def parse_fxtwitter_status(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Normalize fxtwitter status JSON into a post or reply row."""
+    if not isinstance(payload, dict):
+        return None
+    tweet = payload.get("tweet") if isinstance(payload.get("tweet"), dict) else payload
+    if not isinstance(tweet, dict):
+        return None
+    tweet_id = str(tweet.get("id") or tweet.get("id_str") or "")
+    text = _fx_extract_text(tweet)
+    if not tweet_id or not text:
+        return None
+    replying_to = tweet.get("replying_to")
+    reply_status = tweet.get("replying_to_status") or tweet.get("in_reply_to_status_id_str")
+    row: Dict[str, Any] = {
+        "id": tweet_id,
+        "created_at": _parse_twitter_created_at(str(tweet.get("created_at") or "")),
+        "text": text,
+        "full_text": text,
+        "source": "scrapy_fxtwitter",
+        "kind": "reply" if replying_to or reply_status or text.startswith("@") else "post",
+    }
+    if reply_status:
+        row["in_reply_to_tweet_id"] = str(reply_status)
+        row["referenced_tweet_id"] = str(reply_status)
+    if replying_to:
+        row["in_reply_to_screen_name"] = (
+            ",".join(str(item) for item in replying_to)
+            if isinstance(replying_to, list)
+            else str(replying_to)
+        )
+    return row
+
+
+def _fetch_timeline_posts(
+    *,
+    screen_name: str,
+    limit: int,
+    include_replies: bool,
+) -> List[Dict[str, Any]]:
+    """Fetch soft social context directly over HTTP; no browser or crawler runtime."""
+    import urllib.request
+
+    screen = _normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0]
+
+    def get_text(url: str, timeout: int) -> str:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; xiaogu-soft-context/1.0)",
+                "Accept": "*/*",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", "replace")
+
+    collected: Dict[str, Dict[str, Any]] = {}
+
+    def add(row: Dict[str, Any]) -> None:
+        tweet_id = str(row.get("id") or "")
+        if not tweet_id or not str(row.get("text") or "").strip():
+            return
+        item = dict(row)
+        item.setdefault("author_handle", screen)
+        item.setdefault("screen_name", screen)
+        previous = collected.get(tweet_id)
+        collected[tweet_id] = item if previous is None else _merge_post_row(previous, item)
+
+    markdown = ""
+    for url in _build_jina_profile_candidates(screen):
+        try:
+            markdown = get_text(url, 25)
+            if parse_jina_markdown(markdown, screen):
+                break
+        except Exception:
+            continue
+    for row in parse_jina_markdown(markdown, screen)[:limit]:
+        add(row)
+        try:
+            enriched = parse_fxtwitter_status(json.loads(get_text(FX_STATUS.format(screen=screen, tid=row["id"]), 15)))
+            if enriched is None:
+                continue
+            enriched.setdefault("author_handle", screen)
+            enriched.setdefault("screen_name", screen)
+            add(enriched)
+            parent_id = enriched.get("in_reply_to_tweet_id") if include_replies else None
+            if parent_id:
+                parent = parse_fxtwitter_status(json.loads(get_text(f"https://api.fxtwitter.com/status/{parent_id}", 12)))
+                if parent and parent.get("text"):
+                    child = dict(collected.get(enriched["id"]) or enriched)
+                    child.update({"kind": "reply", "parent_text": parent["text"], "question_text": parent["text"]})
+                    add(child)
+        except Exception:
+            continue
+    try:
+        for row in parse_syndication_html(get_text(_build_syndication_url(screen), 25))[: max(limit, 20)]:
+            add(row)
+    except Exception:
+        pass
+    rows = list(collected.values())
+    for row in rows:
+        full_text = str(row.get("full_text") or "")
+        if len(full_text) >= len(str(row.get("text") or "")):
+            row["text"] = full_text
+    rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id") or "")), reverse=True)
+    return rows[:limit]
+
+
 def _normalize_handles(handles: Any) -> List[str]:
     if handles is None:
         raw: Iterable[Any] = DEFAULT_SOCIAL_HANDLES
@@ -177,7 +469,6 @@ def _post_source_kind(row: Dict[str, Any]) -> str:
         "x_live",
         "nitter",
         "web_live",
-        "cdp_live",
         "inbox",
         "scrapy",
         "scrapy_jina",
@@ -207,7 +498,6 @@ def _dedupe_posts(posts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "scrapy_fxtwitter": 4,  # authoritative full post body
         "scrapy_syndication": 3,
         "nitter": 3,
-        "cdp_live": 3,
         "cache": 2,
         "cached": 2,
         "file_cache": 2,
@@ -907,218 +1197,6 @@ def _merge_live_post_row(
     return merged
 
 
-def _cdp_extract_articles(tab_id: str) -> List[Dict[str, Any]]:
-    """Read rendered X article metadata from an existing CDP tab."""
-    expression = r"""
-JSON.stringify(Array.from(document.querySelectorAll("article")).map((article) => {
-  const meta = (name) => article.querySelector(`meta[itemprop="${name}"]`)?.content || "";
-  const status = article.querySelector('a[href*="/status/"]')?.href || "";
-  const id = article.getAttribute("data-tweet-id") ||
-    (status.match(/\/status\/(\d+)/) || [])[1] || "";
-  const body = meta("articleBody") ||
-    article.querySelector('[data-testid="tweetText"]')?.innerText || "";
-  const text = article.innerText || "";
-  return {
-    id: String(id),
-    created_at: meta("datePublished") || meta("dateCreated"),
-    text: String(body || text).trim(),
-    visible_text: String(text).trim(),
-    url: status
-  };
-}).filter((row) => row.id && row.text))
-"""
-    raw = _sszcw_cdp_evaluate(tab_id, expression)
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-    except (TypeError, json.JSONDecodeError):
-        return []
-    return [row for row in payload if isinstance(row, dict) and row.get("id") and row.get("text")]
-
-
-def _sszcw_cdp_tabs() -> List[Dict[str, Any]]:
-    """Return CDP pages, starting the existing project browser fallback if needed."""
-    endpoint = (
-        os.environ.get("XIAOGU_SSZCW_CDP_URL")
-        or os.environ.get("XIAOGU_SOCIAL_CDP_URL")
-        or os.environ.get("XIAOGU_SCANNER_CDP_URL")
-        or "http://127.0.0.1:9333"
-    ).rstrip("/")
-    try:
-        import urllib.request
-
-        request = urllib.request.Request(f"{endpoint}/json/list")
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(request, timeout=2) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        return payload if isinstance(payload, list) else []
-    except Exception:
-        try:
-            from xiaogu_social_sentiment import _ensure_social_cdp_browser
-
-            if _ensure_social_cdp_browser():
-                return []
-            import urllib.request
-
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            for _ in range(10):
-                try:
-                    with opener.open(f"{endpoint}/json/list", timeout=2) as response:
-                        payload = json.loads(response.read().decode("utf-8"))
-                    if isinstance(payload, list) and payload:
-                        return payload
-                except Exception:
-                    pass
-                time.sleep(0.3)
-            return []
-        except Exception:
-            return []
-
-
-def _sszcw_cdp_command(
-    tab_id: str,
-    method: str,
-    params: Optional[Dict[str, Any]] = None,
-    *,
-    timeout: float = 5.0,
-) -> Dict[str, Any]:
-    """Send one bounded CDP command; never wait indefinitely on a page event."""
-    import websocket
-
-    os.environ["NO_PROXY"] = "127.0.0.1,localhost"
-    os.environ["no_proxy"] = "127.0.0.1,localhost"
-    tabs = _sszcw_cdp_tabs()
-    tab = next((item for item in tabs if str(item.get("id")) == str(tab_id)), None)
-    ws_url = str((tab or {}).get("webSocketDebuggerUrl") or "")
-    if not ws_url:
-        return {}
-    ws = websocket.create_connection(ws_url, timeout=timeout)
-    ws.settimeout(timeout)
-    request_id = int(time.time() * 1000000) % 2000000000
-    try:
-        ws.send(json.dumps({"id": request_id, "method": method, "params": params or {}}))
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                message = json.loads(ws.recv())
-            except Exception:
-                return {}
-            if message.get("id") == request_id:
-                return message
-        return {}
-    finally:
-        ws.close()
-
-
-def _sszcw_cdp_navigate(tab_id: str, url: str) -> bool:
-    response = _sszcw_cdp_command(tab_id, "Page.navigate", {"url": url}, timeout=5.0)
-    return bool(response.get("result", {}).get("frameId"))
-
-
-def _sszcw_cdp_evaluate(tab_id: str, expression: str) -> Any:
-    response = _sszcw_cdp_command(
-        tab_id,
-        "Runtime.evaluate",
-        {"expression": expression, "returnByValue": True},
-        timeout=5.0,
-    )
-    return (response.get("result", {}).get("result", {}) or {}).get("value")
-
-
-def _fetch_cdp_posts_for_handle(
-    asof: date,
-    *,
-    handle: str,
-    limit: int = 40,
-) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Fetch recent rendered posts from X using the existing CloakChrome session."""
-    if (os.environ.get("XIAOGU_SSZCW_SKIP_CDP") or "").strip() == "1":
-        return [], ["cdp_disabled"]
-    try:
-        tabs = _sszcw_cdp_tabs()
-        tab = next((item for item in tabs if item.get("type") == "page" and item.get("id")), None)
-        if not tab:
-            return [], ["cdp_no_page"]
-        tab_id = str(tab["id"])
-    except Exception as exc:
-        return [], [f"cdp_setup:{type(exc).__name__}"]
-
-    handle = _normalize_handle(handle)
-    start = asof - timedelta(days=2)
-    collected: Dict[str, Dict[str, Any]] = {}
-    errors: List[str] = []
-    pages = [f"https://x.com/{handle}"]
-    if (os.environ.get("XIAOGU_SSZCW_FETCH_REPLIES") or "").strip() == "1":
-        pages.append(f"https://x.com/{handle}/with_replies")
-    for page_url in pages:
-        try:
-            if not _sszcw_cdp_navigate(tab_id, page_url):
-                errors.append(f"cdp_navigate:{page_url.rsplit('/', 1)[-1]}")
-                continue
-            time.sleep(3.0)
-            for _ in range(6):
-                for row in _cdp_extract_articles(tab_id):
-                    created_at = str(row.get("created_at") or "").strip()
-                    day = _post_day(created_at)
-                    if day is None or not (start <= day <= asof):
-                        continue
-                    text = str(row.get("text") or "").strip()
-                    visible = str(row.get("visible_text") or "")
-                    if not text:
-                        continue
-                    item = {
-                        "id": str(row["id"]),
-                        "created_at": created_at,
-                        "text": text,
-                        "source": "cdp_live",
-                        "kind": "reply" if "Replying to" in visible else "post",
-                        "author_handle": handle,
-                    }
-                    collected[item["id"]] = _merge_live_post_row(collected.get(item["id"]), item)
-                if len(collected) >= limit:
-                    break
-                try:
-                    _sszcw_cdp_evaluate(
-                        tab_id,
-                        "window.scrollBy(0, Math.max(window.innerHeight * 1.5, 900));"
-                        "document.scrollingElement?.scrollBy(0, Math.max(window.innerHeight * 1.5, 900)); true",
-                    )
-                except Exception:
-                    break
-                time.sleep(0.6)
-        except Exception as exc:
-            errors.append(f"cdp_page:{type(exc).__name__}")
-
-    rows = list(collected.values())
-    rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id") or "")), reverse=True)
-    rows = rows[: max(1, int(limit or 40))]
-
-    # Browser metadata can be truncated by the rendered mirror. FxTwitter supplies
-    # the full body for each discovered ID without requiring a second timeline source.
-    for row in rows:
-        try:
-            import urllib.request
-            from scrapy_scanner.spiders.sszcw_timeline import parse_fxtwitter_status
-
-            url = f"https://api.fxtwitter.com/{handle}/status/{row['id']}"
-            request = urllib.request.Request(url, headers={"User-Agent": "xiaogu-sszcw/1.0"})
-            with urllib.request.urlopen(request, timeout=12) as response:
-                fx = parse_fxtwitter_status(json.loads(response.read().decode("utf-8")))
-            if fx and fx.get("text"):
-                row["text"] = str(fx["text"])
-                row["full_text"] = str(fx["text"])
-                row["source"] = "cdp_live_fxtwitter"
-                if fx.get("kind") == "reply":
-                    row["kind"] = "reply"
-                for key in ("in_reply_to_tweet_id", "referenced_tweet_id", "in_reply_to_screen_name"):
-                    if fx.get(key):
-                        row[key] = fx[key]
-        except Exception as exc:
-            errors.append(f"cdp_enrich:{row.get('id')}:{type(exc).__name__}")
-    return rows, errors
-
-
 def _x_api_get(url: str, bearer: str, timeout: int = 15) -> Dict[str, Any]:
     import urllib.request
 
@@ -1212,45 +1290,18 @@ def fetch_scrapy_posts(
     limit: int = 40,
     screen_name: str = DEFAULT_SOCIAL_HANDLES[0],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Primary live path: Scrapy spider (jina + fxtwitter + syndication).
+    """Primary live path: direct HTTP (jina + fxtwitter + syndication).
 
-    Same pipeline historically used for soft sources when API tokens are absent.
+    Same pipeline is used for soft sources when API tokens are absent.
     Returns posts with source=scrapy_* and kind post|reply.
     """
     screen = _normalize_handle(screen_name) or DEFAULT_SOCIAL_HANDLES[0]
     errors: List[str] = []
     posts: List[Dict[str, Any]] = []
     try:
-        # Prefer package path; fall back to path insert for script-only runs.
-        try:
-            from scrapy_scanner.spiders.sszcw_timeline import (
-                run_timeline_scrapy_fetch,
-                _run_timeline_urllib_fallback,
-            )
-        except Exception:
-            import sys
-
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
-            from scrapy_scanner.spiders.sszcw_timeline import (  # type: ignore
-                run_timeline_scrapy_fetch,
-                _run_timeline_urllib_fallback,
-            )
-        # CrawlerProcess can conflict with an already-running reactor; try urllib
-        # fallback first (same parsers) for reliability in pipeline/agent sessions.
-        prefer_crawler = (os.environ.get("XIAOGU_SOCIAL_SCRAPY_CRAWLER") or os.environ.get("XIAOGU_SSZCW_SCRAPY_CRAWLER") or "").strip() == "1"
-        if prefer_crawler:
-            raw = run_timeline_scrapy_fetch(screen_name=screen, limit=limit, include_replies=True, timeout_sec=55)
-            if not raw:
-                raw = _run_timeline_urllib_fallback(screen_name=screen, limit=limit, include_replies=True)
-                if raw:
-                    errors.append("scrapy_crawler_empty_used_urllib_fallback")
-        else:
-            raw = _run_timeline_urllib_fallback(screen_name=screen, limit=limit, include_replies=True)
-            if not raw:
-                raw = run_timeline_scrapy_fetch(screen_name=screen, limit=limit, include_replies=True, timeout_sec=55)
-                if not raw:
-                    errors.append("scrapy_empty")
+        raw = _fetch_timeline_posts(screen_name=screen, limit=limit, include_replies=True)
+        if not raw:
+            errors.append("http_empty")
         for row in raw or []:
             if not isinstance(row, dict) or not row.get("text"):
                 continue
@@ -1286,7 +1337,7 @@ def fetch_scrapy_posts(
                     item[key] = row.get(key)
             posts.append(item)
     except Exception as exc:
-        errors.append(f"scrapy:{type(exc).__name__}")
+        errors.append(f"http:{type(exc).__name__}")
     return posts, errors
 
 
@@ -1296,9 +1347,6 @@ def _fetch_live_posts_for_handle(asof: date, handle: str, limit: int = 40) -> Tu
         return [], ["handle_missing"]
     posts: List[Dict[str, Any]] = []
     errors: List[str] = []
-    cdp_posts, cdp_errors = _fetch_cdp_posts_for_handle(asof, handle=handle, limit=limit)
-    posts.extend(cdp_posts)
-    errors.extend([f"{handle}:{err}" for err in cdp_errors])
     skip_scrapy = (os.environ.get("XIAOGU_SSZCW_SKIP_SCRAPY") or "").strip() == "1"
     if not skip_scrapy:
         scrapy_posts, scrapy_errors = fetch_scrapy_posts(asof, limit=limit, screen_name=handle)

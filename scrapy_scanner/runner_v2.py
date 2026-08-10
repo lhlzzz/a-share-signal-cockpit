@@ -1911,6 +1911,7 @@ def main():
     parser.add_argument('--date', default=None, help='历史日期回放 (YYYY-MM-DD)')
     parser.add_argument('--force-realtime', action='store_true', help='强制获取实时数据')
     args = parser.parse_args()
+    production_run_id = os.environ.get('XIAOGU_PRODUCTION_RUN_ID', '').strip() or None
 
     source_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     output_dir = Path(args.output_dir) if args.output_dir else BASE / 'data' / 'live_scan' / source_time[:10] / 'eastmoney_scan_afternoon'
@@ -4442,6 +4443,7 @@ def main():
                 source_status=source_status,
                 source_counts={name: result_item_count(items) for name, items in results.items()},
                 source_diagnostics=domain_timings,
+                production_run_id=production_run_id,
             )
             persisted_domain_count = upsert_scan_market_data(
                 scan_session_id,
@@ -4485,6 +4487,7 @@ def main():
                     source_status=source_status,
                     source_counts={name: result_item_count(items) for name, items in results.items()},
                     source_diagnostics=domain_timings,
+                    production_run_id=production_run_id,
                 )
             except Exception as exc:
                 db_snapshot_persistence = {

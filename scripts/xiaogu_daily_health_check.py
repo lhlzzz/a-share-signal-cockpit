@@ -68,9 +68,9 @@ def check_api_scanner_identity():
     text = _read_file_text(SCANNER_FILE)
     if text is None:
         return False, "scanner file not found"
-    required_tokens = ("eastmoney_api_scan_v2", "v2_scanner_api", "api_get", "CDP_URL")
+    required_tokens = ("eastmoney_api_scan_v2", "v2_scanner_api", "api_get", "source_id")
     missing = [token for token in required_tokens if token not in text]
-    return not missing, "CloakBrowser-backed API scanner identity confirmed" if not missing else f"missing: {', '.join(missing)}"
+    return not missing, "direct API scanner identity confirmed" if not missing else f"missing: {', '.join(missing)}"
 
 
 DIRECT_NETWORK_TOKENS = ("urllib.request.urlopen", "DIRECT_OPENER.open", "requests.get", "requests.post")
@@ -158,12 +158,12 @@ def check_runner_consumes_external_market_signal():
     return not missing, "runner external-market gate confirmed" if not missing else f"missing: {', '.join(missing)}"
 
 
-def check_runner_has_highest_score_output():
+def check_runner_has_formal_diagnostic_output():
     text = _read_file_text(RUNNER_FILE)
     if text is None:
         return False, "runner file not found"
-    ok = "highest_score_candidate" in text
-    return ok, "found" if ok else "string 'highest_score_candidate' not found in runner"
+    ok = "formal_diagnostic_candidate" in text
+    return ok, "found" if ok else "string 'formal_diagnostic_candidate' not found in runner"
 
 
 def check_runner_has_closest_to_pick_output():
@@ -244,7 +244,7 @@ CHECKS = [
     ("external_market_api_snapshot",    check_external_market_api_snapshot),
     ("runner_requires_api_source",      check_runner_requires_api_source),
     ("runner_consumes_external_market_signal", check_runner_consumes_external_market_signal),
-    ("runner_has_highest_score_output", check_runner_has_highest_score_output),
+    ("runner_has_formal_diagnostic_output", check_runner_has_formal_diagnostic_output),
     ("runner_has_closest_to_pick_output", check_runner_has_closest_to_pick_output),
     ("sector_rotation_in_scoring",      check_sector_rotation_in_scoring),
     ("northbound_in_scoring",           check_northbound_in_scoring),

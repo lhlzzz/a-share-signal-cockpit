@@ -12,7 +12,7 @@ from tests.test_xiaogu_a_share_forward_runner import (
 def _weak_market_bundle(candidates):
     return make_bundle(
         candidates,
-        candidate_source='eastmoney_web_tabs_scan_v0_1_four_repo',
+        candidate_source='eastmoney_api_scan_v2',
         market_snapshot={
             'market_breadth_up_pct': 26.0,
             'market_limitups': 78,
@@ -315,6 +315,107 @@ def test_hollow_theme_weak_fund_not_hard_blocked(monkeypatch):
     assert 'hollow_theme_fund_shell' not in (eligibility.get('blockers') or [])
 
 
+def test_strong_continuation_escapes_hollow_theme_shell_without_new_pick_path(monkeypatch):
+    """Strong T-day continuation evidence must survive the hollow-theme hard gate."""
+    monkeypatch.setattr(
+        runner,
+        'load_pre_pick_market_context',
+        lambda trade_date='': {
+            'favored_sectors': [],
+            'risk_sectors': [],
+            'confidence': 0.0,
+            'market_stance': 'NEUTRAL',
+            'selected_for_production': False,
+            'soft_context_valid': False,
+            'high_confidence_allowed': False,
+            'post_count': 0,
+            'live_post_count': 0,
+            'seed_post_count': 0,
+            'cache_post_count': 0,
+            'soft_context_source': '',
+            'asof': '2026-08-06',
+        },
+    )
+    required_counts, enhanced_counts = full_candidate_evidence_counts()
+    candidate = make_candidate(
+        '000811',
+        '冰轮环境',
+        score=96.13,
+        rank=5,
+        price=40.31,
+        search_layer_hint='formal_high_score',
+        setup_type='HOT_MOMENTUM',
+        candidate_stage='flat_0_to_3',
+        signal_pct=2.13,
+        close_position_score=0.747212,
+        fund_flow_momentum=0.70,
+        time_series_momentum=0.20,
+        main_theme_core_score=0.0,
+        main_theme_alignment_score=0.0,
+        mainboard_auxiliary_evidence_status='PARTIAL',
+        mainboard_auxiliary_confidence=0.50,
+        candidate_evidence_domain_counts=required_counts,
+        enhanced_evidence_domain_counts=enhanced_counts,
+    )
+    candidate['trade_date'] = '2026-08-06'
+    candidate['volume_ratio'] = 1.02
+    candidate['continuation_gene_score'] = 0.70
+    candidate['yesterday_limitup_gene_evidence'] = {
+        'status': 'PROXY',
+        'candidate_was_yesterday_limitup': True,
+    }
+    candidate['prev_day_pct_chg'] = 10.01
+    candidate['source_layers'] = ['L0_FULL_UNIVERSE', 'L1_HOT_MOMENTUM']
+    bundle = _weak_market_bundle([candidate])
+    eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
+    signals = eligibility.get('signals') or {}
+
+    assert signals.get('strong_hollow_theme_confirmation_escape') is True
+    assert signals.get('hollow_theme_fund_shell') is not True
+    assert 'hollow_theme_fund_shell' not in (eligibility.get('blockers') or [])
+    assert 'strong_hollow_theme_confirmation_escape' in eligibility['positive_conditions']
+    assert signals.get('sector_gate_pass') is True
+    assert eligibility.get('eligible') is True
+
+
+def test_strong_continuation_escape_keeps_sealed_limitup_unbuyable(monkeypatch):
+    """The continuation escape cannot bypass the sealed-limit-up buyability gate."""
+    required_counts, enhanced_counts = full_candidate_evidence_counts()
+    candidate = make_candidate(
+        '002080',
+        '中材科技',
+        score=100.0,
+        rank=2,
+        price=51.52,
+        setup_type='HOT_MOMENTUM',
+        candidate_stage='mid_5_to_7',
+        signal_pct=9.95,
+        close_position_score=0.866817,
+        fund_flow_momentum=0.80,
+        time_series_momentum=0.20,
+        main_theme_core_score=0.0,
+        main_theme_alignment_score=0.0,
+        candidate_evidence_domain_counts=required_counts,
+        enhanced_evidence_domain_counts=enhanced_counts,
+    )
+    candidate['trade_date'] = '2026-08-06'
+    candidate['volume_ratio'] = 1.39
+    candidate['continuation_gene_score'] = 0.70
+    candidate['sealed_limit_up'] = True
+    candidate['yesterday_limitup_gene_evidence'] = {
+        'status': 'PASS',
+        'candidate_was_yesterday_limitup': True,
+    }
+    candidate['prev_day_pct_chg'] = 10.01
+    bundle = _weak_market_bundle([candidate])
+    eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
+    signals = eligibility.get('signals') or {}
+
+    assert signals.get('strong_hollow_theme_confirmation_escape') is not True
+    assert 'FINAL_PICK_MUST_BE_BUYABLE_SEALED_LIMIT_UP' in (eligibility.get('blockers') or [])
+    assert eligibility.get('eligible') is False
+
+
 def test_real_theme_not_blocked_by_hollow_fund_shell(monkeypatch):
     """Control: real theme core + strong fund is not R1 hollow fund shell."""
     monkeypatch.setattr(
@@ -441,7 +542,7 @@ def test_quality_escape_partial_aux_edge_blocks_haixing_style(monkeypatch):
     bundle = _weak_market_bundle([candidate])
     eligibility = runner.paper_pick_eligibility_profile(candidate, bundle)
     signals = eligibility.get('signals') or {}
-    assert signals.get('near_price_cap') is True
+    assert 'near_price_cap' not in signals
     assert signals.get('limitup_reason_evidence_class') == 'PROXY'
     assert signals.get('quality_escape_partial_aux_edge_block') is True
     assert signals.get('quality_escape_partial_aux_exception') is not True

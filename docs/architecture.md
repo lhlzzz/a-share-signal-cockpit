@@ -5,7 +5,7 @@
 A-share autonomous research & paper trading platform.
 
 ```
-Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → Filler (returns)
+Direct Eastmoney API Scanner → Runner (gate + score) → Recorder (ledger) → Eastmoney T+1 Filler (returns)
                                                                     ↓
                                                               PostgreSQL
                                                                     ↓
@@ -43,3 +43,7 @@ Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → F
 - Stable chain: Runner → Recorder → Filler → Scoreboard
 - V3 production boundary: Native Evidence + validated VEI + validated Qlib only
 - Research repos output RESEARCH_SIGNAL only, never affect PAPER_PICK directly
+- Production has no browser transport, alternate provider, or candidate
+  promotion fallback. Missing required source data fails closed.
+- A formal `PAPER_PICK` is limited to one 100-share board lot with a price at
+  or below 70 CNY.

@@ -19,8 +19,6 @@ node_modules/
 # Local assistant, browser, cache, and generated research output state
 .cache/
 .playwright-mcp/
-.understand-anything/
-.plan-enforcer/
 .agentmemory/
 .rtk/
 reports/*_final.md
@@ -28,13 +26,11 @@ reports/*_v2.md
 summary/*_latest.json
 forward_paper_ledger_v0_1.jsonl
 
-postgres-data/
 
 # --- hermes push hygiene (2026-07-18) ---
 .env
 .env.*
 !.env.example
-postgres-data/
 data/
 forward_paper_ledger*.jsonl
 forward_paper_ledger*.jsonl.*
@@ -46,8 +42,6 @@ summary/*_probe.png
 summary/*_latest.json
 v2_1_six_repo_real_integrated_ledger.jsonl
 .mimocode/
-.understand-anything/
-.plan-enforcer/
 .agentmemory/
 .rtk/
 .gitnexus/
@@ -61,3 +55,22 @@ node_modules/
 *.db
 external_research/uzi_skill/
 .git.bak*/
+
+# Local operator/browser artifacts; historical summaries remain available for review.
+.grok/
+logs/
+x-login-check.png
+x-login-step2.png
+
+# Runtime state is reproducible from PostgreSQL and the active production run.
+summary/
+reports/
+state/
+forward_scoreboard/
+active/
+deep_archive/
+manifests/
+.agents/
+.claude/settings.local.json
+.claude/worktrees/
+.codebase-memory/

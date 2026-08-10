@@ -2,7 +2,8 @@
 import hashlib
 import json
 import os
-from contextlib import contextmanager
+import uuid
+from contextlib import contextmanager, nullcontext
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -21,16 +22,7 @@ SCORING_CONFIG_DEFAULTS: Dict[str, str] = {
     # Empty = no weekday ban. Explicit e.g. "0,4" bans Mon/Fri. Never treat '' as missing.
     "weekday_blocklist": "",
     "max_score_cap": "88",
-    "follow_on_strategy": "t1_close_primary",
-    "follow_on_t1_weight": "1.0",
-    "follow_on_t2_weight": "0.45",
-    "follow_on_t3_weight": "0.25",
-    "follow_on_limit_up_threshold": "0.095",
-    "horizon_aware_strategy": "instant_then_delayed",
     "instant_momentum_min_confirmations": "2",
-    "delayed_setup_min_persistence": "2",
-    "delayed_setup_floor_score": "75",
-    "delayed_setup_theme_min_score": "0.5",
     "stale_repeat_window_days": "5",
     "stale_decay_factor": "0.65",
     "l2_limit_strength_bonus": "2.0",
@@ -416,10 +408,353 @@ def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
                         ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
                         ADD COLUMN IF NOT EXISTS data_version VARCHAR(64);
                 END IF;
+
             END $$;
         """))
         conn.execute(text(sql))
         conn.commit()
+
+
+def create_production_run(
+    trade_date: date,
+    production_run_id: Optional[str] = None,
+    *,
+    scan_session_id: Optional[int] = None,
+    run_mode: str = "LIVE_DAILY_PIPELINE",
+    rule_version: str = "",
+    runner_version: str = "xiaogu_forward_d1_1450_runner_v0_1",
+    scanner_version: str = "",
+    schema_version: str = "",
+    scoring_config_snapshot: Optional[Dict[str, Any]] = None,
+    scoring_config_hash: str = "",
+    input_payload_hash: str = "",
+    db: Any | None = None,
+) -> str:
+    """Create or validate one immutable production run record."""
+    run_id = str(production_run_id or uuid.uuid4())
+    payload = {
+        "production_run_id": run_id,
+        "trade_date": trade_date,
+        "scan_session_id": scan_session_id,
+        "run_mode": run_mode,
+        "rule_version": rule_version,
+        "runner_version": runner_version,
+        "scanner_version": scanner_version,
+        "schema_version": schema_version,
+        "scoring_config_snapshot": json.dumps(scoring_config_snapshot or {}, ensure_ascii=False, default=str),
+        "scoring_config_hash": scoring_config_hash,
+        "input_payload_hash": input_payload_hash,
+    }
+    existing_statement = text("""
+        SELECT trade_date, scan_session_id, run_mode, rule_version, runner_version,
+               scanner_version, schema_version, scoring_config_hash, input_payload_hash,
+               status
+        FROM production_runs
+        WHERE production_run_id = :production_run_id
+    """)
+    insert_statement = text("""
+        INSERT INTO production_runs (
+            production_run_id, trade_date, scan_session_id, run_mode, rule_version, runner_version,
+            scanner_version, schema_version, scoring_config_snapshot, scoring_config_hash,
+            input_payload_hash, status, started_at
+        ) VALUES (
+            :production_run_id, :trade_date, :scan_session_id, :run_mode, :rule_version, :runner_version,
+            :scanner_version, :schema_version, CAST(:scoring_config_snapshot AS jsonb),
+            :scoring_config_hash, :input_payload_hash, 'RUNNING', NOW()
+        )
+    """)
+    fill_scan_session_statement = text("""
+        UPDATE production_runs
+        SET scan_session_id = :scan_session_id,
+            updated_at = NOW()
+        WHERE production_run_id = :production_run_id
+          AND scan_session_id IS NULL
+          AND status NOT IN ('PASS', 'FAIL', 'FAILED_PERSISTENCE')
+    """)
+
+    def create_or_validate(active_db: Any) -> None:
+        existing = active_db.execute(
+            existing_statement,
+            {"production_run_id": run_id},
+        ).mappings().first()
+        if not existing:
+            active_db.execute(insert_statement, payload)
+            return
+
+        existing_values = dict(existing)
+        immutable_fields = {
+            "trade_date": trade_date,
+            "run_mode": run_mode,
+            "rule_version": rule_version,
+            "runner_version": runner_version,
+            "scanner_version": scanner_version,
+            "schema_version": schema_version,
+            "scoring_config_hash": scoring_config_hash,
+            "input_payload_hash": input_payload_hash,
+        }
+        mismatches = [
+            field
+            for field, expected in immutable_fields.items()
+            if str(existing_values.get(field) or "") != str(expected or "")
+        ]
+        if mismatches:
+            raise ValueError(
+                "PRODUCTION_RUN_IMMUTABLE_MISMATCH:" + ",".join(mismatches)
+            )
+
+        existing_status = str(existing_values.get("status") or "")
+        existing_scan_session_id = existing_values.get("scan_session_id")
+        if (
+            existing_status not in {"PASS", "FAIL", "FAILED_PERSISTENCE"}
+            and existing_scan_session_id is None
+            and scan_session_id is not None
+        ):
+            active_db.execute(
+                fill_scan_session_statement,
+                {
+                    "production_run_id": run_id,
+                    "scan_session_id": scan_session_id,
+                },
+            )
+        elif (
+            existing_scan_session_id is not None
+            and scan_session_id is not None
+            and int(existing_scan_session_id) != int(scan_session_id)
+        ):
+            raise ValueError("PRODUCTION_RUN_IMMUTABLE_MISMATCH:scan_session_id")
+
+    if db is None:
+        with get_db() as active_db:
+            create_or_validate(active_db)
+    else:
+        create_or_validate(db)
+    return run_id
+
+
+def update_production_run_step(
+    production_run_id: str,
+    step_name: str,
+    status: str,
+    *,
+    required: bool = True,
+    error_message: str = "",
+    retry_command: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+    db: Any | None = None,
+) -> None:
+    """Persist one run step without changing the formal ranking contract."""
+    payload = {
+        "production_run_id": production_run_id,
+        "step_name": step_name,
+        "status": status,
+        "required": required,
+        "error_message": error_message,
+        "retry_command": retry_command,
+        "metadata": json.dumps(metadata or {}, ensure_ascii=False, default=str),
+    }
+    statement = text("""
+        INSERT INTO production_run_steps (
+            production_run_id, step_name, status, required, started_at, completed_at,
+            error_message, retry_command, metadata, updated_at
+        ) VALUES (
+            :production_run_id, :step_name, :status, :required,
+            CASE WHEN :status IN ('RUNNING', 'PENDING') THEN NOW() ELSE NULL END,
+            CASE WHEN :status IN ('PASS', 'FAIL', 'FAILED_PERSISTENCE', 'SKIPPED') THEN NOW() ELSE NULL END,
+            :error_message, :retry_command, CAST(:metadata AS jsonb), NOW()
+        )
+        ON CONFLICT (production_run_id, step_name) DO UPDATE SET
+            status = EXCLUDED.status,
+            required = EXCLUDED.required,
+            started_at = COALESCE(production_run_steps.started_at, EXCLUDED.started_at),
+            completed_at = EXCLUDED.completed_at,
+            error_message = EXCLUDED.error_message,
+            retry_command = EXCLUDED.retry_command,
+            metadata = EXCLUDED.metadata,
+            updated_at = NOW()
+    """)
+    if db is None:
+        with get_db() as active_db:
+            active_db.execute(statement, payload)
+    else:
+        db.execute(statement, payload)
+
+
+def update_production_run_status(
+    production_run_id: str,
+    status: str,
+    *,
+    error_message: str = "",
+    retry_command: str = "",
+    db: Any | None = None,
+) -> None:
+    """Record the terminal or retryable state for one production run."""
+    statement = text("""
+        UPDATE production_runs
+        SET status = :status,
+            error_message = :error_message,
+            retry_command = :retry_command,
+            completed_at = CASE
+                WHEN :status IN ('PASS', 'FAILED_PERSISTENCE', 'FAIL') THEN NOW()
+                ELSE completed_at
+            END,
+            updated_at = NOW()
+        WHERE production_run_id = :production_run_id
+          AND status NOT IN ('PASS', 'FAILED_PERSISTENCE', 'FAIL')
+    """)
+    payload = {
+        "production_run_id": production_run_id,
+        "status": status,
+        "error_message": error_message,
+        "retry_command": retry_command,
+    }
+    if db is None:
+        with get_db() as active_db:
+            active_db.execute(statement, payload)
+    else:
+        db.execute(statement, payload)
+
+
+def set_active_production_run(
+    trade_date: date,
+    production_run_id: str,
+    *,
+    candidate_snapshot_id: str = "",
+    active_pick_id: Optional[int] = None,
+    db: Any | None = None,
+) -> None:
+    """Publish one fully completed production run as the day's active read."""
+    payload = {
+        "trade_date": trade_date,
+        "production_run_id": production_run_id,
+        "candidate_snapshot_id": candidate_snapshot_id or None,
+        "active_pick_id": active_pick_id,
+    }
+    run_statement = text("""
+        SELECT trade_date, status
+        FROM production_runs
+        WHERE production_run_id = :production_run_id
+    """)
+    required_steps_statement = text("""
+        SELECT step_name, status
+        FROM production_run_steps
+        WHERE production_run_id = :production_run_id
+          AND required = TRUE
+    """)
+    active_pick_statement = text("""
+        SELECT production_run_id
+        FROM picks
+        WHERE id = :active_pick_id
+    """)
+    candidate_snapshot_statement = text("""
+        SELECT 1
+        FROM daily_candidates
+        WHERE production_run_id = :production_run_id
+          AND candidate_snapshot_id = :candidate_snapshot_id
+        LIMIT 1
+    """)
+    statement = text("""
+        INSERT INTO production_run_active (
+            trade_date, production_run_id, candidate_snapshot_id, active_pick_id, updated_at
+        ) VALUES (:trade_date, :production_run_id, :candidate_snapshot_id, :active_pick_id, NOW())
+        ON CONFLICT (trade_date) DO UPDATE SET
+            production_run_id = EXCLUDED.production_run_id,
+            candidate_snapshot_id = EXCLUDED.candidate_snapshot_id,
+            active_pick_id = EXCLUDED.active_pick_id,
+            updated_at = NOW()
+    """)
+
+    def validate_and_publish(active_db: Any) -> None:
+        run = active_db.execute(
+            run_statement,
+            {"production_run_id": production_run_id},
+        ).mappings().first()
+        if not run:
+            raise ValueError("PRODUCTION_RUN_NOT_FOUND")
+        run_values = dict(run)
+        if str(run_values.get("trade_date")) != str(trade_date):
+            raise ValueError("PRODUCTION_RUN_TRADE_DATE_MISMATCH")
+        if str(run_values.get("status") or "") != "PASS":
+            raise ValueError("PRODUCTION_RUN_NOT_READY_FOR_ACTIVE")
+
+        required_steps = active_db.execute(
+            required_steps_statement,
+            {"production_run_id": production_run_id},
+        ).mappings().all()
+        if not required_steps or any(
+            str(step.get("status") or "") != "PASS"
+            for step in required_steps
+        ):
+            raise ValueError("PRODUCTION_RUN_NOT_READY_FOR_ACTIVE")
+
+        if active_pick_id is not None:
+            pick = active_db.execute(
+                active_pick_statement,
+                {"active_pick_id": active_pick_id},
+            ).mappings().first()
+            if not pick or str(dict(pick).get("production_run_id") or "") != production_run_id:
+                raise ValueError("PRODUCTION_RUN_ACTIVE_PICK_MISMATCH")
+
+        if candidate_snapshot_id:
+            candidate = active_db.execute(
+                candidate_snapshot_statement,
+                {
+                    "production_run_id": production_run_id,
+                    "candidate_snapshot_id": candidate_snapshot_id,
+                },
+            ).first()
+            if not candidate:
+                raise ValueError("PRODUCTION_RUN_CANDIDATE_SNAPSHOT_MISMATCH")
+
+        active_db.execute(statement, payload)
+
+    if db is None:
+        with get_db() as active_db:
+            validate_and_publish(active_db)
+    else:
+        validate_and_publish(db)
+
+
+def fetch_active_production_run(trade_date: Optional[date] = None) -> Optional[Dict[str, Any]]:
+    where = "" if trade_date is None else "WHERE pra.trade_date = :trade_date"
+    params = {} if trade_date is None else {"trade_date": trade_date}
+    with engine.connect() as conn:
+        row = conn.execute(text(f"""
+            SELECT pra.trade_date, pra.production_run_id, pra.candidate_snapshot_id, pra.active_pick_id,
+                   pr.status, pr.run_mode, pr.rule_version, pr.runner_version, pr.scanner_version,
+                   pr.schema_version, pr.scoring_config_hash, pr.input_payload_hash,
+                   pr.created_at, pr.started_at, pr.completed_at, pr.error_message, pr.retry_command
+            FROM production_run_active pra
+            JOIN production_runs pr ON pr.production_run_id = pra.production_run_id
+            {where}
+            ORDER BY pra.updated_at DESC
+            LIMIT 1
+        """), params).mappings().first()
+    return dict(row) if row else None
+
+
+def fetch_production_run(production_run_id: str) -> Optional[Dict[str, Any]]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT * FROM production_runs WHERE production_run_id = :production_run_id"),
+            {"production_run_id": production_run_id},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def fetch_production_run_steps(production_run_id: str) -> List[Dict[str, Any]]:
+    """Return the authoritative step ledger for one production run."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT production_run_id, step_name, status, required, started_at, completed_at,
+                       error_message, retry_command, metadata, updated_at
+                FROM production_run_steps
+                WHERE production_run_id = :production_run_id
+                ORDER BY step_name
+            """),
+            {"production_run_id": production_run_id},
+        ).mappings().all()
+    return [dict(row) for row in rows]
 
 
 def _normalize_scoring_config_rows(rows: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -495,76 +830,115 @@ def insert_pick(
     auxiliary_evidence_status: str = "",
     information_coverage_audit_snapshot: Optional[Dict[str, Any]] = None,
     source_summary_path: str = "",
+    production_run_id: Optional[str] = None,
+    formal_rank_snapshot_id: str = "",
+    formal_rank_snapshot_version: str = "",
+    scoring_config_hash: str = "",
+    db: Any | None = None,
 ) -> int:
-    """Insert a pick record, return its id. Dedup by (trade_date, symbol, decision)."""
-    with get_db() as db:
-        result = db.execute(
-            text("""
-                INSERT INTO picks
-                    (trade_date, symbol, decision, final_score, blockers,
-                     features, source_layers, rule_version, scan_dir, dry_run,
-                     stock_name, rank, structured_score, ranking_basis, ticket_reason,
-                     selection_reason, paper_pick_eligibility, official_target_exclusion_reasons,
-                     risk_flags, auxiliary_evidence_status, information_coverage_audit_snapshot,
-                     source_summary_path)
-                VALUES
-                    (:trade_date, :symbol, :decision, :final_score, CAST(:blockers AS jsonb),
-                     CAST(:features AS jsonb), CAST(:source_layers AS jsonb), :rule_version, :scan_dir, :dry_run,
-                     :stock_name, :rank, :structured_score, CAST(:ranking_basis AS jsonb), CAST(:ticket_reason AS jsonb),
-                     CAST(:selection_reason AS jsonb), CAST(:paper_pick_eligibility AS jsonb),
-                     CAST(:official_target_exclusion_reasons AS jsonb), CAST(:risk_flags AS jsonb),
-                     :auxiliary_evidence_status, CAST(:information_coverage_audit_snapshot AS jsonb),
-                     :source_summary_path)
-                ON CONFLICT (trade_date, symbol, decision) DO UPDATE SET
-                    final_score = EXCLUDED.final_score,
-                    blockers = EXCLUDED.blockers,
-                    features = EXCLUDED.features,
-                    source_layers = EXCLUDED.source_layers,
-                    rule_version = EXCLUDED.rule_version,
-                    scan_dir = EXCLUDED.scan_dir,
-                    dry_run = EXCLUDED.dry_run,
-                    stock_name = EXCLUDED.stock_name,
-                    rank = EXCLUDED.rank,
-                    structured_score = EXCLUDED.structured_score,
-                    ranking_basis = EXCLUDED.ranking_basis,
-                    ticket_reason = EXCLUDED.ticket_reason,
-                    selection_reason = EXCLUDED.selection_reason,
-                    paper_pick_eligibility = EXCLUDED.paper_pick_eligibility,
-                    official_target_exclusion_reasons = EXCLUDED.official_target_exclusion_reasons,
-                    risk_flags = EXCLUDED.risk_flags,
-                    auxiliary_evidence_status = EXCLUDED.auxiliary_evidence_status,
-                    information_coverage_audit_snapshot = EXCLUDED.information_coverage_audit_snapshot,
-                    source_summary_path = EXCLUDED.source_summary_path,
-                    updated_at = NOW()
-                RETURNING id
-            """),
-            {
-                "trade_date": trade_date,
-                "symbol": symbol,
-                "decision": decision,
-                "final_score": final_score,
-                "blockers": json.dumps(blockers, ensure_ascii=False),
-                "features": json.dumps(features, ensure_ascii=False),
-                "source_layers": json.dumps(source_layers, ensure_ascii=False),
-                "rule_version": rule_version,
-                "scan_dir": scan_dir,
-                "dry_run": dry_run,
-                "stock_name": stock_name,
-                "rank": rank,
-                "structured_score": structured_score,
-                "ranking_basis": json.dumps(ranking_basis or {}, ensure_ascii=False, default=str),
-                "ticket_reason": json.dumps(ticket_reason or {}, ensure_ascii=False, default=str),
-                "selection_reason": json.dumps(selection_reason or {}, ensure_ascii=False, default=str),
-                "paper_pick_eligibility": json.dumps(paper_pick_eligibility or {}, ensure_ascii=False, default=str),
-                "official_target_exclusion_reasons": json.dumps(official_target_exclusion_reasons or [], ensure_ascii=False, default=str),
-                "risk_flags": json.dumps(risk_flags or [], ensure_ascii=False, default=str),
-                "auxiliary_evidence_status": auxiliary_evidence_status,
-                "information_coverage_audit_snapshot": json.dumps(information_coverage_audit_snapshot or {}, ensure_ascii=False, default=str),
-                "source_summary_path": source_summary_path,
-            }
+    """Insert a pick; production rows are bound to one immutable run."""
+    production = bool(production_run_id)
+    update = """DO UPDATE SET
+        final_score = EXCLUDED.final_score, blockers = EXCLUDED.blockers,
+        features = EXCLUDED.features, source_layers = EXCLUDED.source_layers,
+        rule_version = EXCLUDED.rule_version, scan_dir = EXCLUDED.scan_dir,
+        dry_run = EXCLUDED.dry_run, stock_name = EXCLUDED.stock_name, rank = EXCLUDED.rank,
+        structured_score = EXCLUDED.structured_score, ranking_basis = EXCLUDED.ranking_basis,
+        ticket_reason = EXCLUDED.ticket_reason, selection_reason = EXCLUDED.selection_reason,
+        paper_pick_eligibility = EXCLUDED.paper_pick_eligibility,
+        official_target_exclusion_reasons = EXCLUDED.official_target_exclusion_reasons,
+        risk_flags = EXCLUDED.risk_flags, auxiliary_evidence_status = EXCLUDED.auxiliary_evidence_status,
+        information_coverage_audit_snapshot = EXCLUDED.information_coverage_audit_snapshot,
+        source_summary_path = EXCLUDED.source_summary_path,
+        formal_rank_snapshot_id = EXCLUDED.formal_rank_snapshot_id,
+        formal_rank_snapshot_version = EXCLUDED.formal_rank_snapshot_version,
+        scoring_config_hash = EXCLUDED.scoring_config_hash, updated_at = NOW()"""
+    if production:
+        statement = text(f"""
+            INSERT INTO picks (
+                trade_date, symbol, decision, final_score, blockers, features, source_layers,
+                rule_version, scan_dir, dry_run, stock_name, rank, structured_score,
+                ranking_basis, ticket_reason, selection_reason, paper_pick_eligibility,
+                official_target_exclusion_reasons, risk_flags, auxiliary_evidence_status,
+                information_coverage_audit_snapshot, source_summary_path, production_run_id,
+                formal_rank_snapshot_id, formal_rank_snapshot_version, scoring_config_hash
+            ) VALUES (
+                :trade_date, :symbol, :decision, :final_score, CAST(:blockers AS jsonb),
+                CAST(:features AS jsonb), CAST(:source_layers AS jsonb), :rule_version, :scan_dir, :dry_run,
+                :stock_name, :rank, :structured_score, CAST(:ranking_basis AS jsonb), CAST(:ticket_reason AS jsonb),
+                CAST(:selection_reason AS jsonb), CAST(:paper_pick_eligibility AS jsonb),
+                CAST(:official_target_exclusion_reasons AS jsonb), CAST(:risk_flags AS jsonb),
+                :auxiliary_evidence_status, CAST(:information_coverage_audit_snapshot AS jsonb),
+                :source_summary_path, :production_run_id, :formal_rank_snapshot_id,
+                :formal_rank_snapshot_version, :scoring_config_hash
+            ) ON CONFLICT (production_run_id, symbol, decision) WHERE production_run_id IS NOT NULL
+            {update} RETURNING id
+        """)
+    else:
+        legacy_update = update.replace(
+            """        source_summary_path = EXCLUDED.source_summary_path,
+        formal_rank_snapshot_id = EXCLUDED.formal_rank_snapshot_id,
+        formal_rank_snapshot_version = EXCLUDED.formal_rank_snapshot_version,
+        scoring_config_hash = EXCLUDED.scoring_config_hash, updated_at = NOW()""",
+            """        source_summary_path = EXCLUDED.source_summary_path,
+        updated_at = NOW()""",
         )
-        row = result.fetchone()
-        return row[0] if row else -1
+        statement = text(f"""
+            INSERT INTO picks (
+                trade_date, symbol, decision, final_score, blockers, features, source_layers,
+                rule_version, scan_dir, dry_run, stock_name, rank, structured_score,
+                ranking_basis, ticket_reason, selection_reason, paper_pick_eligibility,
+                official_target_exclusion_reasons, risk_flags, auxiliary_evidence_status,
+                information_coverage_audit_snapshot, source_summary_path
+            ) VALUES (
+                :trade_date, :symbol, :decision, :final_score, CAST(:blockers AS jsonb),
+                CAST(:features AS jsonb), CAST(:source_layers AS jsonb), :rule_version, :scan_dir, :dry_run,
+                :stock_name, :rank, :structured_score, CAST(:ranking_basis AS jsonb), CAST(:ticket_reason AS jsonb),
+                CAST(:selection_reason AS jsonb), CAST(:paper_pick_eligibility AS jsonb),
+                CAST(:official_target_exclusion_reasons AS jsonb), CAST(:risk_flags AS jsonb),
+                :auxiliary_evidence_status, CAST(:information_coverage_audit_snapshot AS jsonb),
+                :source_summary_path
+            ) ON CONFLICT (trade_date, symbol, decision) WHERE production_run_id IS NULL
+            {legacy_update} RETURNING id
+        """)
+        legacy_compat_statement = text(
+            str(statement).replace(
+                "ON CONFLICT (trade_date, symbol, decision) WHERE production_run_id IS NULL",
+                "ON CONFLICT (trade_date, symbol, decision)",
+            )
+        )
+    params = {
+        "trade_date": trade_date, "symbol": symbol, "decision": decision, "final_score": final_score,
+        "blockers": json.dumps(blockers, ensure_ascii=False), "features": json.dumps(features, ensure_ascii=False, default=str),
+        "source_layers": json.dumps(source_layers, ensure_ascii=False), "rule_version": rule_version,
+        "scan_dir": scan_dir, "dry_run": dry_run, "stock_name": stock_name, "rank": rank,
+        "structured_score": structured_score, "ranking_basis": json.dumps(ranking_basis or {}, ensure_ascii=False, default=str),
+        "ticket_reason": json.dumps(ticket_reason or {}, ensure_ascii=False, default=str),
+        "selection_reason": json.dumps(selection_reason or {}, ensure_ascii=False, default=str),
+        "paper_pick_eligibility": json.dumps(paper_pick_eligibility or {}, ensure_ascii=False, default=str),
+        "official_target_exclusion_reasons": json.dumps(official_target_exclusion_reasons or [], ensure_ascii=False, default=str),
+        "risk_flags": json.dumps(risk_flags or [], ensure_ascii=False, default=str),
+        "auxiliary_evidence_status": auxiliary_evidence_status,
+        "information_coverage_audit_snapshot": json.dumps(information_coverage_audit_snapshot or {}, ensure_ascii=False, default=str),
+        "source_summary_path": source_summary_path, "production_run_id": production_run_id,
+        "formal_rank_snapshot_id": formal_rank_snapshot_id or None,
+        "formal_rank_snapshot_version": formal_rank_snapshot_version or None,
+        "scoring_config_hash": scoring_config_hash or None,
+    }
+    context = get_db() if db is None else nullcontext(db)
+    try:
+        with context as active_db:
+            row = active_db.execute(statement, params).fetchone()
+            return int(row[0]) if row else -1
+    except Exception as exc:
+        # A pre-lineage database may still be used by dry-run/replay callers.
+        # Production writes never fall back because that would hide a migration
+        # failure behind an unbound pick.
+        if production or db is not None or 'production_run_id' not in str(exc):
+            raise
+        with get_db() as legacy_db:
+            row = legacy_db.execute(legacy_compat_statement, params).fetchone()
+            return int(row[0]) if row else -1
 
 
 def has_returns_for_trade_date(trade_date: date) -> bool:
@@ -583,35 +957,11 @@ def has_returns_for_trade_date(trade_date: date) -> bool:
 
 
 def prune_daily_candidates_to_symbols(trade_date: date, symbols: List[str]) -> int:
-    """Remove stale same-day candidates only after a complete replacement is persisted."""
-    normalized_symbols = sorted({str(symbol or "").strip() for symbol in symbols if str(symbol or "").strip()})
-    if not normalized_symbols:
-        raise ValueError("candidate snapshot replacement requires at least one symbol")
-    placeholders = ", ".join(f":symbol_{index}" for index in range(len(normalized_symbols)))
-    params: Dict[str, Any] = {"trade_date": trade_date}
-    params.update({f"symbol_{index}": symbol for index, symbol in enumerate(normalized_symbols)})
-    with get_db() as db:
-        has_returns = db.execute(
-            text("""
-                SELECT EXISTS(
-                    SELECT 1
-                    FROM returns
-                    WHERE trade_date = :trade_date
-                )
-            """),
-            {"trade_date": trade_date},
-        ).scalar()
-        if has_returns:
-            raise RuntimeError("cannot replace daily candidate snapshot after returns exist")
-        result = db.execute(
-            text(f"""
-                DELETE FROM daily_candidates
-                WHERE trade_date = :trade_date
-                  AND symbol NOT IN ({placeholders})
-            """),
-            params,
-        )
-    return int(result.rowcount or 0)
+    """Retain stale same-day candidates; historical DB rows are never deleted."""
+    # Kept as a compatibility boundary for old callers. A correction may archive
+    # the prior snapshot and upsert the replacement, but it must not remove rows.
+    _ = trade_date, symbols
+    return 0
 
 
 def supersede_active_picks_for_correction(
@@ -772,6 +1122,9 @@ def upsert_daily_candidate(
     cohort_quality: str = "",
     cohort_status_flags: Optional[List[str]] = None,
     reconstruction_provenance: Optional[Dict[str, Any]] = None,
+    production_run_id: Optional[str] = None,
+    candidate_snapshot_id: Optional[str] = None,
+    db: Any | None = None,
 ) -> None:
     blockers = list(blockers or [])
     hard_gate_status = dict(hard_gate_status or {})
@@ -790,8 +1143,81 @@ def upsert_daily_candidate(
     future_return_fields_placeholder = dict(future_return_fields_placeholder or {})
     cohort_status_flags = list(cohort_status_flags or [])
     reconstruction_provenance = dict(reconstruction_provenance or {})
-    with get_db() as db:
-        db.execute(
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        if production_run_id:
+            active_db.execute(
+                text("""
+                    INSERT INTO daily_candidates (
+                        trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
+                        production_run_id, candidate_snapshot_id,
+                        open_price, close_price, high_price, low_price, volume, amount, pct_chg, turnover_rate,
+                        signal_pct, close_position_score, fund_flow_momentum, sector_catalyst_score,
+                        early_opportunity_score, topic_propagation_score, market_regime, sentiment_catalyst,
+                        theme_catalyst, news_catalyst, positive_catalyst, selection_reason,
+                        selection_outcome, selection_outcome_reason, blockers, hard_gate_status,
+                        eligibility_snapshot, selection_diagnostics, source_layers, candidate_features, raw_json,
+                        candidate_entry_reason, ticket_reason, not_selected_reason, factor_snapshot,
+                        auxiliary_evidence_snapshot, ranking_basis, postmortem_snapshot, future_return_fields_placeholder,
+                        cohort, cohort_quality, cohort_status_flags, reconstruction_provenance
+                    ) VALUES (
+                        :trade_date, :symbol, :stock_name, :rank, :final_score, :is_official_pick, :decision,
+                        :production_run_id, :candidate_snapshot_id,
+                        :open_price, :close_price, :high_price, :low_price, :volume, :amount, :pct_chg, :turnover_rate,
+                        :signal_pct, :close_position_score, :fund_flow_momentum, :sector_catalyst_score,
+                        :early_opportunity_score, :topic_propagation_score, :market_regime, :sentiment_catalyst,
+                        :theme_catalyst, :news_catalyst, :positive_catalyst, :selection_reason,
+                        :selection_outcome, :selection_outcome_reason, CAST(:blockers AS jsonb), CAST(:hard_gate_status AS jsonb),
+                        CAST(:eligibility_snapshot AS jsonb), CAST(:selection_diagnostics AS jsonb), CAST(:source_layers AS jsonb),
+                        CAST(:candidate_features AS jsonb), CAST(:raw_json AS jsonb), CAST(:candidate_entry_reason AS jsonb),
+                        CAST(:ticket_reason AS jsonb), CAST(:not_selected_reason AS jsonb), CAST(:factor_snapshot AS jsonb),
+                        CAST(:auxiliary_evidence_snapshot AS jsonb), CAST(:ranking_basis AS jsonb), CAST(:postmortem_snapshot AS jsonb),
+                        CAST(:future_return_fields_placeholder AS jsonb), :cohort, :cohort_quality,
+                        CAST(:cohort_status_flags AS jsonb), CAST(:reconstruction_provenance AS jsonb)
+                    )
+                    ON CONFLICT (production_run_id, symbol) WHERE production_run_id IS NOT NULL DO UPDATE SET
+                        stock_name = EXCLUDED.stock_name, rank = EXCLUDED.rank, final_score = EXCLUDED.final_score,
+                        is_official_pick = EXCLUDED.is_official_pick, decision = EXCLUDED.decision,
+                        candidate_features = EXCLUDED.candidate_features, raw_json = EXCLUDED.raw_json,
+                        ranking_basis = EXCLUDED.ranking_basis, updated_at = NOW()
+                """),
+                {
+                    **{
+                        'trade_date': trade_date, 'symbol': symbol, 'stock_name': stock_name, 'rank': rank,
+                        'final_score': final_score, 'is_official_pick': is_official_pick, 'decision': decision,
+                        'production_run_id': production_run_id, 'candidate_snapshot_id': candidate_snapshot_id,
+                        'open_price': open_price, 'close_price': close_price, 'high_price': high_price, 'low_price': low_price,
+                        'volume': volume, 'amount': amount, 'pct_chg': pct_chg, 'turnover_rate': turnover_rate,
+                        'signal_pct': signal_pct, 'close_position_score': close_position_score,
+                        'fund_flow_momentum': fund_flow_momentum, 'sector_catalyst_score': sector_catalyst_score,
+                        'early_opportunity_score': early_opportunity_score, 'topic_propagation_score': topic_propagation_score,
+                        'market_regime': market_regime, 'sentiment_catalyst': sentiment_catalyst, 'theme_catalyst': theme_catalyst,
+                        'news_catalyst': news_catalyst, 'positive_catalyst': positive_catalyst,
+                        'selection_reason': selection_reason, 'selection_outcome': selection_outcome,
+                        'selection_outcome_reason': selection_outcome_reason,
+                        'blockers': json.dumps(blockers, ensure_ascii=False, default=str),
+                        'hard_gate_status': json.dumps(hard_gate_status, ensure_ascii=False, default=str),
+                        'eligibility_snapshot': json.dumps(eligibility_snapshot, ensure_ascii=False, default=str),
+                        'selection_diagnostics': json.dumps(selection_diagnostics, ensure_ascii=False, default=str),
+                        'source_layers': json.dumps(source_layers, ensure_ascii=False, default=str),
+                        'candidate_features': json.dumps(candidate_features, ensure_ascii=False, default=str),
+                        'raw_json': json.dumps(raw_json, ensure_ascii=False, default=str),
+                        'candidate_entry_reason': json.dumps(candidate_entry_reason, ensure_ascii=False, default=str),
+                        'ticket_reason': json.dumps(ticket_reason, ensure_ascii=False, default=str),
+                        'not_selected_reason': json.dumps(not_selected_reason, ensure_ascii=False, default=str),
+                        'factor_snapshot': json.dumps(factor_snapshot, ensure_ascii=False, default=str),
+                        'auxiliary_evidence_snapshot': json.dumps(auxiliary_evidence_snapshot, ensure_ascii=False, default=str),
+                        'ranking_basis': json.dumps(ranking_basis, ensure_ascii=False, default=str),
+                        'postmortem_snapshot': json.dumps(postmortem_snapshot, ensure_ascii=False, default=str),
+                        'future_return_fields_placeholder': json.dumps(future_return_fields_placeholder, ensure_ascii=False, default=str),
+                        'cohort': cohort, 'cohort_quality': cohort_quality,
+                        'cohort_status_flags': json.dumps(cohort_status_flags, ensure_ascii=False, default=str),
+                        'reconstruction_provenance': json.dumps(reconstruction_provenance, ensure_ascii=False, default=str),
+                    }
+                },
+            )
+            return
+        active_db.execute(
             text("""
                 INSERT INTO daily_candidates (
                     trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
@@ -819,7 +1245,7 @@ def upsert_daily_candidate(
                     CAST(:postmortem_snapshot AS jsonb), CAST(:future_return_fields_placeholder AS jsonb),
                     :cohort, :cohort_quality, CAST(:cohort_status_flags AS jsonb), CAST(:reconstruction_provenance AS jsonb)
                 )
-                ON CONFLICT (trade_date, symbol) DO UPDATE SET
+                ON CONFLICT (trade_date, symbol) WHERE production_run_id IS NULL DO UPDATE SET
                     stock_name = EXCLUDED.stock_name,
                     rank = EXCLUDED.rank,
                     final_score = EXCLUDED.final_score,
@@ -921,11 +1347,13 @@ def upsert_daily_candidate(
         )
 
 
-def resolve_pick_id(trade_date: date, symbol: str) -> Optional[int]:
-    """Resolve picks.id for a trade_date+symbol so returns.pick_id can JOIN cleanly.
-
-    Prefer official PAPER_PICK when multiple decisions exist for the same symbol.
-    """
+def resolve_pick_id(
+    trade_date: date,
+    symbol: str,
+    *,
+    production_run_id: Optional[str] = None,
+) -> Optional[int]:
+    """Resolve a pick only within its production run or explicit legacy scope."""
     symbol_key = str(symbol or "").strip()
     if not symbol_key:
         return None
@@ -937,6 +1365,10 @@ def resolve_pick_id(trade_date: date, symbol: str) -> Optional[int]:
                 FROM picks
                 WHERE trade_date = :trade_date
                   AND symbol = :symbol
+                  AND (
+                      (:production_run_id IS NULL AND production_run_id IS NULL)
+                      OR production_run_id = :production_run_id
+                  )
                 ORDER BY
                     CASE WHEN UPPER(COALESCE(decision, '')) = 'PAPER_PICK' THEN 0 ELSE 1 END,
                     updated_at DESC NULLS LAST,
@@ -944,7 +1376,11 @@ def resolve_pick_id(trade_date: date, symbol: str) -> Optional[int]:
                 LIMIT 1
                 """
             ),
-            {"trade_date": trade_date, "symbol": symbol_key},
+            {
+                "trade_date": trade_date,
+                "symbol": symbol_key,
+                "production_run_id": production_run_id,
+            },
         )
         if result is None:
             return None
@@ -958,7 +1394,7 @@ def resolve_pick_id(trade_date: date, symbol: str) -> Optional[int]:
 
 
 def backfill_return_pick_ids() -> Dict[str, int]:
-    """Fill NULL returns.pick_id from picks by (trade_date, symbol)."""
+    """Link only legacy returns that predate production-run lineage."""
     with get_db() as db:
         result = db.execute(
             text(
@@ -967,6 +1403,8 @@ def backfill_return_pick_ids() -> Dict[str, int]:
                 SET pick_id = p.id
                 FROM picks p
                 WHERE r.pick_id IS NULL
+                  AND r.production_run_id IS NULL
+                  AND p.production_run_id IS NULL
                   AND p.trade_date = r.trade_date
                   AND p.symbol = r.symbol
                   AND p.id = (
@@ -1012,95 +1450,141 @@ def upsert_return(
     next_day_gap_return: Optional[float] = None,
     next_day_drawdown: Optional[float] = None,
     high_to_close_retrace: Optional[float] = None,
-) -> None:
-    """Upsert a return record."""
-    resolved_pick_id = pick_id
-    if resolved_pick_id is None:
-        try:
-            resolved_pick_id = resolve_pick_id(trade_date, symbol)
-        except Exception:
-            # Incomplete DB mocks / offline paths: leave pick_id NULL rather than crash.
-            resolved_pick_id = None
-    with get_db() as db:
-        db.execute(
-            text("""
-                INSERT INTO returns (pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
-                                     t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
-                                     next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace)
-                VALUES (:pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
+    *,
+    production_run_id: Optional[str] = None,
+    candidate_snapshot_id: str = "",
+    return_status: str = "",
+    settlement_evidence: Optional[Dict[str, Any]] = None,
+    legacy_backfill: bool = False,
+    db: Any | None = None,
+) -> int:
+    """Persist a T+1 settlement without crossing production-run boundaries."""
+    normalized_symbol = str(symbol or "").strip().zfill(6)
+    if not normalized_symbol:
+        raise ValueError("RETURN_SYMBOL_REQUIRED")
+
+    production = bool(production_run_id)
+    if production and not candidate_snapshot_id:
+        raise ValueError("PRODUCTION_RETURN_CANDIDATE_SNAPSHOT_REQUIRED")
+    if not production and not legacy_backfill:
+        raise ValueError("LEGACY_RETURN_BACKFILL_MUST_BE_EXPLICIT")
+
+    payload = {
+        "pick_id": pick_id,
+        "trade_date": trade_date,
+        "symbol": normalized_symbol,
+        "t1_return": t1_return,
+        "t2_return": t2_return,
+        "t3_return": t3_return,
+        "t5_return": t5_return,
+        "t1_return_close": t1_return_close,
+        "t1_return_high": t1_return_high,
+        "next_day_open_return": next_day_open_return,
+        "next_day_high_return": next_day_high_return,
+        "next_day_low_return": next_day_low_return,
+        "next_day_gap_return": next_day_gap_return,
+        "next_day_drawdown": next_day_drawdown,
+        "high_to_close_retrace": high_to_close_retrace,
+        "production_run_id": production_run_id,
+        "candidate_snapshot_id": candidate_snapshot_id or None,
+        "return_status": return_status or ("SETTLED" if t1_return is not None else "PENDING"),
+        "settlement_evidence": json.dumps(settlement_evidence or {}, ensure_ascii=False, default=str),
+    }
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        if production:
+            existing = active_db.execute(
+                text("""
+                        SELECT id, t1_return, candidate_snapshot_id
+                    FROM returns
+                    WHERE production_run_id = :production_run_id AND symbol = :symbol
+                    FOR UPDATE
+                """),
+                payload,
+            ).fetchone()
+            if existing:
+                current_t1 = existing[1]
+                current_snapshot = str(existing[2] or "")
+                if current_snapshot and candidate_snapshot_id and current_snapshot != candidate_snapshot_id:
+                    raise ValueError("PRODUCTION_RETURN_CANDIDATE_SNAPSHOT_MISMATCH")
+                if current_t1 is not None and t1_return is not None and float(current_t1) != float(t1_return):
+                    raise ValueError("PRODUCTION_T1_RETURN_ALREADY_SETTLED")
+                active_db.execute(
+                    text("""
+                        UPDATE returns
+                        SET pick_id = COALESCE(:pick_id, pick_id),
+                            candidate_snapshot_id = COALESCE(:candidate_snapshot_id, candidate_snapshot_id),
+                            return_status = CASE
+                                WHEN t1_return IS NOT NULL THEN 'SETTLED'
+                                ELSE :return_status
+                            END,
+                            settlement_evidence = COALESCE(settlement_evidence, CAST('{}' AS jsonb))
+                                || CAST(:settlement_evidence AS jsonb),
+                            filled_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {**payload, "id": existing[0]},
+                )
+                return int(existing[0])
+            row = active_db.execute(
+                text("""
+                    INSERT INTO returns (
+                        pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
+                        t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
+                        next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace,
+                        production_run_id, candidate_snapshot_id, return_status, settlement_evidence
+                    ) VALUES (
+                        :pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
                         :t1_return_close, :t1_return_high, :next_day_open_return, :next_day_high_return,
-                        :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace)
-                ON CONFLICT (trade_date, symbol)
+                        :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace,
+                        :production_run_id, :candidate_snapshot_id, :return_status,
+                        CAST(:settlement_evidence AS jsonb)
+                    )
+                    ON CONFLICT (production_run_id, symbol) WHERE production_run_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                """),
+                payload,
+            ).fetchone()
+            if row:
+                return int(row[0])
+            raise RuntimeError("PRODUCTION_RETURN_CONCURRENT_INSERT")
+
+        resolved_pick_id = pick_id if pick_id is not None else resolve_pick_id(trade_date, normalized_symbol)
+        row = active_db.execute(
+            text("""
+                INSERT INTO returns (
+                    pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
+                    t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
+                    next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace,
+                    return_status, settlement_evidence
+                ) VALUES (
+                    :pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
+                    :t1_return_close, :t1_return_high, :next_day_open_return, :next_day_high_return,
+                    :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace,
+                    :return_status, CAST(:settlement_evidence AS jsonb)
+                )
+                ON CONFLICT (trade_date, symbol) WHERE production_run_id IS NULL
                 DO UPDATE SET
                     pick_id = COALESCE(EXCLUDED.pick_id, returns.pick_id),
-                    t1_return = COALESCE(EXCLUDED.t1_return, returns.t1_return),
-                    t2_return = COALESCE(EXCLUDED.t2_return, returns.t2_return),
-                    t3_return = COALESCE(EXCLUDED.t3_return, returns.t3_return),
-                    t5_return = COALESCE(EXCLUDED.t5_return, returns.t5_return),
-                    t1_return_close = COALESCE(EXCLUDED.t1_return_close, returns.t1_return_close),
-                    t1_return_high = COALESCE(EXCLUDED.t1_return_high, returns.t1_return_high),
-                    next_day_open_return = COALESCE(EXCLUDED.next_day_open_return, returns.next_day_open_return),
-                    next_day_high_return = COALESCE(EXCLUDED.next_day_high_return, returns.next_day_high_return),
-                    next_day_low_return = COALESCE(EXCLUDED.next_day_low_return, returns.next_day_low_return),
-                    next_day_gap_return = COALESCE(EXCLUDED.next_day_gap_return, returns.next_day_gap_return),
-                    next_day_drawdown = COALESCE(EXCLUDED.next_day_drawdown, returns.next_day_drawdown),
-                    high_to_close_retrace = COALESCE(EXCLUDED.high_to_close_retrace, returns.high_to_close_retrace),
-                    filled_at = NOW()
-            """),
-            {
-                "pick_id": resolved_pick_id,
-                "trade_date": trade_date,
-                "symbol": symbol,
-                "t1_return": t1_return,
-                "t2_return": t2_return,
-                "t3_return": t3_return,
-                "t5_return": t5_return,
-                "t1_return_close": t1_return_close,
-                "t1_return_high": t1_return_high,
-                "next_day_open_return": next_day_open_return,
-                "next_day_high_return": next_day_high_return,
-                "next_day_low_return": next_day_low_return,
-                "next_day_gap_return": next_day_gap_return,
-                "next_day_drawdown": next_day_drawdown,
-                "high_to_close_retrace": high_to_close_retrace,
-            }
-        )
-        db.execute(
-            text("""
-                UPDATE daily_candidates
-                SET future_return_fields_placeholder =
-                    COALESCE(future_return_fields_placeholder, '{}'::jsonb)
-                    || CAST(:future_return_fields AS jsonb)
-                    || jsonb_build_object(
-                        't1_return_close', :t1_return_close,
-                        'next_day_open_return', :next_day_open_return,
-                        'next_day_high_return', :next_day_high_return,
-                        'next_day_low_return', :next_day_low_return,
-                        'next_day_gap_return', :next_day_gap_return,
-                        'next_day_drawdown', :next_day_drawdown,
-                        'high_to_close_retrace', :high_to_close_retrace
-                    ),
+                    t1_return = COALESCE(returns.t1_return, EXCLUDED.t1_return),
+                    t2_return = COALESCE(returns.t2_return, EXCLUDED.t2_return),
+                    t3_return = COALESCE(returns.t3_return, EXCLUDED.t3_return),
+                    t5_return = COALESCE(returns.t5_return, EXCLUDED.t5_return),
+                    return_status = CASE
+                        WHEN returns.t1_return IS NOT NULL OR EXCLUDED.t1_return IS NOT NULL THEN 'SETTLED'
+                        ELSE EXCLUDED.return_status
+                    END,
+                        settlement_evidence = COALESCE(returns.settlement_evidence, CAST('{}' AS jsonb))
+                        || EXCLUDED.settlement_evidence,
+                    filled_at = NOW(),
                     updated_at = NOW()
-                WHERE trade_date = :trade_date AND symbol = :symbol
+                RETURNING id
             """),
-            {
-                "trade_date": trade_date,
-                "symbol": symbol,
-                "future_return_fields": json.dumps({
-                    "t1_return": t1_return, "t2_return": t2_return,
-                    "t3_return": t3_return, "t5_return": t5_return,
-                    "t1_return_close": t1_return_close,
-                    "is_limit_up": is_limit_up,
-                }, ensure_ascii=False, default=str),
-                "t1_return_close": t1_return_close,
-                "next_day_open_return": next_day_open_return,
-                "next_day_high_return": next_day_high_return,
-                "next_day_low_return": next_day_low_return,
-                "next_day_gap_return": next_day_gap_return,
-                "next_day_drawdown": next_day_drawdown,
-                "high_to_close_retrace": high_to_close_retrace,
-            },
-        )
+            {**payload, "pick_id": resolved_pick_id},
+        ).fetchone()
+        return int(row[0]) if row else -1
 
 
 def record_return_backfill_failure(
@@ -1109,6 +1593,9 @@ def record_return_backfill_failure(
     reason: str,
     *,
     return_horizon: str = 'T+1',
+    production_run_id: Optional[str] = None,
+    candidate_snapshot_id: str = "",
+    db: Any | None = None,
 ) -> None:
     """Persist an explicit, resumable return-backfill failure on the candidate row."""
     normalized_reason = str(reason or 'UNKNOWN')
@@ -1124,19 +1611,32 @@ def record_return_backfill_failure(
             'error_type': normalized_reason,
         },
     }
-    with get_db() as db:
-        db.execute(
+    if production_run_id and not candidate_snapshot_id:
+        raise ValueError("PRODUCTION_RETURN_CANDIDATE_SNAPSHOT_REQUIRED")
+    where = """
+        production_run_id = :production_run_id
+        AND candidate_snapshot_id = :candidate_snapshot_id
+        AND symbol = :symbol
+    """ if production_run_id else """
+        production_run_id IS NULL
+        AND trade_date = :trade_date
+        AND symbol = :symbol
+    """
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        active_db.execute(
             text("""
                 UPDATE daily_candidates
                 SET future_return_fields_placeholder =
-                    COALESCE(future_return_fields_placeholder, '{}'::jsonb)
+                    COALESCE(future_return_fields_placeholder, CAST('{}' AS jsonb))
                     || CAST(:payload AS jsonb),
                     updated_at = NOW()
-                WHERE trade_date = :trade_date AND symbol = :symbol
-            """),
+                WHERE """ + where),
             {
                 'trade_date': trade_date,
                 'symbol': symbol,
+                'production_run_id': production_run_id,
+                'candidate_snapshot_id': candidate_snapshot_id,
                 'payload': json.dumps({'return_backfill_failure': payload}, ensure_ascii=False),
             },
         )
@@ -1153,7 +1653,7 @@ def update_candidate_cohort(trade_date: date, symbol: str, cohort: Dict[str, Any
                     cohort_quality = :cohort_quality,
                     cohort_status_flags = CAST(:status_flags AS jsonb),
                     reconstruction_provenance = CASE
-                        WHEN reconstruction_provenance IS NULL OR reconstruction_provenance = '{}'::jsonb
+                        WHEN reconstruction_provenance IS NULL OR reconstruction_provenance = CAST('{}' AS jsonb)
                         THEN CAST(:provenance AS jsonb)
                         ELSE reconstruction_provenance
                     END,
@@ -1173,7 +1673,7 @@ def update_candidate_cohort(trade_date: date, symbol: str, cohort: Dict[str, Any
 def insert_scan_session(
     trade_date: date,
     scan_time: Any,
-    cdp_url: str,
+    source_id: str,
     quotes_count: int,
     scored_count: int,
     passed_count: int,
@@ -1182,6 +1682,8 @@ def insert_scan_session(
     source_status: Optional[Dict[str, Any]] = None,
     source_counts: Optional[Dict[str, Any]] = None,
     source_diagnostics: Optional[Dict[str, Any]] = None,
+    production_run_id: Optional[str] = None,
+    db: Any | None = None,
 ) -> int:
     json_values = {
         "market_snapshot": json.dumps(market_snapshot, ensure_ascii=False, default=str) if market_snapshot is not None else None,
@@ -1189,8 +1691,69 @@ def insert_scan_session(
         "source_counts": json.dumps(source_counts, ensure_ascii=False, default=str) if source_counts is not None else None,
         "source_diagnostics": json.dumps(source_diagnostics, ensure_ascii=False, default=str) if source_diagnostics is not None else None,
     }
-    with get_db() as db:
-        existing = db.execute(
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        if production_run_id:
+            existing = active_db.execute(
+                text("""
+                    SELECT id
+                    FROM scan_sessions
+                    WHERE production_run_id = :production_run_id
+                    ORDER BY scan_time DESC, id DESC
+                    LIMIT 1
+                """),
+                {"production_run_id": production_run_id},
+            ).fetchone()
+            if existing:
+                active_db.execute(
+                    text("""
+                        UPDATE scan_sessions
+                        SET scan_time = :scan_time,
+                            source_id = :source_id,
+                            quotes_count = :quotes_count,
+                            scored_count = :scored_count,
+                            passed_count = :passed_count,
+                            scan_dir = :scan_dir,
+                            market_snapshot = COALESCE(CAST(:market_snapshot AS jsonb), market_snapshot),
+                            source_status = COALESCE(CAST(:source_status AS jsonb), source_status),
+                            source_counts = COALESCE(CAST(:source_counts AS jsonb), source_counts),
+                            source_diagnostics = COALESCE(CAST(:source_diagnostics AS jsonb), source_diagnostics),
+                            status = 'completed',
+                            updated_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {
+                        "id": existing[0],
+                        "scan_time": scan_time,
+                        "source_id": source_id,
+                        "quotes_count": quotes_count,
+                        "scored_count": scored_count,
+                        "passed_count": passed_count,
+                        "scan_dir": scan_dir,
+                        **json_values,
+                    },
+                )
+                return int(existing[0])
+            result = active_db.execute(
+                text("""
+                    INSERT INTO scan_sessions (
+                        trade_date, scan_time, source_id, quotes_count, scored_count, passed_count, scan_dir,
+                        market_snapshot, source_status, source_counts, source_diagnostics, production_run_id
+                    ) VALUES (
+                        :trade_date, :scan_time, :source_id, :quotes_count, :scored_count, :passed_count, :scan_dir,
+                        CAST(:market_snapshot AS jsonb), CAST(:source_status AS jsonb),
+                        CAST(:source_counts AS jsonb), CAST(:source_diagnostics AS jsonb), :production_run_id
+                    ) RETURNING id
+                """),
+                {
+                    'trade_date': trade_date, 'scan_time': scan_time, 'source_id': source_id,
+                    'quotes_count': quotes_count, 'scored_count': scored_count, 'passed_count': passed_count,
+                    'scan_dir': scan_dir, 'production_run_id': production_run_id, **json_values,
+                },
+            )
+            row = result.fetchone()
+            return int(row[0]) if row else -1
+        existing = active_db.execute(
             text("""
                 SELECT id
                 FROM scan_sessions
@@ -1201,11 +1764,11 @@ def insert_scan_session(
             {"trade_date": trade_date, "scan_dir": scan_dir},
         ).fetchone()
         if existing:
-            db.execute(
+            active_db.execute(
                 text("""
                     UPDATE scan_sessions
                     SET scan_time = :scan_time,
-                        cdp_url = :cdp_url,
+                        source_id = :source_id,
                         quotes_count = :quotes_count,
                         scored_count = :scored_count,
                         passed_count = :passed_count,
@@ -1220,7 +1783,7 @@ def insert_scan_session(
                 {
                     "id": existing[0],
                     "scan_time": scan_time,
-                    "cdp_url": cdp_url,
+                    "source_id": source_id,
                     "quotes_count": quotes_count,
                     "scored_count": scored_count,
                     "passed_count": passed_count,
@@ -1228,15 +1791,15 @@ def insert_scan_session(
                 },
             )
             return existing[0]
-        result = db.execute(
+        result = active_db.execute(
             text("""
                 INSERT INTO scan_sessions
                     (
-                        trade_date, scan_time, cdp_url, quotes_count, scored_count, passed_count, scan_dir,
+                        trade_date, scan_time, source_id, quotes_count, scored_count, passed_count, scan_dir,
                         market_snapshot, source_status, source_counts, source_diagnostics
                     )
                 VALUES (
-                    :trade_date, :scan_time, :cdp_url, :quotes_count, :scored_count, :passed_count, :scan_dir,
+                    :trade_date, :scan_time, :source_id, :quotes_count, :scored_count, :passed_count, :scan_dir,
                     CAST(:market_snapshot AS jsonb), CAST(:source_status AS jsonb),
                     CAST(:source_counts AS jsonb), CAST(:source_diagnostics AS jsonb)
                 )
@@ -1245,7 +1808,7 @@ def insert_scan_session(
             {
                 "trade_date": trade_date,
                 "scan_time": scan_time,
-                "cdp_url": cdp_url,
+                "source_id": source_id,
                 "quotes_count": quotes_count,
                 "scored_count": scored_count,
                 "passed_count": passed_count,
@@ -1311,20 +1874,50 @@ def upsert_scan_market_data(
     return written
 
 
-def fetch_latest_scan_session(trade_date: date) -> Optional[Dict[str, Any]]:
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("""
-                SELECT
-                    id, trade_date, scan_time, cdp_url, quotes_count, scored_count, passed_count, scan_dir, status,
-                    market_snapshot, source_status, source_counts, source_diagnostics
-                FROM scan_sessions
-                WHERE trade_date = :trade_date
-                ORDER BY scan_time DESC, id DESC
-                LIMIT 1
-            """),
-            {"trade_date": trade_date},
-        ).mappings().first()
+def fetch_latest_scan_session(
+    trade_date: date,
+    *,
+    production_run_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    run_clause = (
+        "AND production_run_id = :production_run_id"
+        if production_run_id else ""
+    )
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT
+                        id, trade_date, scan_time, source_id, quotes_count, scored_count, passed_count, scan_dir, status,
+                        market_snapshot, source_status, source_counts, source_diagnostics, production_run_id
+                    FROM scan_sessions
+                    WHERE trade_date = :trade_date
+                    """ + run_clause + """
+                    ORDER BY scan_time DESC, id DESC
+                    LIMIT 1
+                """),
+                {"trade_date": trade_date, "production_run_id": production_run_id},
+            ).mappings().first()
+    except Exception:
+        if production_run_id:
+            raise
+        # Pre-run-lineage databases remain readable for historical audit only.
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT
+                        id, trade_date, scan_time, source_id, quotes_count, scored_count, passed_count, scan_dir, status,
+                        market_snapshot, source_status, source_counts, source_diagnostics
+                    FROM scan_sessions
+                    WHERE trade_date = :trade_date
+                    ORDER BY scan_time DESC, id DESC
+                    LIMIT 1
+                """),
+                {"trade_date": trade_date},
+            ).mappings().first()
+            if row:
+                row = dict(row)
+                row["production_run_id"] = None
     return dict(row) if row else None
 
 
@@ -1334,14 +1927,14 @@ def fetch_latest_api_scan_session_with_market_data(trade_date: date) -> Optional
         row = conn.execute(
             text("""
                 SELECT
-                    ss.id, ss.trade_date, ss.scan_time, ss.cdp_url, ss.quotes_count, ss.scored_count,
+                    ss.id, ss.trade_date, ss.scan_time, ss.source_id, ss.quotes_count, ss.scored_count,
                     ss.passed_count, ss.scan_dir, ss.status, ss.market_snapshot, ss.source_status,
                     ss.source_counts, ss.source_diagnostics,
                     COUNT(smd.id) AS raw_domain_count
                 FROM scan_sessions ss
                 JOIN scan_market_data smd ON smd.scan_session_id = ss.id
                 WHERE ss.trade_date = :trade_date
-                  AND ss.cdp_url = 'eastmoney_api_direct'
+                  AND ss.source_id = 'eastmoney_api_scan_v2'
                 GROUP BY ss.id
                 ORDER BY ss.scan_time DESC, ss.id DESC
                 LIMIT 1
@@ -1371,12 +1964,21 @@ def fetch_scan_market_data_payloads(scan_session_id: int) -> Dict[str, Any]:
     return payloads
 
 
-def fetch_daily_candidates(trade_date: date) -> List[Dict[str, Any]]:
+def fetch_daily_candidates(
+    trade_date: date,
+    *,
+    production_run_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    run_clause = (
+        "AND production_run_id = :production_run_id"
+        if production_run_id else ""
+    )
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT
                     trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
+                    production_run_id, candidate_snapshot_id,
                     open_price, close_price, high_price, low_price, volume, amount, pct_chg, turnover_rate,
                     signal_pct, close_position_score, fund_flow_momentum, sector_catalyst_score,
                     early_opportunity_score, topic_propagation_score, market_regime, sentiment_catalyst,
@@ -1388,50 +1990,76 @@ def fetch_daily_candidates(trade_date: date) -> List[Dict[str, Any]]:
                     cohort, cohort_quality, cohort_status_flags, reconstruction_provenance
                 FROM daily_candidates
                 WHERE trade_date = :trade_date
+                """ + run_clause + """
                 ORDER BY COALESCE(rank, 999999), COALESCE(final_score, 0) DESC, symbol
             """),
-            {"trade_date": trade_date},
+            {"trade_date": trade_date, "production_run_id": production_run_id},
     ).mappings().all()
     return [dict(row) for row in rows]
 
 
-def fetch_picks(trade_date: date, *, include_superseded: bool = False) -> List[Dict[str, Any]]:
+def fetch_picks(
+    trade_date: date,
+    *,
+    include_superseded: bool = False,
+    production_run_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    run_clause = (
+        "AND production_run_id = :production_run_id"
+        if production_run_id else ""
+    )
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT
                     trade_date, symbol, decision, final_score, blockers, features, source_layers,
+                    id, production_run_id, formal_rank_snapshot_id, formal_rank_snapshot_version,
                     rule_version, scan_dir, dry_run, paper_only, no_trade, created_at, updated_at,
                     stock_name, rank, structured_score, ranking_basis, ticket_reason, selection_reason,
                     paper_pick_eligibility, official_target_exclusion_reasons, risk_flags,
                     auxiliary_evidence_status, information_coverage_audit_snapshot, source_summary_path
                 FROM picks
                 WHERE trade_date = :trade_date
+                  """ + run_clause + """
                   AND (
                       :include_superseded
                       OR COALESCE(features ->> 'superseded', 'false') <> 'true'
                   )
                 ORDER BY updated_at DESC NULLS LAST, created_at DESC, COALESCE(final_score, 0) DESC, symbol, id
             """),
-            {"trade_date": trade_date, "include_superseded": include_superseded},
+            {
+                "trade_date": trade_date,
+                "include_superseded": include_superseded,
+                "production_run_id": production_run_id,
+            },
         ).mappings().all()
     return [dict(row) for row in rows]
 
 
-def fetch_returns(trade_date: date) -> List[Dict[str, Any]]:
+def fetch_returns(
+    trade_date: date,
+    *,
+    production_run_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    run_clause = (
+        "AND production_run_id = :production_run_id"
+        if production_run_id else ""
+    )
     with engine.connect() as conn:
         rows = conn.execute(
             text("""
                 SELECT
                     trade_date, symbol, pick_id, t1_return, t2_return, t3_return, t5_return,
+                    production_run_id, candidate_snapshot_id, return_status, settlement_evidence,
                     is_limit_up, t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
                     next_day_low_return, next_day_gap_return, next_day_drawdown,
                     high_to_close_retrace, filled_at, created_at, updated_at
                 FROM returns
                 WHERE trade_date = :trade_date
+                """ + run_clause + """
                 ORDER BY symbol, id
             """),
-            {"trade_date": trade_date},
+            {"trade_date": trade_date, "production_run_id": production_run_id},
         ).mappings().all()
     return [dict(row) for row in rows]
 
@@ -1454,17 +2082,45 @@ def fetch_available_trade_dates() -> List[date]:
     return [row[0] for row in rows]
 
 
-def fetch_signals(trade_date: date) -> List[Dict[str, Any]]:
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT trade_date, symbol, signal_key, signal_value, raw_json
-                FROM signals
-                WHERE trade_date = :trade_date
-                ORDER BY symbol, signal_key
-            """),
-            {"trade_date": trade_date},
-        ).mappings().all()
+def fetch_signals(
+    trade_date: date,
+    *,
+    production_run_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    run_clause = (
+        "AND production_run_id = :production_run_id"
+        if production_run_id else ""
+    )
+    params = {"trade_date": trade_date, "production_run_id": production_run_id}
+    statement = text("""
+        SELECT trade_date, symbol, signal_key, signal_value, raw_json, production_run_id
+        FROM signals
+        WHERE trade_date = :trade_date
+        """ + run_clause + """
+        ORDER BY symbol, signal_key
+    """)
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(statement, params).mappings().all()
+    except Exception as exc:
+        # Historical/replay reads may target a pre-lineage schema.  A
+        # production-scoped read must fail loudly rather than silently
+        # joining an ambiguous legacy signal snapshot.  PostgreSQL marks the
+        # connection transaction failed after an unknown-column error, so the
+        # fallback must use a fresh connection.
+        if production_run_id or "production_run_id" not in str(exc):
+            raise
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT trade_date, symbol, signal_key, signal_value, raw_json,
+                           NULL::varchar AS production_run_id
+                    FROM signals
+                    WHERE trade_date = :trade_date
+                    ORDER BY symbol, signal_key
+                """),
+                {"trade_date": trade_date},
+            ).mappings().all()
     return [dict(row) for row in rows]
 
 
@@ -1474,23 +2130,42 @@ def upsert_signal(
     signal_key: str,
     signal_value: Optional[float] = None,
     raw_json: Optional[Dict[str, Any]] = None,
+    production_run_id: Optional[str] = None,
     db: Any | None = None,
 ) -> None:
-    statement = text("""
-        INSERT INTO signals (trade_date, symbol, signal_key, signal_value, raw_json)
-        VALUES (:trade_date, :symbol, :signal_key, :signal_value, CAST(:raw_json AS jsonb))
-        ON CONFLICT (trade_date, symbol, signal_key)
-        DO UPDATE SET
-            signal_value = EXCLUDED.signal_value,
-            raw_json = EXCLUDED.raw_json,
-            updated_at = NOW()
-    """)
+    if production_run_id:
+        statement = text("""
+            INSERT INTO signals (
+                trade_date, symbol, signal_key, signal_value, raw_json, production_run_id
+            ) VALUES (
+                :trade_date, :symbol, :signal_key, :signal_value,
+                CAST(:raw_json AS jsonb), :production_run_id
+            )
+            ON CONFLICT (production_run_id, symbol, signal_key)
+            WHERE production_run_id IS NOT NULL
+            DO UPDATE SET
+                signal_value = EXCLUDED.signal_value,
+                raw_json = EXCLUDED.raw_json,
+                updated_at = NOW()
+        """)
+    else:
+        statement = text("""
+            INSERT INTO signals (trade_date, symbol, signal_key, signal_value, raw_json)
+            VALUES (:trade_date, :symbol, :signal_key, :signal_value, CAST(:raw_json AS jsonb))
+            ON CONFLICT (trade_date, symbol, signal_key)
+            WHERE production_run_id IS NULL
+            DO UPDATE SET
+                signal_value = EXCLUDED.signal_value,
+                raw_json = EXCLUDED.raw_json,
+                updated_at = NOW()
+        """)
     payload = {
         "trade_date": trade_date,
         "symbol": symbol,
         "signal_key": signal_key,
         "signal_value": signal_value,
         "raw_json": json.dumps(raw_json or {}, ensure_ascii=False, default=str),
+        "production_run_id": production_run_id,
     }
     if db is None:
         with get_db() as active_db:
@@ -1499,10 +2174,18 @@ def upsert_signal(
         db.execute(statement, payload)
 
 
-def upsert_limitup_gene_signals(trade_date: date, symbol: str, candidate: Dict[str, Any]) -> Dict[str, bool]:
+def upsert_limitup_gene_signals(
+    trade_date: date,
+    symbol: str,
+    candidate: Dict[str, Any],
+    *,
+    db: Any | None = None,
+    production_run_id: Optional[str] = None,
+) -> Dict[str, bool]:
     """Persist every pre-decision limit-up gene flag, including explicit false values."""
     signal_values = limitup_gene_signal_values(candidate)
-    with get_db() as db:
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
         for signal_key in LIMITUP_GENE_SHADOW_SIGNALS:
             signal_value = signal_values[signal_key]
             upsert_signal(
@@ -1514,8 +2197,10 @@ def upsert_limitup_gene_signals(trade_date: date, symbol: str, candidate: Dict[s
                     "value": signal_value,
                     "source": "decision_snapshot",
                     "pre_decision": True,
+                    "production_run_id": production_run_id,
                 },
-                db=db,
+                production_run_id=production_run_id,
+                db=active_db,
             )
     return signal_values
 
