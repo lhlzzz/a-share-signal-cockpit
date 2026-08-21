@@ -266,7 +266,7 @@ RUNNER_ARGS=(--date "${DATE}" --asof-time "$(date +%H:%M:%S)")
 # directory. The runner must consume that same directory rather than silently
 # substituting a prior completed trading day during pre-market execution.
 RUNNER_ARGS+=(--no-runtime-date-adjust --force)
-if ! env NO_AUTO_TRADE=1 NO_ORDER_EXECUTION=1 python3 xiaogu_forward_d1_1450_runner_v0_1.py "${RUNNER_ARGS[@]}" 2>&1 | tail -10; then
+if ! env NO_AUTO_TRADE=1 NO_ORDER_EXECUTION=1 python3 xiaogu_forward_runner.py "${RUNNER_ARGS[@]}" 2>&1 | tail -10; then
   python3 - "${DATE}" "${XIAOGU_PRODUCTION_RUN_ID}" <<'PY'
 import sys
 from datetime import date
@@ -449,7 +449,7 @@ closure['data_completeness_gate'] = {
 closure['production_chain'] = {
     'scanner': 'scrapy_scanner/runner_v2.py',
     'transport': 'direct_api',
-    'runner': 'xiaogu_forward_d1_1450_runner_v0_1.py',
+    'runner': 'xiaogu_forward_runner.py',
     'fallbacks': [],
     'sidecars': [],
 }

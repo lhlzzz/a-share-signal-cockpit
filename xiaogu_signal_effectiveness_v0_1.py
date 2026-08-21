@@ -1238,7 +1238,7 @@ def analyze_candidate_diagnostics(
 
 
 def _runner_module():
-    import xiaogu_forward_d1_1450_runner_v0_1 as _runner
+    import xiaogu_forward_runner as _runner
     return _runner
 
 

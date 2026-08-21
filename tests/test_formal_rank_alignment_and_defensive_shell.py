@@ -1,7 +1,7 @@
 """P0/P1/P2: formal rank alignment, rank diagnostic, DEFENSIVE pe=0 shell demotion."""
 from __future__ import annotations
 
-import xiaogu_forward_d1_1450_runner_v0_1 as runner
+import xiaogu_forward_runner as runner
 from xiaogu_evidence_card import build_compact_evidence_card, evidence_card_to_selection_reason
 from tests.test_xiaogu_a_share_forward_runner import (
     full_candidate_evidence_counts,

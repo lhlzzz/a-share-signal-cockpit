@@ -18,7 +18,7 @@ if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
 SCANNER_FILE = os.path.join(WORKSPACE_ROOT, "scrapy_scanner", "runner_v2.py")
-RUNNER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_d1_1450_runner_v0_1.py")
+RUNNER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_runner.py")
 SCHEDULER_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_scheduler.py")
 DAILY_PIPELINE_FILE = os.path.join(WORKSPACE_ROOT, "daily_pipeline.sh")
 FILLER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_result_filler_v0_1.py")

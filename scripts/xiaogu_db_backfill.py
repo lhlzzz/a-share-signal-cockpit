@@ -691,7 +691,7 @@ def _summary_replay_paths(target_date: str = ''):
 
 def replay_daily_candidate_snapshots(target_date: str = '', start_date: str = '', end_date: str = '', dry_run: bool = False) -> dict:
     """Replay runner candidate snapshots through the live persistence owner."""
-    from xiaogu_forward_d1_1450_runner_v0_1 import _bundle_from_scan_summary, persist_daily_candidate_snapshot
+    from xiaogu_forward_runner import _bundle_from_scan_summary, persist_daily_candidate_snapshot
 
     stats = {
         'payloads_found': 0,

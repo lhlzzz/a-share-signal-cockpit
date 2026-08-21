@@ -4588,7 +4588,7 @@ def score_candidates(candidates, risk_map=None, evidence_pack=None, evidence_row
     formal ranking is delegated to the production runner only.
     """
     del risk_map, evidence_pack, evidence_rows_by_domain
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         formal_candidate_sort_key,
         ranking_basis_adjustment_components,
     )

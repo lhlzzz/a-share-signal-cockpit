@@ -4,7 +4,7 @@
 
 Call bind_host(runner_module) after shared helpers exist. Each public call
 re-injects host symbols (monkeypatch-safe). Production entry remains
-xiaogu_forward_d1_1450_runner_v0_1.py (re-exports).
+xiaogu_forward_runner.py (re-exports).
 """
 from __future__ import annotations
 
@@ -1024,7 +1024,7 @@ def persist_daily_candidate_snapshot(
 
     run_id = str(production_run_id or features.get('production_run_id') or bundle.get('production_run_id') or '')
     candidate_snapshot_id = str(bundle.get('candidate_snapshot_id') or run_id or '')
-    retry_command = f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {date} --force'
+    retry_command = f'python3 xiaogu_forward_runner.py --date {date} --force'
     written = 0
     persisted_signal_rows = 0
     errors: List[Dict[str, Any]] = []

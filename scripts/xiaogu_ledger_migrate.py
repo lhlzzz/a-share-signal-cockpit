@@ -28,7 +28,7 @@ from xiaogu_db import (
 
 def _runner_module():
     import importlib
-    return importlib.import_module('xiaogu_forward_d1_1450_runner_v0_1')
+    return importlib.import_module('xiaogu_forward_runner')
 
 
 def _scanner_module():

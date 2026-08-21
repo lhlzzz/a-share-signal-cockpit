@@ -1,7 +1,7 @@
 """Buyability: infer sealed limit-up from pct even when sealed_limit_up flag is missing."""
 from __future__ import annotations
 
-import xiaogu_forward_d1_1450_runner_v0_1 as runner  # noqa: F401 — binds eligibility host
+import xiaogu_forward_runner as runner  # noqa: F401 — binds eligibility host
 from xiaogu_forward_eligibility import (
     _inferred_sealed_limit_up,
     _mainboard_like_limit_seal_threshold,

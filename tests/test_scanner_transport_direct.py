@@ -232,7 +232,7 @@ def test_v2_api_scan_requires_canonical_direct_api_source():
 
 
 def test_gates_reexported_from_runner():
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         candidate_evidence_missing_flags,
         missing_coverage_items,
         production_evidence_missing_flags,

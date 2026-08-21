@@ -464,7 +464,7 @@ def summarize(fn, sample: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def production_haixing_exception_allowed() -> bool:
     try:
-        from xiaogu_forward_d1_1450_runner_v0_1 import strong_sector_theme_partial_aux_exception_allowed
+        from xiaogu_forward_runner import strong_sector_theme_partial_aux_exception_allowed
     except Exception:
         return True  # unknown → do not claim already blocked
     hx = TARGET_OVERRIDES[("2026-07-21", "603115")]
@@ -774,7 +774,7 @@ def main() -> int:
         "production_note": {
             "haixing_partial_aux_exception_currently_allowed": prod_hx_allowed,
             "partial_aux_guardrails_file": (
-                "xiaogu_forward_d1_1450_runner_v0_1.py::strong_sector_theme_partial_aux_exception_allowed"
+                "xiaogu_forward_runner.py::strong_sector_theme_partial_aux_exception_allowed"
             ),
         },
         "_json_name": json_name,

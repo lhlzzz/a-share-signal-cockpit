@@ -422,7 +422,7 @@ def create_production_run(
     scan_session_id: Optional[int] = None,
     run_mode: str = "LIVE_DAILY_PIPELINE",
     rule_version: str = "",
-    runner_version: str = "xiaogu_forward_d1_1450_runner_v0_1",
+    runner_version: str = "xiaogu_forward_runner",
     scanner_version: str = "",
     schema_version: str = "",
     scoring_config_snapshot: Optional[Dict[str, Any]] = None,

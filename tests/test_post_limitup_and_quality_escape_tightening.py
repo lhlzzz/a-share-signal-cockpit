@@ -1,7 +1,7 @@
 """Regression coverage for the production main-force behavior gates."""
 from __future__ import annotations
 
-import xiaogu_forward_d1_1450_runner_v0_1 as runner
+import xiaogu_forward_runner as runner
 from tests.test_xiaogu_a_share_forward_runner import (
     full_candidate_evidence_counts,
     make_bundle,

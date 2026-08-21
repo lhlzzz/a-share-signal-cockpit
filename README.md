@@ -27,7 +27,7 @@ python3 xiaogu_scheduler.py
 `direct Eastmoney API scanner -> runner -> paper recorder -> Eastmoney T+1 filler -> PostgreSQL -> FastAPI`
 
 - Scanner: `scrapy_scanner/runner_v2.py`
-- Decision runner: `xiaogu_forward_d1_1450_runner_v0_1.py`
+- Decision runner: `xiaogu_forward_runner.py`
 - Scheduler: `xiaogu_scheduler.py`
 - API: `xiaogu_api.py`
 - Persistence: `xiaogu_db.py`

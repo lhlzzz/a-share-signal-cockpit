@@ -201,7 +201,7 @@ def test_daily_pipeline_has_one_authoritative_chain():
     script = Path('daily_pipeline.sh').read_text(encoding='utf-8')
 
     assert 'scrapy_scanner/runner_v2.py' in script
-    assert 'xiaogu_forward_d1_1450_runner_v0_1.py' in script
+    assert 'xiaogu_forward_runner.py' in script
     assert 'scripts/xiaogu_return_backfill.py' in script
     assert '--fill-all-pending' not in script
     assert 'scripts/xiaogu_knowledge_asset_export.py' in script
@@ -226,11 +226,11 @@ def test_daily_pipeline_keeps_safe_self_evolve_observation_only():
     # Main LIVE path block: runner appears before the post-decision profit shadow step marker
     live_marker = '[4.2/5] 影子获利候选'
     assert live_marker in script
-    assert script.index('xiaogu_forward_d1_1450_runner_v0_1.py') < script.index(live_marker)
+    assert script.index('xiaogu_forward_runner.py') < script.index(live_marker)
     assert script.index(live_marker) < script.index('[4.3/5] 有界因子自进化')
 
 def test_forced_candidate_snapshot_archives_and_preserves_stale_rows(monkeypatch, tmp_path):
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
 
     trade_date = date(2026, 7, 13)
     written = []
@@ -283,7 +283,7 @@ def test_runtime_database_writes_have_no_destructive_sql():
 
 
 def test_run_recorder_passes_correction_reference(monkeypatch, tmp_path):
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
 
     captured = []
     monkeypatch.setattr(runner, 'RAW_ROOT', tmp_path)
@@ -310,7 +310,7 @@ def test_run_recorder_passes_correction_reference(monkeypatch, tmp_path):
 
 def test_replay_daily_candidate_snapshots_uses_live_persist_owner(monkeypatch, tmp_path):
     import scripts.xiaogu_db_backfill as backfill
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
 
     payload_path = tmp_path / 'db_persistence_retry_payload.json'
     payload = {
@@ -361,7 +361,7 @@ def test_replay_daily_candidate_snapshots_uses_live_persist_owner(monkeypatch, t
 
 def test_replay_daily_candidate_snapshots_falls_back_to_scan_summary(monkeypatch, tmp_path):
     import scripts.xiaogu_db_backfill as backfill
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
 
     summary_path = tmp_path / '2026-07-17' / 'eastmoney_scan_afternoon' / 'xiaogu_scan_summary_runner.json'
     summary_path.parent.mkdir(parents=True)

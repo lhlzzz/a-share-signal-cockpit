@@ -46,7 +46,7 @@ Build a production-grade autonomous A-share research and paper trading system.
 | Component | File | Role |
 |-----------|------|------|
 | Scanner | `scrapy_scanner/runner_v2.py` | Eastmoney API v2 market data collection |
-| Runner | `xiaogu_forward_d1_1450_runner_v0_1.py` | Pick decision engine |
+| Runner | `xiaogu_forward_runner.py` | Pick decision engine |
 | Recorder | `xiaogu_forward_paper_recorder_v0_1.py` | Ledger writer |
 | Filler | `xiaogu_forward_result_filler_v0_1.py` | Return backfill |
 | Scheduler | `xiaogu_scheduler.py` | Job orchestration |
@@ -174,7 +174,7 @@ A task is complete only if:
 python3 scrapy_scanner/runner_v2.py
 
 # Runner
-python3 xiaogu_forward_d1_1450_runner_v0_1.py --date $(date +%Y-%m-%d) --force
+python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 ```
 
 ### Development Cycle（任务启动强制顺序 — 不可跳过）

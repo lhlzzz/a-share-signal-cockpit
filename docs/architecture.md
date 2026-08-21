@@ -17,7 +17,7 @@ Direct Eastmoney API Scanner → Runner (gate + score) → Recorder (ledger) →
 | Component | File | Role |
 |-----------|------|------|
 | Scanner | `scrapy_scanner/runner_v2.py` | Eastmoney API v2 market data collection |
-| Runner | `xiaogu_forward_d1_1450_runner_v0_1.py` | Pick decision engine |
+| Runner | `xiaogu_forward_runner.py` | Pick decision engine |
 | Recorder | `xiaogu_forward_paper_recorder_v0_1.py` | Ledger writer |
 | Filler | `xiaogu_forward_result_filler_v0_1.py` | Return backfill |
 | Scheduler | `xiaogu_scheduler.py` | Job orchestration |

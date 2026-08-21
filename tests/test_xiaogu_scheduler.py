@@ -8,7 +8,7 @@ import pytest
 
 from scripts import xiaogu_ensure_database as database_startup
 import xiaogu_api
-import xiaogu_forward_d1_1450_runner_v0_1 as runner
+import xiaogu_forward_runner as runner
 import xiaogu_scheduler as scheduler
 
 
@@ -29,7 +29,7 @@ fi
 if [ "${1:-}" = "scrapy_scanner/runner_v2.py" ] && [ "${XIAOGU_PIPELINE_TEST_FAILURE}" = "scanner" ]; then
   exit 23
 fi
-if [ "${1:-}" = "xiaogu_forward_d1_1450_runner_v0_1.py" ] && [ "${XIAOGU_PIPELINE_TEST_FAILURE}" = "runner" ]; then
+if [ "${1:-}" = "xiaogu_forward_runner.py" ] && [ "${XIAOGU_PIPELINE_TEST_FAILURE}" = "runner" ]; then
   exit 24
 fi
 """,

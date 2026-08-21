@@ -1,7 +1,7 @@
 """P0 profit-shadow watchlist + P1 mainline fund-flow soft ranking."""
 from __future__ import annotations
 
-import xiaogu_forward_d1_1450_runner_v0_1 as runner
+import xiaogu_forward_runner as runner
 
 
 def test_soft_mainline_fund_bias_prefers_day_mainline_sector():

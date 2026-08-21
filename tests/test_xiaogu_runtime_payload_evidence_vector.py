@@ -213,7 +213,7 @@ def test_six_repo_noise_exclusion_helpers():
 
 
 def test_leader_chain_and_soft_invalid_in_formal_sort():
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         ensure_leader_chain_main_theme,
         formal_candidate_sort_key,
     )

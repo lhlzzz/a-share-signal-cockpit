@@ -13,14 +13,12 @@ import datetime as dt
 import hashlib
 from collections import Counter
 from functools import lru_cache
-import glob
 import json
 import math
 import os
 import re
 import subprocess
 import sys
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -97,7 +95,7 @@ WEAK_MARKET_SHADOW_BREADTH_GATE = 20.0
 SCAN_SUMMARY_NAME = 'xiaogu_scan_summary.json'
 SCAN_SUMMARY_RUNNER_NAME = 'xiaogu_scan_summary_runner.json'
 # Evidence/gate constants + helpers live in xiaogu_forward_gates (single owner).
-# Re-export here so existing `from xiaogu_forward_d1_1450_runner_v0_1 import ...` keeps working.
+# Re-export here so existing `from xiaogu_forward_runner import ...` keeps working.
 from xiaogu_forward_gates import (  # noqa: E402
     REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS,
     REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS,
@@ -147,13 +145,6 @@ def is_routine_regulatory_block(blocker_text: str) -> bool:
     if any(kw in text for kw in SERIOUS_REGULATORY_KEYWORDS):
         return False
     return any(kw in text for kw in ROUTINE_REGULATORY_KEYWORDS)
-
-
-def clean_blocker_text(text: str, max_len: int = 200) -> str:
-    s = str(text)
-    if len(s) > max_len:
-        return s[:max_len] + '...'
-    return s
 
 
 SCORING_CONFIG_DEFAULTS = {
@@ -477,11 +468,6 @@ def _horizon_profile(record: Dict[str, Any]) -> Dict[str, Any]:
         'payoff_class': payoff_class,
         'profit_target': 't1_return > 0',
     }
-
-
-def _ledger_horizon_profile(record: Dict[str, Any]) -> Dict[str, Any]:
-    profile = _horizon_profile(record)
-    return profile
 
 
 def _merge_lifecycle_history_records(
@@ -862,33 +848,6 @@ def _cached_paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str
     profile = paper_pick_eligibility_profile(row, bundle)
     eligibility_cache[cache_key] = dict(profile)
     return dict(profile)
-
-
-@lru_cache(maxsize=256)
-def latest_historical_t1_return_before(trade_date: str, symbol: str) -> float | None:
-    """Return the latest recorded T+1 close return before a decision date."""
-    try:
-        from sqlalchemy import text
-        from xiaogu_db import engine
-        with engine.connect() as conn:
-            value = conn.execute(
-                text("""
-                    SELECT t1_return
-                    FROM returns
-                    WHERE symbol = :symbol
-                      AND trade_date < CAST(:trade_date AS date)
-                      AND t1_return IS NOT NULL
-                    ORDER BY trade_date DESC, id DESC
-                    LIMIT 1
-                """),
-                {
-                    'symbol': str(symbol or '').zfill(6),
-                    'trade_date': str(trade_date or '')[:10],
-                },
-            ).scalar()
-        return float(value) if value is not None else None
-    except Exception:
-        return None
 
 
 @lru_cache(maxsize=256)
@@ -3115,9 +3074,8 @@ def normalized_source_time_for_candidate(row: Dict[str, Any], bundle: Dict[str, 
     return ''
 
 
-# missing_coverage_items / candidate_evidence_missing_flags / soft_no_pick_flag /
-# is_v2_api_scan_source imported from
-# xiaogu_forward_gates (see import block near REQUIRED_EASTMONEY_*).
+# Evidence coverage and soft NO_PICK classification are centralized in
+# xiaogu_forward_gates.
 
 
 def regulatory_hard_block_reason(candidate: Dict[str, Any], bundle: Dict[str, Any]) -> str:
@@ -7605,462 +7563,6 @@ def attach_scan_summary_information_coverage_audit(bundle: Dict[str, Any], summa
     return bundle
 
 
-def _db_scan_summary_from_session(session: Dict[str, Any], trade_date: str) -> Dict[str, Any]:
-    quotes_count = int(session.get('quotes_count') or 0)
-    scored_count = int(session.get('scored_count') or 0)
-    passed_count = int(session.get('passed_count') or 0)
-    scan_dir = str(session.get('scan_dir') or '')
-    scan_time = str(session.get('scan_time') or '')
-    stored_source_status = session.get('source_status') if isinstance(session.get('source_status'), dict) else {}
-    stored_market_snapshot = session.get('market_snapshot') if isinstance(session.get('market_snapshot'), dict) else {}
-    stored_full_universe_scan = stored_market_snapshot.get('full_universe_scan') if isinstance(stored_market_snapshot.get('full_universe_scan'), dict) else {}
-    source_status = stored_source_status or {
-        'source_completeness': {
-            'status': 'BLOCK',
-            'missing_sources': ['source_status'],
-            'mode': 'db_snapshot_without_source_proof',
-        },
-    }
-    return {
-        'trade_date': trade_date,
-        'source_time': scan_time,
-        'pipeline_version': 'v2_scanner_api',
-        'source': 'eastmoney_api_scan_v2',
-        'scanner_transport': 'direct_api',
-        'files': {},
-        'source_status': source_status,
-        'full_universe_scan': {
-            'enabled': True,
-            'quote_count': quotes_count,
-            'tradable_count': passed_count,
-            'coverage_status': 'PASS' if quotes_count >= 4000 else 'LOW_SAMPLE',
-            'min_quote_count': 4000,
-            'board_counts': stored_full_universe_scan.get('board_counts') or {'main': passed_count, 'chinext': 0},
-        },
-        'information_coverage_audit': dict(MISSING_INFORMATION_COVERAGE_AUDIT),
-        'sector_catalyst_diagnostics': dict(MISSING_SECTOR_CATALYST_DIAGNOSTICS),
-        'market_snapshot': {
-            **stored_market_snapshot,
-            'universe_quote_count': quotes_count,
-            'passed_count': passed_count,
-            'scored_count': scored_count,
-            'source_status': source_status,
-            'full_universe_scan': {
-                'enabled': True,
-                'quote_count': quotes_count,
-                'tradable_count': passed_count,
-                'coverage_status': 'PASS' if quotes_count >= 4000 else 'LOW_SAMPLE',
-                'min_quote_count': 4000,
-                'board_counts': stored_full_universe_scan.get('board_counts') or {'main': passed_count, 'chinext': 0},
-            },
-            'scanner_transport': 'direct_api',
-        },
-        'source_evidence': {
-            'summary_path': str(CANDIDATE_BUNDLE_ROOT / trade_date / 'scan_sessions.db'),
-            'scored_path': str(CANDIDATE_BUNDLE_ROOT / trade_date / 'daily_candidates.db'),
-            'scan_files': {},
-            'scanner_transport': 'direct_api',
-        },
-        '_bundle_path': str(CANDIDATE_BUNDLE_ROOT / trade_date / f'{trade_date}_db_daily_candidates.json'),
-    }
-
-
-def build_research_basket_from_db(date: str) -> Dict[str, Any]:
-    # Production candidates must come from the same-day scanner artifact.
-    # Database rows are persistence and evidence only, never an input source.
-    return {
-        'available': False,
-        'reason': 'DB_CANDIDATE_RECONSTRUCTION_DISABLED',
-        'date': date,
-    }
-
-    # Retained below only as unreachable historical code until the next
-    # archive compaction; no production path can execute it.
-    try:
-        from xiaogu_db import (
-            fetch_daily_candidates,
-            fetch_latest_api_scan_session_with_market_data,
-            fetch_latest_scan_session,
-            fetch_scan_data_directory_catalog,
-            fetch_scan_data_directory_content,
-            fetch_scan_market_data_payloads,
-        )
-    except Exception as exc:
-        return {'available': False, 'reason': 'DB_HELPERS_UNAVAILABLE', 'error': repr(exc)}
-
-    raw_domain_payloads: Dict[str, Any] = {}
-    try:
-        api_session = fetch_latest_api_scan_session_with_market_data(_parse_date(date))
-        session = api_session
-        if api_session and api_session.get('id'):
-            raw_domain_payloads = fetch_scan_market_data_payloads(int(api_session['id']))
-    except Exception as exc:
-        return {'available': False, 'reason': 'DB_SCAN_SESSION_UNAVAILABLE', 'error': repr(exc)}
-    if not session:
-        return {'available': False, 'reason': 'NO_DIRECT_API_SCAN_SESSION_FOR_DATE'}
-
-    try:
-        rows = fetch_daily_candidates(_parse_date(date))
-    except Exception as exc:
-        return {'available': False, 'reason': 'DB_DAILY_CANDIDATES_UNAVAILABLE', 'error': repr(exc)}
-    if not rows:
-        return {'available': False, 'reason': 'NO_DB_DAILY_CANDIDATES_FOR_DATE'}
-
-    try:
-        catalog_rows = fetch_scan_data_directory_catalog(_parse_date(date))
-    except Exception:
-        catalog_rows = []
-    try:
-        content_rows = fetch_scan_data_directory_content(_parse_date(date))
-    except Exception:
-        content_rows = []
-
-    source_time = str(session.get('scan_time') or '')
-    today = dt.date.today()
-    bundle_date = _parse_date(date) or today
-    if bundle_date > today:
-        print(f'WARN: bundle date {bundle_date} is in the future (today={today}), clamping', file=_sys.stderr, flush=True)
-        bundle_date = today
-    date = bundle_date.isoformat()
-    bundle = _db_scan_summary_from_session(session, date)
-    bundle.update({
-        'date': date,
-        'source_market_date': date,
-        'source_time': source_time,
-        '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': 'eastmoney_api_scan_v2',
-        'ranking_view': 'main_force_behavior_chain',
-        'rule_version': RULE_VERSION,
-        'paper_only': True,
-        'no_trade': True,
-        'production_ready': False,
-        't1_profit_gate_enabled': True,
-        'data_gate_status': 'PASS' if int(session.get('quotes_count') or 0) > 0 else 'PARTIAL_OR_FAIL',
-        'source_status': dict(bundle.get('source_status') or {}),
-        'full_universe_scan': dict(bundle.get('full_universe_scan') or {}),
-        'market_snapshot': dict(bundle.get('market_snapshot') or {}),
-        'paper_scoring_candidates': [],
-        'candidate': {},
-        'daily_ticket_search_result': {
-            'searched_layers': ['db_daily_candidates'],
-            'first_paper_pick_layer': None,
-            'no_pick_reason_if_none': 'PENDING_EVALUATION',
-        },
-        'weak_market_shadow_ticket': None,
-        'structured_observation_basket': [],
-        'structured_sector_observation_basket': [],
-        'structured_formal_impact': {},
-        'scanner_transport': 'direct_api',
-        'data_directory_catalog': {
-            'path': str(CANDIDATE_BUNDLE_ROOT / date / 'scan_data_directory_catalog.db'),
-            'rows': len(catalog_rows),
-            'record_count': len(catalog_rows),
-            'section_count': len({str(row.get('section_key') or '') for row in catalog_rows if row.get('section_key')}),
-        },
-        'data_directory_content': {
-            'path': str(CANDIDATE_BUNDLE_ROOT / date / 'scan_data_directory_content.db'),
-            'rows': len(content_rows),
-            'record_count': len(content_rows),
-            'tab_count': len({str(row.get('item_key') or '') for row in content_rows if row.get('item_key')}),
-        },
-        'scan_market_data_payload_domains': sorted(raw_domain_payloads.keys()),
-        'scan_market_data_payloads_loaded': bool(raw_domain_payloads),
-    })
-    if raw_domain_payloads:
-        bundle['scan_market_data_payloads'] = raw_domain_payloads
-        domain_status = {
-            domain: {
-                'collection_status': 'PERSISTED',
-                'usage': 'scoring' if domain == 'stock_capital_flow' else ('proxy' if domain in ('news_kuaixun', 'sector_news') else 'unused'),
-                'item_count': len(payload) if isinstance(payload, list) else (len(payload) if isinstance(payload, dict) else 0),
-            }
-            for domain, payload in raw_domain_payloads.items()
-        }
-        bundle['information_coverage_audit'] = {
-            **(bundle.get('information_coverage_audit') if isinstance(bundle.get('information_coverage_audit'), dict) else {}),
-            'status': 'PASS',
-            'domain_status': domain_status,
-            'optional_or_proxy_gaps': [],
-        }
-
-    bundle_context = {
-        'date': date,
-        'source_market_date': date,
-        'source_time': source_time,
-        '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-        'candidate_source': 'eastmoney_api_scan_v2',
-        'ranking_view': 'main_force_behavior_chain',
-        'rule_version': RULE_VERSION,
-        'paper_only': True,
-        'no_trade': True,
-        'production_ready': False,
-        't1_profit_gate_enabled': True,
-        'data_gate_status': bundle.get('data_gate_status', 'PASS'),
-        'source_status': bundle.get('source_status', {}),
-        'full_universe_scan': bundle.get('full_universe_scan', {}),
-        'market_snapshot': bundle.get('market_snapshot', {}),
-    }
-
-    candidates: List[Dict[str, Any]] = []
-    try:
-        from xiaogu_db import fetch_signals
-        signal_rows = fetch_signals(_parse_date(date))
-    except Exception:
-        signal_rows = []
-    signals_by_symbol: Dict[str, Dict[str, Any]] = {}
-    for signal_row in signal_rows:
-        symbol = str(signal_row.get('symbol') or '').strip()
-        key = str(signal_row.get('signal_key') or '').strip()
-        if not symbol or not key:
-            continue
-        entry = signals_by_symbol.setdefault(symbol, {})
-        entry[key] = signal_row.get('signal_value')
-        raw_json = signal_row.get('raw_json') if isinstance(signal_row.get('raw_json'), dict) else {}
-        if raw_json and 'value' in raw_json and key not in entry:
-            entry[key] = raw_json.get('value')
-    for row in rows:
-        raw_json = row.get('raw_json') if isinstance(row.get('raw_json'), dict) else {}
-        candidate_features = row.get('candidate_features') if isinstance(row.get('candidate_features'), dict) else {}
-        source_layers = row.get('source_layers') if isinstance(row.get('source_layers'), list) else []
-        blockers = row.get('blockers') if isinstance(row.get('blockers'), list) else []
-        signal_boost = signals_by_symbol.get(str(row.get('symbol') or '').strip(), {})
-        candidate = {
-            'trade_date': date,
-            'signal_date': date,
-            'asof_time': source_time[11:] if len(source_time) >= 19 else '',
-            'code': str(row.get('symbol') or ''),
-            'symbol': str(row.get('symbol') or ''),
-            'name': str(row.get('stock_name') or raw_json.get('name') or ''),
-            'rank': row.get('rank'),
-            'final_score': row.get('final_score'),
-            'score': row.get('final_score'),
-            'price': row.get('close_price') if row.get('close_price') is not None else (row.get('open_price') if row.get('open_price') is not None else raw_json.get('price')),
-            'open': row.get('open_price'),
-            'close': row.get('close_price'),
-            'high': row.get('high_price'),
-            'low': row.get('low_price'),
-            'signal_pct': row.get('signal_pct') if row.get('signal_pct') is not None else raw_json.get('signal_pct'),
-            'close_position_score': row.get('close_position_score') if row.get('close_position_score') is not None else raw_json.get('close_position_score'),
-            'volume_ratio': row.get('volume_ratio') if row.get('volume_ratio') is not None else raw_json.get('volume_ratio'),
-            'turnover_rate': row.get('turnover_rate') if row.get('turnover_rate') is not None else raw_json.get('turnover_rate'),
-            'fund_flow_momentum': row.get('fund_flow_momentum') if row.get('fund_flow_momentum') is not None else raw_json.get('fund_flow_momentum'),
-            'net_inflow_main': row.get('net_inflow_main') if row.get('net_inflow_main') is not None else raw_json.get('net_inflow_main'),
-            'continuation_gene_score': row.get('continuation_gene_score') if row.get('continuation_gene_score') is not None else raw_json.get('continuation_gene_score'),
-            'underwater_recovery_score': row.get('underwater_recovery_score') if row.get('underwater_recovery_score') is not None else raw_json.get('underwater_recovery_score'),
-            'weak_to_strong_reversal': row.get('weak_to_strong_reversal') if row.get('weak_to_strong_reversal') is not None else raw_json.get('weak_to_strong_reversal'),
-            'first_board_pre_signal': row.get('first_board_pre_signal') if row.get('first_board_pre_signal') is not None else raw_json.get('first_board_pre_signal'),
-            'pre_limitup_anomaly': row.get('pre_limitup_anomaly') if row.get('pre_limitup_anomaly') is not None else raw_json.get('pre_limitup_anomaly'),
-            'low_position_catalyst_score': row.get('low_position_catalyst_score') if row.get('low_position_catalyst_score') is not None else raw_json.get('low_position_catalyst_score'),
-            'intraday_alert_strength': row.get('intraday_alert_strength') if row.get('intraday_alert_strength') is not None else raw_json.get('intraday_alert_strength'),
-            'direct_symbol_news_count': row.get('direct_symbol_news_count') if row.get('direct_symbol_news_count') is not None else raw_json.get('direct_symbol_news_count'),
-            'candidate_stage': row.get('candidate_stage') if row.get('candidate_stage') is not None else raw_json.get('candidate_stage'),
-            'previous_limitup': row.get('previous_limitup') if row.get('previous_limitup') is not None else raw_json.get('previous_limitup'),
-            'sector_catalyst_score': row.get('sector_catalyst_score') if row.get('sector_catalyst_score') is not None else raw_json.get('sector_catalyst_score'),
-            'sector_opportunity_score': row.get('sector_catalyst_score') if row.get('sector_catalyst_score') is not None else raw_json.get('sector_opportunity_score'),
-            'early_opportunity_score': row.get('early_opportunity_score') if row.get('early_opportunity_score') is not None else raw_json.get('early_opportunity_score'),
-            'topic_propagation_score': row.get('topic_propagation_score') if row.get('topic_propagation_score') is not None else raw_json.get('topic_propagation_score'),
-            'market_regime': row.get('market_regime') or raw_json.get('market_regime') or 'direct_api',
-            'blockers': blockers,
-            'source_layers': source_layers,
-            'candidate_features': candidate_features,
-            'paper_only': True,
-            'no_trade': True,
-            'decision': row.get('decision') or ('PAPER_PICK' if row.get('is_official_pick') else 'NO_PICK'),
-            'is_official_pick': bool(row.get('is_official_pick')),
-            'candidate_evidence_status': 'PASS',
-            'data_gate_status': 'PASS',
-            'source_time': source_time,
-            'runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
-            'source_row_hash': raw_json.get('source_row_hash') or f"db:{date}:{row.get('symbol') or ''}",
-            'paper_pick_eligibility': raw_json.get('paper_pick_eligibility') if isinstance(raw_json.get('paper_pick_eligibility'), dict) else {},
-            'research_signals': raw_json.get('research_signals') if isinstance(raw_json.get('research_signals'), dict) else {},
-            'structured_component_details': raw_json.get('structured_component_details') if isinstance(raw_json.get('structured_component_details'), dict) else {},
-            'structured_score_components': raw_json.get('structured_score_components') if isinstance(raw_json.get('structured_score_components'), dict) else {},
-            'vei_phase_d_tags': normalize_vei_phase_d_tags(raw_json.get('vei_phase_d_tags') if isinstance(raw_json.get('vei_phase_d_tags'), list) else []),
-        }
-        if signal_boost:
-            candidate['signals'] = dict(signal_boost)
-            if candidate.get('fund_flow_momentum') is None and signal_boost.get('fund_flow_momentum') is not None:
-                candidate['fund_flow_momentum'] = signal_boost.get('fund_flow_momentum')
-            if candidate.get('sector_opportunity_score') is None and signal_boost.get('sector_opportunity_score') is not None:
-                candidate['sector_opportunity_score'] = signal_boost.get('sector_opportunity_score')
-            if candidate.get('topic_propagation_score') is None and signal_boost.get('topic_propagation_score') is not None:
-                candidate['topic_propagation_score'] = signal_boost.get('topic_propagation_score')
-            if candidate.get('early_opportunity_score') is None and signal_boost.get('early_opportunity_score') is not None:
-                candidate['early_opportunity_score'] = signal_boost.get('early_opportunity_score')
-            if candidate.get('low_position_catalyst_score') is None and signal_boost.get('low_position_catalyst_score') is not None:
-                candidate['low_position_catalyst_score'] = signal_boost.get('low_position_catalyst_score')
-            if candidate.get('close_position_score') is None and signal_boost.get('close_position_score') is not None:
-                candidate['close_position_score'] = signal_boost.get('close_position_score')
-            if candidate.get('limitup_reason_propagation_score') is None and signal_boost.get('limitup_reason_propagation_score') is not None:
-                candidate['limitup_reason_propagation_score'] = signal_boost.get('limitup_reason_propagation_score')
-            if candidate.get('intraday_alert_strength') is None and signal_boost.get('intraday_alert_strength') is not None:
-                candidate['intraday_alert_strength'] = signal_boost.get('intraday_alert_strength')
-            if candidate.get('structured_score') is None and signal_boost.get('structured_score') is not None:
-                candidate['structured_score'] = signal_boost.get('structured_score')
-        if candidate_features:
-            candidate.update(candidate_features)
-        if raw_json:
-            for key in ('setup_type', 'search_layer_hint', 'structured_component_details', 'structured_score_components', 'vei_phase_d_tags'):
-                if key in raw_json and raw_json.get(key) is not None:
-                    candidate[key] = raw_json.get(key)
-        if not candidate.get('structured_component_details'):
-            candidate['structured_component_details'] = {
-                'sector_opportunity_score': candidate.get('sector_opportunity_score') or candidate.get('sector_catalyst_score') or 0.0,
-                'pre_limitup_anomaly': raw_json.get('structured_component_details', {}).get('pre_limitup_anomaly') if isinstance(raw_json.get('structured_component_details'), dict) else 0.0,
-                'weak_to_strong_reversal': raw_json.get('structured_component_details', {}).get('weak_to_strong_reversal') if isinstance(raw_json.get('structured_component_details'), dict) else 0.0,
-                'first_board_pre_signal': raw_json.get('structured_component_details', {}).get('first_board_pre_signal') if isinstance(raw_json.get('structured_component_details'), dict) else 0.0,
-            }
-        if not candidate.get('structured_score_components'):
-            candidate['structured_score_components'] = {
-                'fund_flow_momentum': candidate.get('fund_flow_momentum') or 0.0,
-                'time_series_momentum': raw_json.get('structured_score_components', {}).get('time_series_momentum') if isinstance(raw_json.get('structured_score_components'), dict) else 0.0,
-                'low_position_catalyst_score': candidate.get('low_position_catalyst_score') or 0.0,
-            }
-        if not candidate.get('vei_phase_d_tags'):
-            candidate['vei_phase_d_tags'] = normalize_vei_phase_d_tags(
-                candidate.get('structured_component_details', {}).get('vei_phase_d_tags')
-                if isinstance(candidate.get('structured_component_details'), dict)
-                else []
-            )
-        candidates.append(candidate)
-
-    db_snapshot_has_production_contract = bool(candidates) and all(
-        str(
-            (row.get('ranking_view') or
-             (row.get('candidate_features') or {}).get('ranking_view') or
-             (row.get('ranking_basis') or {}).get('ranking_view') or '')
-        ) == PRODUCTION_RANKING_VIEW
-        and str(
-            (row.get('rank_source') or
-             (row.get('candidate_features') or {}).get('rank_source') or
-             (row.get('ranking_basis') or {}).get('rank_source') or '')
-        ) == PRODUCTION_RANK_SOURCE
-        and str(
-            (row.get('score_source') or
-             (row.get('candidate_features') or {}).get('score_source') or
-             (row.get('ranking_basis') or {}).get('score_source') or '')
-        ) == PRODUCTION_SCORE_SOURCE
-        and safe_float(
-            row.get('production_score')
-            or (row.get('candidate_features') or {}).get('production_score')
-            or (row.get('ranking_basis') or {}).get('production_score')
-        ) is not None
-        for row in rows
-        if isinstance(row, dict)
-    )
-
-    if content_rows:
-        fund_by_code = parse_capital_flow_from_content_records(content_rows)
-        if fund_by_code:
-            for candidate in candidates:
-                code = str(candidate.get('code') or candidate.get('symbol') or '').strip()
-                if not code or code not in fund_by_code:
-                    continue
-                flow = fund_by_code[code]
-                candidate['data_directory_capital_flow'] = flow
-                if candidate.get('price') is None and flow.get('price') is not None:
-                    candidate['price'] = flow.get('price')
-
-    from xiaogu_forward_eligibility import (
-        filter_current_day_tradable_candidates,
-        filter_t1_profit_candidates,
-    )
-
-    if bundle_context.get('t1_profit_gate_enabled'):
-        enriched_rows, current_day_tradable_filter = filter_t1_profit_candidates(
-            [dict(candidate) for candidate in candidates],
-            bundle_context,
-            enforce=True,
-        )
-    else:
-        enriched_rows, current_day_tradable_filter = filter_current_day_tradable_candidates(
-            [dict(candidate) for candidate in candidates],
-            bundle_context,
-        )
-    bundle['current_day_tradable_filter'] = current_day_tradable_filter
-    search_context = build_daily_ticket_search_rows(enriched_rows, bundle_context)
-    search_rows = search_context['search_rows']
-    selected_rows = [dict(row) for row in search_rows]
-    structured_formal_impact = structured_formal_impact_summary(enriched_rows, selected_rows, bundle_context)
-
-    formal_ranked_pool = search_context.get('formal_ranked_pool') or apply_formal_profit_ranks(enriched_rows)
-    bundle['paper_scoring_candidates'] = selected_rows or formal_ranked_pool
-    bundle['full_candidate_pool'] = formal_ranked_pool
-    bundle['formal_ranked_pool'] = formal_ranked_pool
-    bundle['formal_rank_snapshot_id'] = (
-        formal_ranked_pool[0].get('formal_rank_snapshot_id')
-        if formal_ranked_pool else ''
-    )
-    bundle['formal_rank_snapshot_version'] = (
-        formal_ranked_pool[0].get('formal_rank_snapshot_version')
-        if formal_ranked_pool else ''
-    )
-    bundle['scored_candidates'] = formal_ranked_pool
-    bundle['candidate'] = search_context['first_clean_row'] if search_context['first_clean_row'] is not None else (bundle['paper_scoring_candidates'][0] if bundle['paper_scoring_candidates'] else {})
-    bundle['daily_ticket_search_result'] = search_context['daily_ticket_search_result']
-    bundle['rank_alignment_diagnostic'] = search_context.get('rank_alignment_diagnostic') or {}
-    bundle['first_clean_challenge_meta'] = search_context.get('first_clean_challenge_meta') or {}
-    bundle['paper_pick_candidate_stage_distribution'] = dict(search_context['paper_pick_candidate_stage_distribution'])
-    bundle['candidate_stage_blocker_distribution'] = {
-        stage: dict(counts) for stage, counts in search_context['candidate_stage_blocker_distribution'].items()
-    }
-    bundle['official_target_excluded_count'] = search_context['official_target_excluded_count']
-    bundle['first_excluded_candidate'] = search_context['first_excluded_candidate']
-    bundle['structured_observation_basket'] = structured_formal_impact['structured_observation_candidates']
-    bundle['structured_sector_observation_basket'] = structured_formal_impact['sector_opportunity_candidates']
-    bundle['structured_formal_impact'] = structured_formal_impact
-    bundle['current_day_tradable_filter'] = search_context.get('current_day_tradable_filter') or {}
-    bundle['candidate_drop_diagnostics'] = list(
-        bundle.get('candidate_drop_diagnostics') or []
-    ) + list(
-        (bundle.get('current_day_tradable_filter') or {}).get('dropped') or []
-    )
-
-    if catalog_rows:
-        bundle['data_directory_catalog_records'] = catalog_rows
-    if content_rows:
-        bundle['data_directory_content_records'] = content_rows
-        content_by_code: Dict[str, List[Dict[str, Any]]] = {}
-        for content_row in content_rows:
-            code = str(content_row.get('code') or '').strip()
-            if code:
-                content_by_code.setdefault(code, []).append(content_row)
-        if content_by_code:
-            bundle['data_directory_content_by_code'] = content_by_code
-
-    bundle['candidate_source'] = 'eastmoney_api_scan_v2'
-    bundle['source'] = 'eastmoney_api_scan_v2'
-    bundle['pipeline_version'] = 'v2_scanner_api'
-    bundle['scanner_transport'] = 'direct_api'
-    bundle['production_chain_mode'] = PRODUCTION_CHAIN_MODE
-    bundle['production_snapshot_origin'] = 'db_snapshot_disabled'
-    bundle['available'] = True
-    bundle['decision_reason'] = 'DB_DAILY_CANDIDATES'
-    raw_fund_by_code = stock_capital_flow_by_code_from_payload(raw_domain_payloads.get('stock_capital_flow')) if raw_domain_payloads else {}
-    if raw_fund_by_code:
-        bundle['data_directory_capital_flow_by_code'] = raw_fund_by_code
-        inject_capital_flow_boost(bundle, raw_fund_by_code)
-    if content_rows:
-        fund_by_code = parse_capital_flow_from_content_records(content_rows)
-        if fund_by_code:
-            bundle['data_directory_capital_flow_by_code'] = {**fund_by_code, **bundle.get('data_directory_capital_flow_by_code', {})}
-            inject_capital_flow_boost(bundle, fund_by_code)
-    if not raw_domain_payloads:
-        bundle['available'] = False
-        bundle['reason'] = 'DIRECT_API_SCAN_PAYLOADS_MISSING'
-        return bundle
-    normalize_bundle_vei_tags(bundle)
-    try:
-        bundle_path = Path(str(bundle.get('_bundle_path') or (CANDIDATE_BUNDLE_ROOT / date / f'{date}_db_daily_candidates.json')))
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        write_json(bundle_path, bundle)
-        bundle['_bundle_path'] = str(bundle_path)
-    except Exception:
-        pass
-    return bundle
-
-
 def build_research_basket_from_latest_scan(date: str, asof_time: str | None = None) -> Dict[str, Any]:
     # Directory labels are scheduling metadata only. The shared loader selects
     # the latest valid same-day direct-API snapshot by source_time.
@@ -8510,117 +8012,6 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
     return 'NO_PICK', '', 'BUNDLE_HAS_NO_PAPER_SCORING_CANDIDATE', {}, ['NO_PAPER_SCORING_CANDIDATE']
 
 
-def run_recorder(
-    date: str,
-    asof_time: str,
-    decision: str,
-    symbol: str,
-    features: Dict[str, Any],
-    reason: str,
-    dry_run: bool,
-    *,
-    correction_of: str = "",
-) -> Dict[str, Any]:
-    from xiaogu_runtime_payload import slim_features_for_recorder, payload_bytes, enforce_runtime_memory_gate, maybe_force_gc
-
-    features_path = RAW_ROOT / date / asof_time.replace(':', '') / 'recorder_features.json'
-    # Production default: slim recorder payload (was 46–50MB and OOM path).
-    full_embed = os.environ.get('XIAOGU_RECORDER_FULL_EMBED', '').strip().lower() in ('1', 'true', 'yes')
-    recorder_features = features if full_embed else slim_features_for_recorder(features)
-    mem_gate = enforce_runtime_memory_gate(stage='run_recorder')
-    if mem_gate.get('status') in ('WARN', 'HARD') and not full_embed:
-        recorder_features = slim_features_for_recorder(recorder_features)
-        maybe_force_gc()
-    write_json(features_path, recorder_features)
-    cmd = [
-        sys.executable, str(RECORDER),
-        '--date', date,
-        '--asof-time', asof_time,
-        '--decision', decision,
-        '--symbol', symbol or '',
-        '--features-json', str(features_path),
-        '--decision-reason', reason,
-        '--xiaochan-gate-status', str(features.get('xiaochan_gate_status', 'ALLOW_FORWARD_PAPER_NO_TRADE')),
-        '--xiaoshuju-data-gate-status', str(features.get('xiaoshuju_data_gate_status', features.get('data_gate_status', 'NOT_CALLED'))),
-    ]
-    production_run_id = str(features.get('production_run_id') or '').strip()
-    if production_run_id:
-        cmd.extend(['--production-run-id', production_run_id])
-    if correction_of:
-        cmd.extend(['--correction-of', correction_of])
-    if dry_run:
-        cmd.append('--dry-run')
-    try:
-        cp = subprocess.run(cmd, cwd=str(BASE), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-        return {
-            'cmd': cmd,
-            'returncode': cp.returncode,
-            'stdout': cp.stdout,
-            'stderr': cp.stderr,
-            'features_path': str(features_path),
-            'recorder_payload_bytes': payload_bytes(recorder_features),
-            'memory_gate': mem_gate,
-            'payload_policy': recorder_features.get('payload_policy') if isinstance(recorder_features, dict) else '',
-        }
-    except subprocess.TimeoutExpired as exc:
-        return {'cmd': cmd, 'returncode': 124, 'stdout': exc.stdout or '', 'stderr': 'RECORDER_TIMEOUT', 'features_path': str(features_path)}
-
-
-def finalize_production_run(
-    trade_day: dt.date,
-    production_run_id: str,
-    *,
-    candidate_snapshot_id: str,
-    active_pick_id: Optional[int],
-    publish_active: bool,
-) -> None:
-    """Commit the terminal run state and active pointer as one DB transaction."""
-    from xiaogu_db import get_db, set_active_production_run, update_production_run_status
-
-    with get_db() as db:
-        update_production_run_status(production_run_id, 'PASS', db=db)
-        if publish_active:
-            set_active_production_run(
-                trade_day,
-                production_run_id,
-                candidate_snapshot_id=candidate_snapshot_id,
-                active_pick_id=active_pick_id,
-                db=db,
-            )
-
-
-def _unique_persistence_candidates(candidates: List[Dict[str, Any]], target_count: int) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    selected: List[Dict[str, Any]] = []
-    seen = set()
-    duplicate_symbols = []
-    for candidate in candidates:
-        symbol = str(candidate.get('symbol') or candidate.get('code') or '').strip()
-        if not symbol:
-            continue
-        symbol = symbol.zfill(6)
-        if symbol in seen:
-            duplicate_symbols.append(symbol)
-            continue
-        seen.add(symbol)
-        selected.append(candidate)
-        if len(selected) >= target_count:
-            break
-    duplicate_unique = sorted(set(duplicate_symbols))
-    return selected, {
-        'source_row_count': len(candidates),
-        'raw_full_candidate_pool_rows': len(candidates),
-        'target_count': target_count,
-        'unique_symbol_count': len(selected),
-        'unique_full_candidate_pool_symbols': len(selected),
-        'selected_unique_count': len(selected),
-        'duplicate_symbol_count': len(duplicate_unique),
-        'duplicate_symbols': duplicate_unique,
-        'deduplication_applied': bool(duplicate_unique),
-        'final_persisted_count': len(selected),
-    }
-
-
-
 # --- eligibility extract: bind host helpers then re-export ---
 import xiaogu_forward_eligibility as _forward_eligibility
 
@@ -8634,6 +8025,10 @@ filter_current_day_tradable_candidates = _forward_eligibility.filter_current_day
 filter_t1_profit_candidates = _forward_eligibility.filter_t1_profit_candidates
 t1_profit_candidate_profile = _forward_eligibility.t1_profit_candidate_profile
 broken_limitup_continuation_exception = _forward_eligibility.broken_limitup_continuation_exception
+
+import xiaogu_forward_persistence as _forward_persistence
+
+_unique_persistence_candidates = _forward_persistence._unique_persistence_candidates
 
 import xiaogu_forward_bundle_io as _forward_bundle_io
 
@@ -8650,6 +8045,10 @@ scan_date_for_runtime = _forward_bundle_io.scan_date_for_runtime
 build_daily_candidate_persistence_payloads = _forward_bundle_io.build_daily_candidate_persistence_payloads
 persist_daily_candidate_snapshot = _forward_bundle_io.persist_daily_candidate_snapshot
 write_daily_candidate_persist_retry_payload = _forward_bundle_io.write_daily_candidate_persist_retry_payload
+
+_forward_persistence.bind_host(__import__(__name__))
+run_recorder = _forward_persistence.run_recorder
+finalize_production_run = _forward_persistence.finalize_production_run
 
 
 
@@ -8923,7 +8322,7 @@ def main() -> None:
     _sector_obs = bundle.get('structured_sector_observation_basket') or []
 
     features = {
-        'runner': 'xiaogu_forward_d1_1450_runner_v0_1',
+        'runner': 'xiaogu_forward_runner',
         'date': args.date,
         'asof_time': args.asof_time,
         'generated_at': now_iso(),
@@ -9602,7 +9001,7 @@ def main() -> None:
                 error_message='' if rec['returncode'] == 0 else str(rec.get('stderr') or 'RECORDER_FAILED')[:500],
                 retry_command=(
                     f'XIAOGU_PRODUCTION_RUN_ID={production_run_id} '
-                    f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {args.date} --force'
+                    f'python3 xiaogu_forward_runner.py --date {args.date} --force'
                 ),
             )
             if rec['returncode'] != 0:
@@ -9729,7 +9128,7 @@ def main() -> None:
                     error_message=failure,
                     retry_command=(
                         f'XIAOGU_PRODUCTION_RUN_ID={production_run_id} '
-                        f'python3 xiaogu_forward_d1_1450_runner_v0_1.py --date {args.date} --force'
+                        f'python3 xiaogu_forward_runner.py --date {args.date} --force'
                     ),
                 )
                 update_production_run_status(

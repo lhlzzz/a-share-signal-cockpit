@@ -14,7 +14,7 @@ BASE = Path('/root/hermes/company-ai-system/workspaces/xiaogu')
 sys.path.insert(0, str(BASE))
 
 from six_repo_integration_real_v2_1 import aggregate_four_repo_native_signals
-from xiaogu_forward_d1_1450_runner_v0_1 import formal_candidate_sort_key, ranking_basis_adjustment_components
+from xiaogu_forward_runner import formal_candidate_sort_key, ranking_basis_adjustment_components
 
 EASTMONEY = 'https://push2delay.eastmoney.com/api/qt/clist/get'
 FIELDS = 'f12,f13,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18,f20,f21,f23,f62'

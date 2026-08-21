@@ -11,7 +11,7 @@ import pytest
 import six_repo_integration_real_v2_1 as native_integration
 from scrapy_scanner import runner_v2 as scanner_v2
 import xiaogu_scanner_scoring as scanner
-import xiaogu_forward_d1_1450_runner_v0_1 as runner
+import xiaogu_forward_runner as runner
 import xiaogu_backtest_v0_1 as backtest
 import xiaogu_signal_effectiveness_v0_1 as effectiveness
 import xiaogu_native_repo_runtime_v0_1 as native_runtime
@@ -6206,7 +6206,7 @@ def test_health_check_all_pass():
 
 
 def test_output_has_three_candidate_slots():
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
     # Verify these functions exist and return dicts
     assert callable(runner.formal_diagnostic_candidate_from_bundle)
     assert callable(runner.closest_to_pick_candidate_from_bundle)
@@ -6735,7 +6735,7 @@ def test_candidate_lifecycle_signals_expose_trade_mode_and_t1_horizon(tmp_path, 
 
 def test_sector_rotation_signal_scores_hot_sector_candidate():
     """Candidate in hot sector gets sector_opportunity_score path — sector_rotation_signal equivalent."""
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
     import inspect
     src = inspect.getsource(runner)
     assert 'sector_opportunity_score' in src
@@ -6743,7 +6743,7 @@ def test_sector_rotation_signal_scores_hot_sector_candidate():
 
 def test_northbound_signal_per_stock_in_runner():
     """hsgt_institutional_flow scoring path exists in runner."""
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
     import inspect
     src = inspect.getsource(runner)
     assert 'hsgt_institutional_flow' in src
@@ -6751,7 +6751,7 @@ def test_northbound_signal_per_stock_in_runner():
 
 def test_overheated_market_blocker_triggered():
     """overheated_market blocker exists in runner logic."""
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
     import inspect
     src = inspect.getsource(runner)
     assert 'overheated_market' in src
@@ -6759,7 +6759,7 @@ def test_overheated_market_blocker_triggered():
 
 def test_below_water_ambush_signal_in_structured_score():
     """L11_LOW_POSITION_AMBUSH or close_position_score exists."""
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
     import inspect
     src = inspect.getsource(runner)
     assert 'L11_LOW_POSITION_AMBUSH' in src or 'close_position_score' in src or 'below_water' in src

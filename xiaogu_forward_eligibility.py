@@ -4,7 +4,7 @@
 
 Host binding: call `bind_host(runner_module)` after the runner defines shared
 helpers. Free names resolve from host on each public call (monkeypatch-safe).
-Production entry remains xiaogu_forward_d1_1450_runner_v0_1.py which re-exports.
+Production entry remains xiaogu_forward_runner.py which re-exports.
 """
 from __future__ import annotations
 

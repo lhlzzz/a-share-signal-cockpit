@@ -361,7 +361,7 @@ def _attribution_candidate(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ranking_factor_explanation(row: Dict[str, Any], direction: str) -> List[str]:
-    from xiaogu_forward_d1_1450_runner_v0_1 import ranking_basis_adjustment_components
+    from xiaogu_forward_runner import ranking_basis_adjustment_components
     components = ranking_basis_adjustment_components(_attribution_candidate(row))
     source = components['penalties'] if direction == 'overestimated' else components['boosts']
     threshold = 0.15 if direction == 'overestimated' else 0.10
@@ -369,7 +369,7 @@ def _ranking_factor_explanation(row: Dict[str, Any], direction: str) -> List[str
 
 
 def _ranking_miss_types(paper: Dict[str, Any], alternative: Dict[str, Any]) -> List[str]:
-    from xiaogu_forward_d1_1450_runner_v0_1 import candidate_capital_risk_profile
+    from xiaogu_forward_runner import candidate_capital_risk_profile
     paper_row = _attribution_candidate(paper)
     paper_profile = paper_row.get('capital_risk_profile') if isinstance(paper_row.get('capital_risk_profile'), dict) else candidate_capital_risk_profile(paper_row)
     alternative_row = _attribution_candidate(alternative)
@@ -431,7 +431,7 @@ def _primary_fix_direction(miss_types: List[str]) -> str:
 
 def build_ranking_improvement_analysis(rows: List[Dict[str, Any]], pick_map: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """Explain daily PAPER_PICK misses and replay the existing ranking basis."""
-    from xiaogu_forward_d1_1450_runner_v0_1 import formal_candidate_sort_key, ranking_basis_adjustment_components
+    from xiaogu_forward_runner import formal_candidate_sort_key, ranking_basis_adjustment_components
 
     mainboard_rows = [row for row in rows if row.get('is_mainboard')]
     by_date: Dict[str, List[Dict[str, Any]]] = {}
@@ -2906,7 +2906,7 @@ VALIDATION_TIER_DEFINITIONS = {
         'notes': 'DB/scan pre-decision snapshot → paper_pick_eligibility_profile + official_target_exclusion_reasons + formal_candidate_sort_key',
     },
     'L4_full_wall_clock_live': {
-        'entry': 'daily_pipeline.sh scanner + xiaogu_forward_d1_1450_runner_v0_1 wall-clock live',
+        'entry': 'daily_pipeline.sh scanner + xiaogu_forward_runner wall-clock live',
         'recomputes_official_pick': True,
         'notes': 'Full crawl not required for this plan; optional spot-check only',
     },
@@ -3283,7 +3283,7 @@ def production_path_redecision_for_day(
     - eligible_count==0 → NO_PICK (redecision_symbol None, notes NO_PICK_NO_ELIGIBLE)
     - default historical_replay_fair_aux so RECONSTRUCTED empty aux ≠ live FAIL
     """
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         formal_candidate_sort_key,
         official_target_exclusion_reasons,
         paper_pick_eligibility_profile,
@@ -3353,7 +3353,7 @@ def production_path_redecision_for_day(
 
 def production_scan_redecision_for_day(trade_date: str) -> Dict[str, Any]:
     """Re-run the production runner from that day's persisted afternoon scan."""
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         attach_paper_pick_eligibility,
         build_research_basket_from_latest_scan,
         evaluate_candidate_bundle,
@@ -3590,7 +3590,7 @@ def _classify_redecision_miss_root_cause(
     offline_formal: str,
 ) -> Dict[str, Any]:
     """Classify residual miss vs day-best into one primary root cause."""
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         formal_candidate_sort_key,
         official_target_exclusion_reasons,
         paper_pick_eligibility_profile,
@@ -3664,7 +3664,7 @@ def offline_formal_path_for_day(
     paper_pick_eligibility. Used to refresh structural ranking full-fix replay
     after formal_candidate_sort_key / ranking_basis changes.
     """
-    from xiaogu_forward_d1_1450_runner_v0_1 import (
+    from xiaogu_forward_runner import (
         formal_candidate_sort_key,
         official_target_exclusion_reasons,
         paper_pick_risk_explanation_gate,
@@ -4315,7 +4315,7 @@ def run_backtest_for_date(trade_date: str, source: str = 'auto') -> Dict[str, An
 
     try:
         cmd = [
-            PYTHON, 'xiaogu_forward_d1_1450_runner_v0_1.py',
+            PYTHON, 'xiaogu_forward_runner.py',
             '--date', trade_date,
             '--dry-run',
         ]

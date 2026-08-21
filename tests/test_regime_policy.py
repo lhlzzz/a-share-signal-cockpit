@@ -80,7 +80,7 @@ def test_self_evolve_bounds_clamp_and_forbid_unknown():
 
 
 def test_runner_delegates_thresholds():
-    import xiaogu_forward_d1_1450_runner_v0_1 as runner
+    import xiaogu_forward_runner as runner
 
     ctx = {
         "supportive_market": True,
