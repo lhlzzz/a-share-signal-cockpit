@@ -120,6 +120,7 @@ Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → F
 5. **Test after big tasks.** Major changes (runner/scanner/filler logic) require immediate test verification. Small tasks can batch-then-test.
 6. **DB over JSONL.** Data belongs in PostgreSQL, not scattered JSONL files.
 7. **CAST not ::.** SQLAlchemy `text()` requires `CAST(:param AS type)` not `:param::type` for PostgreSQL.
+8. **Ponytail decision ladder.** Apply it to every tracked code path: prefer existing code, then the standard library or native platform feature, then installed dependencies, and add the smallest implementation only when required. Cleanup must preserve behavior by default; market inputs, scoring, gates, database state, and `PAPER_PICK` semantics may change only in a separately approved strategy task with replay and benchmark evidence.
 
 ---
 
@@ -194,8 +195,19 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 5. **COMPLETE（自动落盘）**
    - `agentmemory__memory_save`（decision / bug / workflow / pattern）
    - 可选 `scripts/agentmemory_daily.sh`
-   - 知识有变：Obsidian `Project/A股`（inbox/状态/任务）+ 神临（想法池/总索引/项目接口，仅跨域）
+   - 执行下方 **Obsidian Knowledge Closure**；知识有变时才写入 `ashare` 或 `shenlin` vault
    - 成功标准全部打勾才算完成；主链绿但记忆/笔记漏写 = **未完成**
+
+### Obsidian Knowledge Closure
+
+完成每项任务前必须依序判断：
+
+1. **新知识**：本任务是否产生可复用的架构结论、策略/研究证据、验证结论、运行规则或 Bug 根因？
+2. **Obsidian 更新**：有新知识时，是否需要更新既有笔记或新增一条可检索的项目记录？没有新知识时，明确不写，避免制造噪声。
+3. **Decisions**：重要架构决定写入 `ashare:decisions/`；只有跨项目的接口、模式或知识地图才同步摘要到 `shenlin:项目接口/` 或 `shenlin:想法池/`。
+4. **Lessons**：可复用的 Bug 根因、失效模式、修复验证和防回归措施写入 `ashare:失败案例/`（Lessons owner，首次需要时创建）；已验证的 PAPER_PICK/NO_PICK、T+1 结果、亏损归因和逻辑变化也是知识，分别写入 `决策日志/`、`跟踪记录/`、`失败案例/`；不要把行情原始明细、密钥或未验证猜测写入知识库。
+
+通过项目配置的 `obsidian` MCP 管理 vault。默认 vault 是 `ashare`；删除操作保持禁用。知识记录必须包含日期、结论、证据/验证和受影响路径，且不得替代 source code、测试、运行日志或 Git diff 作为事实依据。
 
 ### 浏览器验证规则
 

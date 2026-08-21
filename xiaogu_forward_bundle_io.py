@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 
+from xiaogu_forward_host_binding import create_host_binding
 from xiaogu_utils import eastmoney_quote_prices
 
 
@@ -71,43 +72,16 @@ REQUIRED_FROM_HOST = (
     'validate_formal_rank_snapshot',
 )
 
-def bind_host(host_module) -> None:
-    """Attach forward runner module as live host for free names."""
-    global _HOST
-    _HOST = host_module
-    _inject_host()
-
-
-def _inject_host() -> None:
-    """Copy current host attributes into this module globals (monkeypatch-safe when re-called)."""
-    if _HOST is None:
-        return
-    g = globals()
-    missing = []
-    for name in REQUIRED_FROM_HOST:
-        if hasattr(_HOST, name):
-            g[name] = getattr(_HOST, name)
-        elif name not in g:
-            missing.append(name)
-    for name in (
+bind_host, _inject_host, _with_host = create_host_binding(
+    globals(),
+    REQUIRED_FROM_HOST,
+    (
         'LIVE_SCAN_ROOT', 'CANDIDATE_BUNDLE_ROOT', 'RAW_ROOT', 'BASE',
         'SCAN_SUMMARY_NAME', 'SCAN_SUMMARY_RUNNER_NAME', 'RULE_VERSION',
         'SCORING_CONFIG_DEFAULTS', 'ALLOWED_A_SHARE_SOURCE_TOKENS',
-    ):
-        if hasattr(_HOST, name):
-            g[name] = getattr(_HOST, name)
-    g['_BIND_MISSING'] = missing
-
-
-def _with_host(fn):
-    """Re-inject host symbols before each call so tests can monkeypatch runner attrs."""
-    def wrapper(*args, **kwargs):
-        _inject_host()
-        return fn(*args, **kwargs)
-    wrapper.__name__ = getattr(fn, '__name__', 'wrapper')
-    wrapper.__doc__ = getattr(fn, '__doc__', None)
-    wrapper.__wrapped__ = fn
-    return wrapper
+    ),
+    preserve_existing_on_missing=True,
+)
 
 
 def write_text(path: Path, text: str) -> None:

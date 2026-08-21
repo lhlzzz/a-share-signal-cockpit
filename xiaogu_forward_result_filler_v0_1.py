@@ -14,10 +14,16 @@ from xiaogu_utils import (
     PRODUCTION_RETURN_FIELD,
     PRODUCTION_TRADE_MODE,
     append_jsonl,
+    corrected_decision_ids,
+    decision_record_id,
+    decision_symbol,
     dump_json,
+    has_decision_payload,
+    is_active_decision_record,
     load_jsonl,
     now_iso,
     read_json,
+    superseded_decision_keys,
 )
 
 BASE = Path(__file__).resolve().parent
@@ -29,9 +35,6 @@ FILLABLE_FIELDS = [PRODUCTION_RETURN_FIELD, 'result_status', 'result_filled_at',
 IMMUTABLE_FIELDS = ['decision_reason', 'features_used', 'rule_version', 'generated_at', 'asof_time', 'raw_data_snapshot_path']
 VALID_HORIZONS = {'t1': PRODUCTION_RETURN_FIELD}
 HORIZON_INDEX = {'t1': 1}
-ACTIVE_DECISION_RECORD_TYPES = {'DECISION', 'CORRECTION'}
-
-
 def fnum(value: Any) -> Optional[float]:
     try:
         if value in (None, ''):
@@ -39,15 +42,6 @@ def fnum(value: Any) -> Optional[float]:
         return float(str(value).replace('%', '').replace(',', ''))
     except (TypeError, ValueError):
         return None
-
-
-def decision_symbol(decision: Dict[str, Any]) -> str:
-    symbol = decision.get('symbol')
-    if symbol and symbol != 'NO_PICK':
-        return str(symbol).zfill(6)
-    features = decision.get('features_used', {}).get('candidate_features', {})
-    symbol = features.get('symbol') or features.get('code')
-    return str(symbol).zfill(6) if symbol else ''
 
 
 def entry_price(decision: Dict[str, Any]) -> Optional[float]:
@@ -90,52 +84,6 @@ def cached_kline_return(decision: Dict[str, Any], horizon: str) -> Tuple[Optiona
     evidence['cache_hit'] = True
     evidence['cache_source'] = source_name
     return ret, evidence
-
-
-def decision_record_id(row: Dict[str, Any]) -> str:
-    return '_'.join([
-        str(row.get('date') or ''),
-        str(row.get('asof_time') or ''),
-        str(row.get('record_type', 'DECISION')),
-        decision_symbol(row),
-    ])
-
-
-def has_decision_payload(row: Dict[str, Any]) -> bool:
-    record_type = row.get('record_type', 'DECISION')
-    return record_type == 'DECISION' or (record_type == 'CORRECTION' and bool(row.get('decision')))
-
-
-def corrected_decision_ids(rows: List[Dict[str, Any]]) -> set[str]:
-    return {
-        str(row.get('correction_of'))
-        for row in rows
-        if row.get('record_type') == 'CORRECTION' and row.get('decision') and row.get('correction_of')
-    }
-
-
-def superseded_decision_keys(rows: List[Dict[str, Any]]) -> set[Tuple[str, str]]:
-    keys = set()
-    for row in rows:
-        if not has_decision_payload(row):
-            continue
-        supersedes = (row.get('features_used') or {}).get('supersedes') or {}
-        date = supersedes.get('date')
-        symbol = supersedes.get('symbol')
-        if date and symbol:
-            keys.add((str(date), str(symbol).zfill(6)))
-    return keys
-
-
-def is_active_decision_record(row: Dict[str, Any], corrected_ids: set[str], superseded: set[Tuple[str, str]]) -> bool:
-    if row.get('record_type', 'DECISION') not in ACTIVE_DECISION_RECORD_TYPES or not has_decision_payload(row):
-        return False
-    symbol = decision_symbol(row)
-    if decision_record_id(row) in corrected_ids:
-        return False
-    if (str(row.get('date')), symbol) in superseded:
-        return False
-    return True
 
 
 def find_decision(rows: List[Dict[str, Any]], date: str, symbol: str) -> Dict[str, Any]:

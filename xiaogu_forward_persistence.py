@@ -9,6 +9,8 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+from xiaogu_forward_host_binding import create_host_binding
+
 
 _HOST = None
 
@@ -19,37 +21,7 @@ REQUIRED_FROM_HOST = (
     'write_json',
 )
 
-
-def bind_host(host_module) -> None:
-    """Attach the runner for runtime paths and its JSON serialization policy."""
-    global _HOST
-    _HOST = host_module
-    _inject_host()
-
-
-def _inject_host() -> None:
-    if _HOST is None:
-        return
-    g = globals()
-    missing = []
-    for name in REQUIRED_FROM_HOST:
-        if hasattr(_HOST, name):
-            g[name] = getattr(_HOST, name)
-        else:
-            missing.append(name)
-    g['_BIND_MISSING'] = missing
-
-
-def _with_host(fn):
-    """Refresh host values so runner-level test patches remain effective."""
-    def wrapper(*args, **kwargs):
-        _inject_host()
-        return fn(*args, **kwargs)
-
-    wrapper.__name__ = getattr(fn, '__name__', 'wrapper')
-    wrapper.__doc__ = getattr(fn, '__doc__', None)
-    wrapper.__wrapped__ = fn
-    return wrapper
+bind_host, _inject_host, _with_host = create_host_binding(globals(), REQUIRED_FROM_HOST)
 
 
 @_with_host

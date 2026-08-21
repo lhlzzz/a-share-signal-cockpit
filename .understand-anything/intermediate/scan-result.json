@@ -1,0 +1,725 @@
+{
+  "name": "xiaogu",
+  "description": "xiaogu 是一个面向 A 股研究与纸面交易的信号系统，用于行情数据采集、多因子评分、候选股筛选、前向验证和运营 API 查询。系统只生成可解释的研究信号和 PAPER_PICK，不执行真实交易，也不连接券商。",
+  "languages": [
+    "config",
+    "html",
+    "json",
+    "jsonl",
+    "markdown",
+    "python",
+    "shell",
+    "sql",
+    "txt",
+    "unknown",
+    "yaml"
+  ],
+  "frameworks": [
+    "Alembic",
+    "FastAPI",
+    "GitHub Actions",
+    "SQLAlchemy",
+    "Uvicorn"
+  ],
+  "files": [
+    {
+      "path": ".claude/settings.json",
+      "language": "json",
+      "sizeLines": 112,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".env.example",
+      "language": "config",
+      "sizeLines": 13,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "language": "yaml",
+      "sizeLines": 23,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".plan-enforcer/.session-log.jsonl",
+      "language": "jsonl",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".plan-enforcer/.user-messages.jsonl",
+      "language": "jsonl",
+      "sizeLines": 7,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".plan-enforcer/awareness.md",
+      "language": "markdown",
+      "sizeLines": 25,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/combobulate.md",
+      "language": "markdown",
+      "sizeLines": 7,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/config.md",
+      "language": "markdown",
+      "sizeLines": 7,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/discuss.md",
+      "language": "markdown",
+      "sizeLines": 55,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/ledger.md",
+      "language": "markdown",
+      "sizeLines": 33,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/statusline-state.json",
+      "language": "json",
+      "sizeLines": 18,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".skills/karpathy-daily.md",
+      "language": "markdown",
+      "sizeLines": 69,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".skills/karpathy-guidelines/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/config.json",
+      "language": "json",
+      "sizeLines": 3,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batches.json",
+      "language": "json",
+      "sizeLines": 2415,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/scan-result.json",
+      "language": "json",
+      "sizeLines": 542,
+      "fileCategory": "config"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 244,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "daily_pipeline.sh",
+      "language": "shell",
+      "sizeLines": 551,
+      "fileCategory": "script"
+    },
+    {
+      "path": "docs/architecture.md",
+      "language": "markdown",
+      "sizeLines": 49,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "public/index.html",
+      "language": "html",
+      "sizeLines": 678,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "pytest.ini",
+      "language": "config",
+      "sizeLines": 4,
+      "fileCategory": "config"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 61,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "requirements.txt",
+      "language": "txt",
+      "sizeLines": 9,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "rule_freeze_v0_1.json",
+      "language": "json",
+      "sizeLines": 162,
+      "fileCategory": "config"
+    },
+    {
+      "path": "scrapy_scanner/__init__.py",
+      "language": "python",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scrapy_scanner/README.md",
+      "language": "markdown",
+      "sizeLines": 65,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scrapy_scanner/runner_v2.py",
+      "language": "python",
+      "sizeLines": 4811,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/agentmemory_daily.sh",
+      "language": "shell",
+      "sizeLines": 26,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/xiaogu_bounded_hard_backtest_three_patterns.py",
+      "language": "python",
+      "sizeLines": 792,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_daily_health_check.py",
+      "language": "python",
+      "sizeLines": 297,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_data_retention.py",
+      "language": "python",
+      "sizeLines": 196,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_db_backfill.py",
+      "language": "python",
+      "sizeLines": 815,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_db_init.sql",
+      "language": "sql",
+      "sizeLines": 461,
+      "fileCategory": "data"
+    },
+    {
+      "path": "scripts/xiaogu_ensure_database.py",
+      "language": "python",
+      "sizeLines": 180,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_knowledge_asset_export.py",
+      "language": "python",
+      "sizeLines": 679,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_ledger_migrate.py",
+      "language": "python",
+      "sizeLines": 683,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_loss_case_cluster_report.py",
+      "language": "python",
+      "sizeLines": 347,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_profit_candidates_shadow.py",
+      "language": "python",
+      "sizeLines": 1688,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_regime_shadow_replay.py",
+      "language": "python",
+      "sizeLines": 386,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_return_backfill.py",
+      "language": "python",
+      "sizeLines": 762,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_safe_self_evolve.py",
+      "language": "python",
+      "sizeLines": 206,
+      "fileCategory": "code"
+    },
+    {
+      "path": "six_repo_integration_real_v2_1.py",
+      "language": "python",
+      "sizeLines": 173,
+      "fileCategory": "code"
+    },
+    {
+      "path": "start_api.sh",
+      "language": "shell",
+      "sizeLines": 7,
+      "fileCategory": "script"
+    },
+    {
+      "path": "tests/test_buyability_sealed_limit_infer.py",
+      "language": "python",
+      "sizeLines": 367,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_db_backfill.py",
+      "language": "python",
+      "sizeLines": 1012,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_formal_rank_alignment_and_defensive_shell.py",
+      "language": "python",
+      "sizeLines": 663,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_knowledge_asset_export.py",
+      "language": "python",
+      "sizeLines": 220,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_l3_hydrate_fair_aux_and_nopick.py",
+      "language": "python",
+      "sizeLines": 146,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_post_limitup_and_quality_escape_tightening.py",
+      "language": "python",
+      "sizeLines": 145,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_profit_candidates_shadow.py",
+      "language": "python",
+      "sizeLines": 504,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_profit_shadow_and_mainline_soft.py",
+      "language": "python",
+      "sizeLines": 45,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_regime_policy.py",
+      "language": "python",
+      "sizeLines": 134,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_scanner_transport_direct.py",
+      "language": "python",
+      "sizeLines": 338,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_xiaogu_a_share_forward_runner.py",
+      "language": "python",
+      "sizeLines": 11383,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_xiaogu_api.py",
+      "language": "python",
+      "sizeLines": 890,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_xiaogu_runtime_payload_evidence_vector.py",
+      "language": "python",
+      "sizeLines": 272,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_xiaogu_scheduler.py",
+      "language": "python",
+      "sizeLines": 481,
+      "fileCategory": "code"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_leakage_check.json",
+      "language": "json",
+      "sizeLines": 79,
+      "fileCategory": "config"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_manifest.json",
+      "language": "json",
+      "sizeLines": 324,
+      "fileCategory": "config"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_summary.json",
+      "language": "json",
+      "sizeLines": 303,
+      "fileCategory": "config"
+    },
+    {
+      "path": "xiaogu_api.py",
+      "language": "python",
+      "sizeLines": 3572,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_backtest_v0_1.py",
+      "language": "python",
+      "sizeLines": 4856,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_case_vector_store.py",
+      "language": "python",
+      "sizeLines": 987,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_data_repair_v0_1.py",
+      "language": "python",
+      "sizeLines": 347,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_db.py",
+      "language": "python",
+      "sizeLines": 2378,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_eastmoney_tail_scan_v0_2.py",
+      "language": "python",
+      "sizeLines": 334,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_evidence_card.py",
+      "language": "python",
+      "sizeLines": 287,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_factor_store.py",
+      "language": "python",
+      "sizeLines": 112,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_bundle_io.py",
+      "language": "python",
+      "sizeLines": 1229,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "language": "python",
+      "sizeLines": 9797,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_eligibility.py",
+      "language": "python",
+      "sizeLines": 2500,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_gates.py",
+      "language": "python",
+      "sizeLines": 168,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_judge_scoreboard_v0_1.py",
+      "language": "python",
+      "sizeLines": 928,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_paper_recorder_v0_1.py",
+      "language": "python",
+      "sizeLines": 159,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_result_filler_v0_1.py",
+      "language": "python",
+      "sizeLines": 682,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_native_repo_runtime_v0_1.py",
+      "language": "python",
+      "sizeLines": 1688,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_pick_validator.py",
+      "language": "python",
+      "sizeLines": 307,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_regime_policy.py",
+      "language": "python",
+      "sizeLines": 468,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_runtime_payload.py",
+      "language": "python",
+      "sizeLines": 395,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_scanner_scoring.py",
+      "language": "python",
+      "sizeLines": 4908,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_scheduler.py",
+      "language": "python",
+      "sizeLines": 217,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_signal_effectiveness_v0_1.py",
+      "language": "python",
+      "sizeLines": 2417,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_social_sentiment.py",
+      "language": "python",
+      "sizeLines": 504,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_utils.py",
+      "language": "python",
+      "sizeLines": 99,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_v2_1_six_repo_real_integrated.py",
+      "language": "python",
+      "sizeLines": 1870,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 87,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "moderate",
+  "importMap": {
+    ".claude/settings.json": [],
+    ".env.example": [],
+    ".github/workflows/ci.yml": [],
+    ".plan-enforcer/.session-log.jsonl": [],
+    ".plan-enforcer/.user-messages.jsonl": [],
+    ".plan-enforcer/awareness.md": [],
+    ".plan-enforcer/combobulate.md": [],
+    ".plan-enforcer/config.md": [],
+    ".plan-enforcer/discuss.md": [],
+    ".plan-enforcer/ledger.md": [],
+    ".plan-enforcer/statusline-state.json": [],
+    ".skills/karpathy-daily.md": [],
+    ".skills/karpathy-guidelines/SKILL.md": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/config.json": [],
+    ".understand-anything/intermediate/batches.json": [],
+    ".understand-anything/intermediate/scan-result.json": [],
+    "AGENTS.md": [],
+    "CLAUDE.md": [],
+    "daily_pipeline.sh": [],
+    "docs/architecture.md": [],
+    "public/index.html": [],
+    "pytest.ini": [],
+    "README.md": [],
+    "requirements.txt": [],
+    "rule_freeze_v0_1.json": [],
+    "scrapy_scanner/__init__.py": [],
+    "scrapy_scanner/README.md": [],
+    "scrapy_scanner/runner_v2.py": [
+      "xiaogu_utils.py"
+    ],
+    "scripts/agentmemory_daily.sh": [],
+    "scripts/xiaogu_bounded_hard_backtest_three_patterns.py": [],
+    "scripts/xiaogu_daily_health_check.py": [],
+    "scripts/xiaogu_data_retention.py": [],
+    "scripts/xiaogu_db_backfill.py": [
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_db_init.sql": [],
+    "scripts/xiaogu_ensure_database.py": [],
+    "scripts/xiaogu_knowledge_asset_export.py": [
+      "xiaogu_case_vector_store.py",
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_ledger_migrate.py": [
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_loss_case_cluster_report.py": [],
+    "scripts/xiaogu_profit_candidates_shadow.py": [
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_regime_shadow_replay.py": [],
+    "scripts/xiaogu_return_backfill.py": [
+      "xiaogu_db.py",
+      "xiaogu_forward_result_filler_v0_1.py"
+    ],
+    "scripts/xiaogu_safe_self_evolve.py": [],
+    "six_repo_integration_real_v2_1.py": [
+      "xiaogu_native_repo_runtime_v0_1.py"
+    ],
+    "start_api.sh": [],
+    "tests/test_buyability_sealed_limit_infer.py": [
+      "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "xiaogu_forward_eligibility.py"
+    ],
+    "tests/test_db_backfill.py": [],
+    "tests/test_formal_rank_alignment_and_defensive_shell.py": [
+      "tests/test_xiaogu_a_share_forward_runner.py",
+      "xiaogu_evidence_card.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py"
+    ],
+    "tests/test_knowledge_asset_export.py": [
+      "scripts/xiaogu_knowledge_asset_export.py"
+    ],
+    "tests/test_l3_hydrate_fair_aux_and_nopick.py": [
+      "xiaogu_backtest_v0_1.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "xiaogu_forward_eligibility.py"
+    ],
+    "tests/test_post_limitup_and_quality_escape_tightening.py": [
+      "tests/test_xiaogu_a_share_forward_runner.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py"
+    ],
+    "tests/test_profit_candidates_shadow.py": [
+      "scripts/xiaogu_profit_candidates_shadow.py"
+    ],
+    "tests/test_profit_shadow_and_mainline_soft.py": [
+      "xiaogu_forward_d1_1450_runner_v0_1.py"
+    ],
+    "tests/test_regime_policy.py": [
+      "xiaogu_regime_policy.py"
+    ],
+    "tests/test_scanner_transport_direct.py": [],
+    "tests/test_xiaogu_a_share_forward_runner.py": [
+      "scrapy_scanner/__init__.py",
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_backtest_v0_1.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "xiaogu_forward_gates.py",
+      "xiaogu_native_repo_runtime_v0_1.py",
+      "xiaogu_scanner_scoring.py",
+      "xiaogu_signal_effectiveness_v0_1.py"
+    ],
+    "tests/test_xiaogu_api.py": [
+      "xiaogu_api.py"
+    ],
+    "tests/test_xiaogu_runtime_payload_evidence_vector.py": [
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_case_vector_store.py",
+      "xiaogu_evidence_card.py",
+      "xiaogu_runtime_payload.py"
+    ],
+    "tests/test_xiaogu_scheduler.py": [
+      "xiaogu_api.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "xiaogu_scheduler.py"
+    ],
+    "v2_1_six_repo_real_integrated_leakage_check.json": [],
+    "v2_1_six_repo_real_integrated_manifest.json": [],
+    "v2_1_six_repo_real_integrated_summary.json": [],
+    "xiaogu_api.py": [
+      "scripts/xiaogu_ensure_database.py"
+    ],
+    "xiaogu_backtest_v0_1.py": [],
+    "xiaogu_case_vector_store.py": [],
+    "xiaogu_data_repair_v0_1.py": [],
+    "xiaogu_db.py": [],
+    "xiaogu_eastmoney_tail_scan_v0_2.py": [
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_forward_d1_1450_runner_v0_1.py"
+    ],
+    "xiaogu_evidence_card.py": [],
+    "xiaogu_factor_store.py": [],
+    "xiaogu_forward_bundle_io.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_d1_1450_runner_v0_1.py": [
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_forward_bundle_io.py",
+      "xiaogu_forward_eligibility.py",
+      "xiaogu_forward_gates.py"
+    ],
+    "xiaogu_forward_eligibility.py": [
+      "xiaogu_forward_gates.py"
+    ],
+    "xiaogu_forward_gates.py": [],
+    "xiaogu_forward_judge_scoreboard_v0_1.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_paper_recorder_v0_1.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_result_filler_v0_1.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_native_repo_runtime_v0_1.py": [],
+    "xiaogu_pick_validator.py": [],
+    "xiaogu_regime_policy.py": [],
+    "xiaogu_runtime_payload.py": [],
+    "xiaogu_scanner_scoring.py": [
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_eastmoney_tail_scan_v0_2.py",
+      "xiaogu_forward_judge_scoreboard_v0_1.py",
+      "xiaogu_v2_1_six_repo_real_integrated.py"
+    ],
+    "xiaogu_scheduler.py": [],
+    "xiaogu_signal_effectiveness_v0_1.py": [],
+    "xiaogu_social_sentiment.py": [],
+    "xiaogu_utils.py": [],
+    "xiaogu_v2_1_six_repo_real_integrated.py": [
+      "six_repo_integration_real_v2_1.py"
+    ]
+  }
+}

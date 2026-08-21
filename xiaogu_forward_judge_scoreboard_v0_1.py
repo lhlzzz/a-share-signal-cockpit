@@ -12,7 +12,17 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from xiaogu_utils import PRODUCTION_RETURN_FIELD, PRODUCTION_TRADE_MODE
+from xiaogu_utils import (
+    PRODUCTION_RETURN_FIELD,
+    PRODUCTION_TRADE_MODE,
+    corrected_decision_ids,
+    decision_record_id,
+    decision_symbol,
+    has_decision_payload,
+    is_active_decision_record,
+    load_jsonl,
+    superseded_decision_keys,
+)
 
 BASE = Path(__file__).resolve().parent
 RULE_VERSION = "xiaogu_forward_judge_scoreboard_v0_1"
@@ -22,7 +32,6 @@ HORIZON_FIELDS = {
 LEDGER_HORIZON_MAP = {
     "d1_return": PRODUCTION_RETURN_FIELD,
 }
-ACTIVE_DECISION_RECORD_TYPES = {"DECISION", "CORRECTION"}
 GUARDRAILS = [
     "PAPER_ONLY",
     "NO_TRADE",
@@ -717,95 +726,6 @@ def build_forward_judge_scoreboard(rows: List[Dict[str, Any]], asof_ts: Optional
         "model_score_fields_seen": sorted(model_score_fields_seen),
         "model_scores_used_as_win_rate": False,
     }
-
-
-def load_jsonl(path: Path) -> List[Dict[str, Any]]:
-    rows = []
-    if not path.exists():
-        return rows
-    pending = ''
-    pending_start = 0
-    with path.open('r', encoding='utf-8') as f:
-        for i, line in enumerate(f, 1):
-            text = line.strip()
-            if not text:
-                continue
-            if pending and text.startswith('{'):
-                print(json.dumps({'warning': 'SKIP_MALFORMED_JSONL_RECORD', 'path': str(path), 'line_start': pending_start, 'line_end': i - 1}, ensure_ascii=False), file=sys.stderr)
-                pending = ''
-                pending_start = 0
-            candidate = pending + text if pending else text
-            try:
-                obj = json.loads(candidate)
-            except json.JSONDecodeError:
-                pending = candidate
-                if not pending_start:
-                    pending_start = i
-                continue
-            obj['_line'] = pending_start or i
-            if pending_start and pending_start != i:
-                obj['_line_end'] = i
-            rows.append(obj)
-            pending = ''
-            pending_start = 0
-    if pending:
-        print(json.dumps({'warning': 'SKIP_MALFORMED_JSONL_RECORD', 'path': str(path), 'line_start': pending_start, 'line_end': pending_start}, ensure_ascii=False), file=sys.stderr)
-    return rows
-
-
-def decision_symbol(decision: Dict[str, Any]) -> str:
-    symbol = decision.get('symbol')
-    if symbol and symbol != 'NO_PICK':
-        return str(symbol).zfill(6)
-    features = decision.get('features_used', {}).get('candidate_features', {})
-    symbol = features.get('symbol') or features.get('code')
-    return str(symbol).zfill(6) if symbol else ''
-
-
-def decision_record_id(row: Dict[str, Any]) -> str:
-    return '_'.join([
-        str(row.get('date') or ''),
-        str(row.get('asof_time') or ''),
-        str(row.get('record_type', 'DECISION')),
-        decision_symbol(row),
-    ])
-
-
-def has_decision_payload(row: Dict[str, Any]) -> bool:
-    record_type = row.get('record_type', 'DECISION')
-    return record_type == 'DECISION' or (record_type == 'CORRECTION' and bool(row.get('decision')))
-
-
-def corrected_decision_ids(rows: List[Dict[str, Any]]) -> set[str]:
-    return {
-        str(row.get('correction_of'))
-        for row in rows
-        if row.get('record_type') == 'CORRECTION' and row.get('decision') and row.get('correction_of')
-    }
-
-
-def superseded_decision_keys(rows: List[Dict[str, Any]]) -> set[Tuple[str, str]]:
-    keys = set()
-    for row in rows:
-        if not has_decision_payload(row):
-            continue
-        supersedes = (row.get('features_used') or {}).get('supersedes') or {}
-        date = supersedes.get('date')
-        symbol = supersedes.get('symbol')
-        if date and symbol:
-            keys.add((str(date), str(symbol).zfill(6)))
-    return keys
-
-
-def is_active_decision_record(row: Dict[str, Any], corrected_ids: set[str], superseded: set[Tuple[str, str]]) -> bool:
-    if row.get('record_type', 'DECISION') not in ACTIVE_DECISION_RECORD_TYPES or not has_decision_payload(row):
-        return False
-    symbol = decision_symbol(row)
-    if decision_record_id(row) in corrected_ids:
-        return False
-    if (str(row.get('date')), symbol) in superseded:
-        return False
-    return True
 
 
 def merge_forward_ledger(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

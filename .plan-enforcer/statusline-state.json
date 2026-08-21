@@ -1,0 +1,18 @@
+{
+  "stage": "review",
+  "label": "3-REVIEW",
+  "done": null,
+  "verified": 0,
+  "doneUnverified": 0,
+  "total": null,
+  "scope": null,
+  "taskId": null,
+  "taskName": null,
+  "taskStatus": null,
+  "projectRoot": "/workspace/hermes-workspaces/xiaogu",
+  "sessionId": null,
+  "transcriptPath": null,
+  "updatedAt": "2026-08-21T17:53:31.099Z",
+  "title": "2026-08-21-forward-runner-decomposition.md",
+  "source": "review-cli"
+}

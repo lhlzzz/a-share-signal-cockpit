@@ -3150,62 +3150,8 @@ def _count_leader_conditions(features: Dict[str, Any]) -> int:
 
 
 def is_strong_leader_candidate(features: Dict[str, Any]) -> bool:
-    """判断是否为强势龙头候选（用于 climax 市场高涨幅分层）。
-
-    三层逻辑：
-    1. 高涨幅强确认：保留（tag='high_pct_strong_confirmed'）
-    2. 高涨幅但分歧：降权（tag='high_pct_divergence', confidence *= 0.75）
-    3. 高涨幅假强：过滤（tag='high_pct_without_confirmation'）
-
-    条件：
-    1. 属于当日主线板块（sector_opportunity_score >= 0.6 或有 SECTOR_OPPORTUNITY 标签）
-    2. 封板质量好（sealed_limit_up 或 close_position_score >= 0.95）
-    3. 涨停原因传播强（limitup_reason_propagation_score >= 0.6）
-    4. 量能合理（turnover_rate < 20%）
-    5. 排名靠前（rank <= 15）
-    """
-    # 1. 主线板块确认
-    sector_score = safe_float(features.get('sector_opportunity_score')) or 0
-    sector_tags = features.get('sector_opportunity_tags') or []
-    has_sector_tag = 'SECTOR_OPPORTUNITY' in sector_tags if isinstance(sector_tags, list) else False
-    is_main_sector = sector_score >= 0.6 or has_sector_tag
-
-    # 2. 封板质量
-    sealed_limit_up = bool(features.get('sealed_limit_up', False))
-    close_pos = safe_float(features.get('close_position_score')) or 0
-    has_good_close = sealed_limit_up or close_pos >= 0.95
-
-    # 3. 涨停原因传播
-    limitup_reason_score = safe_float(features.get('limitup_reason_propagation_score')) or 0
-    has_strong_reason = limitup_reason_score >= 0.6
-
-    # 4. 量能合理
-    turnover = safe_float(features.get('turnover_rate')) or 0
-    reasonable_turnover = turnover < 20
-
-    # 5. 排名靠前
-    rank = safe_float(features.get('rank')) or 999
-    is_top_rank = rank <= 15
-
-    # 计算满足条件数
-    conditions_met = sum([
-        is_main_sector,
-        has_good_close,
-        has_strong_reason,
-        reasonable_turnover,
-        is_top_rank,
-    ])
-
-    # 三层判断
-    if conditions_met >= 4:
-        # 高涨幅强确认：满足4个以上条件
-        return True
-    elif conditions_met >= 2:
-        # 高涨幅但分歧：满足2-3个条件，降权但保留
-        return True
-    else:
-        # 高涨幅假强：只满足0-1个条件，过滤
-        return False
+    """Return whether a candidate meets the minimum leader confirmation."""
+    return _count_leader_conditions(features) >= 2
 
 
 def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], target_date: str, allow_stale_data: bool = False) -> Tuple[str, str, str, Dict[str, Any], List[str]]:

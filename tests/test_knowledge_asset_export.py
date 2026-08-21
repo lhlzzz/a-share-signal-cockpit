@@ -218,3 +218,62 @@ def test_write_obsidian_updates_same_day_status_and_reports_vector_failures(tmp_
     assert 'score=100.0 pick_id=2131' in status
     assert 'TOP10 upsert=0/1，failed=1' in status
     assert 'score=79.7 pick_id=1' not in status
+
+
+def test_write_obsidian_promotes_picker_results_into_structured_knowledge(tmp_path, monkeypatch):
+    ashare = tmp_path / 'Project' / 'A股'
+    shenlin = tmp_path / '神临'
+    (ashare / 'inbox').mkdir(parents=True)
+    shenlin.mkdir(parents=True)
+    monkeypatch.setattr(export, 'OBSIDIAN_ASHARE', ashare)
+    monkeypatch.setattr(export, 'OBSIDIAN_SHENLIN', shenlin)
+    monkeypatch.setattr(export, 'embed_method_name', lambda: 'structured_hybrid_v2')
+
+    result = export.write_obsidian(
+        {
+            'formal_paper_pick': {
+                'symbol': '600001',
+                'stock_name': '测试公司',
+                'final_score': 91.0,
+                'pick_id': 10,
+                'auxiliary_evidence_status': 'PASS',
+                'features_flags': {},
+                'ticket_reason': {'reason': 'sector_flow'},
+                'selection_reason': {'reason': 'formal_rank'},
+            },
+            'top10': [
+                {
+                    'rank': 1,
+                    'symbol': '600001',
+                    'stock_name': '测试公司',
+                    'final_score': 91.0,
+                    'selection_outcome': 'OFFICIAL_PICK',
+                    't1_return': -0.03,
+                    'selection_reason': 'sector_flow',
+                },
+            ],
+            'paper_pick_returns': [
+                {
+                    'symbol': '600001',
+                    'stock_name': '测试公司',
+                    'final_score': 91.0,
+                    't1_return': -0.03,
+                },
+            ],
+            'top10_return_coverage': {'n': 1, 'with_t1': 1, 'ratio': 1.0},
+            'top10_vector_upsert': {'upserted': 1, 'failed': 0},
+            'vector_layer': {'embed_method': 'structured_hybrid_v2'},
+            'generated_at': '2026-08-21T16:00:00',
+        },
+        date(2026, 8, 21),
+    )
+
+    decision = ashare / '决策日志' / '2026-08-21-PAPER_PICK决策.md'
+    tracking = ashare / '跟踪记录' / '2026-08-21-每日变化与出票结果.md'
+    lesson = ashare / '失败案例' / '2026-08-21-600001-出票复盘.md'
+    assert str(decision) in result['paths']
+    assert str(tracking) in result['paths']
+    assert str(lesson) in result['paths']
+    assert 'T+1 结果：-0.03' in decision.read_text(encoding='utf-8')
+    assert '亏损' in tracking.read_text(encoding='utf-8')
+    assert '根因结论' in lesson.read_text(encoding='utf-8')

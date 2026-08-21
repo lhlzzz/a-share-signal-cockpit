@@ -550,7 +550,14 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
     ])
     note_path = inbox / f'{trade_date.isoformat()}-正式票与前十知识资产.md'
     note_path.write_text('\n'.join(lines), encoding='utf-8')
-    result = {'status': 'OK', 'paths': [str(note_path)]}
+    structured_paths = _write_structured_knowledge_notes(
+        payload,
+        trade_date,
+        formal,
+        top10,
+        review_cases,
+    )
+    result = {'status': 'OK', 'paths': [str(note_path), *structured_paths]}
 
     # Update 状态.md head section with a short stamped block (append if marker missing).
     status_path = OBSIDIAN_ASHARE / '状态.md'
@@ -601,6 +608,167 @@ def write_obsidian(payload: Dict[str, Any], trade_date: date) -> Dict[str, Any]:
             )
             result['paths'].append(str(pointer))
     return result
+
+
+def _safe_note_symbol(value: Any) -> str:
+    symbol = ''.join(
+        char for char in str(value or '')
+        if char.isalnum() or char in ('-', '_')
+    )
+    return symbol or 'unknown'
+
+
+def _return_label(value: Any) -> str:
+    if not isinstance(value, (int, float)):
+        return '待回填'
+    if value < 0:
+        return '亏损'
+    if value < 0.01:
+        return '低收益'
+    return '正收益'
+
+
+def _write_structured_knowledge_notes(
+    payload: Dict[str, Any],
+    trade_date: date,
+    formal: Dict[str, Any],
+    top10: List[Dict[str, Any]],
+    review_cases: List[Dict[str, Any]],
+) -> List[str]:
+    """Write searchable decision, tracking, and lesson notes beside the inbox export."""
+    date_text = trade_date.isoformat()
+    decision_dir = OBSIDIAN_ASHARE / '决策日志'
+    tracking_dir = OBSIDIAN_ASHARE / '跟踪记录'
+    lessons_dir = OBSIDIAN_ASHARE / '失败案例'
+    decision_dir.mkdir(parents=True, exist_ok=True)
+    tracking_dir.mkdir(parents=True, exist_ok=True)
+
+    official_symbol = formal.get('symbol') or 'NO_PICK'
+    official_name = formal.get('stock_name') or ''
+    official_return = next(
+        (
+            row.get('t1_return')
+            for row in payload.get('paper_pick_returns') or []
+            if row.get('symbol') == formal.get('symbol')
+        ),
+        None,
+    )
+    coverage = payload.get('top10_return_coverage') or {}
+    decision_lines = [
+        '---',
+        'type: decision-log',
+        f'date: {date_text}',
+        'project: xiaogu',
+        f'decision: {"PAPER_PICK" if formal.get("symbol") else "NO_PICK"}',
+        '---',
+        f'# {date_text} 投资决策与结果',
+        '',
+        '## 正式决策',
+        f'- 决策：{"PAPER_PICK" if formal.get("symbol") else "NO_PICK"}',
+        f'- 标的：{official_symbol} {official_name}',
+        f'- score：{formal.get("final_score")}',
+        f'- pick_id：{formal.get("pick_id")}',
+        f'- T+1 结果：{official_return if official_return is not None else "待回填"}',
+        f'- 结果分类：{_return_label(official_return)}',
+        '',
+        '## 决策理由',
+        '```json',
+        json.dumps({
+            'ticket_reason': formal.get('ticket_reason'),
+            'selection_reason': formal.get('selection_reason'),
+        }, ensure_ascii=False, indent=2, default=str)[:4000],
+        '```',
+        '',
+        '## 复盘入口',
+        f'- 前十收益覆盖：{coverage}',
+        f'- 低收益/亏损案例：{len(review_cases)}',
+        '- 需要结合原始投资逻辑判断：价格回撤是噪声，还是逻辑被破坏。',
+    ]
+    decision_path = decision_dir / f'{date_text}-PAPER_PICK决策.md'
+    decision_path.write_text('\n'.join(decision_lines) + '\n', encoding='utf-8')
+
+    tracking_lines = [
+        '---',
+        'type: daily-tracking',
+        f'date: {date_text}',
+        'project: xiaogu',
+        '---',
+        f'# {date_text} A股每日变化与出票结果',
+        '',
+        '## 结果统计',
+        f'- 正式票：{official_symbol} {official_name}',
+        f'- 前十 T+1 覆盖：{coverage}',
+        f'- 低收益/亏损案例：{len(review_cases)}',
+        '',
+        '## 前十结果',
+        '| rank | symbol | name | score | t1 | 分类 |',
+        '|---:|---|---|---:|---:|---|',
+    ]
+    for row in top10:
+        value = row.get('t1_return')
+        tracking_lines.append(
+            f"| {row.get('rank')} | {row.get('symbol')} | {row.get('stock_name')} | "
+            f"{row.get('final_score')} | {value if value is not None else '—'} | {_return_label(value)} |"
+        )
+    tracking_lines.extend([
+        '',
+        '## 逻辑变化待判断',
+        '- 每个亏损/低收益案例必须回看对应投资逻辑，判断是执行偏差、时点问题、数据问题还是逻辑失效。',
+        '- 未完成归因前，不把结果直接写成策略结论。',
+    ])
+    tracking_path = tracking_dir / f'{date_text}-每日变化与出票结果.md'
+    tracking_path.write_text('\n'.join(tracking_lines) + '\n', encoding='utf-8')
+
+    paths = [str(decision_path), str(tracking_path)]
+    if not review_cases:
+        return paths
+
+    lessons_dir.mkdir(parents=True, exist_ok=True)
+    seen_symbols = set()
+    for row in review_cases:
+        symbol = _safe_note_symbol(row.get('symbol'))
+        if symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        value = row.get('t1_return')
+        why = (
+            row.get('selection_reason')
+            or row.get('ticket_reason')
+            or row.get('not_selected_reason')
+            or '待补充'
+        )
+        lesson_lines = [
+            '---',
+            'type: lesson',
+            f'date: {date_text}',
+            'project: xiaogu',
+            f'symbol: {symbol}',
+            f'outcome: {_return_label(value)}',
+            '---',
+            f'# {date_text} - {symbol} 出票复盘',
+            '',
+            '## 观察结果',
+            f'- T+1 return：{value if value is not None else "待回填"}',
+            f'- 分类：{_return_label(value)}',
+            f'- score：{row.get("final_score")}',
+            f'- 选择理由线索：{str(why)[:500]}',
+            '',
+            '## 根因结论',
+            '- 待验证；当前记录是结果与线索，不把亏损自动等同于策略错误。',
+            '',
+            '## 需要验证',
+            '- 原投资逻辑是否被新事实破坏？',
+            '- 是数据质量、门禁、时点、行业判断还是个股执行问题？',
+            '- 是否需要新增回放测试或监控？',
+            '',
+            '## 关联',
+            f'- 决策日志：[[决策日志/{date_text}-PAPER_PICK决策]]',
+            f'- 跟踪记录：[[跟踪记录/{date_text}-每日变化与出票结果]]',
+        ]
+        lesson_path = lessons_dir / f'{date_text}-{symbol}-出票复盘.md'
+        lesson_path.write_text('\n'.join(lesson_lines) + '\n', encoding='utf-8')
+        paths.append(str(lesson_path))
+    return paths
 
 
 def main() -> int:

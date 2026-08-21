@@ -2,6 +2,7 @@ import os
 import datetime as dt
 import copy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 import json
 import math
@@ -16,6 +17,8 @@ import xiaogu_backtest_v0_1 as backtest
 import xiaogu_signal_effectiveness_v0_1 as effectiveness
 import xiaogu_native_repo_runtime_v0_1 as native_runtime
 import xiaogu_forward_gates as gates
+import xiaogu_utils as utils
+from xiaogu_forward_host_binding import create_host_binding
 
 
 REAL_BUNDLE_PATH = Path(
@@ -1926,6 +1929,79 @@ def test_decision_for_candidate_blocks_reasons_without_opportunity_block() -> No
     assert features['symbol'] == '601030'
     assert 'CANDIDATE_BLOCKED_manual_recent_failure_feedback' in flags
     assert 'CANDIDATE_BLOCKED_manual_recent_failure_feedback' in reason
+
+
+def test_strong_leader_candidate_uses_shared_condition_threshold() -> None:
+    assert runner._count_leader_conditions({}) == 1
+    assert runner.is_strong_leader_candidate({}) is False
+
+    two_conditions = {'sector_opportunity_score': 0.6}
+    assert runner._count_leader_conditions(two_conditions) == 2
+    assert runner.is_strong_leader_candidate(two_conditions) is True
+
+    fully_confirmed = {
+        'sector_opportunity_score': 0.6,
+        'sealed_limit_up': True,
+        'limitup_reason_propagation_score': 0.6,
+        'turnover_rate': 19.9,
+        'rank': 15,
+    }
+    assert runner._count_leader_conditions(fully_confirmed) == 5
+    assert runner.is_strong_leader_candidate(fully_confirmed) is True
+
+
+def test_shared_host_binding_refreshes_patches_and_preserves_missing_policy() -> None:
+    namespace = {'present': 'prior-value'}
+    bind_host, _inject_host, with_host = create_host_binding(
+        namespace,
+        ('value', 'present', 'missing'),
+        ('optional',),
+        preserve_existing_on_missing=True,
+    )
+    host = SimpleNamespace(value='first', optional='aux')
+
+    bind_host(host)
+    assert namespace['_HOST'] is host
+    assert namespace['value'] == 'first'
+    assert namespace['present'] == 'prior-value'
+    assert namespace['optional'] == 'aux'
+    assert namespace['_BIND_MISSING'] == ['missing']
+
+    host.value = 'patched'
+    assert with_host(lambda: namespace['value'])() == 'patched'
+    _inject_host()
+    assert namespace['value'] == 'patched'
+
+
+def test_ledger_record_helpers_have_one_shared_owner() -> None:
+    import xiaogu_forward_judge_scoreboard_v0_1 as scoreboard
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    for module in (scoreboard, filler):
+        assert module.decision_symbol is utils.decision_symbol
+        assert module.decision_record_id is utils.decision_record_id
+        assert module.corrected_decision_ids is utils.corrected_decision_ids
+        assert module.superseded_decision_keys is utils.superseded_decision_keys
+        assert module.is_active_decision_record is utils.is_active_decision_record
+
+    decision = {
+        'date': '2026-08-21',
+        'asof_time': '14:50:00',
+        'record_type': 'DECISION',
+        'decision': 'PAPER_PICK',
+        'symbol': '600001',
+    }
+    correction = {
+        'record_type': 'CORRECTION',
+        'decision': 'NO_PICK',
+        'correction_of': utils.decision_record_id(decision),
+    }
+    rows = [decision, correction]
+    assert utils.is_active_decision_record(
+        decision,
+        utils.corrected_decision_ids(rows),
+        utils.superseded_decision_keys(rows),
+    ) is False
 
 
 def test_no_pick_candidate_diagnostics_includes_three_roles() -> None:

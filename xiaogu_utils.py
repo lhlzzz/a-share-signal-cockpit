@@ -3,7 +3,7 @@ import datetime as dt
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Production contract: every official ticket is evaluated on the T-day close
@@ -13,6 +13,7 @@ PRODUCTION_TRADE_MODE = 'T_DAY_BUY_T1_CLOSE_SELL'
 PRODUCTION_RETURN_FIELD = 't1_return'
 PRODUCTION_RETURN_FORMULA = '(t1_close - t_day_entry_close) / t_day_entry_close'
 PRODUCTION_DECISIONS = frozenset({'PAPER_PICK', 'NO_PICK'})
+ACTIVE_DECISION_RECORD_TYPES = frozenset({'DECISION', 'CORRECTION'})
 
 
 def eastmoney_quote_prices(row: Dict[str, Any]) -> Dict[str, Optional[float]]:
@@ -91,6 +92,63 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
     if pending:
         print(json.dumps({'warning': 'SKIP_MALFORMED_JSONL_RECORD', 'path': str(path), 'line_start': pending_start, 'line_end': pending_start}, ensure_ascii=False), file=sys.stderr)
     return rows
+
+
+def decision_symbol(decision: Dict[str, Any]) -> str:
+    symbol = decision.get('symbol')
+    if symbol and symbol != 'NO_PICK':
+        return str(symbol).zfill(6)
+    features = decision.get('features_used', {}).get('candidate_features', {})
+    symbol = features.get('symbol') or features.get('code')
+    return str(symbol).zfill(6) if symbol else ''
+
+
+def decision_record_id(row: Dict[str, Any]) -> str:
+    return '_'.join([
+        str(row.get('date') or ''),
+        str(row.get('asof_time') or ''),
+        str(row.get('record_type', 'DECISION')),
+        decision_symbol(row),
+    ])
+
+
+def has_decision_payload(row: Dict[str, Any]) -> bool:
+    record_type = row.get('record_type', 'DECISION')
+    return record_type == 'DECISION' or (record_type == 'CORRECTION' and bool(row.get('decision')))
+
+
+def corrected_decision_ids(rows: List[Dict[str, Any]]) -> set[str]:
+    return {
+        str(row.get('correction_of'))
+        for row in rows
+        if row.get('record_type') == 'CORRECTION' and row.get('decision') and row.get('correction_of')
+    }
+
+
+def superseded_decision_keys(rows: List[Dict[str, Any]]) -> set[Tuple[str, str]]:
+    keys = set()
+    for row in rows:
+        if not has_decision_payload(row):
+            continue
+        supersedes = (row.get('features_used') or {}).get('supersedes') or {}
+        date = supersedes.get('date')
+        symbol = supersedes.get('symbol')
+        if date and symbol:
+            keys.add((str(date), str(symbol).zfill(6)))
+    return keys
+
+
+def is_active_decision_record(
+    row: Dict[str, Any],
+    corrected_ids: set[str],
+    superseded: set[Tuple[str, str]],
+) -> bool:
+    if row.get('record_type', 'DECISION') not in ACTIVE_DECISION_RECORD_TYPES or not has_decision_payload(row):
+        return False
+    symbol = decision_symbol(row)
+    if decision_record_id(row) in corrected_ids:
+        return False
+    return (str(row.get('date')), symbol) not in superseded
 
 
 def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:

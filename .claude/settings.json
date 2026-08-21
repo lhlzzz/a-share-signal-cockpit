@@ -9,6 +9,20 @@
       "type": "stdio",
       "command": "/root/.local/bin/agentmemory",
       "args": ["mcp"]
+    },
+    "obsidian": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/root/.local/share/obsidian-mcp/dist/stdio.js",
+        "ashare=/mnt/d/obisidian/Obsidian/Project/A股",
+        "shenlin=/mnt/d/obisidian/Obsidian/神临"
+      ],
+      "env": {
+        "OBSIDIAN_DEFAULT_VAULT": "ashare",
+        "OBSIDIAN_MAX_SEARCH_RESULTS": "80",
+        "OBSIDIAN_ENABLE_DELETE": "0"
+      }
     }
   },
   "permissions": {
