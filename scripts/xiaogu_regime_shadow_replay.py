@@ -95,21 +95,7 @@ def _market_context_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
         (breadth is not None and breadth >= 80) or (limitups is not None and limitups >= 150)
     ):
         ctx["overheated_market"] = True
-    soft = pick("pre_pick_market_context_soft") or pick("soft_context")
-    if isinstance(soft, dict):
-        ctx["soft_context"] = soft
     return ctx
-
-
-def _load_soft_latest() -> Dict[str, Any]:
-    for path in (SUMMARY / "sszcw_market_context_latest.json", ROOT / "data" / "sszcw" / "latest.json"):
-        if path.exists():
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                return payload if isinstance(payload, dict) else {}
-            except Exception:
-                continue
-    return {}
 
 
 def _completed_days_from_backtest() -> List[Dict[str, Any]]:
@@ -301,7 +287,7 @@ def _shadow_pick_return(day: Dict[str, Any], variant: str) -> Optional[float]:
     return max((_num(r.get("t1_return")) or -1.0) for r in day["day"])
 
 
-def replay(days: List[Dict[str, Any]], soft_global: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def replay(days: List[Dict[str, Any]]) -> Dict[str, Any]:
     from xiaogu_regime_policy import (
         classify_production_regime,
         preferred_shadow_variant,
@@ -309,7 +295,6 @@ def replay(days: List[Dict[str, Any]], soft_global: Optional[Dict[str, Any]] = N
         policy_snapshot,
     )
 
-    soft_global = soft_global if isinstance(soft_global, dict) else {}
     per_day: List[Dict[str, Any]] = []
     regime_counts: Dict[str, int] = {}
     paper_returns: List[float] = []
@@ -319,8 +304,7 @@ def replay(days: List[Dict[str, Any]], soft_global: Optional[Dict[str, Any]] = N
     for day in days:
         paper = day["paper"]
         ctx = _market_context_from_row(paper)
-        soft = ctx.get("soft_context") if isinstance(ctx.get("soft_context"), dict) else soft_global
-        attach_regime_to_context(ctx, soft if isinstance(soft, dict) else None)
+        attach_regime_to_context(ctx)
         regime = str(ctx.get("production_regime") or "sideways")
         regime_counts[regime] = regime_counts.get(regime, 0) + 1
         variant = preferred_shadow_variant(regime)
@@ -375,8 +359,7 @@ def main() -> None:
     args = ap.parse_args()
 
     days = _days_from_db(limit_days=args.limit_days)
-    soft = _load_soft_latest()
-    payload = replay(days, soft_global=soft)
+    payload = replay(days)
     payload["asof"] = args.date
     payload["source_day_count_loaded"] = len(days)
 

@@ -34,7 +34,7 @@ def _fat_bundle():
                 'paper_pick_eligibility': {
                     'eligible': True,
                     'blockers': [],
-                    'signals': {'soft_context_valid': True},
+                    'signals': {},
                 },
             }
             for _ in range(400)
@@ -97,21 +97,11 @@ def test_compact_evidence_card_shape_and_selection_reason():
     card = build_compact_evidence_card(
         cand,
         decision='PAPER_PICK',
-        reason='sszcw_quality_escape',
-        soft_context={
-            'soft_context_valid': True,
-            'favored_hits': ['有色'],
-            'market_stance': 'risk_on',
-            'confidence': 0.8,
-            'hard_gate': False,
-            'force_pick': False,
-        },
+        reason='mainline_quality_escape',
         similar_cases=[{'symbol': '600362', 'similarity': 0.5, 't1_return': 0.02}],
     )
     assert card['version'] == 'compact_evidence_card_v1'
     assert card['symbol'] == '601899'
-    assert card['soft_context']['hard_gate'] is False
-    assert card['soft_context']['force_pick'] is False
     assert isinstance(card['fund_flow'], list)
     assert isinstance(card['main_theme'], list)
     sel = evidence_card_to_selection_reason(card, 'repo_noise_string')
@@ -240,11 +230,9 @@ def test_leader_chain_and_soft_invalid_in_formal_sort():
         'structured_score_components': {'fund_flow_momentum': 0.5},
         'paper_pick_eligibility': {
             'signals': {
-                'pre_pick_market_context_soft': {
-                    'soft_context_valid': True,
-                    'favored_hits': ['有色', '资源'],
-                    'confidence': 0.7,
-                    'net_soft_bias': 0.4,
+                'mainline_fund_flow_soft': {
+                    'mainline_hits': ['有色', '资源'],
+                    'soft_boost': 0.4,
                 }
             }
         },
@@ -276,13 +264,9 @@ def test_leader_chain_and_soft_invalid_in_formal_sort():
     assert key_loss[0] < key[0]
     assert key_loss[1] <= key[1]
 
-    invalid_soft = dict(filled)
-    invalid_soft['ranking_adjustment_detail'] = {
-        'pre_pick_market_context_soft': {
-            'soft_context_valid': False,
-            'net_soft_bias': 1.0,
-        }
+    invalid_mainline = dict(filled)
+    invalid_mainline['ranking_adjustment_detail'] = {
+        'mainline_fund_flow_soft': {'soft_boost': 0.0}
     }
-    # formal sort still returns a key; invalid soft must not crash
-    key2 = formal_candidate_sort_key(invalid_soft)
+    key2 = formal_candidate_sort_key(invalid_mainline)
     assert isinstance(key2, tuple)

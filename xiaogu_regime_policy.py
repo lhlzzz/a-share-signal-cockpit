@@ -239,50 +239,18 @@ _RANKING_SCALE_CLAMP: Dict[str, Tuple[float, float]] = {
 }
 
 
-def _soft_stage(soft: Optional[Dict[str, Any]]) -> str:
-    if not isinstance(soft, dict):
-        return ""
-    return str(
-        soft.get("mainline_stage_hint")
-        or soft.get("mainline_stage")
-        or soft.get("stage")
-        or ""
-    ).upper()
-
-
-def _soft_stance(soft: Optional[Dict[str, Any]]) -> str:
-    if not isinstance(soft, dict):
-        return ""
-    return str(soft.get("market_stance") or soft.get("stance") or "").upper()
-
-
 def classify_production_regime(
     market_context: Optional[Dict[str, Any]] = None,
-    soft_context: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Return one of PRODUCTION_REGIMES.
-
-    Priority: climax → no_main (soft) → strong → weak → sideways.
-    Uses market_adaptive_context flags when present; falls back to market_regime string.
-    """
+    """Classify production regime from scanner market state only."""
     ctx = market_context if isinstance(market_context, dict) else {}
-    soft = soft_context if isinstance(soft_context, dict) else {}
-    if not soft:
-        nested = ctx.get("soft_context") or ctx.get("pre_pick_market_context_soft")
-        soft = nested if isinstance(nested, dict) else {}
-
-    stage = _soft_stage(soft)
-    stance = _soft_stance(soft)
     overheated = bool(ctx.get("overheated_market"))
     weak_acc = bool(ctx.get("weak_acceptance_market"))
     supportive = bool(ctx.get("supportive_market")) and not weak_acc
     market_regime = str(ctx.get("market_regime") or "").lower()
 
-    if overheated or stage == "CLIMAX" or "CLIMAX" in stance or "AVOID_CLIMAX" in stance:
+    if overheated:
         return "climax"
-    # Soft no-main / watch only when market is not clearly supportive.
-    if stage in ("NO_MAIN", "WATCH") and not supportive and market_regime != "strong":
-        return "no_main"
     if market_regime == "strong" or supportive:
         return "strong"
     if market_regime == "weak" or weak_acc:
@@ -468,15 +436,11 @@ def resolve_evolve_key_for_shadow(selected_variant: str, regime: str = "") -> Op
 
 def attach_regime_to_context(
     market_context: Dict[str, Any],
-    soft_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Mutate+return market_context with production_regime and policy snapshot."""
     if not isinstance(market_context, dict):
         return {}
-    soft = soft_context if isinstance(soft_context, dict) else market_context.get("soft_context")
-    if isinstance(soft, dict):
-        market_context["soft_context"] = soft
-    prod = classify_production_regime(market_context, soft if isinstance(soft, dict) else None)
+    prod = classify_production_regime(market_context)
     market_context["production_regime"] = prod
     market_context["regime_policy"] = {
         "production_regime": prod,

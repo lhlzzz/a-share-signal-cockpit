@@ -56,8 +56,6 @@ REQUIRED_FROM_HOST = (
     'sector_gate_threshold_for_market',
     'shadow_risk_profile',
     'signal_stage_bucket',
-    'soft_sector_bias_from_pre_pick_context',
-    'soft_context_failure_mode_reality_check',
     'strong_sector_theme_partial_aux_exception_allowed',
     'unique_text_values'
 )
@@ -530,15 +528,6 @@ def t1_profit_candidate_profile(
     candidate_stage = str(_profit_feature_value(row, 'candidate_stage') or '').lower()
     search_layer_hint = str(_profit_feature_value(row, 'search_layer_hint') or '').lower()
     setup_type = str(_profit_feature_value(row, 'setup_type') or '').upper()
-    trusted_sszcw_stock_confirmation = False
-    soft_bias_fn = globals().get('soft_sector_bias_from_pre_pick_context')
-    if callable(soft_bias_fn):
-        try:
-            trusted_sszcw_stock_confirmation = bool(
-                soft_bias_fn(row).get('trusted_stock_confirmation')
-            )
-        except Exception:
-            trusted_sszcw_stock_confirmation = False
     risk_penalty = _profit_feature_float(row, 'risk_notice_penalty')
     failed_limitup = _profit_feature_bool(row, 'failed_limitup', 'post_limitup_weak_continuation')
     continuation_exception = broken_limitup_continuation_exception(row, bundle)
@@ -610,17 +599,6 @@ def t1_profit_candidate_profile(
         and net_inflow > 0.0
     ):
         confirmations.append('low_position_breakout')
-    if (
-        trusted_sszcw_stock_confirmation
-        and close_position >= 0.45
-        and (
-            fund_flow >= 0.20
-            or net_inflow > 0.0
-            or volume_ratio >= 1.0
-            or underwater_recovery >= 0.55
-        )
-    ):
-        confirmations.append('trusted_sszcw_stock_prediction')
     if continuation_exception.get('eligible'):
         confirmations.append('limitup_continuation_exception')
     intraday_reversal = (
@@ -726,7 +704,6 @@ def t1_profit_candidate_profile(
         + min(0.10, low_position * 0.05 + intraday_alert * 0.05)
         + (0.16 if underwater_continuation else 0.0)
         + (0.32 if intraday_reversal else 0.0)
-        + (0.28 if 'trusted_sszcw_stock_prediction' in confirmations else 0.0)
         - min(0.35, risk_penalty * 0.25)
         - (0.12 if weak_fund else 0.0)
         - (0.06 if failed_limitup and continuation_exception.get('eligible') else (0.18 if failed_limitup else 0.0))
@@ -777,7 +754,6 @@ def t1_profit_candidate_profile(
             'direct_symbol_news_count': round(direct_news_count, 4),
             'risk_notice_penalty': round(risk_penalty, 4),
             'weak_low_move': weak_low_move,
-            'trusted_sszcw_stock_confirmation': trusted_sszcw_stock_confirmation,
             'limitup_continuation_exception': continuation_exception,
         },
         'policy': 't1_expected_profit_gate_before_top10_and_paper_pick',
@@ -1706,30 +1682,10 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
     signals['main_theme_core_score'] = main_theme_core_score
     signals['main_theme_alignment_score'] = main_theme_alignment_score
 
-    # Soft sszcw pre-pick bias + quality-first daily-ticket escape (not force-pick).
-    pre_pick = soft_sector_bias_from_pre_pick_context(row)
-    signals['pre_pick_market_context_soft'] = pre_pick
-    trusted_sszcw_stock_confirmation = bool(pre_pick.get('trusted_stock_confirmation'))
     t1_profit_profile = t1_profit_candidate_profile(row, bundle)
     t1_profit_evidence_pass = bool(t1_profit_profile.get('eligible'))
-    signals['trusted_sszcw_stock_confirmation'] = trusted_sszcw_stock_confirmation
-    signals['trusted_sszcw_stock_prediction_source'] = pre_pick.get('trusted_stock_prediction_source') or ''
     signals['t1_profit_evidence_pass'] = t1_profit_evidence_pass
     signals['t1_profit_profile'] = t1_profit_profile
-    if trusted_sszcw_stock_confirmation:
-        direct_catalyst_confirmation = True
-        signals['direct_catalyst_confirmation'] = True
-        positive_conditions.append('trusted_sszcw_stock_prediction')
-    signals['soft_context_valid'] = bool(pre_pick.get('soft_context_valid'))
-    signals['soft_context_source'] = str(pre_pick.get('soft_context_source') or '')
-    historical_failure_mode_reality = soft_context_failure_mode_reality_check(row, pre_pick)
-    historical_failure_mode_penalty = float(safe_float(historical_failure_mode_reality.get('penalty')) or 0.0)
-    historical_failure_mode_reasons = list(historical_failure_mode_reality.get('reasons') or [])
-    historical_failure_mode_status = str(historical_failure_mode_reality.get('status') or '')
-    signals['historical_failure_mode_penalty'] = round(historical_failure_mode_penalty, 4)
-    signals['historical_failure_mode_reasons'] = historical_failure_mode_reasons
-    signals['historical_failure_mode_status'] = historical_failure_mode_status
-    signals['historical_failure_mode_sample_count'] = int(historical_failure_mode_reality.get('sample_count') or 0)
     # Regime-aware quality escape floor (single owner: xiaogu_regime_policy).
     try:
         from xiaogu_regime_policy import quality_escape_score_floor as _quality_escape_floor
@@ -1773,29 +1729,11 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
     signals['theme_resilient_escape'] = theme_resilient_escape
     if isinstance(market_context, dict) and market_context.get('production_regime'):
         signals['production_regime'] = market_context.get('production_regime')
-    # Soft-favored hit can still mark quality_escape for ranking diagnostics, but
-    # hard-gate waivers require theme/live-soft substance (7/23 山金: seed soft +
-    # hollow main_theme_core=0 must not waive aux / weak-market blocks).
+    # Quality escape is earned by the production theme/capital chain only.
     quality_daily_ticket_escape = bool(
         quality_floor_pass
-        and (
-            bool(pre_pick.get('favored_hits'))
-            or theme_resilient_escape
-        )
+        and theme_resilient_escape
         and not regulatory_block
-    )
-    soft_live_ok = bool(
-        pre_pick.get('high_confidence_favored')
-        or (
-            pre_pick.get('soft_context_valid')
-            and int(pre_pick.get('live_post_count') or 0) > 0
-            and str(pre_pick.get('soft_context_source') or '').lower() not in ('seed', 'seed_only', '')
-            and not (
-                int(pre_pick.get('live_post_count') or 0) == 0
-                and int(pre_pick.get('seed_post_count') or 0) > 0
-                and int(pre_pick.get('cache_post_count') or 0) == 0
-            )
-        )
     )
     theme_substance_ok = bool(
         (main_theme_core_score or 0.0) >= 0.25
@@ -1805,62 +1743,13 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
         or theme_resilient_escape
     )
     market_stance = str(market_context.get('market_stance') or market_context.get('market_regime') or '').upper()
-    weak_soft_context = bool(
-        weak_acceptance_market
-        or broken_limit_pressure
-        or market_stance in (
-            'DEFENSIVE_ROTATION',
-            'RISK_OFF_TECH_DEFENSIVE',
-            'WATCH',
-            'NO_MAIN',
-            'DOWNTREND',
-            'WEAK',
-        )
-    )
-    low_theme_support = bool(
-        (main_theme_core_score or 0.0) < 0.70
-        and (main_theme_alignment_score or 0.0) < 0.85
-    )
-    weak_soft_context_low_score_escape = bool(
-        bool(pre_pick.get('favored_hits'))
-        and weak_soft_context
-        and low_theme_support
-        and not direct_catalyst_confirmation
-        and not limitup_capture_confirmation_pass
-        and not strong_high_momentum_continuation_pass
-        and not stock_level_limitup_expectation_pass
-    )
-    historical_failure_mode_soft_block = bool(
-        (
-            historical_failure_mode_penalty >= 0.35
-        )
-        and bool(pre_pick.get('favored_hits'))
-        and (
-            weak_acceptance_market
-            or broken_limit_pressure
-            or weak_soft_context
-        )
-        and not direct_catalyst_confirmation
-        and not limitup_capture_confirmation_pass
-        and not strong_high_momentum_continuation_pass
-        and not stock_level_limitup_expectation_pass
-    )
     quality_escape_hard_waive_ok = bool(
         quality_daily_ticket_escape
-        and (theme_substance_ok or soft_live_ok)
-        and not historical_failure_mode_soft_block
-    )
-    sszcw_favored_quality_escape = bool(
-        quality_daily_ticket_escape
-        and bool(pre_pick.get('high_confidence_favored'))
-        and quality_escape_hard_waive_ok
+        and theme_substance_ok
     )
     signals['quality_daily_ticket_escape'] = quality_daily_ticket_escape
     signals['quality_escape_hard_waive_ok'] = quality_escape_hard_waive_ok
     signals['quality_escape_theme_substance_ok'] = theme_substance_ok
-    signals['quality_escape_soft_live_ok'] = soft_live_ok
-    signals['historical_failure_mode_soft_block'] = historical_failure_mode_soft_block
-    signals['sszcw_favored_quality_escape'] = sszcw_favored_quality_escape
 
     # Quality-first escape: soft-waive hot-momentum evidence gap (not force-pick).
     # Hard waive only when theme/live-soft substance present.
@@ -1917,7 +1806,6 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
     )
     signals['strong_sector_theme_partial_aux_exception'] = strong_sector_theme_partial_aux_exception
     # Quality escape can waive PARTIAL aux only (not bare MISSING with zero domains).
-    # Requires theme/live-soft substance so hollow seed-soft names (7/23 山金) cannot waive.
     # R2 edge (2026-07-26 full_mainboard re-eval): Haixing-style residual leak —
     # weak theme core + PROXY limitup class must not quality-escape
     # past mainboard aux hard. Strong-theme partial path stays via
@@ -1939,17 +1827,6 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
     )
     signals['quality_escape_partial_aux_edge_block'] = quality_escape_partial_aux_edge_block
     signals['quality_escape_partial_aux_exception'] = quality_escape_partial_aux_exception
-    trusted_sszcw_stock_partial_aux_exception = bool(
-        board == 'main'
-        and auxiliary_status_normalized == 'PARTIAL'
-        and trusted_sszcw_stock_confirmation
-        and t1_profit_evidence_pass
-        and not regulatory_block
-        and not opportunity_block
-        and (safe_float(signals.get('risk_notice_penalty')) or 0.0) < 0.60
-        and not signals.get('limitup_reason_hard_block')
-    )
-    signals['trusted_sszcw_stock_partial_aux_exception'] = trusted_sszcw_stock_partial_aux_exception
     # Strong continuation candidates can be valid despite an empty theme
     # vector. Keep this escape inside the production eligibility chain and
     # require T+1 evidence, capital confirmation, and current buyability.
@@ -2000,7 +1877,6 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
         or stock_level_limitup_expectation_pass
         or strong_sector_theme_partial_aux_exception
         or quality_escape_partial_aux_exception
-        or trusted_sszcw_stock_partial_aux_exception
         or strong_hollow_theme_confirmation_escape
         or limitup_continuation.get('eligible')
     )
@@ -2028,9 +1904,6 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
         missing_conditions.append('mainboard_auxiliary_evidence_status=PASS')
     low_score_without_direct_catalyst_confirmation = False
     signals['low_score_without_direct_catalyst_confirmation'] = False
-    if historical_failure_mode_soft_block:
-        blockers.append('historical_failure_mode_soft_context_block')
-        missing_conditions.append('soft_context_history_requires_direct_confirmation')
     if weak_market_requires_direct_confirmation and not main_force_behavior_mode:
         blockers.append('weak_market_requires_direct_confirmation')
         missing_conditions.append(
@@ -2158,24 +2031,11 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
             )
         ]
 
-    # P1 tight: high_chase_soft waive only for sszcw favored + quality/partial_aux path.
-    sszcw_high_chase_quality_exception = bool(
-        sszcw_favored_quality_escape
-        and (
-            quality_escape_partial_aux_exception
-            or direct_catalyst_confirmation
-            or strong_sector_theme_partial_aux_exception
-        )
-        and not regulatory_block
-    )
-    signals['sszcw_high_chase_quality_exception'] = sszcw_high_chase_quality_exception
-
     is_high_position = candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
     if is_high_position and weak_acceptance_market and not (
         strong_high_momentum_continuation_pass
         or stock_level_limitup_expectation_pass
-        or sszcw_high_chase_quality_exception
-        or trusted_sszcw_stock_partial_aux_exception
+        or quality_escape_partial_aux_exception
         or profit_structure_high_chase_escape
         or limitup_continuation.get('eligible')
     ):

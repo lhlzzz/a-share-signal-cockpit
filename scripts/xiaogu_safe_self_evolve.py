@@ -87,17 +87,16 @@ def propose_nudges(closure: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     selected = str(shadow.get("selected_candidate_variant") or gate.get("selected_shadow_variant") or "")
     primary_blocker = str(limitup.get("primary_blocker") or "")
-    # Optional regime hint from closure / sszcw soft (never free-form outside table).
+    # Regime hint comes from the production closure market state.
     regime_hint = ""
     try:
         from xiaogu_regime_policy import classify_production_regime, preferred_shadow_variant
 
-        soft = {}
         cg = closure.get("cohort_gates") if isinstance(closure.get("cohort_gates"), dict) else {}
-        soft = cg.get("pre_pick_market_context_soft") if isinstance(cg.get("pre_pick_market_context_soft"), dict) else {}
-        if not soft:
-            soft = closure.get("pre_pick_market_context_soft") if isinstance(closure.get("pre_pick_market_context_soft"), dict) else {}
-        regime_hint = classify_production_regime({}, soft if soft else None)
+        market_context = cg.get("market_context") if isinstance(cg.get("market_context"), dict) else {}
+        if not market_context:
+            market_context = closure.get("market_context") if isinstance(closure.get("market_context"), dict) else {}
+        regime_hint = classify_production_regime(market_context)
         # If gate has no shadow winner, prefer regime's shadow→key mapping.
         if not selected and regime_hint:
             selected = preferred_shadow_variant(regime_hint)

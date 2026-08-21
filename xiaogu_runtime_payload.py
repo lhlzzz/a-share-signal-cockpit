@@ -82,26 +82,12 @@ def slim_eligibility(eligibility: Any) -> Dict[str, Any]:
     signals = eligibility.get('signals') if isinstance(eligibility.get('signals'), dict) else {}
     if signals:
         keep_signal_keys = (
-            'quality_daily_ticket_escape', 'sszcw_favored_quality_escape',
+            'quality_daily_ticket_escape',
             'quality_escape_partial_aux_exception', 'main_theme_core_score',
             'main_theme_alignment_score', 'research_panel_overall',
             'setup_class', 'setup_rank', 'candidate_stage',
-            'soft_context_valid', 'soft_context_source',
-            'pre_pick_market_context_soft',
         )
         slim_signals = {k: signals.get(k) for k in keep_signal_keys if k in signals}
-        pre = slim_signals.get('pre_pick_market_context_soft')
-        if isinstance(pre, dict):
-            slim_signals['pre_pick_market_context_soft'] = {
-                k: pre.get(k)
-                for k in (
-                    'favored_hits', 'risk_hits', 'net_soft_bias', 'confidence',
-                    'high_confidence_favored', 'high_confidence_risk',
-                    'market_stance', 'soft_context_valid', 'soft_context_source',
-                    'hard_gate', 'force_pick',
-                )
-                if k in pre
-            }
         out['signals'] = slim_signals
     return out
 
@@ -212,7 +198,7 @@ def slim_candidate_features(features: Any) -> Dict[str, Any]:
         'selection_outcome', 'selection_outcome_reason', 'buy_plan', 'sell_plan',
         'structured_reasons', 'risk_factors', 'failure_conditions',
         'evidence_card', 'similar_cases', 'main_theme_source',
-        'leader_chain_score', 'soft_context_valid', 'soft_context_source',
+        'leader_chain_score',
         'score_delta', 'native_runtime_summary',
         'candidate_bundle_path', 'scan_age_minutes',
         'account_available_cash', 'paper_one_lot_cost_cap',
@@ -257,7 +243,6 @@ def slim_features_for_recorder(features: Any) -> Dict[str, Any]:
         'evidence_card', 'similar_cases', 'single_target_card',
         'official_explanation_summary', 'source_consumption_summary',
         'repo_contribution_summary', 'score_delta_by_repo',
-        'soft_context_valid', 'soft_context_source', 'pre_pick_market_context_soft',
         'payload_policy', 'runtime_payload_bytes', 'rss_mb_at_write',
     ):
         if key in features and features[key] is not None:

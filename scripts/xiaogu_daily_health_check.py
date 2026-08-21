@@ -92,7 +92,7 @@ def _direct_network_hits(path: str, *, eastmoney_only: bool = False):
     return hits
 
 
-def check_official_pre_pick_direct_network_boundary():
+def check_official_scanner_direct_network_boundary():
     paths = [SCANNER_FILE, RUNNER_FILE, DAILY_PIPELINE_FILE, SCHEDULER_FILE]
     hits = []
     for path in paths:
@@ -238,7 +238,7 @@ CHECKS = [
     ("runner_py_compile",               check_runner_py_compile),
     ("filler_py_compile",               check_filler_py_compile),
     ("api_scanner_identity",            check_api_scanner_identity),
-    ("official_pre_pick_direct_network_boundary", check_official_pre_pick_direct_network_boundary),
+    ("official_scanner_direct_network_boundary", check_official_scanner_direct_network_boundary),
     ("post_pick_sidecar_direct_network_boundary", check_post_pick_sidecar_direct_network_boundary),
     ("api_scanner_has_no_direct_urllib_fallback", check_api_scanner_has_no_direct_urllib_fallback),
     ("external_market_api_snapshot",    check_external_market_api_snapshot),

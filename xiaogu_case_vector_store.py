@@ -246,14 +246,6 @@ def _numeric_as_text(
     add('sector', 'sector_opportunity_score')
     add('pct', 'signal_pct', 'pct_chg')
     add('rank', 'rank')
-    soft = card.get('soft_context') if isinstance(card.get('soft_context'), dict) else {}
-    if soft.get('net_soft_bias') is not None:
-        try:
-            bits.append(f'soft={float(soft.get("net_soft_bias")):.4f}')
-        except (TypeError, ValueError):
-            pass
-    if soft.get('favored_hits'):
-        bits.append('favored ' + ' '.join(str(x) for x in list(soft['favored_hits'])[:5]))
     return ' '.join(bits)
 
 
@@ -310,12 +302,7 @@ def _numeric_features_from_payload(
     theme = f('main_theme_core_score', 'main_theme_alignment_score', default=0.0)
     sector = f('sector_opportunity_score', default=0.0)
     pct = f('signal_pct', 'pct_chg', default=0.0)
-    soft = card.get('soft_context') if isinstance(card.get('soft_context'), dict) else {}
-    soft_bias = 0.0
-    try:
-        soft_bias = float(soft.get('net_soft_bias') or soft.get('confidence') or 0.0)
-    except (TypeError, ValueError):
-        soft_bias = 0.0
+    continuation = f('continuation_gene_score', default=0.0)
     t1 = f('t1_return', default=0.0)
     rank = f('rank', default=50.0)
     return [
@@ -324,7 +311,7 @@ def _numeric_features_from_payload(
         max(-1.0, min(1.0, theme)),
         max(-1.0, min(1.0, sector)),
         max(-1.0, min(1.0, pct / 10.0)),
-        max(-1.0, min(1.0, soft_bias)),
+        max(-1.0, min(1.0, continuation)),
         max(-1.0, min(1.0, t1)),
         max(0.0, min(1.0, 1.0 - (rank / 50.0))),
     ]
@@ -346,11 +333,6 @@ def case_text_from_pick(
         items = card.get(key) or []
         if isinstance(items, list):
             parts.extend(str(x) for x in items[:4])
-    soft = card.get('soft_context') if isinstance(card.get('soft_context'), dict) else {}
-    if soft.get('favored_hits'):
-        parts.append('favored ' + ' '.join(str(x) for x in soft['favored_hits'][:5]))
-    if soft.get('stance') or soft.get('market_stance'):
-        parts.append(str(soft.get('stance') or soft.get('market_stance')))
     feat = features or {}
     for key in (
         'industry', 'sector', 'predicted_sector', 'main_theme',

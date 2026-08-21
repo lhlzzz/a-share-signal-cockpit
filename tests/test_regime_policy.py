@@ -25,28 +25,15 @@ def test_classify_strong_weak_sideways():
     assert classify_production_regime({"market_regime": "neutral"}) == "sideways"
 
 
-def test_classify_climax_and_no_main_from_soft():
+def test_classify_climax_from_market_state():
     assert (
         classify_production_regime(
             {"market_regime": "neutral", "overheated_market": True},
-            None,
         )
         == "climax"
     )
-    assert (
-        classify_production_regime(
-            {"market_regime": "weak", "weak_acceptance_market": True},
-            {"mainline_stage_hint": "NO_MAIN"},
-        )
-        == "no_main"
-    )
-    assert (
-        classify_production_regime(
-            {"market_regime": "strong", "supportive_market": True},
-            {"mainline_stage_hint": "CLIMAX"},
-        )
-        == "climax"
-    )
+    assert classify_production_regime({"market_regime": "weak", "weak_acceptance_market": True}) == "weak"
+    assert classify_production_regime({"market_regime": "strong", "supportive_market": True}) == "strong"
 
 
 def test_thresholds_legacy_weak_supportive_overheated_numbers():
@@ -72,19 +59,16 @@ def test_sector_gate_by_regime():
     assert sector_gate_threshold_for_market({"market_regime": "weak", "weak_acceptance_market": True}) == 0.2
     assert sector_gate_threshold_for_market({"market_regime": "strong", "supportive_market": True}) == 0.5
     assert sector_gate_threshold_for_market({"market_regime": "neutral"}) == 0.4
-    ctx = attach_regime_to_context(
-        {"market_regime": "weak", "weak_acceptance_market": True},
-        {"mainline_stage_hint": "NO_MAIN"},
-    )
-    assert ctx["production_regime"] == "no_main"
-    assert sector_gate_threshold_for_market(ctx) == 0.15
+    ctx = attach_regime_to_context({"market_regime": "weak", "weak_acceptance_market": True})
+    assert ctx["production_regime"] == "weak"
+    assert sector_gate_threshold_for_market(ctx) == 0.2
 
 
 def test_preferred_shadow_and_escape_floor():
     assert preferred_shadow_variant("strong") == "limitup_gene_shadow_plus"
     assert preferred_shadow_variant("weak") == "weak_market_defensive_shadow"
     assert preferred_shadow_variant("climax") == "risk_penalty_shadow_plus"
-    assert quality_escape_score_floor({"production_regime": "no_main"}) == 62.0
+    assert quality_escape_score_floor({"production_regime": "weak"}) == 65.0
     assert quality_escape_score_floor({"production_regime": "climax"}) == 72.0
 
 

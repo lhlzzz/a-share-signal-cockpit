@@ -732,7 +732,7 @@ def _candidate_entry_evidence(row: Dict[str, Any]) -> Dict[str, Any]:
     social_evidence = _first_json_value(
         containers,
         "social_evidence",
-        _first_json_value(containers, "blogger_evidence", _first_json_value(containers, "sszcw_evidence", [])),
+        _first_json_value(containers, "blogger_evidence", []),
     ) or []
     macro_evidence = _first_json_value(
         containers,
@@ -2163,7 +2163,6 @@ def get_dashboard_overview(
             "candidate_policy": "主力行为链按事件催化、板块承载、直接资金确认、T+1空间和派发风险排序",
             "limitup_policy": "当日涨停/封死不可交易标的不得进入可交易候选池",
             "underwater_policy": "T 日下跌票不直接排除，必须通过最新主力行为链门禁",
-            "sszcw": "软上下文，仅作解释与排序辅助，不强制出票",
         },
     }
 

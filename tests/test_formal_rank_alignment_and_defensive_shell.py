@@ -10,24 +10,6 @@ from tests.test_xiaogu_a_share_forward_runner import (
 )
 
 
-def _defensive_ctx():
-    return {
-        'favored_sectors': ['电力'],
-        'risk_sectors': [],
-        'confidence': 0.75,
-        'market_stance': 'DEFENSIVE_ROTATION',
-        'selected_for_production': False,
-        'soft_context_valid': True,
-        'high_confidence_allowed': True,
-        'post_count': 8,
-        'live_post_count': 4,
-        'seed_post_count': 0,
-        'cache_post_count': 4,
-        'soft_context_source': 'live',
-        'asof': '2026-07-28',
-    }
-
-
 def _strict_bundle(candidates):
     ranked = runner.apply_formal_profit_ranks([dict(candidate) for candidate in candidates])
     return {
@@ -124,14 +106,6 @@ def test_apply_formal_profit_ranks_preserves_pool_rank_and_rewrites_rank():
         'continuation_gene_score': 0.0,
         'structured_priority_score': 90.0,
         'capital_risk_profile': {'risk_penalty_score': 0.0},
-        'pre_pick_market_context_soft': {
-            'market_stance': 'DEFENSIVE_ROTATION',
-            'soft_context_valid': True,
-            'confidence': 0.7,
-            'soft_boost': 0.0,
-            'soft_penalty': 0.0,
-            'net_soft_bias': 0.0,
-        },
     }
     profit = {
         'symbol': '000428',
@@ -149,14 +123,6 @@ def test_apply_formal_profit_ranks_preserves_pool_rank_and_rewrites_rank():
             'sector_matches': [{'count': 3}],
         },
         'capital_risk_profile': {'risk_penalty_score': 0.0},
-        'pre_pick_market_context_soft': {
-            'market_stance': 'DEFENSIVE_ROTATION',
-            'soft_context_valid': True,
-            'confidence': 0.7,
-            'soft_boost': 0.0,
-            'soft_penalty': 0.0,
-            'net_soft_bias': 0.0,
-        },
     }
     ordered = runner.apply_formal_profit_ranks([shell, profit])
     by_sym = {row['symbol']: row for row in ordered}
@@ -414,13 +380,13 @@ def test_production_lifecycle_ignores_later_horizon_payoffs(monkeypatch):
     assert profile['setup_class'] != 'DELAYED_SETUP'
 
 
-def test_defensive_stance_adds_pe0_shell_penalty(monkeypatch):
+def test_defensive_stance_adds_pe0_shell_penalty():
     """P2: DEFENSIVE + pe=0 + hot fund → defensive_pe0_hot_fund_shell soft penalty."""
-    monkeypatch.setattr(runner, 'load_pre_pick_market_context', lambda trade_date='': _defensive_ctx())
     shell = {
         'symbol': '002487',
         'name': '大金重工',
         'trade_date': '2026-07-27',
+        'market_stance': 'DEFENSIVE_ROTATION',
         'price': 22.0,
         'signal_pct': 6.15,
         'fund_flow_momentum': 0.90,
@@ -568,7 +534,6 @@ def test_rank_alignment_diagnostic_exposes_pool_vs_formal():
 
 def test_first_clean_formal_challenge_replaces_pe0_shell(monkeypatch):
     """P2: layer-order pe=0 shell can be challenged by formal profit-edge clean row."""
-    monkeypatch.setattr(runner, 'load_pre_pick_market_context', lambda trade_date='': _defensive_ctx())
     required, enhanced = full_candidate_evidence_counts()
 
     def _eligible_ok(row, bundle):
@@ -639,9 +604,8 @@ def test_first_clean_formal_challenge_replaces_pe0_shell(monkeypatch):
     assert 'formal_rank_replaced_layer_order' in str(meta.get('challenge_reason') or '')
 
 
-def test_build_daily_ticket_search_rows_stamps_formal_rank(monkeypatch):
+def test_build_daily_ticket_search_rows_stamps_formal_rank():
     """Search path stamps formal ranks on enriched pool (P0/P1 wire)."""
-    monkeypatch.setattr(runner, 'load_pre_pick_market_context', lambda trade_date='': _defensive_ctx())
     required, enhanced = full_candidate_evidence_counts()
     low = make_candidate(
         '600900',

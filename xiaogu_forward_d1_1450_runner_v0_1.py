@@ -92,13 +92,6 @@ NO_PICK_DIAGNOSTIC_CANDIDATE_LIMIT = 8
 MAX_SCAN_STALENESS_MINUTES = 120
 # No fixed account-size or price cap belongs to the production chain.
 # A real account snapshot may still provide an execution-only cash check.
-# Soft pre-pick market-direction context (@sszcw 5d + leader-chain alignment). Never hard-forces picks.
-PRE_PICK_MARKET_CONTEXT_PATHS = (
-    BASE / 'summary' / 'sszcw_market_context_latest.json',
-    BASE / 'data' / 'sszcw' / 'latest.json',
-)
-SSZCW_PRE_PICK_WINDOW_DAYS = 3
-SSZCW_PRE_PICK_HANDLES = ('sszcw',)
 DEFAULT_ACCOUNT_SNAPSHOT_PATH = BASE / 'data' / 'account_snapshot' / 'latest.json'
 WEAK_MARKET_SHADOW_BREADTH_GATE = 20.0
 SCAN_SUMMARY_NAME = 'xiaogu_scan_summary.json'
@@ -3690,91 +3683,6 @@ def signal_stage_bucket(signal_pct: Any) -> str:
     return 'near_limit_9_plus'
 
 
-@lru_cache(maxsize=4)
-def load_pre_pick_market_context(trade_date: str = '') -> Dict[str, Any]:
-    """Load soft pre-pick market direction (sszcw 5d). Missing file => empty diagnostic."""
-    candidates = []
-    if trade_date:
-        candidates.append(BASE / 'summary' / f'sszcw_market_context_{trade_date}.json')
-        candidates.append(BASE / 'data' / 'sszcw' / f'market_context_{trade_date}.json')
-    candidates.extend(PRE_PICK_MARKET_CONTEXT_PATHS)
-    for path in candidates:
-        try:
-            if path.exists():
-                payload = read_json(path)
-                if isinstance(payload, dict) and payload:
-                    payload = dict(payload)
-                    payload['loaded_from'] = str(path)
-                    payload['selected_for_production'] = False
-                    return payload
-        except Exception:
-            continue
-    return {
-        'asof': trade_date or '',
-        'favored_sectors': [],
-        'risk_sectors': [],
-        'market_stance': 'MISSING',
-        'confidence': 0.0,
-        'selected_for_production': False,
-        'loaded_from': '',
-    }
-
-
-def ensure_pre_pick_market_context(trade_date: str = '') -> Dict[str, Any]:
-    """Refresh @sszcw immediately before issuance and return that snapshot.
-
-    The issuance path must not silently reuse yesterday's social context. Fetch
-    the last three days for @sszcw first, then let the builder merge live inbox
-    and non-seed cache. Seed data is deliberately excluded from this path.
-    """
-    trade_date = str(trade_date or '').strip()
-    context = load_pre_pick_market_context(trade_date)
-    if not trade_date:
-        return context
-    try:
-        from scripts.xiaogu_sszcw_market_context import build_context, write_outputs, _parse_date
-
-        asof = _parse_date(trade_date)
-        # Keep compatibility with older test doubles while production always
-        # requests a live three-day @sszcw refresh.
-        try:
-            payload = build_context(
-                asof,
-                days=SSZCW_PRE_PICK_WINDOW_DAYS,
-                seed=False,
-                prefer_live=True,
-                handles=SSZCW_PRE_PICK_HANDLES,
-            )
-        except TypeError:
-            try:
-                payload = build_context(
-                    asof,
-                    days=SSZCW_PRE_PICK_WINDOW_DAYS,
-                    seed=False,
-                    prefer_live=True,
-                )
-            except TypeError:
-                payload = build_context(
-                    asof,
-                    days=SSZCW_PRE_PICK_WINDOW_DAYS,
-                    seed=False,
-                )
-        payload = dict(payload) if isinstance(payload, dict) else {}
-        payload['pre_pick_refresh'] = True
-        payload['pre_pick_window_days'] = SSZCW_PRE_PICK_WINDOW_DAYS
-        payload['pre_pick_handles'] = list(SSZCW_PRE_PICK_HANDLES)
-        payload['pre_pick_seed_allowed'] = False
-        write_outputs(payload, asof)
-        load_pre_pick_market_context.cache_clear()
-        return load_pre_pick_market_context(trade_date)
-    except Exception as exc:
-        context = dict(context) if isinstance(context, dict) else {}
-        context['ensure_error'] = str(exc)
-        context['selected_for_production'] = False
-        context['soft_context_valid'] = False
-        return context
-
-
 @lru_cache(maxsize=128)
 def _historical_t1_return_map_for_date(trade_date: str) -> Dict[str, float]:
     trade_date = str(trade_date or '')[:10]
@@ -3795,140 +3703,9 @@ def _historical_t1_return_map_for_date(trade_date: str) -> Dict[str, float]:
     }
 
 
-@lru_cache(maxsize=1)
-def load_soft_context_failure_mode_history() -> Dict[str, Any]:
-    """Load historical failure modes for soft pre-pick context from top10 knowledge assets.
-
-    The source of truth is historical top10 knowledge outputs joined to DB T+1 returns.
-    We only use it as a soft reality check, never as a hard gate.
-    """
-    failure_modes = {
-        'weak_market_requires_direct_confirmation': {'count': 0, 'wins': 0, 'returns': []},
-        'low_score_without_direct_catalyst_confirmation': {'count': 0, 'wins': 0, 'returns': []},
-    }
-    summary_dir = BASE / 'summary'
-    if not summary_dir.exists():
-        return {'status': 'MISSING', 'failure_modes': failure_modes, 'sample_count': 0}
-    summary_paths = sorted(summary_dir.glob('*_top10_knowledge.json'))
-    for path in summary_paths:
-        date_match = re.search(r'(\d{4}-\d{2}-\d{2})_top10_knowledge\.json$', path.name)
-        if not date_match:
-            continue
-        trade_date = date_match.group(1)
-        return_map = _historical_t1_return_map_for_date(trade_date)
-        try:
-            payload = read_json(path)
-        except Exception:
-            continue
-        rows = payload.get('top10') if isinstance(payload, dict) else []
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            symbol = str(row.get('symbol') or '').zfill(6)[-6:]
-            t1 = row.get('t1_return')
-            if t1 is None and symbol:
-                t1 = return_map.get(symbol)
-            if t1 is None:
-                continue
-            try:
-                t1 = float(t1)
-            except Exception:
-                continue
-            reason_text = ' '.join([
-                str(row.get('selection_reason') or ''),
-                ' '.join(str(item) for item in (row.get('not_selected_reason') or []) if item),
-            ])
-            for mode in failure_modes:
-                if mode in reason_text:
-                    bucket = failure_modes[mode]
-                    bucket['count'] += 1
-                    bucket['wins'] += 1 if t1 > 0 else 0
-                    bucket['returns'].append(t1)
-    normalized: Dict[str, Any] = {}
-    total_samples = 0
-    for mode, bucket in failure_modes.items():
-        count = int(bucket['count'])
-        total_samples += count
-        avg_return = round(sum(bucket['returns']) / count, 6) if count else None
-        win_rate = round(bucket['wins'] / count, 4) if count else None
-        normalized[mode] = {
-            'count': count,
-            'wins': int(bucket['wins']),
-            'avg_return': avg_return,
-            'win_rate': win_rate,
-            'status': 'PASS' if count else 'INSUFFICIENT_SAMPLES',
-        }
-    return {
-        'status': 'PASS' if total_samples else 'EMPTY',
-        'sample_count': total_samples,
-        'failure_modes': normalized,
-        'source_count': len(summary_paths),
-    }
-
-
-def soft_context_failure_mode_reality_check(
-    row: Dict[str, Any],
-    context: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
-    """Convert historical soft-context failure modes into a bounded soft penalty."""
-    eligibility = row.get('paper_pick_eligibility') if isinstance(row.get('paper_pick_eligibility'), dict) else {}
-    blockers = [str(item) for item in (eligibility.get('blockers') or []) if item]
-    current_score = safe_float(row.get('final_score') if row.get('final_score') is not None else row.get('score')) or 0.0
-    market_regime = str(row.get('market_regime') or row.get('production_regime') or '')
-    if not blockers and market_regime == 'weak' and current_score < 70:
-        blockers.append('weak_market_requires_direct_confirmation')
-
-    history = load_soft_context_failure_mode_history()
-    failure_modes = history.get('failure_modes') if isinstance(history.get('failure_modes'), dict) else {}
-    penalty = 0.0
-    reasons: List[str] = []
-    for blocker, cap in (
-        ('weak_market_requires_direct_confirmation', 0.90),
-        ('low_score_without_direct_catalyst_confirmation', 0.60),
-    ):
-        if blocker not in blockers:
-            continue
-        stats = failure_modes.get(blocker) if isinstance(failure_modes.get(blocker), dict) else {}
-        count = int(stats.get('count') or 0)
-        avg_return = safe_float(stats.get('avg_return'))
-        win_rate = safe_float(stats.get('win_rate'))
-        if count < 5 or (avg_return is not None and avg_return > 0 and (win_rate is None or win_rate >= 0.5)):
-            continue
-        severity = 0.0
-        if avg_return is not None and avg_return < 0:
-            severity += min(1.0, abs(avg_return) * 12.0)
-        if win_rate is not None and win_rate < 0.5:
-            severity += min(1.0, (0.5 - win_rate) * 3.0)
-        severity = max(0.25, min(1.0, severity))
-        blocker_penalty = min(cap, 0.18 + severity * (0.48 if blocker == 'weak_market_requires_direct_confirmation' else 0.36))
-        penalty += blocker_penalty
-        reasons.append(
-            f'{blocker}:count={count},avg_return={avg_return if avg_return is not None else "n/a"},win_rate={win_rate if win_rate is not None else "n/a"}'
-        )
-
-    if penalty <= 0:
-        return {
-            'status': 'NEUTRAL',
-            'sample_count': int(history.get('sample_count') or 0),
-            'penalty': 0.0,
-            'reasons': [],
-            'history': history,
-        }
-
-    return {
-        'status': 'PASS',
-        'sample_count': int(history.get('sample_count') or 0),
-        'penalty': round(min(1.2, penalty), 4),
-        'reasons': reasons,
-        'history': history,
-    }
-
-
-# sszcw favored/risk theme synonyms so soft matching is not literal-token only.
-# e.g. 山金国际 tags=黄金 should hit favored 贵金属.
-SSZCW_THEME_SYNONYMS: Dict[str, Tuple[str, ...]] = {
+# Mainline theme synonyms keep sector/fund-flow matching explainable and
+# independent of any external social feed.
+MAINLINE_THEME_SYNONYMS: Dict[str, Tuple[str, ...]] = {
     '贵金属': ('贵金属', '黄金', '白银', '金银', '金矿', '有色金属'),
     '油气': ('油气', '石油', '原油', '天然气', '油服', '海油', '炼化'),
     '有色': ('有色', '有色金属', '铜', '铝', '锌', '铅', '锡', '小金属', '锂'),
@@ -3967,15 +3744,15 @@ def candidate_theme_text(row: Dict[str, Any]) -> str:
     return ' '.join(parts)
 
 
-def sszcw_theme_token_hits(themes: List[str], text: str) -> List[str]:
-    """Match favored/risk themes with synonym expansion; preserve theme order."""
+def theme_token_hits(themes: List[str], text: str) -> List[str]:
+    """Match mainline themes with bounded synonym expansion."""
     hits: List[str] = []
     text = str(text or '')
     for theme in themes:
         theme = str(theme or '').strip()
         if not theme:
             continue
-        synonyms = SSZCW_THEME_SYNONYMS.get(theme, (theme,))
+        synonyms = MAINLINE_THEME_SYNONYMS.get(theme, (theme,))
         if any(token and token in text for token in synonyms):
             hits.append(theme)
     return hits
@@ -4148,7 +3925,7 @@ def soft_mainline_fund_bias(
     ctx = mainline_ctx if isinstance(mainline_ctx, dict) else load_mainline_fund_flow_context(trade_date)
     tags = [str(t) for t in (ctx.get('mainline_tags') or []) if t]
     text = candidate_theme_text(row)
-    hits = sszcw_theme_token_hits(tags, text) if tags else []
+    hits = theme_token_hits(tags, text) if tags else []
     # Rank position among mainline tags (earlier industry tags weigh more).
     rank_boost = 0.0
     for i, tag in enumerate(tags[:8]):
@@ -4168,182 +3945,6 @@ def soft_mainline_fund_bias(
         'hard_gate': False,
         'force_pick': False,
         'selected_for_production': False,
-    }
-
-
-def soft_sector_bias_from_pre_pick_context(row: Dict[str, Any], context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """Elevated soft ranking bias from @sszcw 5d context. Not a hard gate / not force-pick.
-
-    Importance is intentionally high (method-grade rotation signal) but still soft:
-    hard gates, capital risk, and quality evidence still own official PAPER_PICK.
-
-    Soft context validity: seed-only / missing / insufficient posts cannot claim
-    high_confidence (prevents systematic PARTIAL+escape widen when context is wrong).
-    """
-    trade_date = str(row.get('trade_date') or row.get('date') or '')
-    context = context if isinstance(context, dict) else load_pre_pick_market_context(trade_date)
-    favored = [str(item) for item in (context.get('favored_sectors') or []) if item]
-    risk = [str(item) for item in (context.get('risk_sectors') or []) if item]
-    text = candidate_theme_text(row)
-    favored_hits = sszcw_theme_token_hits(favored, text)
-    risk_hits = sszcw_theme_token_hits(risk, text)
-    # Reply Q&A stock soft: if he answered bullish/bearish on this symbol/name, elevate soft bias.
-    # Still not a hard gate / not force-pick.
-    stock_soft = context.get('stock_soft_from_replies') if isinstance(context.get('stock_soft_from_replies'), dict) else {}
-    trusted_stock = context.get('trusted_stock_predictions') if isinstance(context.get('trusted_stock_predictions'), dict) else {}
-    symbol = str(row.get('symbol') or row.get('code') or '').zfill(6)[-6:]
-    name = str(row.get('stock_name') or row.get('name') or '')
-    reply_bull = [str(x) for x in (stock_soft.get('soft_bullish_stocks') or [])]
-    reply_bear = [str(x) for x in (stock_soft.get('soft_bearish_stocks') or [])]
-    reply_stock_bull_hit = bool(
-        (symbol and any(symbol in str(x) or str(x) == symbol for x in reply_bull))
-        or (name and any(name in str(x) or str(x) in name for x in reply_bull))
-    )
-    reply_stock_bear_hit = bool(
-        (symbol and any(symbol in str(x) or str(x) == symbol for x in reply_bear))
-        or (name and any(name in str(x) or str(x) in name for x in reply_bear))
-    )
-    trusted_bull = [str(x) for x in (trusted_stock.get('bullish_stocks') or [])]
-    trusted_bear = [str(x) for x in (trusted_stock.get('bearish_stocks') or [])]
-    trusted_stock_bull_hit = bool(
-        (symbol and any(symbol == str(x).zfill(6)[-6:] for x in trusted_bull))
-        or (name and any(name == str(x) or str(x) in name for x in trusted_bull))
-    )
-    trusted_stock_bear_hit = bool(
-        (symbol and any(symbol == str(x).zfill(6)[-6:] for x in trusted_bear))
-        or (name and any(name == str(x) or str(x) in name for x in trusted_bear))
-    )
-    confidence = float(safe_float(context.get('confidence')) or 0.0)
-    stance = str(context.get('market_stance') or '')
-    soft_source = str(context.get('soft_context_source') or context.get('source') or '')
-    live_posts = int(context.get('live_post_count') or 0)
-    seed_posts = int(context.get('seed_post_count') or 0)
-    cache_posts = int(context.get('cache_post_count') or 0)
-    post_count = int(context.get('post_count') or 0)
-    reply_posts = int(context.get('reply_post_count') or 0)
-    qa_count = int(context.get('qa_count') or 0)
-    # Explicit validity from builder when present; else recompute bounds.
-    # Older context JSON may lack soft_context_valid/post_count — still allow soft
-    # matching when stance+sectors present, but high-confidence needs live/cache.
-    if 'soft_context_valid' in context:
-        soft_context_valid = bool(context.get('soft_context_valid'))
-    else:
-        soft_context_valid = bool(
-            stance not in ('', 'MISSING', 'INSUFFICIENT_POSTS')
-            and (favored or risk)
-            and (post_count > 0 or confidence >= 0.60)
-        )
-    if 'high_confidence_allowed' in context:
-        high_confidence_allowed = bool(context.get('high_confidence_allowed'))
-    else:
-        # Seed-only cannot high-confidence; need live or cache posts.
-        # Unit/mock contexts often omit post counters: allow high-confidence when
-        # confidence>=0.60, soft_context_valid, and not seed-only (no live/cache).
-        high_confidence_allowed = bool(
-            soft_context_valid
-            and confidence >= 0.60
-            and (
-                live_posts > 0
-                or cache_posts > 0
-                or (
-                    post_count == 0
-                    and seed_posts == 0
-                    and stance not in ('', 'MISSING', 'INSUFFICIENT_POSTS')
-                )
-            )
-            and not (live_posts == 0 and seed_posts > 0 and cache_posts == 0)
-        )
-    # As-of drift: if context date far from trade_date, mark invalid for high-conf escape.
-    ctx_asof = str(context.get('asof') or '')[:10]
-    if trade_date and ctx_asof and trade_date[:10] != ctx_asof:
-        try:
-            d0 = dt.date.fromisoformat(trade_date[:10])
-            d1 = dt.date.fromisoformat(ctx_asof)
-            if abs((d0 - d1).days) > 1:
-                soft_context_valid = False
-                high_confidence_allowed = False
-        except ValueError:
-            pass
-    conf_scale = max(0.45, min(1.0, confidence if confidence > 0 else 0.45))
-    if not soft_context_valid:
-        conf_scale = min(conf_scale, 0.40)
-    # Elevate when sszcw is in a clear defensive / risk-off rotation call.
-    stance_mult = 1.0
-    if stance in ('DEFENSIVE_ROTATION', 'AVOID_CLIMAX_TECH'):
-        stance_mult = 1.25
-    elif stance == 'RISK_OFF_TECH_DEFENSIVE':
-        stance_mult = 1.40
-    elif stance in ('WATCH', 'NO_MAIN'):
-        stance_mult = 1.15
-    if not soft_context_valid:
-        stance_mult = min(stance_mult, 1.0)
-    # Per-hit weight raised so sszcw can overturn weak sector noise without hard-forcing.
-    boost = min(1.45, 0.55 * len(favored_hits) * conf_scale * stance_mult)
-    penalty = min(1.25, 0.50 * len(risk_hits) * conf_scale * stance_mult)
-    # Stock-level reply answers: smaller additive soft nudge (name/code match only).
-    if reply_stock_bull_hit and soft_context_valid:
-        boost = min(1.55, boost + 0.35 * conf_scale)
-    if reply_stock_bear_hit and soft_context_valid:
-        penalty = min(1.35, penalty + 0.35 * conf_scale)
-    # @sszcw explicit stock calls are trusted direct confirmation. They still
-    # need T+1 price/flow structure in the eligibility gate below.
-    if trusted_stock_bull_hit and soft_context_valid:
-        boost = min(1.75, boost + 0.75 * conf_scale)
-    if trusted_stock_bear_hit and soft_context_valid:
-        penalty = min(1.55, penalty + 0.75 * conf_scale)
-    if not soft_context_valid:
-        boost = min(boost, 0.35)
-        penalty = min(penalty, 0.35)
-    high_confidence_favored = bool(
-        favored_hits and confidence >= 0.60 and high_confidence_allowed and soft_context_valid
-    )
-    high_confidence_risk = bool(
-        risk_hits and confidence >= 0.60 and high_confidence_allowed and soft_context_valid
-    )
-    reality = soft_context_failure_mode_reality_check(row, context)
-    historical_failure_mode_penalty = float(safe_float(reality.get('penalty')) or 0.0)
-    historical_failure_mode_reasons = list(reality.get('reasons') or [])
-    if historical_failure_mode_penalty > 0:
-        boost = max(0.0, boost - historical_failure_mode_penalty)
-        penalty = min(1.35, penalty + historical_failure_mode_penalty)
-        if historical_failure_mode_penalty >= 0.45:
-            high_confidence_favored = False
-    return {
-        'favored_hits': favored_hits,
-        'risk_hits': risk_hits,
-        'soft_boost': round(boost, 4),
-        'soft_penalty': round(penalty, 4),
-        'net_soft_bias': round(boost - penalty, 4),
-        'confidence': round(confidence, 4),
-        'stance_mult': round(stance_mult, 3),
-        'high_confidence_favored': high_confidence_favored,
-        'high_confidence_risk': high_confidence_risk,
-        'soft_context_valid': soft_context_valid,
-        'soft_context_source': soft_source or ('seed' if seed_posts else 'unknown'),
-        'historical_failure_mode_penalty': round(historical_failure_mode_penalty, 4),
-        'historical_failure_mode_reasons': historical_failure_mode_reasons,
-        'historical_failure_mode_status': reality.get('status'),
-        'historical_failure_mode_sample_count': int(reality.get('sample_count') or 0),
-        'live_post_count': live_posts,
-        'seed_post_count': seed_posts,
-        'cache_post_count': cache_posts,
-        'reply_post_count': reply_posts,
-        'qa_count': qa_count,
-        'reply_stock_bull_hit': reply_stock_bull_hit,
-        'reply_stock_bear_hit': reply_stock_bear_hit,
-        'trusted_stock_bull_hit': trusted_stock_bull_hit,
-        'trusted_stock_bear_hit': trusted_stock_bear_hit,
-        'trusted_stock_confirmation': bool(
-            trusted_stock_bull_hit and not trusted_stock_bear_hit and soft_context_valid
-        ),
-        'trusted_stock_prediction_source': '@sszcw' if trusted_stock_bull_hit or trusted_stock_bear_hit else '',
-        'high_confidence_allowed': high_confidence_allowed,
-        'importance': 'elevated_sszcw_soft',
-        'market_stance': stance,
-        'index_regime_hint': str(context.get('index_regime_hint') or ''),
-        'selected_for_production': False,
-        'hard_gate': False,
-        'force_pick': False,
     }
 
 
@@ -4457,19 +4058,10 @@ def market_adaptive_context(row: Dict[str, Any], bundle: Dict[str, Any] | None =
         'broken_limit_pressure': broken_limit_pressure,
         'overheated_market': overheated_market,
     }
-    # Soft pre-pick context (sszcw) refines production_regime (climax / no_main).
-    soft = None
-    if isinstance(row, dict):
-        soft = row.get('pre_pick_market_context_soft') or row.get('soft_context')
-    if not isinstance(soft, dict) and isinstance(bundle, dict):
-        soft = bundle.get('pre_pick_market_context_soft') or bundle.get('soft_context')
-        snap = bundle.get('market_snapshot') if isinstance(bundle.get('market_snapshot'), dict) else {}
-        if not isinstance(soft, dict):
-            soft = snap.get('pre_pick_market_context_soft') or snap.get('soft_context')
     try:
         from xiaogu_regime_policy import attach_regime_to_context
 
-        attach_regime_to_context(context, soft if isinstance(soft, dict) else None)
+        attach_regime_to_context(context)
     except Exception:
         context['production_regime'] = (
             'strong' if market_regime == 'strong' else ('weak' if market_regime == 'weak' else 'sideways')
@@ -6381,15 +5973,9 @@ def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
         # Profit-first: hot money without continuation edge is not "strength".
         'hot_fund_shell_without_profit_edge': hot_fund_no_profit * 1.05,
     }
-    pre_pick = soft_sector_bias_from_pre_pick_context(row)
     # P2: under DEFENSIVE / RISK_OFF stances, pe≈0 hot-fund shells get extra soft demotion
     # so utility/defensive survivors do not dominate formal rank / first_clean.
-    stance = str(
-        pre_pick.get('market_stance')
-        or (row.get('pre_pick_market_context_soft') or {}).get('market_stance')
-        or row.get('market_stance')
-        or ''
-    ).upper()
+    stance = str(row.get('market_stance') or '').upper()
     defensive_shell_extra = 0.0
     if stance in ('DEFENSIVE_ROTATION', 'AVOID_CLIMAX_TECH', 'RISK_OFF_TECH_DEFENSIVE'):
         if profit_edge < 0.15 and profit_continuation_soft < 0.20:
@@ -6417,23 +6003,11 @@ def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
         'main_theme_alignment_boost': theme_alignment * 0.35 * alignment_boost_scale,
         'capital_flow_evidence_quality': capital_flow_quality * 0.20,
         'limitup_probability_proxy': limitup_proxy['limitup_probability_proxy'] * 0.55 * limitup_scale,
-        # Elevated soft weight for @sszcw 5d favored sectors (still soft; hard gates own decision).
-        'pre_pick_favored_sector_soft': pre_pick['soft_boost'],
-        # Extra primary-dim-facing soft boost when high-confidence favored hit.
-        'pre_pick_sszcw_confidence_soft': (
-            min(0.55, 0.35 * float(pre_pick.get('confidence') or 0.0))
-            if pre_pick.get('high_confidence_favored') else 0.0
-        ),
         # Day mainline fund-flow alignment (industry/concept net inflow top).
         'mainline_fund_flow_soft': float(mainline_soft.get('soft_boost') or 0.0),
         # Explicit profit-edge boost (gene/mainline/continuation) — not bare limit-up.
         'profit_continuation_soft': round(profit_continuation_soft, 4),
     }
-    penalties['pre_pick_risk_sector_soft'] = pre_pick['soft_penalty']
-    if pre_pick.get('high_confidence_risk'):
-        penalties['pre_pick_sszcw_risk_confidence_soft'] = min(
-            0.50, 0.30 * float(pre_pick.get('confidence') or 0.0)
-        )
     # Similar-loss soft demotion lives in formal_candidate_sort_key via
     # similar_cases_boost (asymmetric weight). Expose meta here for explainability only.
     similar_meta = row.get('similar_cases_meta') if isinstance(row.get('similar_cases_meta'), dict) else {}
@@ -6464,7 +6038,6 @@ def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
         'counter_evidence': counter_evidence,
         **limitup_proxy,
         'paper_pick_risk_explanation_gate': risk_gate,
-        'pre_pick_market_context_soft': pre_pick,
         'mainline_fund_flow_soft': mainline_soft,
         'similar_cases_soft': similar_meta,
         'continuation_gene_evidence': continuation_gene_evidence(row),
@@ -6475,7 +6048,7 @@ def ranking_basis_adjustment_components(row: Dict[str, Any]) -> Dict[str, Any]:
 def ensure_leader_chain_main_theme(row: Dict[str, Any], bundle: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Fill main_theme_* when scanner left 0 so formal sort can compete on leader-chain.
 
-    Does not invent theme from pure price. Uses sector heat + fund + sszcw soft hits.
+    Does not invent theme from pure price. Uses sector heat + fund-flow mainline hits.
     Writes leader_chain_score / main_theme_source onto the row copy return value.
     """
     out = _strip_replay_production_contributions(row)
@@ -6495,11 +6068,9 @@ def ensure_leader_chain_main_theme(row: Dict[str, Any], bundle: Dict[str, Any] |
     close_pos = safe_float(out.get('close_position_score')) or 0.0
     vol = safe_float(out.get('volume_ratio')) or 0.0
     signal_pct = safe_float(out.get('signal_pct')) or 0.0
-    pre = soft_sector_bias_from_pre_pick_context(out)
-    favored_hits = list(pre.get('favored_hits') or [])
     mainline_soft = soft_mainline_fund_bias(out)
     mainline_hits = list(mainline_soft.get('mainline_hits') or [])
-    # Leader-chain proxy when theme core hollow but sector/fund/sszcw/mainline real.
+    # Leader-chain proxy when theme core is hollow but sector/fund/mainline evidence is real.
     leader = 0.0
     if (core or 0.0) < 0.15:
         if sector_opp >= 0.35:
@@ -6510,8 +6081,6 @@ def ensure_leader_chain_main_theme(row: Dict[str, Any], bundle: Dict[str, Any] |
             leader += 0.12
         if signal_pct >= 3.0:
             leader += min(0.12, signal_pct / 40.0)
-        if favored_hits and pre.get('soft_context_valid'):
-            leader += min(0.25, 0.12 * len(favored_hits) * float(pre.get('confidence') or 0.5))
         # Day fund-flow mainline hits: bounded soft leader lift (not hard gate).
         if mainline_hits:
             leader += min(0.28, 0.10 * len(mainline_hits) + float(mainline_soft.get('soft_boost') or 0.0) * 0.35)
@@ -6520,7 +6089,7 @@ def ensure_leader_chain_main_theme(row: Dict[str, Any], bundle: Dict[str, Any] |
     if (core or 0.0) <= 0.0 and leader > 0.0:
         out['main_theme_core_score'] = round(leader, 4)
         out['main_theme_alignment_score'] = round(
-            max(align or 0.0, min(1.0, leader * 0.85 + (0.15 if favored_hits else 0.0))),
+            max(align or 0.0, min(1.0, leader * 0.85)),
             4,
         )
         out['main_theme_source'] = 'leader_chain_proxy'
@@ -6633,18 +6202,13 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
     )
     mainline = adjustment.get('mainline_fund_flow_soft')
     mainline_boost = bounded(mainline.get('soft_boost')) if isinstance(mainline, dict) else 0.0
-    pre_pick = adjustment.get('pre_pick_market_context_soft')
-    pre_pick_bias = bounded(
-        pre_pick.get('net_soft_bias'),
-        1.0,
-    ) if isinstance(pre_pick, dict) and pre_pick.get('soft_context_valid') is not False else 0.0
     similar_boost = safe_float(row.get('similar_cases_boost'))
     if similar_boost is None and isinstance(row.get('similar_cases_meta'), dict):
         similar_boost = safe_float(row['similar_cases_meta'].get('boost'))
     similar_boost = max(-1.0, min(1.0, float(similar_boost or 0.0)))
     production_score = max(
         0.0,
-        positive - negative + mainline_boost * 2.0 + pre_pick_bias * 1.0 + similar_boost * 2.0,
+        positive - negative + mainline_boost * 2.0 + similar_boost * 2.0,
     )
 
     secondary_score = (
@@ -6670,7 +6234,6 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
         round(expected_t1, 6),
         round(main_force_attack_score, 6),
         round(mainline_boost, 6),
-        round(pre_pick_bias, 6),
         round(similar_boost, 6),
         -(safe_float(row.get('rank')) or 999.0),
     )
@@ -9723,13 +9286,7 @@ def main() -> None:
     similar_boost_meta: Dict[str, Any] = {}
     selection_reason_payload: Dict[str, Any] = {}
     try:
-        soft_ctx: Dict[str, Any] = {}
         if isinstance(candidate_features, dict):
-            _elig = candidate_features.get('paper_pick_eligibility') if isinstance(candidate_features.get('paper_pick_eligibility'), dict) else {}
-            _signals = _elig.get('signals') if isinstance(_elig.get('signals'), dict) else {}
-            soft_ctx = _signals.get('pre_pick_market_context_soft') if isinstance(_signals.get('pre_pick_market_context_soft'), dict) else {}
-            if not soft_ctx:
-                soft_ctx = candidate_features.get('pre_pick_market_context_soft') if isinstance(candidate_features.get('pre_pick_market_context_soft'), dict) else {}
             # Prefer cases already attached during formal enrich when present.
             if isinstance(candidate_features.get('similar_cases'), list) and candidate_features.get('similar_cases'):
                 similar_cases = list(candidate_features.get('similar_cases') or [])[:5]
@@ -9746,7 +9303,6 @@ def main() -> None:
         evidence_card = build_compact_evidence_card(
             candidate_features if isinstance(candidate_features, dict) else {},
             features=features,
-            soft_context=soft_ctx,
             similar_cases=similar_cases,
             decision=decision,
             reason=reason,
@@ -9755,10 +9311,7 @@ def main() -> None:
         features['evidence_card'] = evidence_card
         features['similar_cases'] = similar_cases
         features['similar_cases_boost'] = similar_boost_meta
-        features['pre_pick_market_context_soft'] = soft_ctx
         features['selection_reason'] = selection_reason_payload
-        features['soft_context_valid'] = bool(soft_ctx.get('soft_context_valid')) if soft_ctx else False
-        features['soft_context_source'] = soft_ctx.get('soft_context_source') or soft_ctx.get('importance') or ''
         if isinstance(candidate_features, dict):
             candidate_features['evidence_card'] = evidence_card
             candidate_features['similar_cases'] = similar_cases
@@ -10078,7 +9631,6 @@ def main() -> None:
                     metadata={
                         'rule_version': RULE_VERSION,
                         'similar_cases_boost': features.get('similar_cases_boost'),
-                        'soft_context_valid': features.get('soft_context_valid'),
                     },
                     dry_run=bool(args.dry_run),
                 )

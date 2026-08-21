@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Compact one-page evidence card for official picks (digest, not full LLM dump).
-
-Rules + multi-factor only. Bounded soft context (sszcw). Never end-to-end LLM over 400 names.
-"""
+"""Compact one-page evidence card for official picks (digest, not full LLM dump)."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -117,7 +114,7 @@ def _fund_bullets(row: Dict[str, Any]) -> List[str]:
     return bullets[:6]
 
 
-def _theme_bullets(row: Dict[str, Any], soft: Optional[Dict[str, Any]] = None) -> List[str]:
+def _theme_bullets(row: Dict[str, Any]) -> List[str]:
     bullets: List[str] = []
     for key in (
         'main_theme_core_score', 'main_theme_alignment_score', 'leader_chain_score',
@@ -147,15 +144,6 @@ def _theme_bullets(row: Dict[str, Any], soft: Optional[Dict[str, Any]] = None) -
                 'main_theme': '主线',
             }
             bullets.append(f"{labels[key]}：{_clip_text(row.get(key), 40)}")
-    if isinstance(soft, dict):
-        if soft.get('favored_hits'):
-            bullets.append('市场偏好：' + '、'.join(str(x) for x in soft.get('favored_hits')[:4]))
-        if soft.get('risk_hits'):
-            bullets.append('市场风险方向：' + '、'.join(str(x) for x in soft.get('risk_hits')[:4]))
-        if soft.get('market_stance'):
-            bullets.append(f"市场情绪：{_market_stance_zh(soft.get('market_stance'))}")
-        if soft.get('soft_context_valid') is not None:
-            bullets.append(f"市场情绪证据有效：{'是' if soft.get('soft_context_valid') else '否'}")
     return bullets[:10]
 
 
@@ -203,7 +191,6 @@ def build_compact_evidence_card(
     candidate: Dict[str, Any] | None,
     *,
     features: Dict[str, Any] | None = None,
-    soft_context: Dict[str, Any] | None = None,
     similar_cases: List[Dict[str, Any]] | None = None,
     decision: str = '',
     reason: str = '',
@@ -217,14 +204,6 @@ def build_compact_evidence_card(
             row = {**row, **nested}
         else:
             row = {**row, **features}
-    soft = soft_context
-    if soft is None:
-        elig = row.get('paper_pick_eligibility') if isinstance(row.get('paper_pick_eligibility'), dict) else {}
-        signals = elig.get('signals') if isinstance(elig.get('signals'), dict) else {}
-        soft = signals.get('pre_pick_market_context_soft') if isinstance(signals.get('pre_pick_market_context_soft'), dict) else {}
-        if not soft and isinstance(features, dict):
-            soft = features.get('pre_pick_market_context_soft') if isinstance(features.get('pre_pick_market_context_soft'), dict) else {}
-
     symbol = str(row.get('symbol') or row.get('code') or '').zfill(6) if (row.get('symbol') or row.get('code')) else ''
     name = str(row.get('name') or row.get('stock_name') or '')
     score = _f(row.get('final_score') if row.get('final_score') is not None else row.get('score'))
@@ -251,7 +230,7 @@ def build_compact_evidence_card(
         'announcements': _announcement_bullets(row),
         'news': _news_bullets(row),
         'fund_flow': _fund_bullets(row),
-        'main_theme': _theme_bullets(row, soft if isinstance(soft, dict) else None),
+        'main_theme': _theme_bullets(row),
         'profit_evidence': _profit_evidence_bullets(row),
         'risks': _risk_bullets(row),
         'social': {
@@ -260,16 +239,6 @@ def build_compact_evidence_card(
             'quality': social_quality or None,
             'collection_status': social_collection or None,
             'source_layers': social_layers[:4],
-        },
-        'soft_context': {
-            'valid': bool((soft or {}).get('soft_context_valid', soft.get('high_confidence_favored') if soft else False)),
-            'source': (soft or {}).get('soft_context_source') or (soft or {}).get('importance') or '',
-            'stance': (soft or {}).get('market_stance') or '',
-            'favored_hits': list((soft or {}).get('favored_hits') or [])[:5],
-            'risk_hits': list((soft or {}).get('risk_hits') or [])[:5],
-            'confidence': _f((soft or {}).get('confidence')),
-            'hard_gate': False,
-            'force_pick': False,
         },
         # 仓库贡献只用于机器诊断，不进入正式出票依据，避免多套模型噪音污染。
         'repo_summary': '',
@@ -310,7 +279,6 @@ def evidence_card_to_selection_reason(card: Dict[str, Any], legacy_reason: str =
             *list(card.get('announcements') or [])[:1],
         ],
         'risks': list(card.get('risks') or [])[:4],
-        'soft_context': card.get('soft_context') or {},
         'similar_cases': list(card.get('similar_cases') or [])[:3],
         # Compatibility field for persisted payload readers. It is deliberately
         # kept out of the evidence card and dashboard display.
