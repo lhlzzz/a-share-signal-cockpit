@@ -3357,6 +3357,7 @@ def production_scan_redecision_for_day(trade_date: str) -> Dict[str, Any]:
         attach_paper_pick_eligibility,
         build_research_basket_from_latest_scan,
         evaluate_candidate_bundle,
+        freeze_formal_production_snapshot,
     )
 
     scan_dir = find_best_scan_for_date(trade_date)
@@ -3372,7 +3373,12 @@ def production_scan_redecision_for_day(trade_date: str) -> Dict[str, Any]:
         }
 
     asof_time = _scan_snapshot_asof_time(scan_dir, trade_date)
-    bundle = build_research_basket_from_latest_scan(trade_date, asof_time)
+    bundle = build_research_basket_from_latest_scan(
+        trade_date,
+        asof_time,
+        historical_replay=True,
+        historical_summary_path=scan_dir / 'xiaogu_scan_summary_runner.json',
+    )
     if not isinstance(bundle, dict) or not bundle.get('available'):
         return {
             'redecision_symbol': None,
@@ -3391,6 +3397,7 @@ def production_scan_redecision_for_day(trade_date: str) -> Dict[str, Any]:
     bundle['source_market_date'] = trade_date
     bundle['data_gate_status'] = bundle.get('data_gate_status') or 'PASS'
     attach_paper_pick_eligibility(bundle)
+    freeze_formal_production_snapshot(bundle)
     decision, symbol, reason, features, flags = evaluate_candidate_bundle(
         bundle,
         trade_date,
@@ -4181,7 +4188,9 @@ def find_best_scan_for_date(trade_date: str) -> Optional[Path]:
         return None
     candidates = sorted([
         d for d in scan_dir.iterdir()
-        if d.is_dir() and d.name.startswith('eastmoney_scan')
+        if d.is_dir()
+        and d.name.startswith('eastmoney_scan')
+        and (d / 'xiaogu_scan_summary_runner.json').is_file()
     ])
     if not candidates:
         return None

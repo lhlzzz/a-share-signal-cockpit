@@ -19,6 +19,7 @@ if WORKSPACE_ROOT not in sys.path:
 
 SCANNER_FILE = os.path.join(WORKSPACE_ROOT, "scrapy_scanner", "runner_v2.py")
 RUNNER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_runner.py")
+FEATURES_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_features.py")
 SCHEDULER_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_scheduler.py")
 DAILY_PIPELINE_FILE = os.path.join(WORKSPACE_ROOT, "daily_pipeline.sh")
 FILLER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_result_filler_v0_1.py")
@@ -146,16 +147,17 @@ def check_runner_requires_api_source():
 
 
 def check_runner_consumes_external_market_signal():
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
+    texts = [_read_file_text(path) for path in (RUNNER_FILE, FEATURES_FILE)]
+    if any(text is None for text in texts):
+        return False, "runner/features owner not found"
+    text = "\n".join(texts)
     required_tokens = (
         "external_market_signal_score",
         "external_market_risk_off",
         "external_market_supportive",
     )
     missing = [token for token in required_tokens if token not in text]
-    return not missing, "runner external-market gate confirmed" if not missing else f"missing: {', '.join(missing)}"
+    return not missing, "runner external-market feature owner confirmed" if not missing else f"missing: {', '.join(missing)}"
 
 
 def check_runner_has_formal_diagnostic_output():

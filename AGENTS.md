@@ -182,13 +182,13 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 
 > **Global (all Grok CLI projects):** `~/.grok/AGENTS.md`. Below is xiaogu domain elaboration; do not skip global steps.
 
-> 用户硬要求：启动先 Karpathy；定位用 **codebase-memory 主索引**（Understand-Anything 已按用户要求从 xiaogu 移除）；有歧义先 **plan-discuss**；编码后必须更新 **AgentMemory**（及知识有变时的 Obsidian）。
+> 用户硬要求：启动先 Karpathy；定位用 **codebase-memory 主索引**，并用已维护的 Understand-Anything 图谱做架构交叉校验；有歧义先 **plan-discuss**；编码后必须更新 **AgentMemory**（及知识有变时的 Obsidian）。
 
 0. **KARPATHY（启动闸门）** — 读 `CLAUDE.md` + `.skills/karpathy-daily.md`；陈述假设、成功标准、不做清单。未加载不得写业务代码。
 1. **UNDERSTAND（codebase-memory 主索引）**
    - **主**：`codebase-memory-mcp` — `search_graph` / `trace_path` / `get_code_snippet` / `query_graph` / `search_code` 定位符号与调用链
    - **冲突以 source code / tests / git 为准**；codebase-memory 不可用时回退 `rg` / `read_file`
-   - **Understand-Anything**：xiaogu 已停用（本地 `.understand-anything/` 已删）；勿再依赖 UA 图
+   - **Understand-Anything**：已启用并维护 `.understand-anything/`；用于架构、历史关系和高层解释交叉校验，不替代 source code、tests、runtime 或 Git diff
 2. **PLAN** — 有实现歧义/多方案时：Plan Enforcer **plan-enforcer-discuss → draft → review**；机械小改（单点 bug、明确一行修复）可跳过 discuss，但仍要成功标准
 3. **IMPLEMENT** — 只改必须改的；modify-before-create；不平行实现
 4. **VALIDATE** — `pytest tests/ -x -q` + 受影响路径验证
@@ -241,7 +241,7 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 
 ## Code Discovery Order（xiaogu）
 
-xiaogu 代码发现以 **codebase-memory-mcp 单主索引** 为准（Understand-Anything 已移除）：
+xiaogu 代码发现以 **codebase-memory-mcp 主索引** 为准，Understand-Anything 作为已维护的架构交叉校验：
 
 ### codebase-memory-mcp（唯一结构索引）
 - **用途**：精确符号发现、调用链追踪、影响面分析、死代码检测、架构 cluster 视图
@@ -253,4 +253,4 @@ xiaogu 代码发现以 **codebase-memory-mcp 单主索引** 为准（Understand-
 0. **任务启动时**：先 Karpathy，再 codebase-memory UNDERSTAND，再 plan-discuss（歧义时），最后才写代码；收口写 AgentMemory
 1. **代码修改**：始终用 codebase-memory-mcp 做发现；冲突以 source code / tests / git 为准
 2. **不可用时**：回退 `rg` / `read_file`，不得发明结构
-3. **Understand-Anything**：停用；勿重建 `.understand-anything/` 作为工作依赖
+3. **Understand-Anything**：用于当前图谱的架构交叉校验和高层解释；图谱路径漂移或提交不一致时先更新图谱，再以 source code、tests、runtime 和 Git diff 复核

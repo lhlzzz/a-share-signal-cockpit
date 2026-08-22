@@ -42,6 +42,7 @@ def create_host_binding(
 
         wrapper.__name__ = getattr(fn, '__name__', 'wrapper')
         wrapper.__doc__ = getattr(fn, '__doc__', None)
+        wrapper.__module__ = getattr(fn, '__module__', namespace.get('__name__'))
         wrapper.__wrapped__ = fn
         return wrapper
 

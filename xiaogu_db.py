@@ -1490,6 +1490,45 @@ def upsert_return(
         "return_status": return_status or ("SETTLED" if t1_return is not None else "PENDING"),
         "settlement_evidence": json.dumps(settlement_evidence or {}, ensure_ascii=False, default=str),
     }
+    candidate_settlement_payload = {
+        key: value
+        for key, value in {
+            "t1_return": t1_return,
+            "t1_return_close": t1_return_close,
+            "t1_return_high": t1_return_high,
+            "is_limit_up": is_limit_up,
+            "return_status": payload["return_status"],
+            "settlement_evidence": settlement_evidence or {},
+        }.items()
+        if value is not None
+    }
+
+    def persist_candidate_settlement(active_db: Any) -> None:
+        if not production:
+            return
+        result = active_db.execute(
+            text("""
+                UPDATE daily_candidates
+                SET future_return_fields_placeholder =
+                        COALESCE(future_return_fields_placeholder, CAST('{}' AS jsonb))
+                        || CAST(:candidate_settlement_payload AS jsonb),
+                    updated_at = NOW()
+                WHERE production_run_id = :production_run_id
+                  AND candidate_snapshot_id = :candidate_snapshot_id
+                  AND symbol = :symbol
+            """),
+            {
+                **payload,
+                "candidate_settlement_payload": json.dumps(
+                    candidate_settlement_payload,
+                    ensure_ascii=False,
+                    default=str,
+                ),
+            },
+        )
+        if getattr(result, "rowcount", 1) == 0:
+            raise ValueError("PRODUCTION_RETURN_CANDIDATE_NOT_FOUND")
+
     context = get_db() if db is None else nullcontext(db)
     with context as active_db:
         if production:
@@ -1526,6 +1565,7 @@ def upsert_return(
                     """),
                     {**payload, "id": existing[0]},
                 )
+                persist_candidate_settlement(active_db)
                 return int(existing[0])
             row = active_db.execute(
                 text("""
@@ -1548,6 +1588,7 @@ def upsert_return(
                 payload,
             ).fetchone()
             if row:
+                persist_candidate_settlement(active_db)
                 return int(row[0])
             raise RuntimeError("PRODUCTION_RETURN_CONCURRENT_INSERT")
 

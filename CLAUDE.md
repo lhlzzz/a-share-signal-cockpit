@@ -37,7 +37,7 @@
 > **全局 owner（Grok CLI 全项目）**: `~/.grok/AGENTS.md` + skills `/task-startup` `/karpathy-guidelines`。本文件仅补充 xiaogu 域细节。
 
 0. **Karpathy** — 本文件 + `.skills/karpathy-daily.md`；写假设与成功标准
-1. **UNDERSTAND** — codebase-memory **主索引**（符号/调用链/架构 cluster）；冲突以 source 为准。Understand-Anything 已从 xiaogu 移除
+1. **UNDERSTAND** — codebase-memory **主索引**（符号/调用链/架构 cluster）；Understand-Anything 图谱用于架构与历史关系交叉校验；冲突以 source 为准
 2. **PLAN** — 有歧义：`plan-enforcer-discuss` → draft → review；无歧义机械改可跳过 discuss
 3. **IMPLEMENT** — 精准修改，不扩 scope
 4. **VALIDATE** — 相关测试通过
@@ -62,6 +62,6 @@
 ### 工具使用
 - RTK 替代 bash 命令
 - AgentMemory 存储决策（任务收口必更新）
-- Codebase-Memory **主索引**（定位/调用链/架构；Understand-Anything 已停用）
+- Codebase-Memory **主索引**（定位/调用链/架构）+ Understand-Anything（架构交叉校验与当前图谱维护）
 - Plan Enforcer discuss：实现有歧义时先 discuss 再 draft
 - Obsidian：A股证据 → Project/A股；跨域 → 神临

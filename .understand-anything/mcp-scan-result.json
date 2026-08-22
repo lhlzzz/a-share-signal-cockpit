@@ -4,7 +4,7 @@
     {
       "path": ".claude/settings.json",
       "language": "json",
-      "sizeLines": 112,
+      "sizeLines": 126,
       "fileCategory": "config"
     },
     {
@@ -34,13 +34,13 @@
     {
       "path": ".plan-enforcer/awareness.md",
       "language": "markdown",
-      "sizeLines": 28,
+      "sizeLines": 29,
       "fileCategory": "docs"
     },
     {
       "path": ".plan-enforcer/combobulate.md",
       "language": "markdown",
-      "sizeLines": 7,
+      "sizeLines": 8,
       "fileCategory": "docs"
     },
     {
@@ -52,13 +52,13 @@
     {
       "path": ".plan-enforcer/discuss.md",
       "language": "markdown",
-      "sizeLines": 55,
+      "sizeLines": 81,
       "fileCategory": "docs"
     },
     {
       "path": ".plan-enforcer/ledger.md",
       "language": "markdown",
-      "sizeLines": 33,
+      "sizeLines": 32,
       "fileCategory": "docs"
     },
     {
@@ -94,7 +94,7 @@
     {
       "path": ".understand-anything/fingerprints.json",
       "language": "json",
-      "sizeLines": 19824,
+      "sizeLines": 19724,
       "fileCategory": "config"
     },
     {
@@ -106,7 +106,13 @@
     {
       "path": ".understand-anything/knowledge-graph.json",
       "language": "json",
-      "sizeLines": 64387,
+      "sizeLines": 64032,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/mcp-scan-result.json",
+      "language": "json",
+      "sizeLines": 590,
       "fileCategory": "config"
     },
     {
@@ -116,9 +122,21 @@
       "fileCategory": "config"
     },
     {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-runner.json",
+      "language": "json",
+      "sizeLines": 14,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-runner.json",
+      "language": "json",
+      "sizeLines": 30060,
+      "fileCategory": "config"
+    },
+    {
       "path": "AGENTS.md",
       "language": "markdown",
-      "sizeLines": 245,
+      "sizeLines": 256,
       "fileCategory": "docs"
     },
     {
@@ -142,7 +160,7 @@
     {
       "path": "docs/plans/2026-08-21-forward-runner-decomposition.md",
       "language": "markdown",
-      "sizeLines": 87,
+      "sizeLines": 170,
       "fileCategory": "docs"
     },
     {
@@ -238,7 +256,7 @@
     {
       "path": "scripts/xiaogu_knowledge_asset_export.py",
       "language": "python",
-      "sizeLines": 679,
+      "sizeLines": 847,
       "fileCategory": "code"
     },
     {
@@ -268,7 +286,7 @@
     {
       "path": "scripts/xiaogu_return_backfill.py",
       "language": "python",
-      "sizeLines": 762,
+      "sizeLines": 790,
       "fileCategory": "code"
     },
     {
@@ -298,7 +316,7 @@
     {
       "path": "tests/test_db_backfill.py",
       "language": "python",
-      "sizeLines": 1012,
+      "sizeLines": 1178,
       "fileCategory": "code"
     },
     {
@@ -310,7 +328,7 @@
     {
       "path": "tests/test_knowledge_asset_export.py",
       "language": "python",
-      "sizeLines": 220,
+      "sizeLines": 279,
       "fileCategory": "code"
     },
     {
@@ -352,7 +370,7 @@
     {
       "path": "tests/test_xiaogu_a_share_forward_runner.py",
       "language": "python",
-      "sizeLines": 11402,
+      "sizeLines": 11606,
       "fileCategory": "code"
     },
     {
@@ -370,7 +388,7 @@
     {
       "path": "tests/test_xiaogu_scheduler.py",
       "language": "python",
-      "sizeLines": 481,
+      "sizeLines": 454,
       "fileCategory": "code"
     },
     {
@@ -400,7 +418,7 @@
     {
       "path": "xiaogu_backtest_v0_1.py",
       "language": "python",
-      "sizeLines": 4856,
+      "sizeLines": 4863,
       "fileCategory": "code"
     },
     {
@@ -418,7 +436,7 @@
     {
       "path": "xiaogu_db.py",
       "language": "python",
-      "sizeLines": 2378,
+      "sizeLines": 2419,
       "fileCategory": "code"
     },
     {
@@ -442,13 +460,13 @@
     {
       "path": "xiaogu_forward_bundle_io.py",
       "language": "python",
-      "sizeLines": 1229,
+      "sizeLines": 1220,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_eligibility.py",
       "language": "python",
-      "sizeLines": 2500,
+      "sizeLines": 2474,
       "fileCategory": "code"
     },
     {
@@ -458,9 +476,15 @@
       "fileCategory": "code"
     },
     {
+      "path": "xiaogu_forward_host_binding.py",
+      "language": "python",
+      "sizeLines": 48,
+      "fileCategory": "code"
+    },
+    {
       "path": "xiaogu_forward_judge_scoreboard_v0_1.py",
       "language": "python",
-      "sizeLines": 928,
+      "sizeLines": 848,
       "fileCategory": "code"
     },
     {
@@ -472,19 +496,19 @@
     {
       "path": "xiaogu_forward_persistence.py",
       "language": "python",
-      "sizeLines": 176,
+      "sizeLines": 148,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_result_filler_v0_1.py",
       "language": "python",
-      "sizeLines": 682,
+      "sizeLines": 630,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_runner.py",
       "language": "python",
-      "sizeLines": 9142,
+      "sizeLines": 9154,
       "fileCategory": "code"
     },
     {
@@ -520,7 +544,7 @@
     {
       "path": "xiaogu_scheduler.py",
       "language": "python",
-      "sizeLines": 217,
+      "sizeLines": 208,
       "fileCategory": "code"
     },
     {
@@ -538,7 +562,7 @@
     {
       "path": "xiaogu_utils.py",
       "language": "python",
-      "sizeLines": 99,
+      "sizeLines": 157,
       "fileCategory": "code"
     },
     {
@@ -548,22 +572,22 @@
       "fileCategory": "code"
     }
   ],
-  "totalFiles": 91,
+  "totalFiles": 95,
   "filteredByIgnore": 0,
   "estimatedComplexity": "moderate",
   "stats": {
-    "filesScanned": 91,
+    "filesScanned": 95,
     "byCategory": {
-      "config": 13,
+      "config": 16,
       "infra": 1,
-      "code": 58,
+      "code": 59,
       "docs": 14,
       "script": 3,
       "markup": 1,
       "data": 1
     },
     "byLanguage": {
-      "json": 11,
+      "json": 14,
       "config": 2,
       "yaml": 1,
       "jsonl": 2,
@@ -572,7 +596,7 @@
       "shell": 3,
       "html": 1,
       "txt": 1,
-      "python": 55,
+      "python": 56,
       "sql": 1
     }
   }

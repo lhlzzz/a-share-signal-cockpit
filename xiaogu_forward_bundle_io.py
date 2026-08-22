@@ -280,16 +280,47 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         apply_quote_truth(with_broken_limitup_evidence(with_structured_score(r)))
         for r in full_pool_rows
     ]
-    enriched_rows, scored_tradable_filter = filter_t1_profit_candidates(
-        enriched_rows,
-        {'date': source_time[:10], 'source_time': source_time},
-        enforce=True,
-    )
-    enriched_full_pool, full_pool_tradable_filter = filter_t1_profit_candidates(
+    admitted_full_pool, full_pool_tradable_filter = filter_t1_profit_candidates(
         enriched_full_pool,
         {'date': source_time[:10], 'source_time': source_time},
         enforce=True,
     )
+    t1_profile_by_symbol = {
+        symbol_for(row): (
+            bool(row.get('t1_profit_candidate')),
+            dict(row.get('t1_profit_profile') or {}),
+            '',
+        )
+        for row in admitted_full_pool
+        if symbol_for(row)
+    }
+    for dropped in full_pool_tradable_filter.get('dropped') or []:
+        if not isinstance(dropped, dict):
+            continue
+        symbol = str(dropped.get('symbol') or '').zfill(6)
+        if not symbol:
+            continue
+        reason = str(dropped.get('reason') or 'T1_PROFIT_EVIDENCE_INSUFFICIENT')
+        profile = dropped.get('t1_profit_profile')
+        if not isinstance(profile, dict):
+            profile = {
+                'eligible': False,
+                'reason': reason,
+                'policy': 't1_expected_profit_gate_before_top10_and_paper_pick',
+            }
+        t1_profile_by_symbol[symbol] = (False, dict(profile), reason)
+    annotated_full_pool = []
+    for row in enriched_full_pool:
+        annotated = dict(row)
+        admission = t1_profile_by_symbol.get(symbol_for(annotated))
+        if admission is not None:
+            eligible, profile, reason = admission
+            annotated['t1_profit_candidate'] = eligible
+            annotated['t1_profit_profile'] = profile
+            annotated['expected_t1_profit_score'] = profile.get('expected_t1_profit_score')
+            annotated['t1_profit_admission_reason'] = reason or str(profile.get('reason') or '')
+        annotated_full_pool.append(annotated)
+    enriched_full_pool = annotated_full_pool
     try:
         from xiaogu_social_sentiment import attach_social_features
         attach_social_features(enriched_rows, source_time[:10])
@@ -395,7 +426,7 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'decision_candidates': selected,
         'candidate_pool_exclusion_summary': dict(summary.get('pool_exclusion_summary') or {}),
         'current_day_tradable_filter': {
-            'scored_candidates': scored_tradable_filter,
+            'scored_candidates': search_context.get('current_day_tradable_filter') or {},
             'full_candidate_pool': full_pool_tradable_filter,
         },
         'xiaochan_gate_status': 'ALLOW_FORWARD_PAPER_NO_TRADE',
@@ -465,20 +496,34 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
     normalize_bundle_vei_tags(bundle)
     return bundle
 
-def load_latest_eastmoney_scan(date: str, asof_time: str | None = None) -> Tuple[Path, Dict[str, Any]] | None:
+def load_latest_eastmoney_scan(
+    date: str,
+    asof_time: str | None = None,
+    *,
+    historical_replay: bool = False,
+    historical_summary_path: Path | None = None,
+) -> Tuple[Path, Dict[str, Any]] | None:
     # Directory labels are scheduling metadata only. Select the latest valid
-    # same-day direct-API snapshot by its recorded source_time.
-    summary_paths = sorted(
-        (
-            Path(path)
-            for path in glob.glob(
-                str(LIVE_SCAN_ROOT / date / '**' / SCAN_SUMMARY_RUNNER_NAME),
-                recursive=True,
-            )
-        ),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
+    # same-day direct-API snapshot by its recorded source_time. Historical
+    # replay also accepts the prior API scanner's scrapy_api transport label;
+    # live production remains direct_api-only. A historical caller may pin
+    # one immutable summary instead of re-selecting among same-day retries.
+    if historical_summary_path is not None:
+        if not historical_replay:
+            return None
+        summary_paths = [Path(historical_summary_path)]
+    else:
+        summary_paths = sorted(
+            (
+                Path(path)
+                for path in glob.glob(
+                    str(LIVE_SCAN_ROOT / date / '**' / SCAN_SUMMARY_RUNNER_NAME),
+                    recursive=True,
+                )
+            ),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
     candidates: List[Tuple[dt.datetime, Path, Dict[str, Any]]] = []
     for runner_summary in summary_paths:
         try:
@@ -490,7 +535,10 @@ def load_latest_eastmoney_scan(date: str, asof_time: str | None = None) -> Tuple
             continue
         if not is_active_api_source(summary.get('pipeline_version') or summary.get('source')):
             continue
-        if str(summary.get('scanner_transport') or '') != 'direct_api':
+        transport = str(summary.get('scanner_transport') or '')
+        if transport != 'direct_api' and not (
+            historical_replay and transport == 'scrapy_api'
+        ):
             continue
         try:
             source_dt = dt.datetime.fromisoformat(source_time.replace('Z', '+00:00')).replace(tzinfo=None)

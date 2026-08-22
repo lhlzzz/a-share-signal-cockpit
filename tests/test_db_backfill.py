@@ -577,6 +577,7 @@ def test_return_backfill_emits_only_t1_close_return(monkeypatch):
 
     class FakeConn:
         calls = 0
+        queries = []
 
         def __enter__(self):
             return self
@@ -586,6 +587,7 @@ def test_return_backfill_emits_only_t1_close_return(monkeypatch):
 
         def execute(self, query):
             FakeConn.calls += 1
+            FakeConn.queries.append(str(query))
             rows = (
                 [(date(2026, 6, 22), '300001', 80.0, False, 1, 'run-622', 'snapshot-622', 101)]
                 if FakeConn.calls == 1
@@ -612,6 +614,7 @@ def test_return_backfill_emits_only_t1_close_return(monkeypatch):
 
     assert row['returns'] == {'t1': 0.04}
     assert set(row) == {'date', 'symbol', 'score', 'entry', 'returns', 'production_trade_mode'}
+    assert 'dc.rank <= 10' not in FakeConn.queries[0]
 
 
 def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
@@ -778,6 +781,101 @@ def test_upsert_return_persists_only_primary_t1_return(monkeypatch):
     assert 'COALESCE(EXCLUDED.pick_id, returns.pick_id)' in captured['sql']
 
 
+def test_production_return_settlement_updates_matching_candidate_placeholder(monkeypatch):
+    import xiaogu_db
+
+    updates = []
+
+    class FakeResult:
+        def __init__(self, row=None, rowcount=1):
+            self.row = row
+            self.rowcount = rowcount
+
+        def fetchone(self):
+            return self.row
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            sql = str(query)
+            if 'SELECT id, t1_return, candidate_snapshot_id' in sql:
+                return FakeResult()
+            if 'INSERT INTO returns' in sql:
+                return FakeResult((314,))
+            if 'UPDATE daily_candidates' in sql:
+                updates.append(dict(params))
+                return FakeResult(rowcount=1)
+            raise AssertionError(f'unexpected SQL: {sql}')
+
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+
+    result_id = xiaogu_db.upsert_return(
+        trade_date=date(2026, 8, 17),
+        symbol='600001',
+        pick_id=None,
+        t1_return=0.025,
+        production_run_id='run-817',
+        candidate_snapshot_id='snapshot-817',
+        settlement_evidence={'provider': 'baostock', 'price_source': 'T_PLUS_1_CLOSE'},
+    )
+
+    assert result_id == 314
+    assert len(updates) == 1
+    payload = json.loads(updates[0]['candidate_settlement_payload'])
+    assert payload['t1_return'] == 0.025
+    assert payload['return_status'] == 'SETTLED'
+    assert payload['settlement_evidence']['provider'] == 'baostock'
+    assert updates[0]['production_run_id'] == 'run-817'
+    assert updates[0]['candidate_snapshot_id'] == 'snapshot-817'
+    assert updates[0]['symbol'] == '600001'
+
+
+def test_production_return_settlement_rejects_missing_snapshot_candidate(monkeypatch):
+    import xiaogu_db
+
+    class FakeResult:
+        def __init__(self, row=None, rowcount=1):
+            self.row = row
+            self.rowcount = rowcount
+
+        def fetchone(self):
+            return self.row
+
+    class FakeDb:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            sql = str(query)
+            if 'SELECT id, t1_return, candidate_snapshot_id' in sql:
+                return FakeResult()
+            if 'INSERT INTO returns' in sql:
+                return FakeResult((315,))
+            if 'UPDATE daily_candidates' in sql:
+                return FakeResult(rowcount=0)
+            raise AssertionError(f'unexpected SQL: {sql}')
+
+    monkeypatch.setattr(xiaogu_db, 'get_db', lambda: FakeDb())
+
+    with pytest.raises(ValueError, match='PRODUCTION_RETURN_CANDIDATE_NOT_FOUND'):
+        xiaogu_db.upsert_return(
+            trade_date=date(2026, 8, 17),
+            symbol='600001',
+            pick_id=None,
+            t1_return=0.025,
+            production_run_id='run-817',
+            candidate_snapshot_id='wrong-snapshot',
+        )
+
+
 def test_return_backfill_cli_exposes_configurable_timeouts():
     result = subprocess.run(
         [sys.executable, 'scripts/xiaogu_return_backfill.py', '--help'],
@@ -787,6 +885,7 @@ def test_return_backfill_cli_exposes_configurable_timeouts():
     )
     assert '--per-symbol-timeout' in result.stdout
     assert '--batch-soft-timeout' in result.stdout
+    assert '--top10-only' in result.stdout
 
 
 def test_return_backfill_timeout_continues_with_next_symbol(monkeypatch):
@@ -947,6 +1046,73 @@ def test_return_backfill_resume_skips_existing_success(monkeypatch):
 
     assert stats['skipped_existing_success_count'] == 1
     assert fetch_calls == []
+
+
+def test_return_backfill_syncs_existing_return_to_candidate_placeholder(monkeypatch):
+    import scripts.xiaogu_return_backfill as backfill
+
+    trade_date = date(2026, 7, 1)
+    synced = []
+
+    class FakeResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query):
+            sql = str(query)
+            if 'FROM daily_candidates dc' in sql:
+                return FakeResult([
+                    (trade_date, '000001', 80.0, False, 1, 'run-resume', 'snapshot-resume', 301),
+                ])
+            if 'FROM returns' in sql:
+                return FakeResult([
+                    ('run-resume', '000001', 0.01, {'provider': 'baostock'}),
+                ])
+            if 'FROM picks p' in sql:
+                return FakeResult([])
+            raise AssertionError(f'unexpected SQL: {sql}')
+
+    class FakeBaoStock:
+        def login(self):
+            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
+
+        def logout(self):
+            return None
+
+    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
+    monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
+    monkeypatch.setattr(backfill, 'upsert_return', lambda **kwargs: synced.append(kwargs) or 1)
+    monkeypatch.setattr(backfill, 'update_production_run_step', lambda *args, **kwargs: None)
+    monkeypatch.setattr(backfill.time, 'sleep', lambda _seconds: None)
+
+    stats = backfill.backfill_returns(
+        input_trade_date='2026-07-01',
+        validation_trade_date='2026-07-02',
+        production_run_id='run-resume',
+    )
+
+    assert stats['already_filled'] == 1
+    assert stats['existing_candidate_label_sync_count'] == 1
+    assert synced == [{
+        'trade_date': trade_date,
+        'symbol': '000001',
+        'pick_id': 301,
+        't1_return': 0.01,
+        'production_run_id': 'run-resume',
+        'candidate_snapshot_id': 'snapshot-resume',
+        'return_status': 'SETTLED',
+        'settlement_evidence': {'provider': 'baostock'},
+    }]
 
 
 def test_resolve_pick_id_prefers_paper_pick(monkeypatch):

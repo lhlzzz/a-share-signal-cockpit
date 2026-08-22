@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "bc6920174f0bbf3c706a9de974cd71053f0a0920",
-  "generatedAt": "2026-08-21T11:11:59.641Z",
+  "gitCommitHash": "68b9b9bf4f1102e61a6aff105599c52a0c788d06",
+  "generatedAt": "2026-08-22T13:47:12.064Z",
   "files": {
     ".claude/settings.json": {
       "filePath": ".claude/settings.json",
@@ -12580,2100 +12580,6 @@
       "totalLines": 1230,
       "hasStructuralAnalysis": true
     },
-    "xiaogu_forward_d1_1450_runner_v0_1.py": {
-      "filePath": "xiaogu_forward_d1_1450_runner_v0_1.py",
-      "contentHash": "0413912515a8d637233248a9ef6a0e9781c1b5cc84fad2bb3ff321b30a04ed01",
-      "functions": [
-        {
-          "name": "is_active_api_source",
-          "params": [
-            "source"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "is_routine_regulatory_block",
-          "params": [
-            "blocker_text"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "clean_blocker_text",
-          "params": [
-            "text",
-            "max_len"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "_parse_flow_amount",
-          "params": [
-            "flow_str"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "build_capital_flow_lookup",
-          "params": [
-            "evidence_by_stock"
-          ],
-          "returnType": "Dict[str, Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 53
-        },
-        {
-          "name": "_load_scoring_config_from_db",
-          "params": [],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 14
-        },
-        {
-          "name": "_cached_scoring_config_snapshot",
-          "params": [],
-          "returnType": "Tuple[Tuple[Tuple[str, str], ...], bool, str, str]",
-          "exported": true,
-          "lineCount": 18
-        },
-        {
-          "name": "get_scoring_config_snapshot",
-          "params": [
-            "force_refresh"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "clear_scoring_config_cache",
-          "params": [],
-          "returnType": "None",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "production_regime_from_row",
-          "params": [
-            "row"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 23
-        },
-        {
-          "name": "resolve_ranking_evidence_scales_for_row",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 17
-        },
-        {
-          "name": "_iter_ledger_tail_records",
-          "params": [
-            "max_bytes"
-          ],
-          "exported": true,
-          "lineCount": 23
-        },
-        {
-          "name": "_preload_ledger",
-          "params": [],
-          "exported": true,
-          "lineCount": 41
-        },
-        {
-          "name": "_cached_ledger_rows",
-          "params": [],
-          "returnType": "Tuple[Dict[str, Any], ...]",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "_ledger_decision_rows",
-          "params": [],
-          "returnType": "List[Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 23
-        },
-        {
-          "name": "_parse_date",
-          "params": [
-            "value"
-          ],
-          "returnType": "Optional[dt.date]",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "_horizon_profile",
-          "params": [
-            "record"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 16
-        },
-        {
-          "name": "_ledger_horizon_profile",
-          "params": [
-            "record"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "_merge_lifecycle_history_records",
-          "params": [
-            "base",
-            "update"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 37
-        },
-        {
-          "name": "_cached_candidate_bundle_history",
-          "params": [
-            "bundle_root"
-          ],
-          "returnType": "Tuple[Dict[str, Any], ...]",
-          "exported": true,
-          "lineCount": 48
-        },
-        {
-          "name": "_candidate_lifecycle_history",
-          "params": [
-            "symbol",
-            "target_date"
-          ],
-          "returnType": "Tuple[Dict[str, Any], ...]",
-          "exported": true,
-          "lineCount": 53
-        },
-        {
-          "name": "_candidate_lifecycle_profile",
-          "params": [
-            "candidate",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 124
-        },
-        {
-          "name": "_json_safe_value",
-          "params": [
-            "value"
-          ],
-          "returnType": "Any",
-          "exported": true,
-          "lineCount": 13
-        },
-        {
-          "name": "_bundle_runtime_cache",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "_bundle_runtime_cache_id",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "_candidate_runtime_cache_key",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "Tuple[Any, ...]",
-          "exported": true,
-          "lineCount": 39
-        },
-        {
-          "name": "_cached_structured_signal_profile",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "_cached_paper_pick_eligibility_profile",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "latest_historical_t1_return_before",
-          "params": [
-            "trade_date",
-            "symbol"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 24
-        },
-        {
-          "name": "historical_t1_loss_streak_before",
-          "params": [
-            "trade_date",
-            "symbol"
-          ],
-          "returnType": "Tuple[int, float | None]",
-          "exported": true,
-          "lineCount": 34
-        },
-        {
-          "name": "_cached_decision_for_candidate",
-          "params": [
-            "candidate",
-            "bundle",
-            "target_date",
-            "allow_stale_data"
-          ],
-          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
-          "exported": true,
-          "lineCount": 30
-        },
-        {
-          "name": "_latest_ledger_decision_row_for_date",
-          "params": [
-            "date"
-          ],
-          "returnType": "Optional[Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "correction_reference_for_date",
-          "params": [
-            "date"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "existing_decision_for_date",
-          "params": [
-            "date"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "daily_candidate_snapshot_exists_for_date",
-          "params": [
-            "date"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "should_skip_existing_decision_for_date",
-          "params": [
-            "date",
-            "dry_run",
-            "force"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "existing_paper_pick_symbol_for_date",
-          "params": [
-            "date"
-          ],
-          "returnType": "Optional[str]",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "safe_float",
-          "params": [
-            "value"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 6
-        },
-        {
-          "name": "account_snapshot_from_bundle",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 6
-        },
-        {
-          "name": "account_available_cash",
-          "params": [
-            "snapshot"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 14
-        },
-        {
-          "name": "paper_sizing_context",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 44
-        },
-        {
-          "name": "position_symbol",
-          "params": [
-            "position"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 7
-        },
-        {
-          "name": "_normalized_profit_pct",
-          "params": [
-            "value"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "position_profit_pct",
-          "params": [
-            "position"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 11
-        },
-        {
-          "name": "_first_position_float",
-          "params": [
-            "position",
-            "keys"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 6
-        },
-        {
-          "name": "position_management_action",
-          "params": [
-            "profile"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "position_profile_for_candidate",
-          "params": [
-            "candidate",
-            "sizing"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "account_mode_from_bundle",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "forward_ledger_win_stats",
-          "params": [],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 38
-        },
-        {
-          "name": "replay_win_stats",
-          "params": [
-            "topk"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "repo_contribution_summary_text",
-          "params": [
-            "repo_contributions"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 14
-        },
-        {
-          "name": "active_repo_mapping",
-          "params": [
-            "value"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "active_repo_summary",
-          "params": [
-            "value"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 9
-        },
-        {
-          "name": "candidate_repo_delta_by_repo",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "vei_candidate_signal_source",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 18
-        },
-        {
-          "name": "synthesize_vei_repo_contribution",
-          "params": [
-            "candidate",
-            "score_delta"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 23
-        },
-        {
-          "name": "repo_contribution_context",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 46
-        },
-        {
-          "name": "single_target_card_status",
-          "params": [
-            "decision",
-            "candidate",
-            "flags",
-            "can_afford_one_lot",
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 49
-        },
-        {
-          "name": "build_single_target_card",
-          "params": [
-            "decision",
-            "symbol",
-            "reason",
-            "candidate",
-            "bundle",
-            "flags",
-            "ledger_line_added"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 157
-        },
-        {
-          "name": "unique_text_values",
-          "params": [
-            "values"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "safe_int",
-          "params": [
-            "value"
-          ],
-          "returnType": "int | None",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "candidate_score_value",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 7
-        },
-        {
-          "name": "_positive_numeric",
-          "params": [
-            "value"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "archetype_score_adjustments",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 144
-        },
-        {
-          "name": "_normalize_news_kuaixun_rows",
-          "params": [
-            "rows"
-          ],
-          "returnType": "List[Dict[str, str]]",
-          "exported": true,
-          "lineCount": 11
-        },
-        {
-          "name": "_load_news_kuaixun",
-          "params": [
-            "target_date"
-          ],
-          "returnType": "List[Dict[str, str]]",
-          "exported": true,
-          "lineCount": 52
-        },
-        {
-          "name": "_load_sector_names",
-          "params": [],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 25
-        },
-        {
-          "name": "_get_sector_names",
-          "params": [],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 6
-        },
-        {
-          "name": "_analyze_news_sentiment",
-          "params": [
-            "news_list"
-          ],
-          "returnType": "Dict[str, float]",
-          "exported": true,
-          "lineCount": 44
-        },
-        {
-          "name": "_get_news_analysis",
-          "params": [
-            "target_date"
-          ],
-          "returnType": "Tuple[List[Dict], Dict[str, float]]",
-          "exported": true,
-          "lineCount": 11
-        },
-        {
-          "name": "contrarian_re_score",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 132
-        },
-        {
-          "name": "candidate_rank_value",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "int",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "scan_summary_for_bundle",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 24
-        },
-        {
-          "name": "bundle_metric",
-          "params": [
-            "bundle",
-            "key",
-            "default"
-          ],
-          "returnType": "Any",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "candidate_can_afford_one_lot",
-          "params": [
-            "candidate",
-            "bundle"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 13
-        },
-        {
-          "name": "build_candidate_diagnostic_card",
-          "params": [
-            "candidate",
-            "bundle",
-            "target_date",
-            "decision",
-            "reason",
-            "flags",
-            "diagnostic_role"
-          ],
-          "returnType": "Dict[str, Any] | None",
-          "exported": true,
-          "lineCount": 119
-        },
-        {
-          "name": "candidate_is_selection_eligible",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 4
-        },
-        {
-          "name": "formal_diagnostic_candidate_from_bundle",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Tuple[Dict[str, Any] | None, str]",
-          "exported": true,
-          "lineCount": 18
-        },
-        {
-          "name": "is_no_pick_hard_blocker",
-          "params": [
-            "text"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "no_pick_promotion_eligible",
-          "params": [
-            "candidate",
-            "bundle"
-          ],
-          "returnType": "Tuple[bool, str]",
-          "exported": true,
-          "lineCount": 44
-        },
-        {
-          "name": "paper_pick_source_health_flags",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 28
-        },
-        {
-          "name": "ranked_no_pick_candidate_evaluations",
-          "params": [
-            "bundle",
-            "target_date"
-          ],
-          "returnType": "Tuple[List[Dict[str, Any]], str]",
-          "exported": true,
-          "lineCount": 53
-        },
-        {
-          "name": "closest_to_pick_candidate_from_bundle",
-          "params": [
-            "bundle",
-            "target_date"
-          ],
-          "returnType": "Tuple[Dict[str, Any] | None, str]",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "summarize_evaluation_text_counts",
-          "params": [
-            "evaluations",
-            "eligibility_key"
-          ],
-          "returnType": "Dict[str, int]",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "summarize_evaluation_reason_counts",
-          "params": [
-            "evaluations"
-          ],
-          "returnType": "Dict[str, int]",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "build_daily_best_paper_watch",
-          "params": [
-            "no_pick_diagnostics"
-          ],
-          "returnType": "Dict[str, Any] | None",
-          "exported": true,
-          "lineCount": 78
-        },
-        {
-          "name": "build_no_pick_candidate_diagnostics",
-          "params": [
-            "bundle",
-            "target_date",
-            "first_rejected_candidate",
-            "first_rejected_decision",
-            "first_rejected_reason",
-            "first_rejected_flags"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 134
-        },
-        {
-          "name": "_reason_parts",
-          "params": [
-            "text"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "_source_consumption_domain_summary",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 33
-        },
-        {
-          "name": "build_source_consumption_summary",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "build_candidate_consumption_summary",
-          "params": [
-            "bundle",
-            "target_date",
-            "decision",
-            "symbol",
-            "reason",
-            "candidate_features",
-            "risk_flags"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 154
-        },
-        {
-          "name": "blocked_score",
-          "params": [
-            "reasons"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "symbol_for",
-          "params": [
-            "candidate"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "normalize_market_regime_for_db",
-          "params": [
-            "value"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "_as_symbol",
-          "params": [
-            "value"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "contains_disallowed_governance_token",
-          "params": [
-            "value"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 6
-        },
-        {
-          "name": "path_is_under",
-          "params": [
-            "path",
-            "root"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "active_chain_governance_flags",
-          "params": [
-            "bundle",
-            "target_date",
-            "allow_stale_data"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 45
-        },
-        {
-          "name": "parse_source_datetime",
-          "params": [
-            "value"
-          ],
-          "returnType": "dt.datetime | None",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "parse_runner_asof_datetime",
-          "params": [
-            "target_date",
-            "runner_asof_time"
-          ],
-          "returnType": "dt.datetime | None",
-          "exported": true,
-          "lineCount": 13
-        },
-        {
-          "name": "scan_age_minutes",
-          "params": [
-            "source_time",
-            "target_date",
-            "runner_asof_time"
-          ],
-          "returnType": "float | None",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "select_asof_valid_source_time",
-          "params": [
-            "times",
-            "target_date",
-            "runner_asof_time"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 23
-        },
-        {
-          "name": "candidate_source_times",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 17
-        },
-        {
-          "name": "normalized_source_time_for_candidate",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "regulatory_hard_block_reason",
-          "params": [
-            "candidate",
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 18
-        },
-        {
-          "name": "opportunity_hard_block_reason",
-          "params": [
-            "candidate",
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 21
-        },
-        {
-          "name": "_count_leader_conditions",
-          "params": [
-            "features"
-          ],
-          "returnType": "int",
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "is_strong_leader_candidate",
-          "params": [
-            "features"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 57
-        },
-        {
-          "name": "decision_for_candidate",
-          "params": [
-            "candidate",
-            "bundle",
-            "target_date",
-            "allow_stale_data"
-          ],
-          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
-          "exported": true,
-          "lineCount": 315
-        },
-        {
-          "name": "structured_component",
-          "params": [
-            "row",
-            "key"
-          ],
-          "returnType": "Optional[float]",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "normalize_tag_list",
-          "params": [
-            "tags"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 16
-        },
-        {
-          "name": "candidate_theme_tag_set",
-          "params": [
-            "row"
-          ],
-          "returnType": "Tuple[str, ...]",
-          "exported": true,
-          "lineCount": 24
-        },
-        {
-          "name": "detect_pool_hollow_theme_tags",
-          "params": [
-            "rows",
-            "min_rows",
-            "dominance",
-            "min_tags"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 27
-        },
-        {
-          "name": "normalize_vei_phase_d_tags",
-          "params": [
-            "tags"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "inferred_vei_phase_d_tags",
-          "params": [
-            "details"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 13
-        },
-        {
-          "name": "signal_stage_bucket",
-          "params": [
-            "signal_pct"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 15
-        },
-        {
-          "name": "_historical_t1_return_map_for_date",
-          "params": [
-            "trade_date"
-          ],
-          "returnType": "Dict[str, float]",
-          "exported": true,
-          "lineCount": 17
-        },
-        {
-          "name": "candidate_theme_text",
-          "params": [
-            "row"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 27
-        },
-        {
-          "name": "theme_token_hits",
-          "params": [
-            "themes",
-            "text"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "load_profit_shadow_watchlist",
-          "params": [
-            "trade_date",
-            "top_n"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 88
-        },
-        {
-          "name": "load_mainline_fund_flow_context",
-          "params": [
-            "trade_date",
-            "top_n"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 63
-        },
-        {
-          "name": "soft_mainline_fund_bias",
-          "params": [
-            "row",
-            "mainline_ctx"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 33
-        },
-        {
-          "name": "market_adaptive_context",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 119
-        },
-        {
-          "name": "market_adaptive_thresholds",
-          "params": [
-            "candidate_stage",
-            "market_context"
-          ],
-          "returnType": "Dict[str, float]",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "sector_gate_threshold_for_market",
-          "params": [
-            "market_context"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 5
-        },
-        {
-          "name": "normalize_bundle_vei_tags",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 27
-        },
-        {
-          "name": "_strip_replay_production_contributions",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 57
-        },
-        {
-          "name": "structured_signal_profile",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 149
-        },
-        {
-          "name": "build_research_signals_from_profile",
-          "params": [
-            "profile",
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 222
-        },
-        {
-          "name": "build_research_panel",
-          "params": [
-            "research_signals",
-            "candidate"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 70
-        },
-        {
-          "name": "early_opportunity_score_for_row",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "float",
-          "exported": true,
-          "lineCount": 30
-        },
-        {
-          "name": "structured_signal_present",
-          "params": [
-            "row"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 8
-        },
-        {
-          "name": "normalized_block_bucket",
-          "params": [
-            "reason"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 11
-        },
-        {
-          "name": "block_reason_bucket",
-          "params": [
-            "reason"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "formal_blockers_for_row",
-          "params": [
-            "row"
-          ],
-          "returnType": "List[str]",
-          "exported": true,
-          "lineCount": 15
-        },
-        {
-          "name": "why_not_formal_candidate",
-          "params": [
-            "row"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "structured_observation_candidate",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 77
-        },
-        {
-          "name": "structured_formal_impact_summary",
-          "params": [
-            "enriched_rows",
-            "formal_rows",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 79
-        },
-        {
-          "name": "limitup_quality_block_reason",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 88
-        },
-        {
-          "name": "candidate_capital_risk_profile",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 104
-        },
-        {
-          "name": "continuation_gene_evidence",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 99
-        },
-        {
-          "name": "classify_limitup_reason_evidence",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 58
-        },
-        {
-          "name": "limitup_reason_supports_hard_confirmation",
-          "params": [
-            "row",
-            "limitup_reason_strength",
-            "seal_order_strength",
-            "order_book_pressure",
-            "buy_confirmation_min",
-            "order_book_confirmation_min",
-            "news_catalyst_strength",
-            "announcement_catalyst_score"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 49
-        },
-        {
-          "name": "strong_sector_theme_partial_aux_exception_allowed",
-          "params": [
-            "row",
-            "board",
-            "auxiliary_status_normalized",
-            "research_panel_overall",
-            "sector_gate_pass",
-            "main_theme_core_score",
-            "main_theme_alignment_score",
-            "sector_catalyst_score",
-            "topic_propagation_score",
-            "near_limit_up_risk",
-            "regulatory_block",
-            "opportunity_block",
-            "capital_risk_codes",
-            "price",
-            "limitup_quality_block",
-            "limitup_reason_evidence_class",
-            "direct_catalyst_confirmation",
-            "news_catalyst_strength",
-            "announcement_catalyst_score"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 58
-        },
-        {
-          "name": "limitup_probability_proxy_components",
-          "params": [
-            "row",
-            "profile"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 51
-        },
-        {
-          "name": "social_confirmation_profile",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 47
-        },
-        {
-          "name": "shadow_risk_profile",
-          "params": [
-            "row",
-            "bundle",
-            "profile"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 122
-        },
-        {
-          "name": "paper_pick_risk_explanation_gate",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 37
-        },
-        {
-          "name": "ranking_basis_adjustment_components",
-          "params": [
-            "row"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 436
-        },
-        {
-          "name": "ensure_leader_chain_main_theme",
-          "params": [
-            "row",
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 59
-        },
-        {
-          "name": "formal_candidate_sort_key",
-          "params": [
-            "row"
-          ],
-          "returnType": "Tuple[float, ...]",
-          "exported": true,
-          "lineCount": 131
-        },
-        {
-          "name": "apply_formal_profit_ranks",
-          "params": [
-            "rows"
-          ],
-          "returnType": "List[Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 40
-        },
-        {
-          "name": "_formal_rank_snapshot_id",
-          "params": [
-            "rows"
-          ],
-          "returnType": "str",
-          "exported": true,
-          "lineCount": 12
-        },
-        {
-          "name": "validate_formal_rank_snapshot",
-          "params": [
-            "rows"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 32
-        },
-        {
-          "name": "validate_active_production_chain",
-          "params": [
-            "bundle",
-            "target_date"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 61
-        },
-        {
-          "name": "quarantine_nonproduction_bundle",
-          "params": [
-            "bundle",
-            "validation"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 20
-        },
-        {
-          "name": "synchronize_formal_profit_rank_state",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 68
-        },
-        {
-          "name": "freeze_formal_production_snapshot",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 82
-        },
-        {
-          "name": "build_rank_alignment_diagnostic",
-          "params": [
-            "rows",
-            "first_clean_row",
-            "top_n"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 83
-        },
-        {
-          "name": "select_first_clean_with_formal_challenge",
-          "params": [
-            "search_rows",
-            "bundle_context"
-          ],
-          "returnType": "Tuple[Dict[str, Any] | None, Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 38
-        },
-        {
-          "name": "replay_only_sector_opportunity",
-          "params": [
-            "profile",
-            "row"
-          ],
-          "returnType": "bool",
-          "exported": true,
-          "lineCount": 10
-        },
-        {
-          "name": "basket_candidate",
-          "params": [
-            "row",
-            "decision_class"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 151
-        },
-        {
-          "name": "build_daily_ticket_search_rows",
-          "params": [
-            "enriched_rows",
-            "bundle_context"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 529
-        },
-        {
-          "name": "build_weak_market_shadow_ticket",
-          "params": [
-            "selected_rows",
-            "bundle",
-            "target_date"
-          ],
-          "returnType": "Dict[str, Any] | None",
-          "exported": true,
-          "lineCount": 37
-        },
-        {
-          "name": "scan_summary_information_coverage_audit",
-          "params": [
-            "summary"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 96
-        },
-        {
-          "name": "scan_summary_sector_catalyst_diagnostics",
-          "params": [
-            "summary"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 4
-        },
-        {
-          "name": "attach_scan_summary_information_coverage_audit",
-          "params": [
-            "bundle",
-            "summary_path",
-            "summary"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 41
-        },
-        {
-          "name": "_db_scan_summary_from_session",
-          "params": [
-            "session",
-            "trade_date"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 58
-        },
-        {
-          "name": "build_research_basket_from_db",
-          "params": [
-            "date"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 394
-        },
-        {
-          "name": "build_research_basket_from_latest_scan",
-          "params": [
-            "date",
-            "asof_time"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 14
-        },
-        {
-          "name": "parse_capital_flow_from_content_records",
-          "params": [
-            "content_records"
-          ],
-          "exported": true,
-          "lineCount": 49
-        },
-        {
-          "name": "stock_capital_flow_by_code_from_payload",
-          "params": [
-            "payload"
-          ],
-          "returnType": "Dict[str, Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "inject_capital_flow_boost",
-          "params": [
-            "bundle",
-            "fund_by_code"
-          ],
-          "exported": true,
-          "lineCount": 26
-        },
-        {
-          "name": "fetch_candidate_fund_flow_live",
-          "params": [
-            "codes",
-            "timeout"
-          ],
-          "exported": true,
-          "lineCount": 3
-        },
-        {
-          "name": "inject_live_fund_flow_into_candidates",
-          "params": [
-            "bundle"
-          ],
-          "exported": true,
-          "lineCount": 103
-        },
-        {
-          "name": "latest_completed_trading_day",
-          "params": [
-            "now"
-          ],
-          "returnType": "dt.date",
-          "exported": true,
-          "lineCount": 16
-        },
-        {
-          "name": "_ensure_current_realtime_bundle_path",
-          "params": [
-            "date",
-            "bundle",
-            "summary_path"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 18
-        },
-        {
-          "name": "core_market_source_gate",
-          "params": [
-            "bundle"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 46
-        },
-        {
-          "name": "evaluate_candidate_bundle",
-          "params": [
-            "bundle",
-            "target_date",
-            "allow_stale_data"
-          ],
-          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
-          "exported": true,
-          "lineCount": 126
-        },
-        {
-          "name": "run_recorder",
-          "params": [
-            "date",
-            "asof_time",
-            "decision",
-            "symbol",
-            "features",
-            "reason",
-            "dry_run",
-            "correction_of"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 54
-        },
-        {
-          "name": "finalize_production_run",
-          "params": [
-            "trade_day",
-            "production_run_id",
-            "candidate_snapshot_id",
-            "active_pick_id",
-            "publish_active"
-          ],
-          "returnType": "None",
-          "exported": true,
-          "lineCount": 21
-        },
-        {
-          "name": "_unique_persistence_candidates",
-          "params": [
-            "candidates",
-            "target_count"
-          ],
-          "returnType": "Tuple[List[Dict[str, Any]], Dict[str, Any]]",
-          "exported": true,
-          "lineCount": 29
-        },
-        {
-          "name": "main",
-          "params": [],
-          "returnType": "None",
-          "exported": true,
-          "lineCount": 1138
-        }
-      ],
-      "classes": [],
-      "imports": [
-        {
-          "source": "argparse",
-          "specifiers": [
-            "argparse"
-          ]
-        },
-        {
-          "source": "datetime",
-          "specifiers": [
-            "dt"
-          ]
-        },
-        {
-          "source": "hashlib",
-          "specifiers": [
-            "hashlib"
-          ]
-        },
-        {
-          "source": "collections",
-          "specifiers": [
-            "Counter"
-          ]
-        },
-        {
-          "source": "functools",
-          "specifiers": [
-            "lru_cache"
-          ]
-        },
-        {
-          "source": "glob",
-          "specifiers": [
-            "glob"
-          ]
-        },
-        {
-          "source": "json",
-          "specifiers": [
-            "json"
-          ]
-        },
-        {
-          "source": "math",
-          "specifiers": [
-            "math"
-          ]
-        },
-        {
-          "source": "os",
-          "specifiers": [
-            "os"
-          ]
-        },
-        {
-          "source": "re",
-          "specifiers": [
-            "re"
-          ]
-        },
-        {
-          "source": "subprocess",
-          "specifiers": [
-            "subprocess"
-          ]
-        },
-        {
-          "source": "sys",
-          "specifiers": [
-            "sys"
-          ]
-        },
-        {
-          "source": "time",
-          "specifiers": [
-            "time"
-          ]
-        },
-        {
-          "source": "uuid",
-          "specifiers": [
-            "uuid"
-          ]
-        },
-        {
-          "source": "pathlib",
-          "specifiers": [
-            "Path"
-          ]
-        },
-        {
-          "source": "typing",
-          "specifiers": [
-            "Any",
-            "Dict",
-            "List",
-            "Optional",
-            "Tuple"
-          ]
-        },
-        {
-          "source": "six_repo_integration_real_v2_1",
-          "specifiers": [
-            "aggregate_four_repo_native_signals"
-          ]
-        },
-        {
-          "source": "xiaogu_forward_gates",
-          "specifiers": [
-            "REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS",
-            "REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS",
-            "REQUIRED_EASTMONEY_EVIDENCE_DOMAINS",
-            "REQUIRED_EASTMONEY_EXPERIMENTAL_EVIDENCE_DOMAINS",
-            "candidate_evidence_missing_flags",
-            "is_api_scan_source",
-            "missing_coverage_items",
-            "production_evidence_missing_flags",
-            "soft_no_pick_flag"
-          ]
-        },
-        {
-          "source": "xiaogu_forward_eligibility",
-          "specifiers": [
-            "_forward_eligibility"
-          ]
-        },
-        {
-          "source": "xiaogu_forward_bundle_io",
-          "specifiers": [
-            "_forward_bundle_io"
-          ]
-        }
-      ],
-      "exports": [
-        "is_active_api_source",
-        "is_routine_regulatory_block",
-        "clean_blocker_text",
-        "_parse_flow_amount",
-        "build_capital_flow_lookup",
-        "_load_scoring_config_from_db",
-        "_cached_scoring_config_snapshot",
-        "get_scoring_config_snapshot",
-        "clear_scoring_config_cache",
-        "production_regime_from_row",
-        "resolve_ranking_evidence_scales_for_row",
-        "_iter_ledger_tail_records",
-        "_preload_ledger",
-        "_cached_ledger_rows",
-        "_ledger_decision_rows",
-        "_parse_date",
-        "_horizon_profile",
-        "_ledger_horizon_profile",
-        "_merge_lifecycle_history_records",
-        "_cached_candidate_bundle_history",
-        "_candidate_lifecycle_history",
-        "_candidate_lifecycle_profile",
-        "_json_safe_value",
-        "_bundle_runtime_cache",
-        "_bundle_runtime_cache_id",
-        "_candidate_runtime_cache_key",
-        "_cached_structured_signal_profile",
-        "_cached_paper_pick_eligibility_profile",
-        "latest_historical_t1_return_before",
-        "historical_t1_loss_streak_before",
-        "_cached_decision_for_candidate",
-        "_latest_ledger_decision_row_for_date",
-        "correction_reference_for_date",
-        "existing_decision_for_date",
-        "daily_candidate_snapshot_exists_for_date",
-        "should_skip_existing_decision_for_date",
-        "existing_paper_pick_symbol_for_date",
-        "safe_float",
-        "account_snapshot_from_bundle",
-        "account_available_cash",
-        "paper_sizing_context",
-        "position_symbol",
-        "_normalized_profit_pct",
-        "position_profit_pct",
-        "_first_position_float",
-        "position_management_action",
-        "position_profile_for_candidate",
-        "account_mode_from_bundle",
-        "forward_ledger_win_stats",
-        "replay_win_stats",
-        "repo_contribution_summary_text",
-        "active_repo_mapping",
-        "active_repo_summary",
-        "candidate_repo_delta_by_repo",
-        "vei_candidate_signal_source",
-        "synthesize_vei_repo_contribution",
-        "repo_contribution_context",
-        "single_target_card_status",
-        "build_single_target_card",
-        "unique_text_values",
-        "safe_int",
-        "candidate_score_value",
-        "_positive_numeric",
-        "archetype_score_adjustments",
-        "_normalize_news_kuaixun_rows",
-        "_load_news_kuaixun",
-        "_load_sector_names",
-        "_get_sector_names",
-        "_analyze_news_sentiment",
-        "_get_news_analysis",
-        "contrarian_re_score",
-        "candidate_rank_value",
-        "scan_summary_for_bundle",
-        "bundle_metric",
-        "candidate_can_afford_one_lot",
-        "build_candidate_diagnostic_card",
-        "candidate_is_selection_eligible",
-        "formal_diagnostic_candidate_from_bundle",
-        "is_no_pick_hard_blocker",
-        "no_pick_promotion_eligible",
-        "paper_pick_source_health_flags",
-        "ranked_no_pick_candidate_evaluations",
-        "closest_to_pick_candidate_from_bundle",
-        "summarize_evaluation_text_counts",
-        "summarize_evaluation_reason_counts",
-        "build_daily_best_paper_watch",
-        "build_no_pick_candidate_diagnostics",
-        "_reason_parts",
-        "_source_consumption_domain_summary",
-        "build_source_consumption_summary",
-        "build_candidate_consumption_summary",
-        "blocked_score",
-        "symbol_for",
-        "normalize_market_regime_for_db",
-        "_as_symbol",
-        "contains_disallowed_governance_token",
-        "path_is_under",
-        "active_chain_governance_flags",
-        "parse_source_datetime",
-        "parse_runner_asof_datetime",
-        "scan_age_minutes",
-        "select_asof_valid_source_time",
-        "candidate_source_times",
-        "normalized_source_time_for_candidate",
-        "regulatory_hard_block_reason",
-        "opportunity_hard_block_reason",
-        "_count_leader_conditions",
-        "is_strong_leader_candidate",
-        "decision_for_candidate",
-        "structured_component",
-        "normalize_tag_list",
-        "candidate_theme_tag_set",
-        "detect_pool_hollow_theme_tags",
-        "normalize_vei_phase_d_tags",
-        "inferred_vei_phase_d_tags",
-        "signal_stage_bucket",
-        "_historical_t1_return_map_for_date",
-        "candidate_theme_text",
-        "theme_token_hits",
-        "load_profit_shadow_watchlist",
-        "load_mainline_fund_flow_context",
-        "soft_mainline_fund_bias",
-        "market_adaptive_context",
-        "market_adaptive_thresholds",
-        "sector_gate_threshold_for_market",
-        "normalize_bundle_vei_tags",
-        "_strip_replay_production_contributions",
-        "structured_signal_profile",
-        "build_research_signals_from_profile",
-        "build_research_panel",
-        "early_opportunity_score_for_row",
-        "structured_signal_present",
-        "normalized_block_bucket",
-        "block_reason_bucket",
-        "formal_blockers_for_row",
-        "why_not_formal_candidate",
-        "structured_observation_candidate",
-        "structured_formal_impact_summary",
-        "limitup_quality_block_reason",
-        "candidate_capital_risk_profile",
-        "continuation_gene_evidence",
-        "classify_limitup_reason_evidence",
-        "limitup_reason_supports_hard_confirmation",
-        "strong_sector_theme_partial_aux_exception_allowed",
-        "limitup_probability_proxy_components",
-        "social_confirmation_profile",
-        "shadow_risk_profile",
-        "paper_pick_risk_explanation_gate",
-        "ranking_basis_adjustment_components",
-        "ensure_leader_chain_main_theme",
-        "formal_candidate_sort_key",
-        "apply_formal_profit_ranks",
-        "_formal_rank_snapshot_id",
-        "validate_formal_rank_snapshot",
-        "validate_active_production_chain",
-        "quarantine_nonproduction_bundle",
-        "synchronize_formal_profit_rank_state",
-        "freeze_formal_production_snapshot",
-        "build_rank_alignment_diagnostic",
-        "select_first_clean_with_formal_challenge",
-        "replay_only_sector_opportunity",
-        "basket_candidate",
-        "build_daily_ticket_search_rows",
-        "build_weak_market_shadow_ticket",
-        "scan_summary_information_coverage_audit",
-        "scan_summary_sector_catalyst_diagnostics",
-        "attach_scan_summary_information_coverage_audit",
-        "_db_scan_summary_from_session",
-        "build_research_basket_from_db",
-        "build_research_basket_from_latest_scan",
-        "parse_capital_flow_from_content_records",
-        "stock_capital_flow_by_code_from_payload",
-        "inject_capital_flow_boost",
-        "fetch_candidate_fund_flow_live",
-        "inject_live_fund_flow_into_candidates",
-        "latest_completed_trading_day",
-        "_ensure_current_realtime_bundle_path",
-        "core_market_source_gate",
-        "evaluate_candidate_bundle",
-        "run_recorder",
-        "finalize_production_run",
-        "_unique_persistence_candidates",
-        "main"
-      ],
-      "totalLines": 9798,
-      "hasStructuralAnalysis": true
-    },
     "xiaogu_forward_eligibility.py": {
       "filePath": "xiaogu_forward_eligibility.py",
       "contentHash": "cdf2ec7146c844c413313c0b3a0a66cedd8f1bd1597d9821446154978d55bf26",
@@ -19819,6 +17725,1999 @@
         "main"
       ],
       "totalLines": 1871,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_runner.py": {
+      "filePath": "xiaogu_forward_runner.py",
+      "contentHash": "ae78764dc68f76bdc5dde53d639ea6e4415aa22a78ee54fcce586be718be9265",
+      "functions": [
+        {
+          "name": "is_active_api_source",
+          "params": [
+            "source"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "is_routine_regulatory_block",
+          "params": [
+            "blocker_text"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_parse_flow_amount",
+          "params": [
+            "flow_str"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "build_capital_flow_lookup",
+          "params": [
+            "evidence_by_stock"
+          ],
+          "returnType": "Dict[str, Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "_load_scoring_config_from_db",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_cached_scoring_config_snapshot",
+          "params": [],
+          "returnType": "Tuple[Tuple[Tuple[str, str], ...], bool, str, str]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "get_scoring_config_snapshot",
+          "params": [
+            "force_refresh"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "clear_scoring_config_cache",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "production_regime_from_row",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "resolve_ranking_evidence_scales_for_row",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_iter_ledger_tail_records",
+          "params": [
+            "max_bytes"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_preload_ledger",
+          "params": [],
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "_cached_ledger_rows",
+          "params": [],
+          "returnType": "Tuple[Dict[str, Any], ...]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_ledger_decision_rows",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_parse_date",
+          "params": [
+            "value"
+          ],
+          "returnType": "Optional[dt.date]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_horizon_profile",
+          "params": [
+            "record"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_merge_lifecycle_history_records",
+          "params": [
+            "base",
+            "update"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "_cached_candidate_bundle_history",
+          "params": [
+            "bundle_root"
+          ],
+          "returnType": "Tuple[Dict[str, Any], ...]",
+          "exported": true,
+          "lineCount": 48
+        },
+        {
+          "name": "_candidate_lifecycle_history",
+          "params": [
+            "symbol",
+            "target_date"
+          ],
+          "returnType": "Tuple[Dict[str, Any], ...]",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "_candidate_lifecycle_profile",
+          "params": [
+            "candidate",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 124
+        },
+        {
+          "name": "_json_safe_value",
+          "params": [
+            "value"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_bundle_runtime_cache",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_bundle_runtime_cache_id",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_candidate_runtime_cache_key",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "Tuple[Any, ...]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "_cached_structured_signal_profile",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_cached_paper_pick_eligibility_profile",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "historical_t1_loss_streak_before",
+          "params": [
+            "trade_date",
+            "symbol"
+          ],
+          "returnType": "Tuple[int, float | None]",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "_cached_decision_for_candidate",
+          "params": [
+            "candidate",
+            "bundle",
+            "target_date",
+            "allow_stale_data"
+          ],
+          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "_latest_ledger_decision_row_for_date",
+          "params": [
+            "date"
+          ],
+          "returnType": "Optional[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "correction_reference_for_date",
+          "params": [
+            "date"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "existing_decision_for_date",
+          "params": [
+            "date"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "daily_candidate_snapshot_exists_for_date",
+          "params": [
+            "date"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "should_skip_existing_decision_for_date",
+          "params": [
+            "date",
+            "dry_run",
+            "force"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "existing_paper_pick_symbol_for_date",
+          "params": [
+            "date"
+          ],
+          "returnType": "Optional[str]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "safe_float",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "account_snapshot_from_bundle",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "account_available_cash",
+          "params": [
+            "snapshot"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "paper_sizing_context",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "position_symbol",
+          "params": [
+            "position"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_normalized_profit_pct",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "position_profit_pct",
+          "params": [
+            "position"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_first_position_float",
+          "params": [
+            "position",
+            "keys"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "position_management_action",
+          "params": [
+            "profile"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "position_profile_for_candidate",
+          "params": [
+            "candidate",
+            "sizing"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "account_mode_from_bundle",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "forward_ledger_win_stats",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "replay_win_stats",
+          "params": [
+            "topk"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "repo_contribution_summary_text",
+          "params": [
+            "repo_contributions"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "active_repo_mapping",
+          "params": [
+            "value"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "active_repo_summary",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "candidate_repo_delta_by_repo",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "vei_candidate_signal_source",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "synthesize_vei_repo_contribution",
+          "params": [
+            "candidate",
+            "score_delta"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "repo_contribution_context",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "single_target_card_status",
+          "params": [
+            "decision",
+            "candidate",
+            "flags",
+            "can_afford_one_lot",
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "build_single_target_card",
+          "params": [
+            "decision",
+            "symbol",
+            "reason",
+            "candidate",
+            "bundle",
+            "flags",
+            "ledger_line_added"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 157
+        },
+        {
+          "name": "unique_text_values",
+          "params": [
+            "values"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "safe_int",
+          "params": [
+            "value"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "candidate_score_value",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_positive_numeric",
+          "params": [
+            "value"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "archetype_score_adjustments",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 144
+        },
+        {
+          "name": "_normalize_news_kuaixun_rows",
+          "params": [
+            "rows"
+          ],
+          "returnType": "List[Dict[str, str]]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_load_news_kuaixun",
+          "params": [
+            "target_date"
+          ],
+          "returnType": "List[Dict[str, str]]",
+          "exported": true,
+          "lineCount": 52
+        },
+        {
+          "name": "_load_sector_names",
+          "params": [],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "_get_sector_names",
+          "params": [],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_analyze_news_sentiment",
+          "params": [
+            "news_list"
+          ],
+          "returnType": "Dict[str, float]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_get_news_analysis",
+          "params": [
+            "target_date"
+          ],
+          "returnType": "Tuple[List[Dict], Dict[str, float]]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "contrarian_re_score",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 132
+        },
+        {
+          "name": "candidate_rank_value",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "scan_summary_for_bundle",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "bundle_metric",
+          "params": [
+            "bundle",
+            "key",
+            "default"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "candidate_can_afford_one_lot",
+          "params": [
+            "candidate",
+            "bundle"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "build_candidate_diagnostic_card",
+          "params": [
+            "candidate",
+            "bundle",
+            "target_date",
+            "decision",
+            "reason",
+            "flags",
+            "diagnostic_role"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 119
+        },
+        {
+          "name": "candidate_is_selection_eligible",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "formal_diagnostic_candidate_from_bundle",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Tuple[Dict[str, Any] | None, str]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "is_no_pick_hard_blocker",
+          "params": [
+            "text"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "no_pick_promotion_eligible",
+          "params": [
+            "candidate",
+            "bundle"
+          ],
+          "returnType": "Tuple[bool, str]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "paper_pick_source_health_flags",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "ranked_no_pick_candidate_evaluations",
+          "params": [
+            "bundle",
+            "target_date"
+          ],
+          "returnType": "Tuple[List[Dict[str, Any]], str]",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "closest_to_pick_candidate_from_bundle",
+          "params": [
+            "bundle",
+            "target_date"
+          ],
+          "returnType": "Tuple[Dict[str, Any] | None, str]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "summarize_evaluation_text_counts",
+          "params": [
+            "evaluations",
+            "eligibility_key"
+          ],
+          "returnType": "Dict[str, int]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "summarize_evaluation_reason_counts",
+          "params": [
+            "evaluations"
+          ],
+          "returnType": "Dict[str, int]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "build_daily_best_paper_watch",
+          "params": [
+            "no_pick_diagnostics"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 78
+        },
+        {
+          "name": "build_no_pick_candidate_diagnostics",
+          "params": [
+            "bundle",
+            "target_date",
+            "first_rejected_candidate",
+            "first_rejected_decision",
+            "first_rejected_reason",
+            "first_rejected_flags"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 134
+        },
+        {
+          "name": "_reason_parts",
+          "params": [
+            "text"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_source_consumption_domain_summary",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "build_source_consumption_summary",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "build_candidate_consumption_summary",
+          "params": [
+            "bundle",
+            "target_date",
+            "decision",
+            "symbol",
+            "reason",
+            "candidate_features",
+            "risk_flags"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 154
+        },
+        {
+          "name": "blocked_score",
+          "params": [
+            "reasons"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "symbol_for",
+          "params": [
+            "candidate"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "normalize_market_regime_for_db",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_as_symbol",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "contains_disallowed_governance_token",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "path_is_under",
+          "params": [
+            "path",
+            "root"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "active_chain_governance_flags",
+          "params": [
+            "bundle",
+            "target_date",
+            "allow_stale_data"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 45
+        },
+        {
+          "name": "parse_source_datetime",
+          "params": [
+            "value"
+          ],
+          "returnType": "dt.datetime | None",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "parse_runner_asof_datetime",
+          "params": [
+            "target_date",
+            "runner_asof_time"
+          ],
+          "returnType": "dt.datetime | None",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "scan_age_minutes",
+          "params": [
+            "source_time",
+            "target_date",
+            "runner_asof_time"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "select_asof_valid_source_time",
+          "params": [
+            "times",
+            "target_date",
+            "runner_asof_time"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "candidate_source_times",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "normalized_source_time_for_candidate",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "regulatory_hard_block_reason",
+          "params": [
+            "candidate",
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "opportunity_hard_block_reason",
+          "params": [
+            "candidate",
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "_count_leader_conditions",
+          "params": [
+            "features"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "is_strong_leader_candidate",
+          "params": [
+            "features"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "decision_for_candidate",
+          "params": [
+            "candidate",
+            "bundle",
+            "target_date",
+            "allow_stale_data"
+          ],
+          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
+          "exported": true,
+          "lineCount": 315
+        },
+        {
+          "name": "structured_component",
+          "params": [
+            "row",
+            "key"
+          ],
+          "returnType": "Optional[float]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "normalize_tag_list",
+          "params": [
+            "tags"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "candidate_theme_tag_set",
+          "params": [
+            "row"
+          ],
+          "returnType": "Tuple[str, ...]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "detect_pool_hollow_theme_tags",
+          "params": [
+            "rows",
+            "min_rows",
+            "dominance",
+            "min_tags"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "normalize_vei_phase_d_tags",
+          "params": [
+            "tags"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "inferred_vei_phase_d_tags",
+          "params": [
+            "details"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "signal_stage_bucket",
+          "params": [
+            "signal_pct"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_historical_t1_return_map_for_date",
+          "params": [
+            "trade_date"
+          ],
+          "returnType": "Dict[str, float]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "candidate_theme_text",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "theme_token_hits",
+          "params": [
+            "themes",
+            "text"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "load_profit_shadow_watchlist",
+          "params": [
+            "trade_date",
+            "top_n"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 88
+        },
+        {
+          "name": "load_mainline_fund_flow_context",
+          "params": [
+            "trade_date",
+            "top_n"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "soft_mainline_fund_bias",
+          "params": [
+            "row",
+            "mainline_ctx"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "market_adaptive_context",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 119
+        },
+        {
+          "name": "market_adaptive_thresholds",
+          "params": [
+            "candidate_stage",
+            "market_context"
+          ],
+          "returnType": "Dict[str, float]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "sector_gate_threshold_for_market",
+          "params": [
+            "market_context"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "normalize_bundle_vei_tags",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "_strip_replay_production_contributions",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 57
+        },
+        {
+          "name": "structured_signal_profile",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 149
+        },
+        {
+          "name": "build_research_signals_from_profile",
+          "params": [
+            "profile",
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 222
+        },
+        {
+          "name": "build_research_panel",
+          "params": [
+            "research_signals",
+            "candidate"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 70
+        },
+        {
+          "name": "early_opportunity_score_for_row",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "structured_signal_present",
+          "params": [
+            "row"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "normalized_block_bucket",
+          "params": [
+            "reason"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "block_reason_bucket",
+          "params": [
+            "reason"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "formal_blockers_for_row",
+          "params": [
+            "row"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "why_not_formal_candidate",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "structured_observation_candidate",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 77
+        },
+        {
+          "name": "structured_formal_impact_summary",
+          "params": [
+            "enriched_rows",
+            "formal_rows",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 79
+        },
+        {
+          "name": "limitup_quality_block_reason",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 88
+        },
+        {
+          "name": "candidate_capital_risk_profile",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 104
+        },
+        {
+          "name": "continuation_gene_evidence",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 99
+        },
+        {
+          "name": "classify_limitup_reason_evidence",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 58
+        },
+        {
+          "name": "limitup_reason_supports_hard_confirmation",
+          "params": [
+            "row",
+            "limitup_reason_strength",
+            "seal_order_strength",
+            "order_book_pressure",
+            "buy_confirmation_min",
+            "order_book_confirmation_min",
+            "news_catalyst_strength",
+            "announcement_catalyst_score"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "strong_sector_theme_partial_aux_exception_allowed",
+          "params": [
+            "row",
+            "board",
+            "auxiliary_status_normalized",
+            "research_panel_overall",
+            "sector_gate_pass",
+            "main_theme_core_score",
+            "main_theme_alignment_score",
+            "sector_catalyst_score",
+            "topic_propagation_score",
+            "near_limit_up_risk",
+            "regulatory_block",
+            "opportunity_block",
+            "capital_risk_codes",
+            "price",
+            "limitup_quality_block",
+            "limitup_reason_evidence_class",
+            "direct_catalyst_confirmation",
+            "news_catalyst_strength",
+            "announcement_catalyst_score"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 58
+        },
+        {
+          "name": "limitup_probability_proxy_components",
+          "params": [
+            "row",
+            "profile"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 51
+        },
+        {
+          "name": "social_confirmation_profile",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "shadow_risk_profile",
+          "params": [
+            "row",
+            "bundle",
+            "profile"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 122
+        },
+        {
+          "name": "paper_pick_risk_explanation_gate",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "ranking_basis_adjustment_components",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 436
+        },
+        {
+          "name": "ensure_leader_chain_main_theme",
+          "params": [
+            "row",
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 59
+        },
+        {
+          "name": "formal_candidate_sort_key",
+          "params": [
+            "row"
+          ],
+          "returnType": "Tuple[float, ...]",
+          "exported": true,
+          "lineCount": 131
+        },
+        {
+          "name": "apply_formal_profit_ranks",
+          "params": [
+            "rows"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "_formal_rank_snapshot_id",
+          "params": [
+            "rows"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "validate_formal_rank_snapshot",
+          "params": [
+            "rows"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "validate_active_production_chain",
+          "params": [
+            "bundle",
+            "target_date"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 61
+        },
+        {
+          "name": "quarantine_nonproduction_bundle",
+          "params": [
+            "bundle",
+            "validation"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "synchronize_formal_profit_rank_state",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 68
+        },
+        {
+          "name": "freeze_formal_production_snapshot",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 82
+        },
+        {
+          "name": "build_rank_alignment_diagnostic",
+          "params": [
+            "rows",
+            "first_clean_row",
+            "top_n"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 83
+        },
+        {
+          "name": "select_first_clean_with_formal_challenge",
+          "params": [
+            "search_rows",
+            "bundle_context"
+          ],
+          "returnType": "Tuple[Dict[str, Any] | None, Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "replay_only_sector_opportunity",
+          "params": [
+            "profile",
+            "row"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "basket_candidate",
+          "params": [
+            "row",
+            "decision_class"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 151
+        },
+        {
+          "name": "build_daily_ticket_search_rows",
+          "params": [
+            "enriched_rows",
+            "bundle_context"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 529
+        },
+        {
+          "name": "build_weak_market_shadow_ticket",
+          "params": [
+            "selected_rows",
+            "bundle",
+            "target_date"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "scan_summary_information_coverage_audit",
+          "params": [
+            "summary"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 96
+        },
+        {
+          "name": "scan_summary_sector_catalyst_diagnostics",
+          "params": [
+            "summary"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "attach_scan_summary_information_coverage_audit",
+          "params": [
+            "bundle",
+            "summary_path",
+            "summary"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "build_research_basket_from_latest_scan",
+          "params": [
+            "date",
+            "asof_time"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "parse_capital_flow_from_content_records",
+          "params": [
+            "content_records"
+          ],
+          "exported": true,
+          "lineCount": 49
+        },
+        {
+          "name": "stock_capital_flow_by_code_from_payload",
+          "params": [
+            "payload"
+          ],
+          "returnType": "Dict[str, Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "inject_capital_flow_boost",
+          "params": [
+            "bundle",
+            "fund_by_code"
+          ],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "fetch_candidate_fund_flow_live",
+          "params": [
+            "codes",
+            "timeout"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "inject_live_fund_flow_into_candidates",
+          "params": [
+            "bundle"
+          ],
+          "exported": true,
+          "lineCount": 103
+        },
+        {
+          "name": "latest_completed_trading_day",
+          "params": [
+            "now"
+          ],
+          "returnType": "dt.date",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_ensure_current_realtime_bundle_path",
+          "params": [
+            "date",
+            "bundle",
+            "summary_path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "core_market_source_gate",
+          "params": [
+            "bundle"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "evaluate_candidate_bundle",
+          "params": [
+            "bundle",
+            "target_date",
+            "allow_stale_data"
+          ],
+          "returnType": "Tuple[str, str, str, Dict[str, Any], List[str]]",
+          "exported": true,
+          "lineCount": 126
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 1138
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "dt"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "Counter"
+          ]
+        },
+        {
+          "source": "functools",
+          "specifiers": [
+            "lru_cache"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List",
+            "Optional",
+            "Tuple"
+          ]
+        },
+        {
+          "source": "six_repo_integration_real_v2_1",
+          "specifiers": [
+            "aggregate_four_repo_native_signals"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_gates",
+          "specifiers": [
+            "REQUIRED_EASTMONEY_CANDIDATE_RECHECK_DOMAINS",
+            "REQUIRED_EASTMONEY_CORE_ENHANCED_EVIDENCE_DOMAINS",
+            "REQUIRED_EASTMONEY_EVIDENCE_DOMAINS",
+            "REQUIRED_EASTMONEY_EXPERIMENTAL_EVIDENCE_DOMAINS",
+            "candidate_evidence_missing_flags",
+            "is_api_scan_source",
+            "missing_coverage_items",
+            "production_evidence_missing_flags",
+            "soft_no_pick_flag"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_eligibility",
+          "specifiers": [
+            "_forward_eligibility"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_persistence",
+          "specifiers": [
+            "_forward_persistence"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_bundle_io",
+          "specifiers": [
+            "_forward_bundle_io"
+          ]
+        }
+      ],
+      "exports": [
+        "is_active_api_source",
+        "is_routine_regulatory_block",
+        "_parse_flow_amount",
+        "build_capital_flow_lookup",
+        "_load_scoring_config_from_db",
+        "_cached_scoring_config_snapshot",
+        "get_scoring_config_snapshot",
+        "clear_scoring_config_cache",
+        "production_regime_from_row",
+        "resolve_ranking_evidence_scales_for_row",
+        "_iter_ledger_tail_records",
+        "_preload_ledger",
+        "_cached_ledger_rows",
+        "_ledger_decision_rows",
+        "_parse_date",
+        "_horizon_profile",
+        "_merge_lifecycle_history_records",
+        "_cached_candidate_bundle_history",
+        "_candidate_lifecycle_history",
+        "_candidate_lifecycle_profile",
+        "_json_safe_value",
+        "_bundle_runtime_cache",
+        "_bundle_runtime_cache_id",
+        "_candidate_runtime_cache_key",
+        "_cached_structured_signal_profile",
+        "_cached_paper_pick_eligibility_profile",
+        "historical_t1_loss_streak_before",
+        "_cached_decision_for_candidate",
+        "_latest_ledger_decision_row_for_date",
+        "correction_reference_for_date",
+        "existing_decision_for_date",
+        "daily_candidate_snapshot_exists_for_date",
+        "should_skip_existing_decision_for_date",
+        "existing_paper_pick_symbol_for_date",
+        "safe_float",
+        "account_snapshot_from_bundle",
+        "account_available_cash",
+        "paper_sizing_context",
+        "position_symbol",
+        "_normalized_profit_pct",
+        "position_profit_pct",
+        "_first_position_float",
+        "position_management_action",
+        "position_profile_for_candidate",
+        "account_mode_from_bundle",
+        "forward_ledger_win_stats",
+        "replay_win_stats",
+        "repo_contribution_summary_text",
+        "active_repo_mapping",
+        "active_repo_summary",
+        "candidate_repo_delta_by_repo",
+        "vei_candidate_signal_source",
+        "synthesize_vei_repo_contribution",
+        "repo_contribution_context",
+        "single_target_card_status",
+        "build_single_target_card",
+        "unique_text_values",
+        "safe_int",
+        "candidate_score_value",
+        "_positive_numeric",
+        "archetype_score_adjustments",
+        "_normalize_news_kuaixun_rows",
+        "_load_news_kuaixun",
+        "_load_sector_names",
+        "_get_sector_names",
+        "_analyze_news_sentiment",
+        "_get_news_analysis",
+        "contrarian_re_score",
+        "candidate_rank_value",
+        "scan_summary_for_bundle",
+        "bundle_metric",
+        "candidate_can_afford_one_lot",
+        "build_candidate_diagnostic_card",
+        "candidate_is_selection_eligible",
+        "formal_diagnostic_candidate_from_bundle",
+        "is_no_pick_hard_blocker",
+        "no_pick_promotion_eligible",
+        "paper_pick_source_health_flags",
+        "ranked_no_pick_candidate_evaluations",
+        "closest_to_pick_candidate_from_bundle",
+        "summarize_evaluation_text_counts",
+        "summarize_evaluation_reason_counts",
+        "build_daily_best_paper_watch",
+        "build_no_pick_candidate_diagnostics",
+        "_reason_parts",
+        "_source_consumption_domain_summary",
+        "build_source_consumption_summary",
+        "build_candidate_consumption_summary",
+        "blocked_score",
+        "symbol_for",
+        "normalize_market_regime_for_db",
+        "_as_symbol",
+        "contains_disallowed_governance_token",
+        "path_is_under",
+        "active_chain_governance_flags",
+        "parse_source_datetime",
+        "parse_runner_asof_datetime",
+        "scan_age_minutes",
+        "select_asof_valid_source_time",
+        "candidate_source_times",
+        "normalized_source_time_for_candidate",
+        "regulatory_hard_block_reason",
+        "opportunity_hard_block_reason",
+        "_count_leader_conditions",
+        "is_strong_leader_candidate",
+        "decision_for_candidate",
+        "structured_component",
+        "normalize_tag_list",
+        "candidate_theme_tag_set",
+        "detect_pool_hollow_theme_tags",
+        "normalize_vei_phase_d_tags",
+        "inferred_vei_phase_d_tags",
+        "signal_stage_bucket",
+        "_historical_t1_return_map_for_date",
+        "candidate_theme_text",
+        "theme_token_hits",
+        "load_profit_shadow_watchlist",
+        "load_mainline_fund_flow_context",
+        "soft_mainline_fund_bias",
+        "market_adaptive_context",
+        "market_adaptive_thresholds",
+        "sector_gate_threshold_for_market",
+        "normalize_bundle_vei_tags",
+        "_strip_replay_production_contributions",
+        "structured_signal_profile",
+        "build_research_signals_from_profile",
+        "build_research_panel",
+        "early_opportunity_score_for_row",
+        "structured_signal_present",
+        "normalized_block_bucket",
+        "block_reason_bucket",
+        "formal_blockers_for_row",
+        "why_not_formal_candidate",
+        "structured_observation_candidate",
+        "structured_formal_impact_summary",
+        "limitup_quality_block_reason",
+        "candidate_capital_risk_profile",
+        "continuation_gene_evidence",
+        "classify_limitup_reason_evidence",
+        "limitup_reason_supports_hard_confirmation",
+        "strong_sector_theme_partial_aux_exception_allowed",
+        "limitup_probability_proxy_components",
+        "social_confirmation_profile",
+        "shadow_risk_profile",
+        "paper_pick_risk_explanation_gate",
+        "ranking_basis_adjustment_components",
+        "ensure_leader_chain_main_theme",
+        "formal_candidate_sort_key",
+        "apply_formal_profit_ranks",
+        "_formal_rank_snapshot_id",
+        "validate_formal_rank_snapshot",
+        "validate_active_production_chain",
+        "quarantine_nonproduction_bundle",
+        "synchronize_formal_profit_rank_state",
+        "freeze_formal_production_snapshot",
+        "build_rank_alignment_diagnostic",
+        "select_first_clean_with_formal_challenge",
+        "replay_only_sector_opportunity",
+        "basket_candidate",
+        "build_daily_ticket_search_rows",
+        "build_weak_market_shadow_ticket",
+        "scan_summary_information_coverage_audit",
+        "scan_summary_sector_catalyst_diagnostics",
+        "attach_scan_summary_information_coverage_audit",
+        "build_research_basket_from_latest_scan",
+        "parse_capital_flow_from_content_records",
+        "stock_capital_flow_by_code_from_payload",
+        "inject_capital_flow_boost",
+        "fetch_candidate_fund_flow_live",
+        "inject_live_fund_flow_into_candidates",
+        "latest_completed_trading_day",
+        "_ensure_current_realtime_bundle_path",
+        "core_market_source_gate",
+        "evaluate_candidate_bundle",
+        "main"
+      ],
+      "totalLines": 9143,
       "hasStructuralAnalysis": true
     }
   }

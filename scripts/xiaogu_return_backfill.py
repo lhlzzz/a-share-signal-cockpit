@@ -231,7 +231,7 @@ def build_return_backfill_timeout_gate(failure_reasons: dict) -> dict:
 def backfill_returns(
     dry_run: bool = False,
     start_date: str = '2026-06-20',
-    top10_only: bool = True,
+    top10_only: bool = False,
     per_symbol_timeout_seconds: int = DEFAULT_PER_SYMBOL_TIMEOUT_SECONDS,
     batch_soft_timeout_seconds: int = DEFAULT_BATCH_SOFT_TIMEOUT_SECONDS,
     input_trade_date: str | None = None,
@@ -258,6 +258,7 @@ def backfill_returns(
         'new_success_count': 0,
         'new_failure_count': 0,
         'skipped_existing_success_count': 0,
+        'existing_candidate_label_sync_count': 0,
         'failure_reasons': {},
         'before': {},
         'after': {},
@@ -351,7 +352,7 @@ def backfill_returns(
         """).bindparams(**date_params)).fetchall()
 
     stats['total_picks'] = len(rows)
-    print(f'Found {len(rows)} top10 candidate records with valid symbols')
+    print(f'Found {len(rows)} candidate records with valid symbols')
     run_ids = sorted({str(row[5]) for row in rows if row[5]})
     for run_id in run_ids:
         stats['run_settlement'].setdefault(run_id, {'failed': 0, 'settled': 0, 'pending': 0})
@@ -367,7 +368,7 @@ def backfill_returns(
     # Check which ones already have returns
     with engine.connect() as conn:
         existing = conn.execute(text("""
-            SELECT production_run_id, symbol, t1_return
+            SELECT production_run_id, symbol, t1_return, settlement_evidence
             FROM returns
             WHERE production_run_id IS NOT NULL
         """)).fetchall()
@@ -375,7 +376,10 @@ def backfill_returns(
     existing_map = {}
     for r in existing:
         key = (str(r[0]), str(r[1]).zfill(6))
-        existing_map[key] = {'t1': r[2]}
+        existing_map[key] = {
+            't1': r[2],
+            'settlement_evidence': r[3] if len(r) > 3 and isinstance(r[3], dict) else {},
+        }
 
     target_keys = {(str(row[5]), str(row[1]).zfill(6)) for row in rows}
     filled_before = sum(1 for key in target_keys if existing_map.get(key, {}).get('t1') is not None)
@@ -482,6 +486,28 @@ def backfill_returns(
             if existing_ret.get('t1') is not None:
                 stats['already_filled'] += 1
                 stats['run_settlement'][run_id]['settled'] += 1
+                if not dry_run:
+                    try:
+                        upsert_return(
+                            trade_date=trade_date,
+                            symbol=symbol,
+                            pick_id=pick_id,
+                            t1_return=existing_ret['t1'],
+                            production_run_id=run_id,
+                            candidate_snapshot_id=candidate_snapshot_id,
+                            return_status='SETTLED',
+                            settlement_evidence=existing_ret.get('settlement_evidence') or {},
+                        )
+                        stats['existing_candidate_label_sync_count'] += 1
+                    except Exception:
+                        record_failure(
+                            trade_date,
+                            symbol,
+                            'DB_WRITE_FAILED',
+                            run_id,
+                            candidate_snapshot_id,
+                        )
+                        continue
             else:
                 target_date = next_trading_day(trade_date, 1)
                 if target_date <= as_of_date:
@@ -737,11 +763,13 @@ if __name__ == '__main__':
     ap.add_argument('--trade-date', default=None, help='Decision date to backfill without rescanning')
     ap.add_argument('--validate-on', default=None, help='Expected next trading date for T+1 validation')
     ap.add_argument('--production-run-id', default='', help='Explicit historical production run to settle')
+    ap.add_argument('--top10-only', action='store_true', help='Bounded diagnostic scope; production defaults to the full candidate snapshot')
     args = ap.parse_args()
 
     print('Starting return backfill...')
     stats = backfill_returns(
         dry_run=args.dry_run,
+        top10_only=args.top10_only,
         per_symbol_timeout_seconds=args.per_symbol_timeout,
         batch_soft_timeout_seconds=args.batch_soft_timeout,
         input_trade_date=args.trade_date,

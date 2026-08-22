@@ -466,13 +466,16 @@ def t1_profit_candidate_profile(
     score or a sector proxy cannot by itself create a candidate-pool seat.
     """
     stamped_profile = row.get('t1_profit_profile')
-    if row.get('t1_profit_candidate') is True and isinstance(stamped_profile, dict):
-        if stamped_profile.get('eligible') is True:
-            return {
-                **stamped_profile,
-                'eligible': True,
-                'admission_source': 'upstream_t1_profit_gate',
-            }
+    if (
+        isinstance(stamped_profile, dict)
+        and isinstance(stamped_profile.get('eligible'), bool)
+        and row.get('t1_profit_candidate') is not None
+    ):
+        return {
+            **stamped_profile,
+            'eligible': bool(stamped_profile['eligible']),
+            'admission_source': 'upstream_t1_profit_gate',
+        }
     pct = _buyability_signal_pct(row)
     pct = float(pct) if pct is not None else 0.0
     close_position = _profit_feature_float(row, 'close_position_score')

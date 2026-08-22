@@ -133,10 +133,10 @@ def job_afternoon_scan_and_pick():
 
 
 def job_result_fill():
-    """15:30 — fill paper picks then T+1 validation ownership via daily_pipeline.
+    """15:30 — run the single T+1 validation owner via daily_pipeline.
 
-    One owner for post-close hygiene: return backfill + pick_id link + daily_closure
-    + observation-only self-evolve. Research never mutates production scoring.
+    daily_pipeline owns return backfill + pick_id link + daily_closure +
+    observation-only self-evolve. Research never mutates production scoring.
     """
     if not is_trading_day():
         logger.info("[result_fill] skipped — not a trading day")
@@ -145,19 +145,10 @@ def job_result_fill():
         os.environ.get("XIAOGU_T1_PRODUCTION_RUN_ID", "").strip()
         or os.environ.get("XIAOGU_PRODUCTION_RUN_ID", "").strip()
     )
-    filler_args = [
-        PYTHON, "xiaogu_forward_result_filler_v0_1.py",
-        "--fill-all-pending", "--auto-eastmoney",
-    ]
-    if production_run_id:
-        filler_args.extend(["--production-run-id", production_run_id])
-    filler_rc = run_cmd(filler_args, "result_fill")
-    if filler_rc != 0:
-        raise RuntimeError(f"RESULT_FILL_FAILED:rc={filler_rc}")
-
     validation_date = datetime.now(TZ).date()
     input_date = previous_trading_day(validation_date)
-    # Full T1 path owns: return_backfill (incl pick_id) → closure → safe_self_evolve
+    # Full T1 path owns: return_backfill (all candidates) → closure →
+    # safe_self_evolve. It is intentionally one scheduled command.
     t1_args = [
         "bash", "daily_pipeline.sh",
         "--manual-return-backfill", input_date.isoformat(),

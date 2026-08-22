@@ -119,7 +119,7 @@ def test_daily_pipeline_runner_failure_closes_run_without_publishing_active(tmp_
 
 def test_morning_scan_runs_api_scanner(monkeypatch):
     calls = []
-    monkeypatch.setattr(scheduler, "is_trading_day", lambda: True)
+    monkeypatch.setattr(scheduler, "is_trading_day", lambda *_args: True)
     monkeypatch.setattr(
         scheduler,
         "run_cmd",
@@ -169,53 +169,26 @@ def test_result_fill_uses_t1_validation_pipeline_for_pick_id_and_evolve(monkeypa
 
     scheduler.job_result_fill()
 
-    assert [job_name for _, job_name in calls] == ["result_fill", "t1_validation_and_self_evolve"]
-    result_args, _ = calls[0]
-    assert result_args[-1] == "--auto-eastmoney"
-    assert "--auto-web" not in result_args
-    t1_args, _ = calls[1]
+    assert [job_name for _, job_name in calls] == ["t1_validation_and_self_evolve"]
+    t1_args, _ = calls[0]
     assert t1_args[:2] == ["bash", "daily_pipeline.sh"]
     assert "--manual-return-backfill" in t1_args
     assert "--validate-on" in t1_args
 
 
-def test_result_fill_propagates_filler_failure_and_stops_pipeline(monkeypatch):
+def test_result_fill_propagates_t1_failure(monkeypatch):
     calls = []
-    monkeypatch.setattr(scheduler, "is_trading_day", lambda: True)
+    monkeypatch.setattr(scheduler, "is_trading_day", lambda *_args: True)
     monkeypatch.setattr(
         scheduler,
         "run_cmd",
         lambda args, job_name: calls.append((args, job_name)) or 7,
     )
 
-    with pytest.raises(RuntimeError, match="RESULT_FILL_FAILED:rc=7"):
+    with pytest.raises(RuntimeError, match="T1_VALIDATION_FAILED:rc=7"):
         scheduler.job_result_fill()
 
-    assert [job_name for _, job_name in calls] == ["result_fill"]
-
-
-def test_result_fill_propagates_t1_failure(monkeypatch):
-    calls = []
-    monkeypatch.setattr(scheduler, "is_trading_day", lambda: True)
-    monkeypatch.setattr(
-        scheduler,
-        "previous_trading_day",
-        lambda d: d.__class__(2026, 7, 21),
-    )
-    monkeypatch.setattr(
-        scheduler,
-        "run_cmd",
-        lambda args, job_name: calls.append((args, job_name))
-        or (0 if job_name == "result_fill" else 9),
-    )
-
-    with pytest.raises(RuntimeError, match="T1_VALIDATION_FAILED:rc=9"):
-        scheduler.job_result_fill()
-
-    assert [job_name for _, job_name in calls] == [
-        "result_fill",
-        "t1_validation_and_self_evolve",
-    ]
+    assert [job_name for _, job_name in calls] == ["t1_validation_and_self_evolve"]
 
 
 def test_result_fill_forwards_explicit_production_run_id(monkeypatch):

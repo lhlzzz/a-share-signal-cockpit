@@ -2289,6 +2289,229 @@ def test_load_latest_scan_uses_latest_source_time_not_directory_label(monkeypatc
     assert summary['source_time'] == '2026-06-10 14:49:54'
 
 
+def test_load_latest_scan_accepts_legacy_api_transport_only_for_historical_replay(monkeypatch, tmp_path) -> None:
+    scan_root = tmp_path / 'live_scan'
+    valid_dir = scan_root / '2026-06-10' / 'legacy_api_snapshot'
+    rejected_dir = scan_root / '2026-06-10' / 'untrusted_snapshot'
+    valid_dir.mkdir(parents=True)
+    rejected_dir.mkdir(parents=True)
+
+    valid_path = valid_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    rejected_path = rejected_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    runner.write_json(
+        valid_path,
+        {
+            'pipeline_version': 'v2_scanner_api',
+            'scanner_transport': 'scrapy_api',
+            'source_time': '2026-06-10 14:49:54',
+        },
+    )
+    runner.write_json(
+        rejected_path,
+        {
+            'pipeline_version': 'unknown_pipeline',
+            'scanner_transport': 'scrapy_api',
+            'source_time': '2026-06-10 15:00:00',
+        },
+    )
+    monkeypatch.setattr(runner, 'LIVE_SCAN_ROOT', scan_root)
+
+    assert runner.load_latest_eastmoney_scan('2026-06-10') is None
+    selected = runner.load_latest_eastmoney_scan(
+        '2026-06-10',
+        historical_replay=True,
+    )
+
+    assert selected is not None
+    selected_path, summary = selected
+    assert selected_path == valid_path
+    assert summary['scanner_transport'] == 'scrapy_api'
+
+
+def test_historical_replay_pins_the_requested_scan_summary(monkeypatch, tmp_path) -> None:
+    scan_root = tmp_path / 'live_scan'
+    requested_dir = scan_root / '2026-06-10' / 'afternoon'
+    later_dir = scan_root / '2026-06-10' / 'rerun'
+    requested_dir.mkdir(parents=True)
+    later_dir.mkdir(parents=True)
+    requested_path = requested_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    later_path = later_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    common = {
+        'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'scrapy_api',
+    }
+    runner.write_json(
+        requested_path,
+        {**common, 'source_time': '2026-06-10 14:50:00'},
+    )
+    runner.write_json(
+        later_path,
+        {**common, 'source_time': '2026-06-10 14:55:00'},
+    )
+    monkeypatch.setattr(runner, 'LIVE_SCAN_ROOT', scan_root)
+
+    selected = runner.load_latest_eastmoney_scan(
+        '2026-06-10',
+        historical_replay=True,
+        historical_summary_path=requested_path,
+    )
+
+    assert selected is not None
+    selected_path, summary = selected
+    assert selected_path == requested_path
+    assert summary['source_time'] == '2026-06-10 14:50:00'
+    assert runner.load_latest_eastmoney_scan(
+        '2026-06-10',
+        historical_summary_path=requested_path,
+    ) is None
+
+
+def test_find_best_scan_requires_runner_summary(monkeypatch, tmp_path) -> None:
+    date_dir = tmp_path / '2026-06-10'
+    complete_dir = date_dir / 'eastmoney_scan_afternoon'
+    incomplete_rerun_dir = date_dir / 'eastmoney_scan_afternoon_rerun'
+    complete_dir.mkdir(parents=True)
+    incomplete_rerun_dir.mkdir()
+    runner.write_json(
+        complete_dir / runner.SCAN_SUMMARY_RUNNER_NAME,
+        {
+            'pipeline_version': 'v2_scanner_api',
+            'scanner_transport': 'scrapy_api',
+            'source_time': '2026-06-10 14:50:00',
+        },
+    )
+    monkeypatch.setattr(backtest, 'LIVE_SCAN_ROOT', tmp_path)
+
+    assert backtest.find_best_scan_for_date('2026-06-10') == complete_dir
+
+
+def test_production_scan_redecision_uses_historical_bundle_mode(monkeypatch, tmp_path) -> None:
+    scan_dir = tmp_path / 'scan'
+    scan_dir.mkdir()
+    calls = {}
+    bundle = {
+        'available': True,
+        'paper_scoring_candidates': [{
+            'symbol': '600001',
+            'formal_rank': 1,
+            'paper_pick_eligibility': {'eligible': True},
+        }],
+    }
+
+    monkeypatch.setattr(backtest, 'find_best_scan_for_date', lambda date: scan_dir)
+    monkeypatch.setattr(backtest, '_scan_snapshot_asof_time', lambda scan, date: '14:50:00')
+
+    def build_bundle(
+        date,
+        asof_time=None,
+        *,
+        historical_replay=False,
+        historical_summary_path=None,
+    ):
+        calls.update({
+            'date': date,
+            'asof_time': asof_time,
+            'historical_replay': historical_replay,
+            'historical_summary_path': historical_summary_path,
+        })
+        return dict(bundle)
+
+    monkeypatch.setattr(runner, 'build_research_basket_from_latest_scan', build_bundle)
+    monkeypatch.setattr(runner, 'attach_paper_pick_eligibility', lambda bundle: bundle)
+    monkeypatch.setattr(
+        runner,
+        'freeze_formal_production_snapshot',
+        lambda value: calls.setdefault('formal_snapshot_frozen', True) and value,
+    )
+    monkeypatch.setattr(
+        runner,
+        'evaluate_candidate_bundle',
+        lambda bundle, date, allow_stale_data=False: ('PAPER_PICK', '600001', 'OK', {}, []),
+    )
+
+    result = backtest.production_scan_redecision_for_day('2026-06-10')
+
+    assert {
+        key: value
+        for key, value in calls.items()
+        if key != 'formal_snapshot_frozen'
+    } == {
+        'date': '2026-06-10',
+        'asof_time': '14:50:00',
+        'historical_replay': True,
+        'historical_summary_path': scan_dir / 'xiaogu_scan_summary_runner.json',
+    }
+    assert calls['formal_snapshot_frozen'] is True
+    assert result['redecision_symbol'] == '600001'
+    assert result['scan_snapshot_available'] is True
+
+
+def test_scan_bundle_preserves_full_pool_and_stamps_t1_exclusions(tmp_path) -> None:
+    scan_dir = tmp_path / 'data' / 'live_scan' / '2026-06-22' / 'eastmoney_scan_afternoon'
+    scan_dir.mkdir(parents=True)
+    accepted = make_candidate(
+        '600101',
+        '可准入样本',
+        score=86.0,
+        rank=1,
+        sector_score=0.8,
+        source_time='2026-06-22 14:50:00',
+    )
+    add_t1_profit_evidence(accepted)
+    rejected = make_candidate(
+        '600102',
+        'T1门误杀审计样本',
+        score=84.0,
+        rank=2,
+        sector_score=0.0,
+        source_time='2026-06-22 14:50:00',
+        signal_pct=2.15,
+        close_position_score=0.807692,
+    )
+    rejected.update({
+        'volume_ratio': 0.83,
+        'fund_flow_momentum': 0.65,
+        'net_inflow_main': 140_902_962.0,
+        'continuation_gene_score': 0.0,
+        'candidate_stage': 'flat_0_to_3',
+        'setup_type': 'HOT_MOMENTUM',
+        'search_layer_hint': 'news_catalyst_low_position',
+        'direct_symbol_news_count': 1,
+    })
+    summary_path = scan_dir / runner.SCAN_SUMMARY_RUNNER_NAME
+    summary = {
+        'source_time': '2026-06-22 14:50:00',
+        'pipeline_version': 'v2_scanner_api',
+        'scanner_transport': 'direct_api',
+        'scored_count': 2,
+        'passed_count': 1,
+        'source_status': complete_source_status(),
+        'scored_candidates': [accepted, rejected],
+        'full_candidate_pool': [accepted, rejected],
+        'full_universe_scan': {'coverage_status': 'PASS', 'quote_count': 5000},
+    }
+
+    bundle = runner._bundle_from_scan_summary(summary_path, summary)
+
+    assert len(bundle['full_candidate_pool']) == 2
+    rejected_row = next(row for row in bundle['full_candidate_pool'] if row['symbol'] == '600102')
+    assert rejected_row['t1_profit_candidate'] is False
+    assert rejected_row['t1_profit_profile']['reason'] == 'T1_PROFIT_EVIDENCE_INSUFFICIENT'
+    assert rejected_row['t1_profit_admission_reason'] == 'T1_PROFIT_EVIDENCE_INSUFFICIENT'
+    assert runner.t1_profit_candidate_profile(rejected_row)['admission_source'] == 'upstream_t1_profit_gate'
+
+    runner.freeze_formal_production_snapshot(bundle)
+
+    assert len(bundle['formal_ranked_pool']) == 2
+    assert len(bundle['paper_scoring_candidates']) == 2
+    admitted, _diagnostics = runner.filter_t1_profit_candidates(
+        bundle['paper_scoring_candidates'],
+        bundle,
+        enforce=True,
+    )
+    assert [row['symbol'] for row in admitted] == ['600101']
+
+
 def test_load_candidate_bundle_carries_data_directory_catalog_from_scan_summary(monkeypatch, tmp_path) -> None:
     bundle_payload = load_real_bundle()
     scan_summary_payload = {
