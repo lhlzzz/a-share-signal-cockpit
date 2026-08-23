@@ -578,6 +578,29 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
         2.0,
     ) / 2.0
     auxiliary_risk = bounded(profile.get('risk_notice_penalty'))
+    market_regime = str(
+        row.get('market_regime')
+        or profile.get('market_regime')
+        or ''
+    ).strip().lower()
+    close_position = bounded(
+        row.get('close_position_score')
+        or profile.get('close_position_score')
+    )
+    signal_pct = safe_float(
+        row.get('signal_pct')
+        if row.get('signal_pct') not in (None, '')
+        else row.get('pct_chg')
+    ) or 0.0
+    direct_catalyst_confirmation = bool(
+        row.get('direct_catalyst_confirmation')
+        or row.get('limitup_reason_has_direct')
+    )
+    weak_regime_chase = 0.0
+    if market_regime in ('weak', 'climax') and not direct_catalyst_confirmation:
+        close_extension = bounded((close_position - 0.70) / 0.30)
+        signal_extension = bounded((signal_pct - 3.0) / 6.5)
+        weak_regime_chase = close_extension * (0.5 + 0.5 * signal_extension)
 
     # Main-force behavior is primary: capital confirmation and executable room
     # outweigh an isolated high score, theme tag, announcement, or limit-up proxy.
@@ -609,6 +632,7 @@ def formal_candidate_sort_key(row: Dict[str, Any]) -> Tuple[float, ...]:
         + shell_pressure * 12.0
         + near_seal_penalty * 8.0
         + auxiliary_risk * 4.0
+        + weak_regime_chase * 6.0
     )
     mainline = adjustment.get('mainline_fund_flow_soft')
     mainline_boost = bounded(mainline.get('soft_boost')) if isinstance(mainline, dict) else 0.0

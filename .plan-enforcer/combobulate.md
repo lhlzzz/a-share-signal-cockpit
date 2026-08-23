@@ -1,8 +1,8 @@
-# August T+1 Paper-Pick Attribution
+# August Full-Pool Main-Force Chain Upgrade
 
 Canonical intent packet: `.plan-enforcer/discuss.md`.
 
-Use recorded August candidate snapshots and T+1 returns to diagnose selection
-misses, then improve only the existing main-force production chain with
-leakage-free replay evidence. Do not create parallel decision logic or force
-ex-post winners into production.
+Analyze every recorded August candidate row and its T+1 outcome/provenance, then
+upgrade only the existing `main_force_behavior_chain` when a leakage-free
+baseline replay proves the change. Do not narrow the study to PAPER_PICK or
+Top10, weaken hard blocks from isolated winners, or add a second decision path.

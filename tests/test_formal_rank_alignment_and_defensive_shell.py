@@ -163,6 +163,46 @@ def test_apply_formal_profit_ranks_stamps_production_score_without_legacy_score_
     assert 0.0 <= ranked['production_score'] <= 100.0
 
 
+def test_weak_regime_extended_close_penalty_demotes_proxy_chase():
+    proxy_chase = {
+        'symbol': '603067',
+        'rank': 1,
+        'signal_pct': 3.89,
+        'pct_chg': 3.89,
+        'market_regime': 'weak',
+        'close_position_score': 0.783,
+        'fund_flow_momentum': 0.0,
+        'continuation_gene_score': 0.86,
+        'sector_catalyst_score': 1.0,
+        'limitup_probability_proxy': 0.52,
+        'direct_catalyst_confirmation': False,
+        'capital_risk_profile': {'risk_penalty_score': 0.0},
+    }
+    neutral_market = {**proxy_chase, 'market_regime': 'neutral'}
+
+    assert runner.formal_candidate_sort_key(neutral_market)[0] > runner.formal_candidate_sort_key(proxy_chase)[0]
+
+
+def test_direct_catalyst_keeps_weak_regime_continuation_penalty_off():
+    base = {
+        'symbol': '600001',
+        'rank': 1,
+        'signal_pct': 6.0,
+        'market_regime': 'weak',
+        'close_position_score': 0.9,
+        'fund_flow_momentum': 0.5,
+        'continuation_gene_score': 0.8,
+        'sector_catalyst_score': 0.7,
+        'capital_risk_profile': {'risk_penalty_score': 0.0},
+    }
+    proxy = runner.formal_candidate_sort_key(base)[0]
+    direct = runner.formal_candidate_sort_key(
+        {**base, 'direct_catalyst_confirmation': True}
+    )[0]
+
+    assert direct > proxy
+
+
 def test_synchronize_formal_profit_rank_state_shares_full_pool_score():
     full = {
         'symbol': '600001',
