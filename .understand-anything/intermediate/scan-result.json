@@ -1,31 +1,10 @@
 {
-  "name": "xiaogu",
-  "description": "xiaogu 是一个面向 A 股研究与纸面交易的信号系统，用于行情数据采集、多因子评分、候选股筛选、前向验证和运营 API 查询。系统只生成可解释的研究信号和 PAPER_PICK，不执行真实交易，也不连接券商。",
-  "languages": [
-    "config",
-    "html",
-    "json",
-    "jsonl",
-    "markdown",
-    "python",
-    "shell",
-    "sql",
-    "txt",
-    "unknown",
-    "yaml"
-  ],
-  "frameworks": [
-    "Alembic",
-    "FastAPI",
-    "GitHub Actions",
-    "SQLAlchemy",
-    "Uvicorn"
-  ],
+  "scriptCompleted": true,
   "files": [
     {
       "path": ".claude/settings.json",
       "language": "json",
-      "sizeLines": 112,
+      "sizeLines": 126,
       "fileCategory": "config"
     },
     {
@@ -49,19 +28,19 @@
     {
       "path": ".plan-enforcer/.user-messages.jsonl",
       "language": "jsonl",
-      "sizeLines": 7,
+      "sizeLines": 9,
       "fileCategory": "code"
     },
     {
       "path": ".plan-enforcer/awareness.md",
       "language": "markdown",
-      "sizeLines": 25,
+      "sizeLines": 36,
       "fileCategory": "docs"
     },
     {
       "path": ".plan-enforcer/combobulate.md",
       "language": "markdown",
-      "sizeLines": 7,
+      "sizeLines": 9,
       "fileCategory": "docs"
     },
     {
@@ -73,13 +52,19 @@
     {
       "path": ".plan-enforcer/discuss.md",
       "language": "markdown",
-      "sizeLines": 55,
+      "sizeLines": 79,
       "fileCategory": "docs"
     },
     {
       "path": ".plan-enforcer/ledger.md",
       "language": "markdown",
-      "sizeLines": 33,
+      "sizeLines": 35,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md",
+      "language": "markdown",
+      "sizeLines": 365,
       "fileCategory": "docs"
     },
     {
@@ -113,21 +98,39 @@
       "fileCategory": "config"
     },
     {
-      "path": ".understand-anything/intermediate/batches.json",
+      "path": ".understand-anything/fingerprints.json",
       "language": "json",
-      "sizeLines": 2415,
+      "sizeLines": 19724,
       "fileCategory": "config"
     },
     {
       "path": ".understand-anything/intermediate/scan-result.json",
       "language": "json",
-      "sizeLines": 542,
+      "sizeLines": 725,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/knowledge-graph.json",
+      "language": "json",
+      "sizeLines": 64032,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/mcp-scan-result.json",
+      "language": "json",
+      "sizeLines": 626,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/meta.json",
+      "language": "json",
+      "sizeLines": 6,
       "fileCategory": "config"
     },
     {
       "path": "AGENTS.md",
       "language": "markdown",
-      "sizeLines": 244,
+      "sizeLines": 256,
       "fileCategory": "docs"
     },
     {
@@ -145,7 +148,19 @@
     {
       "path": "docs/architecture.md",
       "language": "markdown",
-      "sizeLines": 49,
+      "sizeLines": 176,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/plans/2026-08-21-forward-runner-decomposition.md",
+      "language": "markdown",
+      "sizeLines": 512,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/plans/2026-08-25-t1-net-return-production-rewrite.md",
+      "language": "markdown",
+      "sizeLines": 112,
       "fileCategory": "docs"
     },
     {
@@ -193,7 +208,7 @@
     {
       "path": "scrapy_scanner/runner_v2.py",
       "language": "python",
-      "sizeLines": 4811,
+      "sizeLines": 4840,
       "fileCategory": "code"
     },
     {
@@ -211,7 +226,7 @@
     {
       "path": "scripts/xiaogu_daily_health_check.py",
       "language": "python",
-      "sizeLines": 297,
+      "sizeLines": 299,
       "fileCategory": "code"
     },
     {
@@ -229,19 +244,19 @@
     {
       "path": "scripts/xiaogu_db_init.sql",
       "language": "sql",
-      "sizeLines": 461,
+      "sizeLines": 535,
       "fileCategory": "data"
     },
     {
       "path": "scripts/xiaogu_ensure_database.py",
       "language": "python",
-      "sizeLines": 180,
+      "sizeLines": 221,
       "fileCategory": "code"
     },
     {
       "path": "scripts/xiaogu_knowledge_asset_export.py",
       "language": "python",
-      "sizeLines": 679,
+      "sizeLines": 847,
       "fileCategory": "code"
     },
     {
@@ -271,7 +286,7 @@
     {
       "path": "scripts/xiaogu_return_backfill.py",
       "language": "python",
-      "sizeLines": 762,
+      "sizeLines": 917,
       "fileCategory": "code"
     },
     {
@@ -301,19 +316,19 @@
     {
       "path": "tests/test_db_backfill.py",
       "language": "python",
-      "sizeLines": 1012,
+      "sizeLines": 1569,
       "fileCategory": "code"
     },
     {
       "path": "tests/test_formal_rank_alignment_and_defensive_shell.py",
       "language": "python",
-      "sizeLines": 663,
+      "sizeLines": 903,
       "fileCategory": "code"
     },
     {
       "path": "tests/test_knowledge_asset_export.py",
       "language": "python",
-      "sizeLines": 220,
+      "sizeLines": 279,
       "fileCategory": "code"
     },
     {
@@ -343,7 +358,7 @@
     {
       "path": "tests/test_regime_policy.py",
       "language": "python",
-      "sizeLines": 134,
+      "sizeLines": 161,
       "fileCategory": "code"
     },
     {
@@ -355,25 +370,25 @@
     {
       "path": "tests/test_xiaogu_a_share_forward_runner.py",
       "language": "python",
-      "sizeLines": 11383,
+      "sizeLines": 12270,
       "fileCategory": "code"
     },
     {
       "path": "tests/test_xiaogu_api.py",
       "language": "python",
-      "sizeLines": 890,
+      "sizeLines": 899,
       "fileCategory": "code"
     },
     {
       "path": "tests/test_xiaogu_runtime_payload_evidence_vector.py",
       "language": "python",
-      "sizeLines": 272,
+      "sizeLines": 271,
       "fileCategory": "code"
     },
     {
       "path": "tests/test_xiaogu_scheduler.py",
       "language": "python",
-      "sizeLines": 481,
+      "sizeLines": 454,
       "fileCategory": "code"
     },
     {
@@ -397,19 +412,19 @@
     {
       "path": "xiaogu_api.py",
       "language": "python",
-      "sizeLines": 3572,
+      "sizeLines": 3553,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_backtest_v0_1.py",
       "language": "python",
-      "sizeLines": 4856,
+      "sizeLines": 5206,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_case_vector_store.py",
       "language": "python",
-      "sizeLines": 987,
+      "sizeLines": 1002,
       "fileCategory": "code"
     },
     {
@@ -421,7 +436,7 @@
     {
       "path": "xiaogu_db.py",
       "language": "python",
-      "sizeLines": 2378,
+      "sizeLines": 2800,
       "fileCategory": "code"
     },
     {
@@ -433,7 +448,7 @@
     {
       "path": "xiaogu_evidence_card.py",
       "language": "python",
-      "sizeLines": 287,
+      "sizeLines": 290,
       "fileCategory": "code"
     },
     {
@@ -445,19 +460,25 @@
     {
       "path": "xiaogu_forward_bundle_io.py",
       "language": "python",
-      "sizeLines": 1229,
+      "sizeLines": 1259,
       "fileCategory": "code"
     },
     {
-      "path": "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "path": "xiaogu_forward_diagnostics.py",
       "language": "python",
-      "sizeLines": 9797,
+      "sizeLines": 889,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_eligibility.py",
       "language": "python",
-      "sizeLines": 2500,
+      "sizeLines": 2595,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_features.py",
+      "language": "python",
+      "sizeLines": 2802,
       "fileCategory": "code"
     },
     {
@@ -467,9 +488,15 @@
       "fileCategory": "code"
     },
     {
+      "path": "xiaogu_forward_host_binding.py",
+      "language": "python",
+      "sizeLines": 49,
+      "fileCategory": "code"
+    },
+    {
       "path": "xiaogu_forward_judge_scoreboard_v0_1.py",
       "language": "python",
-      "sizeLines": 928,
+      "sizeLines": 848,
       "fileCategory": "code"
     },
     {
@@ -479,9 +506,33 @@
       "fileCategory": "code"
     },
     {
+      "path": "xiaogu_forward_persistence.py",
+      "language": "python",
+      "sizeLines": 148,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_ranking.py",
+      "language": "python",
+      "sizeLines": 1278,
+      "fileCategory": "code"
+    },
+    {
       "path": "xiaogu_forward_result_filler_v0_1.py",
       "language": "python",
-      "sizeLines": 682,
+      "sizeLines": 1317,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_runner.py",
+      "language": "python",
+      "sizeLines": 5164,
+      "fileCategory": "code"
+    },
+    {
+      "path": "xiaogu_forward_snapshot.py",
+      "language": "python",
+      "sizeLines": 407,
       "fileCategory": "code"
     },
     {
@@ -499,7 +550,7 @@
     {
       "path": "xiaogu_regime_policy.py",
       "language": "python",
-      "sizeLines": 468,
+      "sizeLines": 570,
       "fileCategory": "code"
     },
     {
@@ -517,13 +568,13 @@
     {
       "path": "xiaogu_scheduler.py",
       "language": "python",
-      "sizeLines": 217,
+      "sizeLines": 208,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_signal_effectiveness_v0_1.py",
       "language": "python",
-      "sizeLines": 2417,
+      "sizeLines": 4183,
       "fileCategory": "code"
     },
     {
@@ -535,7 +586,7 @@
     {
       "path": "xiaogu_utils.py",
       "language": "python",
-      "sizeLines": 99,
+      "sizeLines": 157,
       "fileCategory": "code"
     },
     {
@@ -545,9 +596,39 @@
       "fileCategory": "code"
     }
   ],
-  "totalFiles": 87,
+  "totalFiles": 99,
   "filteredByIgnore": 0,
   "estimatedComplexity": "moderate",
+  "stats": {
+    "filesScanned": 99,
+    "byCategory": {
+      "config": 14,
+      "infra": 1,
+      "code": 63,
+      "docs": 16,
+      "script": 3,
+      "markup": 1,
+      "data": 1
+    },
+    "byLanguage": {
+      "json": 12,
+      "config": 2,
+      "yaml": 1,
+      "jsonl": 2,
+      "markdown": 15,
+      "unknown": 1,
+      "shell": 3,
+      "html": 1,
+      "txt": 1,
+      "python": 60,
+      "sql": 1
+    },
+    "importMapStats": {
+      "filesScanned": 99,
+      "filesWithImports": 34,
+      "totalEdges": 71
+    }
+  },
   "importMap": {
     ".claude/settings.json": [],
     ".env.example": [],
@@ -559,17 +640,23 @@
     ".plan-enforcer/config.md": [],
     ".plan-enforcer/discuss.md": [],
     ".plan-enforcer/ledger.md": [],
+    ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md": [],
     ".plan-enforcer/statusline-state.json": [],
     ".skills/karpathy-daily.md": [],
     ".skills/karpathy-guidelines/SKILL.md": [],
     ".understand-anything/.understandignore": [],
     ".understand-anything/config.json": [],
-    ".understand-anything/intermediate/batches.json": [],
+    ".understand-anything/fingerprints.json": [],
     ".understand-anything/intermediate/scan-result.json": [],
+    ".understand-anything/knowledge-graph.json": [],
+    ".understand-anything/mcp-scan-result.json": [],
+    ".understand-anything/meta.json": [],
     "AGENTS.md": [],
     "CLAUDE.md": [],
     "daily_pipeline.sh": [],
     "docs/architecture.md": [],
+    "docs/plans/2026-08-21-forward-runner-decomposition.md": [],
+    "docs/plans/2026-08-25-t1-net-return-production-rewrite.md": [],
     "public/index.html": [],
     "pytest.ini": [],
     "README.md": [],
@@ -603,7 +690,8 @@
     "scripts/xiaogu_regime_shadow_replay.py": [],
     "scripts/xiaogu_return_backfill.py": [
       "xiaogu_db.py",
-      "xiaogu_forward_result_filler_v0_1.py"
+      "xiaogu_forward_result_filler_v0_1.py",
+      "xiaogu_scheduler.py"
     ],
     "scripts/xiaogu_safe_self_evolve.py": [],
     "six_repo_integration_real_v2_1.py": [
@@ -611,32 +699,32 @@
     ],
     "start_api.sh": [],
     "tests/test_buyability_sealed_limit_infer.py": [
-      "xiaogu_forward_d1_1450_runner_v0_1.py",
-      "xiaogu_forward_eligibility.py"
+      "xiaogu_forward_eligibility.py",
+      "xiaogu_forward_runner.py"
     ],
     "tests/test_db_backfill.py": [],
     "tests/test_formal_rank_alignment_and_defensive_shell.py": [
       "tests/test_xiaogu_a_share_forward_runner.py",
       "xiaogu_evidence_card.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py"
+      "xiaogu_forward_runner.py"
     ],
     "tests/test_knowledge_asset_export.py": [
       "scripts/xiaogu_knowledge_asset_export.py"
     ],
     "tests/test_l3_hydrate_fair_aux_and_nopick.py": [
       "xiaogu_backtest_v0_1.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py",
-      "xiaogu_forward_eligibility.py"
+      "xiaogu_forward_eligibility.py",
+      "xiaogu_forward_runner.py"
     ],
     "tests/test_post_limitup_and_quality_escape_tightening.py": [
       "tests/test_xiaogu_a_share_forward_runner.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py"
+      "xiaogu_forward_runner.py"
     ],
     "tests/test_profit_candidates_shadow.py": [
       "scripts/xiaogu_profit_candidates_shadow.py"
     ],
     "tests/test_profit_shadow_and_mainline_soft.py": [
-      "xiaogu_forward_d1_1450_runner_v0_1.py"
+      "xiaogu_forward_runner.py"
     ],
     "tests/test_regime_policy.py": [
       "xiaogu_regime_policy.py"
@@ -646,11 +734,13 @@
       "scrapy_scanner/__init__.py",
       "six_repo_integration_real_v2_1.py",
       "xiaogu_backtest_v0_1.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py",
       "xiaogu_forward_gates.py",
+      "xiaogu_forward_host_binding.py",
+      "xiaogu_forward_runner.py",
       "xiaogu_native_repo_runtime_v0_1.py",
       "xiaogu_scanner_scoring.py",
-      "xiaogu_signal_effectiveness_v0_1.py"
+      "xiaogu_signal_effectiveness_v0_1.py",
+      "xiaogu_utils.py"
     ],
     "tests/test_xiaogu_api.py": [
       "xiaogu_api.py"
@@ -663,7 +753,7 @@
     ],
     "tests/test_xiaogu_scheduler.py": [
       "xiaogu_api.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py",
+      "xiaogu_forward_runner.py",
       "xiaogu_scheduler.py"
     ],
     "v2_1_six_repo_real_integrated_leakage_check.json": [],
@@ -678,31 +768,54 @@
     "xiaogu_db.py": [],
     "xiaogu_eastmoney_tail_scan_v0_2.py": [
       "six_repo_integration_real_v2_1.py",
-      "xiaogu_forward_d1_1450_runner_v0_1.py"
+      "xiaogu_forward_runner.py"
     ],
     "xiaogu_evidence_card.py": [],
     "xiaogu_factor_store.py": [],
     "xiaogu_forward_bundle_io.py": [
+      "xiaogu_forward_host_binding.py",
       "xiaogu_utils.py"
     ],
-    "xiaogu_forward_d1_1450_runner_v0_1.py": [
-      "six_repo_integration_real_v2_1.py",
-      "xiaogu_forward_bundle_io.py",
-      "xiaogu_forward_eligibility.py",
-      "xiaogu_forward_gates.py"
+    "xiaogu_forward_diagnostics.py": [
+      "xiaogu_forward_host_binding.py"
     ],
     "xiaogu_forward_eligibility.py": [
-      "xiaogu_forward_gates.py"
+      "xiaogu_forward_gates.py",
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_features.py": [
+      "xiaogu_forward_host_binding.py"
     ],
     "xiaogu_forward_gates.py": [],
+    "xiaogu_forward_host_binding.py": [],
     "xiaogu_forward_judge_scoreboard_v0_1.py": [
       "xiaogu_utils.py"
     ],
     "xiaogu_forward_paper_recorder_v0_1.py": [
       "xiaogu_utils.py"
     ],
+    "xiaogu_forward_persistence.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_ranking.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
     "xiaogu_forward_result_filler_v0_1.py": [
       "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_runner.py": [
+      "six_repo_integration_real_v2_1.py",
+      "xiaogu_forward_bundle_io.py",
+      "xiaogu_forward_diagnostics.py",
+      "xiaogu_forward_eligibility.py",
+      "xiaogu_forward_features.py",
+      "xiaogu_forward_gates.py",
+      "xiaogu_forward_persistence.py",
+      "xiaogu_forward_ranking.py",
+      "xiaogu_forward_snapshot.py"
+    ],
+    "xiaogu_forward_snapshot.py": [
+      "xiaogu_forward_host_binding.py"
     ],
     "xiaogu_native_repo_runtime_v0_1.py": [],
     "xiaogu_pick_validator.py": [],
