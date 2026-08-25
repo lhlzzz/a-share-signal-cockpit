@@ -8,6 +8,7 @@ Usage:
     python3 scrapy_scanner/runner_v2.py --output-dir data/live_scan/2026-07-05/scan
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -53,8 +54,8 @@ EXTERNAL_MARKET_INDEXES = (
 )
 
 MAINBOARD_PREFIXES = ('600', '601', '603', '605', '000', '001', '002', '003')
-# Full candidate pool persisted for runner/DB; pre-enrichment must stay larger so
-# unique-symbol fill can still hit the pool target after duplicates.
+# Legacy pool constants remain for compatibility with historical reports. The
+# active scanner no longer uses them to truncate the T+1 production universe.
 FULL_CANDIDATE_POOL_TARGET = 400
 PRE_ENRICHMENT_CANDIDATE_TARGET = 500
 # Eastmoney's clist endpoint exposes the quote payload as numbered fields.
@@ -1158,6 +1159,17 @@ def select_unique_candidate_pool(candidates, target_count=FULL_CANDIDATE_POOL_TA
         selected.append(candidate)
     duplicate_unique = sorted(set(duplicate_symbols))
     stage_counts = summarize_candidate_drop_stage_counts(drop_diagnostics)
+    source_order_symbols = [str(row.get('symbol') or row.get('code') or '').zfill(6) for row in source_rows]
+    selected_order_symbols = [str(row.get('symbol') or row.get('code') or '').zfill(6) for row in selected]
+    unique_source_symbols = {
+        symbol for symbol in source_order_symbols if symbol.strip('0')
+    }
+    source_order_hash = hashlib.sha256(
+        '|'.join(source_order_symbols).encode('utf-8')
+    ).hexdigest()
+    selected_order_hash = hashlib.sha256(
+        '|'.join(selected_order_symbols).encode('utf-8')
+    ).hexdigest()
     summary = {
         'source_row_count': len(source_rows),
         'raw_full_candidate_pool_rows': len(source_rows),
@@ -1174,6 +1186,30 @@ def select_unique_candidate_pool(candidates, target_count=FULL_CANDIDATE_POOL_TA
         'candidate_drop_stage_counts': stage_counts,
         'candidate_drop_diagnostic_count': len(drop_diagnostics),
         'final_persisted_count': len(selected),
+        'selection_policy': 'stable_source_order_after_structured_priority_sort',
+        'source_order_hash': source_order_hash,
+        'selected_order_hash': selected_order_hash,
+        # Pool recall is about unique symbols. Duplicate source rows are
+        # already accounted for by duplicate_symbol_count and are not
+        # evidence that a unique candidate was excluded.
+        'unique_source_symbol_count': len(unique_source_symbols),
+        'outside_target_count': max(0, len(unique_source_symbols) - target_count),
+        'pool_recall_at_target': None,
+        'pool_recall_diagnostics': {
+            f'recall_at_{target_count}': round(
+                len(selected) / len(unique_source_symbols), 4
+            ) if unique_source_symbols else None,
+            'recall_at_600': None if len(unique_source_symbols) < 600 else round(
+                min(600, len(unique_source_symbols)) / len(unique_source_symbols), 4
+            ),
+            'recall_at_1000': None if len(unique_source_symbols) < 1000 else round(
+                min(1000, len(unique_source_symbols)) / len(unique_source_symbols), 4
+            ),
+            'source_universe_limit': len(unique_source_symbols),
+            'status': 'SOURCE_UNIVERSE_LIMITED' if len(unique_source_symbols) < 1000 else 'OBSERVED',
+        },
+        'source_order_stability': None,
+        'outside_target_return_diagnostic': 'deferred_until_t1_settlement',
     }
     return selected, summary
 
@@ -3653,14 +3689,9 @@ def main():
         # ``full_candidate_pool`` is the stable, auditable market universe.
         # Score/evidence gates may narrow downstream pools but never remove rows
         # from this persistence scope.
-        candidates = tradable[:PRE_ENRICHMENT_CANDIDATE_TARGET]
-        for row in tradable[PRE_ENRICHMENT_CANDIDATE_TARGET:]:
-            record_pool_drop(row, 'pre_enrichment_rank_cut', 'ranked_below_pre_enrichment_target', {
-                'rank': row.get('rank'),
-                'final_score': row.get('final_score') or row.get('score'),
-                'pre_enrichment_target_count': PRE_ENRICHMENT_CANDIDATE_TARGET,
-                'tradable_count': len(tradable),
-            })
+        # Keep every tradable quote. Same-day score ordering is diagnostic
+        # metadata; it must not decide which stocks can reach the T+1 model.
+        candidates = list(tradable)
         # Per-stock announcement fill for top candidates missing market-wide ann codes.
         try:
             covered_ann_codes = set()
@@ -4149,7 +4180,7 @@ def main():
         rank_candidates_by_structured_priority(candidates)
 
         full_candidate_pool, candidate_pool_dedup_summary = select_unique_candidate_pool(
-            candidates, FULL_CANDIDATE_POOL_TARGET,
+            candidates, len(candidates),
         )
         passed_candidates = [
             candidate for candidate in candidates
@@ -4166,16 +4197,14 @@ def main():
         }
         if candidate_pool_dedup_summary.get('candidate_pool_cut_count'):
             top_exclusion_reasons['candidate_pool_cut'] = candidate_pool_dedup_summary['candidate_pool_cut_count']
-        if len(tradable) > PRE_ENRICHMENT_CANDIDATE_TARGET:
-            top_exclusion_reasons['pre_enrichment_rank_cut'] = len(tradable) - PRE_ENRICHMENT_CANDIDATE_TARGET
         pool_exclusion_summary = {
             **candidate_pool_dedup_summary,
             'raw_universe_count': len(stocks),
             'mainboard_tradable_count': len(tradable),
             'pre_enrichment_source_count': len(tradable),
-            'pre_enrichment_rank_cut_count': max(0, len(tradable) - PRE_ENRICHMENT_CANDIDATE_TARGET),
+            'pre_enrichment_rank_cut_count': 0,
             'final_persisted_count': len(full_candidate_pool),
-            'target_count': FULL_CANDIDATE_POOL_TARGET,
+            'target_count': len(full_candidate_pool),
             'top_exclusion_reasons': top_exclusion_reasons,
             'candidate_drop_stage_counts': candidate_drop_stage_counts,
             'candidate_drop_diagnostic_count': len(candidate_drop_diagnostics),

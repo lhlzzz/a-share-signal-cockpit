@@ -41,7 +41,8 @@ PERFORMANCE_GATE_THRESHOLDS = {
 try:
     from xiaogu_db import (
         fetch_available_trade_dates, fetch_daily_candidates, fetch_picks, fetch_returns,
-        fetch_latest_scan_session, fetch_signals, classify_candidate_cohort, is_mainboard_symbol,
+        fetch_latest_scan_session, fetch_signals, fetch_active_production_run,
+        classify_candidate_cohort, is_mainboard_symbol,
         LIMITUP_GENE_SHADOW_SIGNALS, limitup_gene_signal_values,
     )
 except Exception:  # pragma: no cover - DB may be unavailable in some environments
@@ -51,6 +52,7 @@ except Exception:  # pragma: no cover - DB may be unavailable in some environmen
     fetch_returns = None  # type: ignore[assignment]
     fetch_latest_scan_session = None  # type: ignore[assignment]
     fetch_signals = None  # type: ignore[assignment]
+    fetch_active_production_run = None  # type: ignore[assignment]
     classify_candidate_cohort = None  # type: ignore[assignment]
     is_mainboard_symbol = None  # type: ignore[assignment]
     LIMITUP_GENE_SHADOW_SIGNALS = ()  # type: ignore[assignment]
@@ -88,9 +90,23 @@ def _return_limitup_summary(values: List[float]) -> Dict[str, Any]:
         return {
             'sample_count': 0, 'avg_return': None, 'median_return': None,
             'win_rate': None, 'limitup_rate': None, 'near_limitup_rate': None,
-            'loss_rate': None, 'large_loss_rate': None,
+            'loss_rate': None, 'large_loss_rate': None, 'p10_return': None,
+            'p25_return': None, 'conditional_expected_shortfall_10': None,
+            'max_loss_streak': 0, 'max_drawdown': None,
         }
     count = len(values)
+    ordered = sorted(values)
+    p10 = ordered[max(0, min(count - 1, int((count - 1) * 0.10)))]
+    p25 = ordered[max(0, min(count - 1, int((count - 1) * 0.25)))]
+    tail_count = max(1, int((count + 9) / 10))
+    loss_streak = 0
+    max_loss_streak = 0
+    for value in values:
+        if value < 0:
+            loss_streak += 1
+            max_loss_streak = max(max_loss_streak, loss_streak)
+        else:
+            loss_streak = 0
     return {
         'sample_count': count,
         'avg_return': round(sum(values) / count, 6),
@@ -100,6 +116,11 @@ def _return_limitup_summary(values: List[float]) -> Dict[str, Any]:
         'near_limitup_rate': round(sum(value >= 0.07 for value in values) / count, 4),
         'loss_rate': round(sum(value < 0 for value in values) / count, 4),
         'large_loss_rate': round(sum(value <= -0.05 for value in values) / count, 4),
+        'p10_return': round(p10, 6),
+        'p25_return': round(p25, 6),
+        'conditional_expected_shortfall_10': round(sum(ordered[:tail_count]) / tail_count, 6),
+        'max_loss_streak': max_loss_streak,
+        'max_drawdown': _max_drawdown(values),
     }
 
 
@@ -275,6 +296,19 @@ def _cohort_rows(candidates: List[Dict[str, Any]], return_map: Dict[str, Dict[st
                 'next_day_low_return': ret.get('next_day_low_return'),
                 'next_day_drawdown': ret.get('next_day_drawdown'),
                 'high_to_close_retrace': ret.get('high_to_close_retrace'),
+                'settlement_evidence': ret.get('settlement_evidence'),
+                'execution_status': (
+                    ((ret.get('settlement_evidence') or {}).get('execution_model') or {}).get('execution_status')
+                    if isinstance(ret.get('settlement_evidence'), dict) else None
+                ),
+                'net_return': (
+                    ((ret.get('settlement_evidence') or {}).get('execution_model') or {}).get('net_return')
+                    if isinstance(ret.get('settlement_evidence'), dict) else None
+                ),
+                'worst_case_return': (
+                    ((ret.get('settlement_evidence') or {}).get('execution_model') or {}).get('worst_case_return')
+                    if isinstance(ret.get('settlement_evidence'), dict) else None
+                ),
             })
     return enriched
 
@@ -671,6 +705,7 @@ def completed_paper_pick_sample_days(
             key: value for key, value in paper.items()
             if key not in COMPLETED_PAPER_PICK_EXECUTION_FIELDS + (
                 't2_return', 't3_return', 't5_return', 'is_limit_up', 'next_day_drawdown',
+                'settlement_evidence', 'execution_status', 'net_return', 'worst_case_return',
             )
         }
         if _future_field_violations(decision_snapshot):
@@ -716,6 +751,21 @@ def _average(values: List[float]) -> Optional[float]:
 def _paper_pick_performance_gate(completed_days: List[Dict[str, Any]]) -> Dict[str, Any]:
     values = [day['paper']['t1_return'] for day in completed_days]
     summary = _return_limitup_summary(values)
+    net_values = [
+        _numeric(day['paper'].get('net_return'))
+        for day in completed_days
+        if day['paper'].get('net_return') is not None
+        and str(day['paper'].get('execution_status') or '').upper() == 'FILLED'
+    ]
+    conservative_values = [
+        _numeric(day['paper'].get('worst_case_return'))
+        for day in completed_days
+        if day['paper'].get('worst_case_return') is not None
+    ]
+    execution_status_counts: Dict[str, int] = {}
+    for day in completed_days:
+        status = str(day['paper'].get('execution_status') or 'UNKNOWN').upper()
+        execution_status_counts[status] = execution_status_counts.get(status, 0) + 1
     top10_best = [max(day['day'], key=lambda row: row['t1_return'])['t1_return'] for day in completed_days]
     rank26_best = [
         max(rank26, key=lambda row: row['t1_return'])['t1_return']
@@ -732,6 +782,10 @@ def _paper_pick_performance_gate(completed_days: List[Dict[str, Any]]) -> Dict[s
         'near_limitup_rate': summary['near_limitup_rate'],
         'large_loss_rate': summary['large_loss_rate'],
         'max_drawdown': _max_drawdown(values),
+        'execution_status_counts': execution_status_counts,
+        'net_execution_summary': _return_limitup_summary(net_values),
+        'conservative_execution_summary': _return_limitup_summary(conservative_values),
+        'execution_statistics_sample_count': len(net_values),
         'benchmarks': {
             'top10_best_avg_t1_return': _average(top10_best),
             'rank2_to_rank6_best_avg_t1_return': _average(rank26_best),
@@ -2659,6 +2713,252 @@ def _candidate_pool_context(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {}
 
 
+def _candidate_rank_bucket(row: Dict[str, Any]) -> str:
+    try:
+        rank = int(row.get('rank') or row.get('formal_rank') or 999999)
+    except (TypeError, ValueError):
+        rank = 999999
+    if rank == 1:
+        return 'rank_1'
+    if 2 <= rank <= 6:
+        return 'rank_2_to_6'
+    if 7 <= rank <= 10:
+        return 'rank_7_to_10'
+    if rank > 400:
+        return 'outside_400'
+    return 'rank_11_to_400'
+
+
+def build_full_pool_validation_diagnostic(
+    candidates: List[Dict[str, Any]],
+    picks: List[Dict[str, Any]],
+    returns: List[Dict[str, Any]],
+    pool_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Report full-pool roles and gate/ranking evidence without changing selection."""
+    pool_context = pool_context if isinstance(pool_context, dict) else {}
+    return_by_symbol = {
+        str(row.get('symbol') or '').zfill(6): row
+        for row in returns or []
+        if row.get('symbol')
+    }
+    picked_symbols = {
+        str(row.get('symbol') or '').zfill(6)
+        for row in picks or []
+        if str(row.get('decision') or '').upper() == 'PAPER_PICK' and row.get('symbol')
+    }
+    roles = {
+        'eligible_not_selected': [],
+        'rejected_with_return': [],
+        'paper_pick': [],
+        'rank_1': [],
+        'rank_2_to_6': [],
+        'rank_7_to_10': [],
+        'outside_400': [],
+        'not_fillable': [],
+        'unknown_execution': [],
+        'missing_return': [],
+    }
+    gate_fields = {
+        'signal_pct', 'close_position_score', 'volume_ratio', 'fund_flow_momentum',
+        'continuation_gene_score', 'main_theme_alignment_score', 'news_catalyst_strength',
+    }
+    ranking_fields = {
+        'expected_t1_profit_score', 'continuation_gene_score', 'fund_flow_momentum',
+        'close_position_score', 'signal_pct', 'sector_opportunity_score',
+        'main_theme_alignment_score', 'news_catalyst_strength',
+    }
+    overlap_fields = sorted(gate_fields & ranking_fields)
+    gate_score_fields = ('pre_gate_score', 'structured_score', 'score', 'final_score')
+    rank_score_fields = ('post_gate_rank_score', 'formal_primary_score', 'production_score', 'final_score')
+    gate_score_available = 0
+    rank_score_available = 0
+    execution_status_counts: Dict[str, int] = {}
+    role_returns: Dict[str, List[float]] = {}
+    role_net_returns: Dict[str, List[float]] = {}
+    role_conservative_returns: Dict[str, List[float]] = {}
+    net_return_values: List[float] = []
+    conservative_return_values: List[float] = []
+    missing_by_dimension: Dict[str, Dict[str, int]] = {
+        'rank_bucket': {},
+        'market_regime': {},
+        'price_bucket': {},
+        'turnover_bucket': {},
+        'limit_state': {},
+        'source_provider': {},
+    }
+
+    def append_role_metric(role: str, ret_row: Dict[str, Any]) -> None:
+        gross = ret_row.get('t1_return')
+        if gross is not None:
+            role_returns.setdefault(role, []).append(_numeric(gross))
+        evidence = ret_row.get('settlement_evidence')
+        execution = evidence.get('execution_model') if isinstance(evidence, dict) else {}
+        net = execution.get('net_return')
+        conservative = execution.get('worst_case_return')
+        if net is not None:
+            role_net_returns.setdefault(role, []).append(_numeric(net))
+            net_return_values.append(_numeric(net))
+        if conservative is not None:
+            role_conservative_returns.setdefault(role, []).append(_numeric(conservative))
+            conservative_return_values.append(_numeric(conservative))
+
+    def summarize_role_metrics(values: Dict[str, List[float]]) -> Dict[str, Any]:
+        return {role: _return_limitup_summary(items) for role, items in sorted(values.items())}
+
+    for row in candidates or []:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get('symbol') or '').zfill(6)
+        ret_row = return_by_symbol.get(symbol, {})
+        bucket = _candidate_rank_bucket(row)
+        if bucket in roles:
+            roles[bucket].append(symbol)
+            append_role_metric(bucket, ret_row)
+        eligibility = row.get('paper_pick_eligibility')
+        eligibility_status = (
+            'ELIGIBLE' if isinstance(eligibility, dict) and eligibility.get('eligible')
+            else 'REJECTED' if isinstance(eligibility, dict)
+            else 'UNKNOWN'
+        )
+        if symbol in picked_symbols:
+            roles['paper_pick'].append(symbol)
+            append_role_metric('paper_pick', ret_row)
+        elif eligibility_status == 'ELIGIBLE':
+            roles['eligible_not_selected'].append(symbol)
+            append_role_metric('eligible_not_selected', ret_row)
+        elif eligibility_status == 'REJECTED':
+            append_role_metric('rejected', ret_row)
+        if eligibility_status == 'REJECTED' and ret_row.get('t1_return') is not None:
+            roles['rejected_with_return'].append(symbol)
+        if ret_row.get('t1_return') is None:
+            roles['missing_return'].append(symbol)
+            evidence = ret_row.get('settlement_evidence')
+            provider = (
+                evidence.get('provider')
+                if isinstance(evidence, dict) else None
+            ) or 'UNKNOWN'
+            price = _numeric(row.get('price') or row.get('close'), default=0.0)
+            turnover = _numeric(row.get('turnover_rate'), default=0.0)
+            if price < 5:
+                price_bucket = 'lt_5'
+            elif price < 20:
+                price_bucket = '5_to_20'
+            elif price > 0:
+                price_bucket = 'gte_20'
+            else:
+                price_bucket = 'UNKNOWN'
+            if turnover < 1:
+                turnover_bucket = 'lt_1'
+            elif turnover < 5:
+                turnover_bucket = '1_to_5'
+            elif turnover > 0:
+                turnover_bucket = 'gte_5'
+            else:
+                turnover_bucket = 'UNKNOWN'
+            limit_state = str(
+                row.get('limit_state')
+                or ('SEALED_LIMIT_UP' if row.get('sealed_limit_up') else '')
+                or ('SEALED_LIMIT_DOWN' if row.get('sealed_limit_down') else '')
+                or 'UNKNOWN'
+            ).upper()
+            dimension_values = {
+                'rank_bucket': bucket,
+                'market_regime': str(
+                    row.get('production_regime')
+                    or row.get('market_regime')
+                    or 'UNKNOWN'
+                ).upper(),
+                'price_bucket': price_bucket,
+                'turnover_bucket': turnover_bucket,
+                'limit_state': limit_state,
+                'source_provider': str(provider).upper(),
+            }
+            for dimension, value in dimension_values.items():
+                values = missing_by_dimension[dimension]
+                values[value] = values.get(value, 0) + 1
+        evidence = ret_row.get('settlement_evidence')
+        execution = evidence.get('execution_model') if isinstance(evidence, dict) else {}
+        status = str(execution.get('execution_status') or '').upper()
+        if status:
+            execution_status_counts[status] = execution_status_counts.get(status, 0) + 1
+            if status == 'NOT_FILLABLE':
+                roles['not_fillable'].append(symbol)
+            elif status == 'UNKNOWN':
+                roles['unknown_execution'].append(symbol)
+        if any(_nonempty(row.get(field)) for field in gate_score_fields):
+            gate_score_available += 1
+        if any(_nonempty(row.get(field)) for field in rank_score_fields):
+            rank_score_available += 1
+
+    def count_map(values: List[str]) -> int:
+        return len(set(values))
+
+    return {
+        'candidate_count': len([row for row in candidates or [] if isinstance(row, dict)]),
+        'pool_target': pool_context.get('target_count', 400),
+        'pool_selection_policy': pool_context.get('selection_policy'),
+        'source_order_hash': pool_context.get('source_order_hash'),
+        'selected_order_hash': pool_context.get('selected_order_hash'),
+        'outside_target_count': pool_context.get('outside_target_count'),
+        'roles': {
+            name: {'count': count_map(values), 'symbols': sorted(set(values))[:20]}
+            for name, values in roles.items()
+        },
+        'execution_status_counts': execution_status_counts,
+        'role_performance': {
+            'gross_t1': summarize_role_metrics(role_returns),
+            'net_execution': summarize_role_metrics(role_net_returns),
+            'conservative_execution': summarize_role_metrics(role_conservative_returns),
+            'net_return_sample_count': len(net_return_values),
+            'conservative_return_sample_count': len(conservative_return_values),
+        },
+        'missing_return_by_dimension': {
+            dimension: dict(sorted(values.items()))
+            for dimension, values in missing_by_dimension.items()
+        },
+        'execution_metrics': {
+            'total_with_execution_status': sum(execution_status_counts.values()),
+            'filled_count': execution_status_counts.get('FILLED', 0),
+            'partial_count': execution_status_counts.get('PARTIAL', 0),
+            'not_fillable_count': execution_status_counts.get('NOT_FILLABLE', 0),
+            'unknown_count': execution_status_counts.get('UNKNOWN', 0),
+            'fill_rate': round(
+                execution_status_counts.get('FILLED', 0)
+                / sum(execution_status_counts.values()), 4
+            ) if execution_status_counts else None,
+            'statistics_policy': 'FILLED_ONLY_FOR_OFFICIAL_EXECUTION_METRICS',
+        },
+        'gate_ranking_audit': {
+            'pre_gate_score_field_candidates': list(gate_score_fields),
+            'post_gate_rank_score_field_candidates': list(rank_score_fields),
+            'pre_gate_score_available_count': gate_score_available,
+            'post_gate_rank_score_available_count': rank_score_available,
+            # These are descriptive deltas on the same historical pool. They
+            # are not promotion evidence until calculated on a time-ordered
+            # OOS replay.
+            'gate_only_gain': _average(role_returns.get('eligible_not_selected', []))
+            - _average(role_returns.get('rejected', []))
+            if role_returns.get('eligible_not_selected') and role_returns.get('rejected') else None,
+            'ranking_only_gain': _average(role_returns.get('rank_1', []))
+            - _average(role_returns.get('rank_2_to_6', []))
+            if role_returns.get('rank_1') and role_returns.get('rank_2_to_6') else None,
+            'gate_plus_ranking_gain': _average(role_returns.get('paper_pick', []))
+            - _average(role_returns.get('rejected', []))
+            if role_returns.get('paper_pick') and role_returns.get('rejected') else None,
+            'requires_oos_replay': True,
+            'overlapping_observable_fields': overlap_fields,
+            'interpretation': 'observational_only_until_walk_forward_oos',
+        },
+        'return_statistics_policy': {
+            'not_fillable_is_not_loss': True,
+            'unknown_is_not_silently_excluded': True,
+            'missing_returns_are_separate': True,
+            'execution_status_source': 'returns.settlement_evidence.execution_model',
+        },
+    }
+
+
 def build_db_completeness_gate(
     trade_date: str, *, mode: str, validation_trade_date: Optional[str] = None,
     candidate_rows: Optional[List[Dict[str, Any]]] = None,
@@ -2740,6 +3040,9 @@ def build_db_completeness_gate(
     )
     future_violations = _future_field_violations(candidates)
     pool_context = _candidate_pool_context(candidates)
+    full_pool_diagnostic = build_full_pool_validation_diagnostic(
+        candidates, picks, returns, pool_context,
+    )
     candidate_count_expected = int(pool_context.get('target_count') or 400)
     source_status = str(pool_context.get('source_status') or '').upper()
     tradable_count = pool_context.get('mainboard_tradable_count')
@@ -2853,6 +3156,7 @@ def build_db_completeness_gate(
             'final_persisted_count': pool_context.get('final_persisted_count', len(candidates)),
             'top_exclusion_reasons': exclusion_summary,
         },
+        'full_pool_validation_diagnostic': full_pool_diagnostic,
         'db_completeness_summary': {
             'trade_date': trade_date, 'candidate_count': len(candidates), 'top10_count': len(top10),
             'paper_pick_count': len(paper_picks), 'persisted_limitup_gene_signal_rows': persisted_gene_rows,
@@ -3729,6 +4033,7 @@ def build_structural_ranking_full_fix_replay(
     sample_dates: Optional[List[str]] = None,
     *,
     baseline_replay_path: Optional[Path] = None,
+    production_run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Rebuild L1 offline formal full-fix replay with current production sort/risk.
 
@@ -3764,10 +4069,33 @@ def build_structural_ranking_full_fix_replay(
 
     for trade_date in sample_dates:
         input_date = date.fromisoformat(trade_date)
-        raw_rows = fetch_daily_candidates(input_date)
+        selected_run_id = str(production_run_id or '').strip() or None
+        if selected_run_id is None and fetch_active_production_run is not None:
+            active_run = fetch_active_production_run(input_date) or {}
+            selected_run_id = str(active_run.get('production_run_id') or '').strip() or None
+        raw_rows = fetch_daily_candidates(
+            input_date,
+            production_run_id=selected_run_id,
+            lightweight=True,
+        )
+        snapshot_run_ids = {
+            str(row.get('production_run_id') or '').strip()
+            for row in raw_rows
+            if str(row.get('production_run_id') or '').strip()
+        }
+        if selected_run_id is None and len(snapshot_run_ids) > 1:
+            raise RuntimeError(
+                f'ambiguous production snapshots for {trade_date}; '
+                'provide --production-run-id'
+            )
+        if selected_run_id is None and len(snapshot_run_ids) == 1:
+            selected_run_id = next(iter(snapshot_run_ids))
         decision_rows = _sanitize_decision_snapshot_rows(raw_rows)
         offline = offline_formal_path_for_day(decision_rows)
-        validation_rows = fetch_returns(input_date)
+        validation_rows = fetch_returns(
+            input_date,
+            production_run_id=selected_run_id,
+        )
         validation_by_symbol = {
             str(row.get('symbol') or ''): row for row in validation_rows
         }
@@ -3804,6 +4132,12 @@ def build_structural_ranking_full_fix_replay(
 
         daily.append({
             'date': trade_date,
+            'production_run_id': selected_run_id,
+            'candidate_snapshot_ids': sorted({
+                str(row.get('candidate_snapshot_id') or '').strip()
+                for row in raw_rows
+                if str(row.get('candidate_snapshot_id') or '').strip()
+            }),
             'old': old_symbol,
             'old_t1': old_t1,
             'old_rank': baseline_day.get('old_rank'),
@@ -4713,6 +5047,10 @@ def main():
         help='Rebuild L1 offline formal full-fix replay with current formal sort/risk (full landing refresh)',
     )
     ap.add_argument(
+        '--production-run-id',
+        help='Exact production run for structural ranking replay when a date has retries',
+    )
+    ap.add_argument(
         '--output',
         help='Optional output path for production-path redecision / structural ranking replay JSON',
     )
@@ -4769,7 +5107,10 @@ def main():
             sample_dates = [args.date]
         elif args.start and args.end:
             sample_dates = get_trading_dates(args.start, args.end)
-        replay = build_structural_ranking_full_fix_replay(sample_dates)
+        replay = build_structural_ranking_full_fix_replay(
+            sample_dates,
+            production_run_id=args.production_run_id,
+        )
         out_path = Path(args.output) if args.output else (
             BASE / 'summary' / '2026-07-21_structural_ranking_full_fix_replay.json'
         )

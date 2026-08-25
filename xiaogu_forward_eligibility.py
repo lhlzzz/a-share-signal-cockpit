@@ -50,6 +50,7 @@ REQUIRED_FROM_HOST = (
     'opportunity_hard_block_reason',
     'paper_pick_risk_explanation_gate',
     'paper_sizing_context',
+    '_primary_alpha_paths',
     'regulatory_hard_block_reason',
     'replay_only_sector_opportunity',
     'safe_float',
@@ -90,6 +91,51 @@ def _buyability_signal_pct(row: Dict[str, Any]) -> Optional[float]:
         if value is not None:
             return float(value)
     return None
+
+
+def minimum_tradable_edge_gate(
+    prediction: Dict[str, Any],
+    *,
+    minimum_edge: float = 0.0,
+    transaction_cost: float = 0.0,
+    model_status: str = 'UNVERIFIED',
+) -> Dict[str, Any]:
+    """Research/production boundary for the sole PAPER_PICK eligibility owner."""
+    status = str(model_status or 'UNVERIFIED').upper()
+    safe_float_fn = globals().get('safe_float')
+    edge = safe_float_fn(prediction.get('tradable_edge')) if callable(safe_float_fn) else None
+    threshold = max(0.0, float(minimum_edge or 0.0)) + max(0.0, float(transaction_cost or 0.0))
+    if status != 'PRODUCTION':
+        return {
+            'status': 'NO_PICK',
+            'eligible': False,
+            'reason': 'T1_ALPHA_MODEL_NOT_PRODUCTION',
+            'tradable_edge': edge,
+            'threshold': threshold,
+        }
+    if edge is None:
+        return {
+            'status': 'NO_PICK',
+            'eligible': False,
+            'reason': 'T1_TRADABLE_EDGE_MISSING',
+            'tradable_edge': None,
+            'threshold': threshold,
+        }
+    if edge <= threshold:
+        return {
+            'status': 'NO_PICK',
+            'eligible': False,
+            'reason': 'T1_TRADABLE_EDGE_BELOW_MINIMUM',
+            'tradable_edge': edge,
+            'threshold': threshold,
+        }
+    return {
+        'status': 'PAPER_PICK_ELIGIBLE',
+        'eligible': True,
+        'reason': '',
+        'tradable_edge': edge,
+        'threshold': threshold,
+    }
 
 
 def _mainboard_like_limit_seal_threshold(symbol: str) -> float:
@@ -471,9 +517,13 @@ def t1_profit_candidate_profile(
         and isinstance(stamped_profile.get('eligible'), bool)
         and row.get('t1_profit_candidate') is not None
     ):
+        primary_alpha_paths = list(_primary_alpha_paths(row) or [])
         return {
             **stamped_profile,
             'eligible': bool(stamped_profile['eligible']),
+            'primary_alpha_paths': primary_alpha_paths,
+            'primary_alpha_path_required': False,
+            'primary_alpha_paths_used_as': 'T_DAY_FEATURE_GROUP_ONLY',
             'admission_source': 'upstream_t1_profit_gate',
         }
     pct = _buyability_signal_pct(row)
@@ -535,6 +585,7 @@ def t1_profit_candidate_profile(
             )
         )
     )
+    primary_alpha_paths = list(_primary_alpha_paths(row) or [])
 
     confirmations: List[str] = []
     if (
@@ -647,6 +698,7 @@ def t1_profit_candidate_profile(
         confirmations.append('underwater_continuation')
     if underwater_reversal:
         confirmations.append('underwater_reversal')
+    confirmations.extend(f'primary_alpha_path:{path}' for path in primary_alpha_paths)
 
     # This is the specific failure shape seen in 002452: a mild green close
     # with weak participation and only sector-proxy support.
@@ -705,6 +757,9 @@ def t1_profit_candidate_profile(
         ),
         'expected_t1_profit_score': score,
         'confirmations': confirmations,
+        'primary_alpha_paths': primary_alpha_paths,
+        'primary_alpha_path_required': False,
+        'primary_alpha_paths_used_as': 'T_DAY_FEATURE_GROUP_ONLY',
         'risk_reasons': risk_reasons,
         'features': {
             'signal_pct': round(pct, 4),
@@ -733,7 +788,7 @@ def t1_profit_candidate_profile(
             'weak_low_move': weak_low_move,
             'limitup_continuation_exception': continuation_exception,
         },
-        'policy': 't1_expected_profit_gate_before_top10_and_paper_pick',
+        'policy': 'five_module_t1_alpha_with_paths_as_features_before_paper_pick',
     }
 
 
@@ -1655,6 +1710,23 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
         safe_float(signals.get('limitup_reason_quality_score')) or 0.0,
     ) >= 0.75
     signals['direct_catalyst_confirmation'] = direct_catalyst_confirmation
+    external_market_risk_off = bool(market_context.get('external_market_risk_off'))
+    risk_off_high_chase_block = bool(
+        external_market_risk_off
+        and candidate_stage in ('high_7_to_9', 'near_limit_9_plus')
+        and not direct_catalyst_confirmation
+        and not limitup_capture_confirmation_pass
+        and not strong_high_momentum_continuation_pass
+        and not stock_level_limitup_expectation_pass
+        and not limitup_continuation.get('eligible')
+    )
+    signals['external_market_risk_off'] = external_market_risk_off
+    signals['risk_off_high_chase_block'] = risk_off_high_chase_block
+    if risk_off_high_chase_block:
+        blockers.append('external_market_risk_off_high_chase')
+        missing_conditions.append(
+            'risk_off_requires_direct_catalyst_or_verified_continuation'
+        )
     signals['sector_gate_pass'] = sector_gate_pass
     signals['main_theme_core_score'] = main_theme_core_score
     signals['main_theme_alignment_score'] = main_theme_alignment_score
@@ -2218,6 +2290,48 @@ def paper_pick_eligibility_profile(row: Dict[str, Any], bundle: Dict[str, Any] |
             unique_missing.append(condition)
             seen_missing.add(condition)
 
+    if str(bundle.get('production_eligibility_mode') or '').upper() == 'HARD_GATES_ONLY':
+        # Production candidate admission is intentionally narrower than the
+        # research-era evidence checklist. Keep soft evidence for ranking and
+        # diagnostics; only immutable data, buyability, capacity, regulatory,
+        # and explicit risk blocks may remove a row before formal sorting.
+        hard_gate_blockers: List[str] = []
+        if data_gate_status not in ('PASS', 'OK', True):
+            hard_gate_blockers.append('DATA_GATE_NOT_PASS')
+        if buyability_block_reason:
+            hard_gate_blockers.append(buyability_block_reason)
+        if price is None or price <= 0:
+            hard_gate_blockers.append('PRICE_INVALID')
+        elif price > price_cap:
+            hard_gate_blockers.append('FINAL_PICK_PRICE_EXCEEDS_70')
+        if one_lot_cost is not None and one_lot_cost <= 0:
+            hard_gate_blockers.append('ONE_LOT_COST_INVALID')
+        if one_lot_cost is not None and one_lot_cap is not None and one_lot_cost > one_lot_cap:
+            hard_gate_blockers.append('ONE_LOT_COST_EXCEEDS_CAP')
+        if regulatory_block:
+            hard_gate_blockers.append('regulatory_hard_block:' + regulatory_block)
+        if (risk_penalty or 0.0) >= 0.60:
+            hard_gate_blockers.append('RISK_NOTICE_PENALTY_HARD_BLOCK')
+        if row.get('limitup_reason_hard_block'):
+            hard_gate_blockers.append('LIMITUP_REASON_HARD_BLOCK')
+        for risk_code in capital_risk_profile.get('risk_codes') or []:
+            hard_gate_blockers.append('CAPITAL_RISK_HARD_BLOCK:' + str(risk_code))
+        if near_limit_gate_blocked:
+            hard_gate_blockers.append('SEALED_LIMIT_UP_BUYABILITY_FAIL')
+        if time_gate_known and age_minutes is not None and age_minutes < 0:
+            hard_gate_blockers.append('SIGNAL_AFTER_RUNNER_ASOF')
+        if bool(row.get('market_systemic_risk_block')):
+            hard_gate_blockers.append('MARKET_SYSTEMIC_RISK_BLOCK')
+        hard_gate_blockers = list(dict.fromkeys(hard_gate_blockers))
+        signals['production_eligibility_mode'] = 'HARD_GATES_ONLY'
+        signals['production_hard_blockers'] = hard_gate_blockers
+        signals['production_soft_blockers'] = [
+            blocker for blocker in unique_blockers
+            if blocker not in hard_gate_blockers
+        ]
+        unique_blockers = hard_gate_blockers
+        eligible = not hard_gate_blockers
+
     return {
         'eligible': eligible,
         'blockers': unique_blockers,
@@ -2240,6 +2354,7 @@ def official_target_exclusion_reasons(row: Dict[str, Any], bundle: Dict[str, Any
     bundle = bundle if isinstance(bundle, dict) else {}
     row = row if isinstance(row, dict) else {}
     main_force_behavior_mode = str(bundle.get('ranking_view') or '').strip().lower() == 'main_force_behavior_chain'
+    production_hard_gate_mode = str(bundle.get('production_eligibility_mode') or '').upper() == 'HARD_GATES_ONLY'
     reasons: List[str] = []
     regulatory_block = regulatory_hard_block_reason(row, bundle)
     if regulatory_block:
@@ -2287,6 +2402,9 @@ def official_target_exclusion_reasons(row: Dict[str, Any], bundle: Dict[str, Any
             reasons.append(blocker)
         elif blocker.startswith('adversarial_review_soft:') and not soft_exclusion_override:
             reasons.append(blocker)
+
+    if production_hard_gate_mode:
+        return unique_text_values(reasons)
 
     research_signals = row.get('research_signals') if isinstance(row.get('research_signals'), dict) else {}
     catalyst_quality = research_signals.get('catalyst_quality') if isinstance(research_signals.get('catalyst_quality'), dict) else {}

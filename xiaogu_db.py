@@ -614,6 +614,200 @@ def update_production_run_status(
         db.execute(statement, payload)
 
 
+MODEL_REGISTRY_STATUSES = frozenset({
+    "RESEARCH", "VALIDATING", "VALIDATED", "SHADOW",
+    "PAPER_PRODUCTION", "PRODUCTION", "LIVE_READY", "RETIRED",
+})
+MODEL_ACCEPTANCE_REQUIRED_GATES = (
+    "TARGET_COVERAGE",
+    "LEAKAGE_AUDIT",
+    "WALK_FORWARD_OOS",
+    "TOP1_VS_RANDOM",
+    "TOP1_VS_CURRENT_BASELINE",
+    "REGIME_STABILITY",
+    "DRAWDOWN_LIMIT",
+)
+
+
+def register_model(
+    model_id: str,
+    *,
+    feature_version: str,
+    label_version: str,
+    status: str = "RESEARCH",
+    training_start: Optional[date] = None,
+    training_end: Optional[date] = None,
+    validation_start: Optional[date] = None,
+    validation_end: Optional[date] = None,
+    oos_start: Optional[date] = None,
+    oos_end: Optional[date] = None,
+    universe_definition: str = "",
+    model_type: str = "",
+    parameters_hash: str = "",
+    feature_hash: str = "",
+    performance_summary: Optional[Dict[str, Any]] = None,
+    acceptance_artifact: Optional[Dict[str, Any]] = None,
+    db: Any | None = None,
+) -> None:
+    """Register one model without allowing implicit research promotion."""
+    normalized_status = str(status or "RESEARCH").upper()
+    if normalized_status not in MODEL_REGISTRY_STATUSES:
+        raise ValueError("MODEL_REGISTRY_STATUS_INVALID")
+    artifact = acceptance_artifact if isinstance(acceptance_artifact, dict) else {}
+    if normalized_status in {"PAPER_PRODUCTION", "PRODUCTION", "LIVE_READY"}:
+        missing_gates = [
+            gate for gate in MODEL_ACCEPTANCE_REQUIRED_GATES
+            if str(artifact.get(gate) or artifact.get(gate.lower()) or "").upper() != "PASS"
+        ]
+        if artifact.get("status") != "PASS" or missing_gates:
+            raise ValueError(
+                "MODEL_PRODUCTION_ACCEPTANCE_REQUIRED"
+                + (":" + ",".join(missing_gates) if missing_gates else "")
+            )
+    if normalized_status == "LIVE_READY" and artifact.get("paper_production_status") != "PASS":
+        raise ValueError("MODEL_PRODUCTION_ACCEPTANCE_REQUIRED")
+    payload = {
+        "model_id": str(model_id),
+        "feature_version": feature_version,
+        "label_version": label_version,
+        "training_start": training_start,
+        "training_end": training_end,
+        "validation_start": validation_start,
+        "validation_end": validation_end,
+        "oos_start": oos_start,
+        "oos_end": oos_end,
+        "universe_definition": universe_definition,
+        "model_type": model_type,
+        "parameters_hash": parameters_hash,
+        "feature_hash": feature_hash,
+        "performance_summary": json.dumps(performance_summary or {}, ensure_ascii=False, default=str),
+        "acceptance_artifact": json.dumps(artifact, ensure_ascii=False, default=str),
+        "status": normalized_status,
+    }
+    statement = text("""
+        INSERT INTO model_registry (
+            model_id, feature_version, label_version, training_start, training_end,
+            validation_start, validation_end, oos_start, oos_end, universe_definition,
+            model_type, parameters_hash, feature_hash, performance_summary,
+            acceptance_artifact, status, created_at, updated_at
+        ) VALUES (
+            :model_id, :feature_version, :label_version, :training_start, :training_end,
+            :validation_start, :validation_end, :oos_start, :oos_end, :universe_definition,
+            :model_type, :parameters_hash, :feature_hash, CAST(:performance_summary AS jsonb),
+            CAST(:acceptance_artifact AS jsonb), :status, NOW(), NOW()
+        )
+        ON CONFLICT (model_id) DO UPDATE SET
+            feature_version = EXCLUDED.feature_version,
+            label_version = EXCLUDED.label_version,
+            training_start = EXCLUDED.training_start,
+            training_end = EXCLUDED.training_end,
+            validation_start = EXCLUDED.validation_start,
+            validation_end = EXCLUDED.validation_end,
+            oos_start = EXCLUDED.oos_start,
+            oos_end = EXCLUDED.oos_end,
+            universe_definition = EXCLUDED.universe_definition,
+            model_type = EXCLUDED.model_type,
+            parameters_hash = EXCLUDED.parameters_hash,
+            feature_hash = EXCLUDED.feature_hash,
+            performance_summary = EXCLUDED.performance_summary,
+            acceptance_artifact = EXCLUDED.acceptance_artifact,
+            status = EXCLUDED.status,
+            updated_at = NOW()
+    """)
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        active_db.execute(statement, payload)
+
+
+def record_alpha_health(
+    health_date: date,
+    *,
+    model_id: Optional[str],
+    status: str = "HEALTHY",
+    kill_switch: bool = False,
+    kill_switch_reason: str = "",
+    rolling_win_rate: Optional[float] = None,
+    rolling_expectancy: Optional[float] = None,
+    rolling_profit_factor: Optional[float] = None,
+    calibration_error: Optional[float] = None,
+    feature_drift: Optional[float] = None,
+    regime_drift: Optional[float] = None,
+    evidence: Optional[Dict[str, Any]] = None,
+    db: Any | None = None,
+) -> None:
+    """Persist one health observation; a kill switch only blocks the main chain."""
+    payload = {
+        "model_id": model_id,
+        "health_date": health_date,
+        "status": str(status or "HEALTHY").upper(),
+        "kill_switch": bool(kill_switch),
+        "kill_switch_reason": str(kill_switch_reason or ""),
+        "rolling_win_rate": rolling_win_rate,
+        "rolling_expectancy": rolling_expectancy,
+        "rolling_profit_factor": rolling_profit_factor,
+        "calibration_error": calibration_error,
+        "feature_drift": feature_drift,
+        "regime_drift": regime_drift,
+        "evidence": json.dumps(evidence or {}, ensure_ascii=False, default=str),
+    }
+    statement = text("""
+        INSERT INTO production_alpha_health (
+            model_id, health_date, rolling_win_rate, rolling_expectancy,
+            rolling_profit_factor, calibration_error, feature_drift, regime_drift,
+            status, kill_switch, kill_switch_reason, evidence, created_at
+        ) VALUES (
+            :model_id, :health_date, :rolling_win_rate, :rolling_expectancy,
+            :rolling_profit_factor, :calibration_error, :feature_drift, :regime_drift,
+            :status, :kill_switch, :kill_switch_reason, CAST(:evidence AS jsonb), NOW()
+        )
+        ON CONFLICT (model_id, health_date) DO UPDATE SET
+            rolling_win_rate = EXCLUDED.rolling_win_rate,
+            rolling_expectancy = EXCLUDED.rolling_expectancy,
+            rolling_profit_factor = EXCLUDED.rolling_profit_factor,
+            calibration_error = EXCLUDED.calibration_error,
+            feature_drift = EXCLUDED.feature_drift,
+            regime_drift = EXCLUDED.regime_drift,
+            status = EXCLUDED.status,
+            kill_switch = EXCLUDED.kill_switch,
+            kill_switch_reason = EXCLUDED.kill_switch_reason,
+            evidence = EXCLUDED.evidence
+    """)
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        active_db.execute(statement, payload)
+
+
+def alpha_kill_switch_active(
+    *,
+    model_id: Optional[str] = None,
+    db: Any | None = None,
+) -> Dict[str, Any]:
+    """Read the latest health state used by the sole production gate."""
+    statement = text("""
+        SELECT model_id, health_date, status, kill_switch, kill_switch_reason
+        FROM production_alpha_health
+        WHERE (:model_id IS NULL OR model_id = :model_id)
+        ORDER BY health_date DESC, id DESC
+        LIMIT 1
+    """)
+    context = get_db() if db is None else nullcontext(db)
+    with context as active_db:
+        row = active_db.execute(statement, {"model_id": model_id}).mappings().first()
+    if not row:
+        return {"active": False, "status": "NO_HEALTH_RECORD", "reason": ""}
+    values = dict(row)
+    active = bool(values.get("kill_switch")) or str(values.get("status") or "").upper() in {
+        "KILLED", "PAPER_ONLY", "BLOCKED",
+    }
+    return {
+        "active": active,
+        "status": str(values.get("status") or ""),
+        "reason": str(values.get("kill_switch_reason") or ""),
+        "model_id": values.get("model_id"),
+        "health_date": str(values.get("health_date") or ""),
+    }
+
+
 def set_active_production_run(
     trade_date: date,
     production_run_id: str,
@@ -1455,6 +1649,7 @@ def upsert_return(
     candidate_snapshot_id: str = "",
     return_status: str = "",
     settlement_evidence: Optional[Dict[str, Any]] = None,
+    t1_labels: Optional[Dict[str, Any]] = None,
     legacy_backfill: bool = False,
     db: Any | None = None,
 ) -> int:
@@ -1469,39 +1664,89 @@ def upsert_return(
     if not production and not legacy_backfill:
         raise ValueError("LEGACY_RETURN_BACKFILL_MUST_BE_EXPLICIT")
 
+    evidence = settlement_evidence if isinstance(settlement_evidence, dict) else {}
+    canonical_labels = (
+        t1_labels
+        if isinstance(t1_labels, dict) and t1_labels
+        else evidence.get("t1_metrics")
+        if isinstance(evidence.get("t1_metrics"), dict)
+        else {}
+    )
+    t1_close_return = (
+        t1_return
+        if t1_return is not None
+        else canonical_labels.get("t1_close_return")
+    )
     payload = {
         "pick_id": pick_id,
         "trade_date": trade_date,
         "symbol": normalized_symbol,
-        "t1_return": t1_return,
+        "t1_return": t1_close_return,
         "t2_return": t2_return,
         "t3_return": t3_return,
         "t5_return": t5_return,
-        "t1_return_close": t1_return_close,
-        "t1_return_high": t1_return_high,
+        "t1_return_close": t1_return_close if t1_return_close is not None else canonical_labels.get("t1_close_return"),
+        "t1_return_high": t1_return_high if t1_return_high is not None else canonical_labels.get("t1_high_return"),
         "next_day_open_return": next_day_open_return,
-        "next_day_high_return": next_day_high_return,
-        "next_day_low_return": next_day_low_return,
+        "next_day_high_return": next_day_high_return if next_day_high_return is not None else canonical_labels.get("t1_high_return"),
+        "next_day_low_return": next_day_low_return if next_day_low_return is not None else canonical_labels.get("t1_low_return"),
         "next_day_gap_return": next_day_gap_return,
         "next_day_drawdown": next_day_drawdown,
         "high_to_close_retrace": high_to_close_retrace,
+        "t1_open_return": canonical_labels.get("t1_open_return"),
+        "t1_high_return": canonical_labels.get("t1_high_return"),
+        "t1_low_return": canonical_labels.get("t1_low_return"),
+        "t1_close_return": canonical_labels.get("t1_close_return", t1_close_return),
+        "t1_mfe": canonical_labels.get("t1_mfe"),
+        "t1_mae": canonical_labels.get("t1_mae"),
+        "t1_vwap_return": canonical_labels.get("t1_vwap_return"),
+        "t1_gap_return": canonical_labels.get("t1_gap_return"),
+        "t1_net_return": canonical_labels.get("t1_net_return"),
+        "slippage": canonical_labels.get("slippage"),
+        "commission": canonical_labels.get("commission"),
+        "stamp_duty": canonical_labels.get("stamp_duty"),
+        "transfer_fee": canonical_labels.get("transfer_fee"),
+        "market_impact": canonical_labels.get("market_impact"),
+        "entry_price": evidence.get("entry_price"),
+        "entry_price_source": evidence.get("entry_price_source"),
+        "entry_price_basis": evidence.get("entry_price_basis") or evidence.get("price_basis"),
+        "entry_date": evidence.get("entry_date") or trade_date,
+        "entry_time": (evidence.get("execution_contract") or {}).get("execution_time"),
+        "t1_open_price": evidence.get("exit_open"),
+        "t1_high_price": evidence.get("exit_high"),
+        "t1_low_price": evidence.get("exit_low"),
+        "t1_close_price": evidence.get("exit_close"),
+        "label_status": evidence.get("label_status") or canonical_labels.get("label_status"),
+        "label_version": evidence.get("label_version"),
+        "label_source": evidence.get("source") or evidence.get("market_data_source"),
+        "label_generated_at": evidence.get("generated_at"),
+        "market_data_source": evidence.get("market_data_source") or evidence.get("source"),
+        "price_adjustment_mode": evidence.get("price_basis") or evidence.get("kline_adjustment"),
+        "trading_calendar_source": evidence.get("trading_calendar_source") or "xiaogu_scheduler",
         "production_run_id": production_run_id,
         "candidate_snapshot_id": candidate_snapshot_id or None,
-        "return_status": return_status or ("SETTLED" if t1_return is not None else "PENDING"),
-        "settlement_evidence": json.dumps(settlement_evidence or {}, ensure_ascii=False, default=str),
+        "return_status": return_status or ("SETTLED" if t1_close_return is not None else "PENDING"),
+        "settlement_evidence": json.dumps(evidence, ensure_ascii=False, default=str),
     }
     candidate_settlement_payload = {
         key: value
         for key, value in {
-            "t1_return": t1_return,
-            "t1_return_close": t1_return_close,
-            "t1_return_high": t1_return_high,
+            "t1_return": t1_close_return,
+            "t1_return_close": payload["t1_return_close"],
+            "t1_return_high": payload["t1_return_high"],
             "is_limit_up": is_limit_up,
             "return_status": payload["return_status"],
-            "settlement_evidence": settlement_evidence or {},
+            "settlement_evidence": evidence,
         }.items()
         if value is not None
     }
+    t1_metrics = canonical_labels
+    for key in (
+        't1_open_return', 't1_high_return', 't1_low_return',
+        't1_close_return', 't1_mfe', 't1_mae',
+    ):
+        if t1_metrics.get(key) is not None:
+            candidate_settlement_payload[key] = t1_metrics[key]
 
     def persist_candidate_settlement(active_db: Any) -> None:
         if not production:
@@ -1534,7 +1779,7 @@ def upsert_return(
         if production:
             existing = active_db.execute(
                 text("""
-                        SELECT id, t1_return, candidate_snapshot_id
+                        SELECT id, t1_return, candidate_snapshot_id, label_version, t1_close_return
                     FROM returns
                     WHERE production_run_id = :production_run_id AND symbol = :symbol
                     FOR UPDATE
@@ -1544,17 +1789,67 @@ def upsert_return(
             if existing:
                 current_t1 = existing[1]
                 current_snapshot = str(existing[2] or "")
+                current_label_version = str(existing[3] or "") if len(existing) > 3 else ""
+                current_canonical_close = existing[4] if len(existing) > 4 else None
                 if current_snapshot and candidate_snapshot_id and current_snapshot != candidate_snapshot_id:
                     raise ValueError("PRODUCTION_RETURN_CANDIDATE_SNAPSHOT_MISMATCH")
-                if current_t1 is not None and t1_return is not None and float(current_t1) != float(t1_return):
+                if (
+                    current_label_version == "canonical_t1_v1"
+                    and current_canonical_close is not None
+                    and t1_close_return is not None
+                    and float(current_canonical_close) != float(t1_close_return)
+                ):
                     raise ValueError("PRODUCTION_T1_RETURN_ALREADY_SETTLED")
                 active_db.execute(
                     text("""
                         UPDATE returns
                         SET pick_id = COALESCE(:pick_id, pick_id),
                             candidate_snapshot_id = COALESCE(:candidate_snapshot_id, candidate_snapshot_id),
+                            t1_return = CASE
+                                WHEN label_version IS NULL OR label_version <> 'canonical_t1_v1'
+                                    THEN t1_return
+                                ELSE COALESCE(t1_return, :t1_return)
+                            END,
+                            t1_return_close = COALESCE(:t1_return_close, t1_return_close),
+                            t1_return_high = COALESCE(:t1_return_high, t1_return_high),
+                            next_day_open_return = COALESCE(:next_day_open_return, next_day_open_return),
+                            next_day_high_return = COALESCE(:next_day_high_return, next_day_high_return),
+                            next_day_low_return = COALESCE(:next_day_low_return, next_day_low_return),
+                            next_day_gap_return = COALESCE(:next_day_gap_return, next_day_gap_return),
+                            next_day_drawdown = COALESCE(:next_day_drawdown, next_day_drawdown),
+                            high_to_close_retrace = COALESCE(:high_to_close_retrace, high_to_close_retrace),
+                            t1_open_return = COALESCE(:t1_open_return, t1_open_return),
+                            t1_high_return = COALESCE(:t1_high_return, t1_high_return),
+                            t1_low_return = COALESCE(:t1_low_return, t1_low_return),
+                            t1_close_return = COALESCE(:t1_close_return, t1_close_return),
+                            t1_mfe = COALESCE(:t1_mfe, t1_mfe),
+                            t1_mae = COALESCE(:t1_mae, t1_mae),
+                            t1_vwap_return = COALESCE(:t1_vwap_return, t1_vwap_return),
+                            t1_gap_return = COALESCE(:t1_gap_return, t1_gap_return),
+                            t1_net_return = COALESCE(:t1_net_return, t1_net_return),
+                            slippage = COALESCE(:slippage, slippage),
+                            commission = COALESCE(:commission, commission),
+                            stamp_duty = COALESCE(:stamp_duty, stamp_duty),
+                            transfer_fee = COALESCE(:transfer_fee, transfer_fee),
+                            market_impact = COALESCE(:market_impact, market_impact),
+                            entry_price = COALESCE(:entry_price, entry_price),
+                            entry_price_source = COALESCE(:entry_price_source, entry_price_source),
+                            entry_price_basis = COALESCE(:entry_price_basis, entry_price_basis),
+                            entry_date = COALESCE(:entry_date, entry_date),
+                            entry_time = COALESCE(:entry_time, entry_time),
+                            t1_open_price = COALESCE(:t1_open_price, t1_open_price),
+                            t1_high_price = COALESCE(:t1_high_price, t1_high_price),
+                            t1_low_price = COALESCE(:t1_low_price, t1_low_price),
+                            t1_close_price = COALESCE(:t1_close_price, t1_close_price),
+                            label_status = COALESCE(:label_status, label_status),
+                            label_version = COALESCE(:label_version, label_version),
+                            label_source = COALESCE(:label_source, label_source),
+                            label_generated_at = COALESCE(:label_generated_at, label_generated_at),
+                            market_data_source = COALESCE(:market_data_source, market_data_source),
+                            price_adjustment_mode = COALESCE(:price_adjustment_mode, price_adjustment_mode),
+                            trading_calendar_source = COALESCE(:trading_calendar_source, trading_calendar_source),
                             return_status = CASE
-                                WHEN t1_return IS NOT NULL THEN 'SETTLED'
+                                WHEN t1_return IS NOT NULL OR :t1_return IS NOT NULL THEN 'SETTLED'
                                 ELSE :return_status
                             END,
                             settlement_evidence = COALESCE(settlement_evidence, CAST('{}' AS jsonb))
@@ -1573,11 +1868,25 @@ def upsert_return(
                         pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
                         t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
                         next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace,
+                        t1_open_return, t1_high_return, t1_low_return, t1_close_return, t1_mfe, t1_mae,
+                        t1_vwap_return, t1_gap_return, t1_net_return, slippage, commission, stamp_duty,
+                        transfer_fee, market_impact,
+                        entry_price, entry_price_source, entry_price_basis, entry_date, entry_time,
+                        t1_open_price, t1_high_price, t1_low_price, t1_close_price,
+                        label_status, label_version, label_source, label_generated_at,
+                        market_data_source, price_adjustment_mode, trading_calendar_source,
                         production_run_id, candidate_snapshot_id, return_status, settlement_evidence
                     ) VALUES (
                         :pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
                         :t1_return_close, :t1_return_high, :next_day_open_return, :next_day_high_return,
                         :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace,
+                        :t1_open_return, :t1_high_return, :t1_low_return, :t1_close_return, :t1_mfe, :t1_mae,
+                        :t1_vwap_return, :t1_gap_return, :t1_net_return, :slippage, :commission, :stamp_duty,
+                        :transfer_fee, :market_impact,
+                        :entry_price, :entry_price_source, :entry_price_basis, :entry_date, :entry_time,
+                        :t1_open_price, :t1_high_price, :t1_low_price, :t1_close_price,
+                        :label_status, :label_version, :label_source, :label_generated_at,
+                        :market_data_source, :price_adjustment_mode, :trading_calendar_source,
                         :production_run_id, :candidate_snapshot_id, :return_status,
                         CAST(:settlement_evidence AS jsonb)
                     )
@@ -1599,11 +1908,25 @@ def upsert_return(
                     pick_id, trade_date, symbol, t1_return, t2_return, t3_return, t5_return,
                     t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
                     next_day_low_return, next_day_gap_return, next_day_drawdown, high_to_close_retrace,
+                    t1_open_return, t1_high_return, t1_low_return, t1_close_return, t1_mfe, t1_mae,
+                    t1_vwap_return, t1_gap_return, t1_net_return, slippage, commission, stamp_duty,
+                    transfer_fee, market_impact,
+                    entry_price, entry_price_source, entry_price_basis, entry_date, entry_time,
+                    t1_open_price, t1_high_price, t1_low_price, t1_close_price,
+                    label_status, label_version, label_source, label_generated_at,
+                    market_data_source, price_adjustment_mode, trading_calendar_source,
                     return_status, settlement_evidence
                 ) VALUES (
                     :pick_id, :trade_date, :symbol, :t1_return, :t2_return, :t3_return, :t5_return,
                     :t1_return_close, :t1_return_high, :next_day_open_return, :next_day_high_return,
                     :next_day_low_return, :next_day_gap_return, :next_day_drawdown, :high_to_close_retrace,
+                    :t1_open_return, :t1_high_return, :t1_low_return, :t1_close_return, :t1_mfe, :t1_mae,
+                    :t1_vwap_return, :t1_gap_return, :t1_net_return, :slippage, :commission, :stamp_duty,
+                    :transfer_fee, :market_impact,
+                    :entry_price, :entry_price_source, :entry_price_basis, :entry_date, :entry_time,
+                    :t1_open_price, :t1_high_price, :t1_low_price, :t1_close_price,
+                    :label_status, :label_version, :label_source, :label_generated_at,
+                    :market_data_source, :price_adjustment_mode, :trading_calendar_source,
                     :return_status, CAST(:settlement_evidence AS jsonb)
                 )
                 ON CONFLICT (trade_date, symbol) WHERE production_run_id IS NULL
@@ -1613,6 +1936,41 @@ def upsert_return(
                     t2_return = COALESCE(returns.t2_return, EXCLUDED.t2_return),
                     t3_return = COALESCE(returns.t3_return, EXCLUDED.t3_return),
                     t5_return = COALESCE(returns.t5_return, EXCLUDED.t5_return),
+                    t1_return_close = COALESCE(returns.t1_return_close, EXCLUDED.t1_return_close),
+                    t1_return_high = COALESCE(returns.t1_return_high, EXCLUDED.t1_return_high),
+                    next_day_open_return = COALESCE(returns.next_day_open_return, EXCLUDED.next_day_open_return),
+                    next_day_high_return = COALESCE(returns.next_day_high_return, EXCLUDED.next_day_high_return),
+                    next_day_low_return = COALESCE(returns.next_day_low_return, EXCLUDED.next_day_low_return),
+                    t1_open_return = COALESCE(returns.t1_open_return, EXCLUDED.t1_open_return),
+                    t1_high_return = COALESCE(returns.t1_high_return, EXCLUDED.t1_high_return),
+                    t1_low_return = COALESCE(returns.t1_low_return, EXCLUDED.t1_low_return),
+                    t1_close_return = COALESCE(returns.t1_close_return, EXCLUDED.t1_close_return),
+                    t1_mfe = COALESCE(returns.t1_mfe, EXCLUDED.t1_mfe),
+                    t1_mae = COALESCE(returns.t1_mae, EXCLUDED.t1_mae),
+                    t1_vwap_return = COALESCE(returns.t1_vwap_return, EXCLUDED.t1_vwap_return),
+                    t1_gap_return = COALESCE(returns.t1_gap_return, EXCLUDED.t1_gap_return),
+                    t1_net_return = COALESCE(returns.t1_net_return, EXCLUDED.t1_net_return),
+                    slippage = COALESCE(returns.slippage, EXCLUDED.slippage),
+                    commission = COALESCE(returns.commission, EXCLUDED.commission),
+                    stamp_duty = COALESCE(returns.stamp_duty, EXCLUDED.stamp_duty),
+                    transfer_fee = COALESCE(returns.transfer_fee, EXCLUDED.transfer_fee),
+                    market_impact = COALESCE(returns.market_impact, EXCLUDED.market_impact),
+                    entry_price = COALESCE(returns.entry_price, EXCLUDED.entry_price),
+                    entry_price_source = COALESCE(returns.entry_price_source, EXCLUDED.entry_price_source),
+                    entry_price_basis = COALESCE(returns.entry_price_basis, EXCLUDED.entry_price_basis),
+                    entry_date = COALESCE(returns.entry_date, EXCLUDED.entry_date),
+                    entry_time = COALESCE(returns.entry_time, EXCLUDED.entry_time),
+                    t1_open_price = COALESCE(returns.t1_open_price, EXCLUDED.t1_open_price),
+                    t1_high_price = COALESCE(returns.t1_high_price, EXCLUDED.t1_high_price),
+                    t1_low_price = COALESCE(returns.t1_low_price, EXCLUDED.t1_low_price),
+                    t1_close_price = COALESCE(returns.t1_close_price, EXCLUDED.t1_close_price),
+                    label_status = COALESCE(returns.label_status, EXCLUDED.label_status),
+                    label_version = COALESCE(returns.label_version, EXCLUDED.label_version),
+                    label_source = COALESCE(returns.label_source, EXCLUDED.label_source),
+                    label_generated_at = COALESCE(returns.label_generated_at, EXCLUDED.label_generated_at),
+                    market_data_source = COALESCE(returns.market_data_source, EXCLUDED.market_data_source),
+                    price_adjustment_mode = COALESCE(returns.price_adjustment_mode, EXCLUDED.price_adjustment_mode),
+                    trading_calendar_source = COALESCE(returns.trading_calendar_source, EXCLUDED.trading_calendar_source),
                     return_status = CASE
                         WHEN returns.t1_return IS NOT NULL OR EXCLUDED.t1_return IS NOT NULL THEN 'SETTLED'
                         ELSE EXCLUDED.return_status
@@ -2009,14 +2367,33 @@ def fetch_daily_candidates(
     trade_date: date,
     *,
     production_run_id: Optional[str] = None,
+    lightweight: bool = False,
 ) -> List[Dict[str, Any]]:
     run_clause = (
         "AND production_run_id = :production_run_id"
         if production_run_id else ""
     )
+    snapshot_columns = (
+        """
+                    candidate_features - 'selection_diagnostics' - 'candidate_pool_context'
+                        AS candidate_features,
+                    factor_snapshot - 'candidate_pool_context' AS factor_snapshot,
+                    eligibility_snapshot,
+                    ranking_basis - 'candidate_pool_context' AS ranking_basis,
+                    auxiliary_evidence_snapshot
+        """
+        if lightweight else
+        """
+                    eligibility_snapshot, selection_diagnostics, raw_json,
+                    source_layers, candidate_features, candidate_entry_reason,
+                    ticket_reason, not_selected_reason, factor_snapshot,
+                    auxiliary_evidence_snapshot, ranking_basis, postmortem_snapshot,
+                    future_return_fields_placeholder
+        """
+    )
     with engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT
                     trade_date, symbol, stock_name, rank, final_score, is_official_pick, decision,
                     production_run_id, candidate_snapshot_id,
@@ -2025,9 +2402,7 @@ def fetch_daily_candidates(
                     early_opportunity_score, topic_propagation_score, market_regime, sentiment_catalyst,
                     theme_catalyst, news_catalyst, positive_catalyst, selection_reason,
                     selection_outcome, selection_outcome_reason, blockers, hard_gate_status,
-                    eligibility_snapshot, selection_diagnostics, raw_json, source_layers, candidate_features,
-                    candidate_entry_reason, ticket_reason, not_selected_reason, factor_snapshot,
-                    auxiliary_evidence_snapshot, ranking_basis, postmortem_snapshot, future_return_fields_placeholder,
+                    {snapshot_columns},
                     cohort, cohort_quality, cohort_status_flags, reconstruction_provenance
                 FROM daily_candidates
                 WHERE trade_date = :trade_date
@@ -2094,7 +2469,13 @@ def fetch_returns(
                     production_run_id, candidate_snapshot_id, return_status, settlement_evidence,
                     is_limit_up, t1_return_close, t1_return_high, next_day_open_return, next_day_high_return,
                     next_day_low_return, next_day_gap_return, next_day_drawdown,
-                    high_to_close_retrace, filled_at, created_at, updated_at
+                    high_to_close_retrace,
+                    t1_open_return, t1_high_return, t1_low_return, t1_close_return, t1_mfe, t1_mae,
+                    entry_price, entry_price_source, entry_price_basis, entry_date, entry_time,
+                    t1_open_price, t1_high_price, t1_low_price, t1_close_price,
+                    label_status, label_version, label_source, label_generated_at,
+                    market_data_source, price_adjustment_mode, trading_calendar_source,
+                    filled_at, created_at, updated_at
                 FROM returns
                 WHERE trade_date = :trade_date
                 """ + run_clause + """

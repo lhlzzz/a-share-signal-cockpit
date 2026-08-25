@@ -3,8 +3,11 @@
 """Signal effectiveness analysis — read-only ledger analysis for weight suggestions."""
 import argparse
 import datetime as dt
+import hashlib
 import json
+import math
 from collections import Counter
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -53,9 +56,90 @@ HORIZON_DAY_MAP = {'t1': 1, 't2': 2, 't3': 3, 't5': 5}
 TRADE_MODE = 'afternoon_buy_next_day_sell'
 PRIMARY_RETURN_FIELD = 't1_return'
 PRIMARY_TRADE_HORIZON = 't1_next_day_sell'
+CANONICAL_T1_TARGET = 't1_net_return'
+RESEARCH_UNIVERSES = ('U0', 'U0_PROXY', 'U1', 'U2')
 HORIZON_NOTE = 'T+2/T+3/T+5 are signal-maturation diagnostics, not multi-day holding PnL.'
 HORIZON_REPLAY_TOP_N_DEFAULT = 5
 HORIZON_REPLAY_MIN_SAMPLES = 3
+T1_ALPHA_STATUS = 'UNVERIFIED'
+ALPHA_RESEARCH_LABEL_VERSION = 'canonical_t1_v1'
+ALPHA_RESEARCH_MIN_TRAIN_DAYS = 30
+ALPHA_RESEARCH_VALIDATION_DAYS = 5
+ALPHA_RESEARCH_MIN_OOS_DAYS = 1
+ALPHA_RESEARCH_TARGETS = (
+    't1_open_return',
+    't1_high_return',
+    't1_low_return',
+    't1_close_return',
+    't1_mfe',
+    't1_mae',
+)
+ALPHA_RESEARCH_EXTENDED_TARGETS = (
+    't1_vwap_return',
+    't1_gap_return',
+    't1_net_return',
+)
+ALPHA_RESEARCH_ALL_TARGETS = ALPHA_RESEARCH_TARGETS + ALPHA_RESEARCH_EXTENDED_TARGETS
+ALPHA_RESEARCH_FEATURES = {
+    'FUND_FLOW': (
+        'net_inflow_main',
+        'fund_flow_momentum',
+        'capital_behavior_score',
+        'order_book_pressure',
+        'capital_acceleration',
+        'new_buyer_pressure',
+        'sector_capital_diffusion',
+        'leader_confirmation',
+        'price_volume_confirmation',
+    ),
+    'POSITION': (
+        'signal_pct',
+        'pct_chg',
+        'close_position_score',
+        'volume_ratio',
+        'turnover_rate',
+        'amount',
+        'signal_amount',
+        'early_opportunity_score',
+        'low_position_catalyst_score',
+    ),
+    'SECTOR': (
+        'sector_catalyst_score',
+        'sector_opportunity_score',
+        'main_theme_alignment_score',
+        'main_theme_core_score',
+        'topic_propagation_score',
+        'state_fit',
+    ),
+    'CATALYST': (
+        'news_catalyst_strength',
+        'announcement_catalyst_score',
+        'sector_news_catalyst_score',
+        'limitup_reason_quality_score',
+    ),
+    'MOMENTUM': (
+        'time_series_momentum',
+        'continuation_gene_score',
+        'limitup_capture_score',
+        'intraday_alert_strength',
+    ),
+    'RISK': (
+        'risk_penalty',
+        'failed_limitup_risk',
+        'main_buy_outflow_pressure',
+        'profit_taking_pressure',
+        'capital_divergence_score',
+        'high_position_penalty',
+        't1_reversal_risk',
+    ),
+}
+RESEARCH_WEIGHT_V0 = {
+    't1_expected_payoff': 0.427713,
+    't1_reversal_safety': 0.194661,
+    'marginal_demand': 0.193139,
+    'state_fit': 0.086516,
+    'execution_quality': 0.097971,
+}
 FOCUS_SYMBOL_NAME_HINTS = {
     '300077': '国民技术',
     '002600': '领益智造',
@@ -797,6 +881,1668 @@ def persist_signal_effectiveness(
         if payloads:
             conn.execute(statement, payloads)
     return {'persisted_count': len(payloads), 'analysis_date': target_date}
+
+
+def _boolish(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {'true', '1', 'yes', 'pass', 'passed'}:
+        return True
+    if text in {'false', '0', 'no', 'fail', 'failed'}:
+        return False
+    return None
+
+
+def _research_feature_value(row: Dict[str, Any], key: str) -> Optional[float]:
+    sources: List[Dict[str, Any]] = []
+    for source_key in ('candidate_features', 'factor_snapshot', 'eligibility_snapshot',
+                       'ranking_basis', 'raw_json'):
+        value = row.get(source_key)
+        if isinstance(value, dict):
+            sources.append(value)
+            if source_key == 'eligibility_snapshot':
+                signals = value.get('signals')
+                if isinstance(signals, dict):
+                    sources.append(signals)
+    sources.append(row)
+    for source in sources:
+        value = _fnum(source.get(key))
+        if value is not None and math.isfinite(value):
+            return value
+    return None
+
+
+def _research_feature_map(row: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    feature_names = {
+        feature
+        for family in ALPHA_RESEARCH_FEATURES.values()
+        for feature in family
+    }
+    feature_names.update({'current_five_module_score', 'formal_primary_score'})
+    features = {
+        feature: _research_feature_value(row, feature)
+        for feature in sorted(feature_names)
+    }
+    if features.get('current_five_module_score') is None:
+        features['current_five_module_score'] = (
+            features.get('formal_primary_score')
+            or _research_feature_value(row, 'formal_score')
+            or _research_feature_value(row, 'final_score')
+        )
+    if features.get('formal_primary_score') is None:
+        features['formal_primary_score'] = features.get('current_five_module_score')
+    return features
+
+
+def _research_snapshot_rows(
+    rows: List[Dict[str, Any]],
+    active_runs: Optional[Dict[str, str]] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Choose one persisted snapshot per day without merging retry runs."""
+    active_runs = active_runs or {}
+    by_date: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for row in rows:
+        trade_date = str(row.get('trade_date') or row.get('date') or '')[:10]
+        if not trade_date:
+            continue
+        run_id = str(row.get('production_run_id') or '__NULL_RUN__')
+        by_date[trade_date][run_id].append(row)
+
+    selected: List[Dict[str, Any]] = []
+    provenance: Dict[str, Any] = {}
+    for trade_date, groups in sorted(by_date.items()):
+        def group_key(item: Tuple[str, List[Dict[str, Any]]]) -> Tuple[int, int, str, str]:
+            run_id, group = item
+            created = min(str(row.get('created_at') or '') for row in group)
+            is_active = run_id != '__NULL_RUN__' and run_id == active_runs.get(trade_date)
+            return (-len(group), 0 if is_active else 1, created, run_id)
+
+        run_id, chosen_rows = sorted(groups.items(), key=group_key)[0]
+        selected.extend(chosen_rows)
+        provenance[trade_date] = {
+            'selected_run_id': None if run_id == '__NULL_RUN__' else run_id,
+            'selected_count': len(chosen_rows),
+            'available_runs': {
+                None if key == '__NULL_RUN__' else key: len(value)
+                for key, value in groups.items()
+            },
+            'selection_rule': 'largest_persisted_snapshot_then_active_then_earliest',
+            'inventory_scope': 'rows_supplied_to_selector',
+        }
+    return selected, provenance
+
+
+def _target_values(row: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    return {
+        target: _fnum(row.get(target))
+        for target in ALPHA_RESEARCH_ALL_TARGETS
+    }
+
+
+def _target_is_valid(row: Dict[str, Any]) -> bool:
+    values = {
+        target: _fnum(row.get(target))
+        for target in ALPHA_RESEARCH_TARGETS
+    }
+    if any(value is None or not math.isfinite(value) for value in values.values()):
+        return False
+    version = str(row.get('label_version') or '')
+    status = str(row.get('label_status') or '')
+    if version and version != ALPHA_RESEARCH_LABEL_VERSION:
+        return False
+    if status and status.upper() != 'SETTLED':
+        return False
+    net_return = _fnum(row.get(CANONICAL_T1_TARGET))
+    if net_return is None or not math.isfinite(net_return):
+        return False
+    return True
+
+
+def build_t1_alpha_research_dataset(
+    candidate_rows: List[Dict[str, Any]],
+    return_rows: List[Dict[str, Any]],
+    *,
+    active_runs: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Build U1/U2 research rows from the existing persisted decision chain.
+
+    This function never re-ranks, re-gates, or reads future fields from a
+    candidate snapshot. It only joins the existing T-day snapshot to canonical
+    settlement labels. U0 is intentionally reported as unavailable unless the
+    full raw scanner universe was persisted.
+    """
+    selected, snapshot_provenance = _research_snapshot_rows(candidate_rows, active_runs)
+    returns_by_key: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+    for return_row in return_rows:
+        key = (
+            str(return_row.get('trade_date') or '')[:10],
+            _as_symbol(return_row.get('symbol')),
+        )
+        if key[0] and key[1]:
+            returns_by_key[key].append(return_row)
+
+    samples: List[Dict[str, Any]] = []
+    conflicts = 0
+    for candidate in selected:
+        trade_date = str(candidate.get('trade_date') or '')[:10]
+        symbol = _as_symbol(candidate.get('symbol'))
+        key = (trade_date, symbol)
+        possible = returns_by_key.get(key, [])
+        run_id = str(candidate.get('production_run_id') or '')
+        exact = [row for row in possible if str(row.get('production_run_id') or '') == run_id]
+        label_row = exact[0] if exact else (possible[0] if possible else {})
+        target_values = _target_values(label_row)
+        row_conflict = False
+        if len(possible) > 1:
+            for target in ALPHA_RESEARCH_TARGETS:
+                values = {
+                    _fnum(row.get(target))
+                    for row in possible
+                    if _fnum(row.get(target)) is not None
+                }
+                if len(values) > 1:
+                    row_conflict = True
+                    break
+        if row_conflict:
+            conflicts += 1
+
+        features = _research_feature_map(candidate)
+        price = _fnum(candidate.get('close_price')) or features.get('close_price')
+        halted = _boolish(candidate.get('in_halted'))
+        if halted is None:
+            halted = _boolish(features.get('in_halted'))
+        tradable = bool(price and price > 0 and halted is not True)
+        eligible = _boolish(candidate.get('eligible'))
+        if eligible is None:
+            eligible = _boolish(candidate.get('formal_eligible'))
+        if eligible is None:
+            eligible = _boolish(candidate.get('final_pick_buyable'))
+        pool_type = str(candidate.get('pool_type') or '')
+        universe_scope = str(candidate.get('universe_scope') or '').strip().upper()
+        full_scan_persisted = bool(
+            _boolish(candidate.get('full_scan_persisted'))
+            or universe_scope in {'FULL_SCANNER_UNIVERSE', 'U0_FULL_SCAN'}
+            or pool_type.upper() in {'FULL_SCANNER_UNIVERSE', 'U0_FULL_SCAN'}
+        )
+        full_scan_count = _fnum(candidate.get('full_universe_quote_count'))
+        row = {
+            'trade_date': trade_date,
+            'symbol': symbol,
+            'name': candidate.get('stock_name') or candidate.get('name') or '',
+            'production_run_id': candidate.get('production_run_id'),
+            'candidate_snapshot_id': candidate.get('candidate_snapshot_id'),
+            'rank': candidate.get('rank'),
+            'final_score': _fnum(candidate.get('final_score')),
+            'market_regime': candidate.get('market_regime') or '',
+            'price': price,
+            'tradable': tradable,
+            'eligible': bool(eligible),
+            'pool_type': pool_type,
+            'universe_scope': universe_scope,
+            'full_scan_persisted': full_scan_persisted,
+            'full_scan_expected_count': int(full_scan_count) if full_scan_count is not None else None,
+            'features': features,
+            'labels': target_values,
+            'label_status': label_row.get('label_status'),
+            'label_version': label_row.get('label_version'),
+            'label_source': label_row.get('label_source'),
+            'entry_price': _fnum(label_row.get('entry_price')),
+            'target_valid': _target_is_valid(label_row) and not row_conflict,
+            'target_quality_status': (
+                'SETTLED'
+                if _target_is_valid(label_row) and not row_conflict
+                else str(label_row.get('label_status') or 'UNKNOWN').upper()
+            ),
+            'label_provenance': {
+                'entry_price_source': label_row.get('entry_price_source'),
+                'entry_price_basis': label_row.get('entry_price_basis'),
+                'market_data_source': label_row.get('market_data_source'),
+                'trading_calendar_source': label_row.get('trading_calendar_source'),
+                'label_version': label_row.get('label_version'),
+                'execution_contract': label_row.get('execution_contract'),
+                'price_basis': label_row.get('entry_price_basis'),
+            },
+        }
+        row['universe_flags'] = {
+            'U0': full_scan_persisted,
+            'U0_PROXY': bool(pool_type),
+            'U0_proxy_persisted_scanner_pool': bool(pool_type),
+            'U1': tradable,
+            'U2': bool(eligible),
+        }
+        samples.append(row)
+
+    valid_rows = [row for row in samples if row['target_valid']]
+    dates = sorted({row['trade_date'] for row in valid_rows})
+    def universe_counts(key: str) -> Dict[str, Any]:
+        scoped = [row for row in samples if row['universe_flags'].get(key)]
+        status_counts = Counter(str(row.get('target_quality_status') or 'UNKNOWN') for row in scoped)
+        return {
+            'count': len(scoped),
+            'valid_count': sum(row['target_valid'] for row in scoped),
+            'invalid': sum(
+                value for status, value in status_counts.items()
+                if status not in {'SETTLED', 'PASS'}
+            ),
+            'unknown': status_counts.get('UNKNOWN', 0),
+            'not_fillable': status_counts.get('NOT_FILLABLE', 0),
+            'status_counts': dict(status_counts),
+            'coverage': (
+                sum(row['target_valid'] for row in scoped) / len(scoped)
+                if scoped else 0.0
+            ),
+        }
+    return {
+        'status': 'READY' if valid_rows else 'TARGET_NOT_READY',
+        'samples': samples,
+        'valid_samples': valid_rows,
+        'dataset_size': len(samples),
+        'valid_sample_count': len(valid_rows),
+        'trading_dates': dates,
+        'trading_day_count': len(dates),
+        'snapshot_provenance': snapshot_provenance,
+        'label_conflict_count': conflicts,
+        'universes': {
+            'U0': {
+                **universe_counts('U0'),
+                'status': (
+                    'READY'
+                    if universe_counts('U0')['count']
+                    and all(
+                        row.get('full_scan_expected_count') in (None, 0)
+                        or row.get('full_scan_expected_count') == universe_counts('U0')['count']
+                        for row in samples
+                        if row['universe_flags'].get('U0')
+                    )
+                    else 'PARTIAL_FULL_SCAN'
+                    if any(row.get('full_scan_persisted') for row in samples)
+                    else 'INSUFFICIENT_DATA'
+                ),
+                'reason': (
+                    'full scanner universe rows persisted'
+                    if any(row.get('full_scan_persisted') for row in samples)
+                    else 'full raw scanner universe rows were not persisted'
+                ),
+            },
+            'U0_PROXY': {
+                'status': 'RESEARCH_ONLY_PROXY',
+                'reason': 'persisted raw_top400_unique_pool snapshot, not full scanner universe',
+                **universe_counts('U0_PROXY'),
+            },
+            'U1': {
+                'status': 'READY',
+                **universe_counts('U1'),
+            },
+            'U2': {
+                'status': 'READY',
+                **universe_counts('U2'),
+            },
+        },
+    }
+
+
+def _distribution(values: List[float]) -> Dict[str, Any]:
+    if not values:
+        return {
+            'count': 0,
+            'mean': None,
+            'median': None,
+            'std': None,
+            'q10': None,
+            'q25': None,
+            'q50': None,
+            'q75': None,
+            'q90': None,
+        }
+    import numpy as np
+    arr = np.asarray(values, dtype=float)
+    qs = np.percentile(arr, [10, 25, 50, 75, 90])
+    return {
+        'count': int(arr.size),
+        'mean': float(arr.mean()),
+        'median': float(np.median(arr)),
+        'std': float(arr.std(ddof=1)) if arr.size > 1 else 0.0,
+        'q10': float(qs[0]),
+        'q25': float(qs[1]),
+        'q50': float(qs[2]),
+        'q75': float(qs[3]),
+        'q90': float(qs[4]),
+    }
+
+
+def _target_quality_report(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    report: Dict[str, Any] = {}
+    total = len(rows)
+    for target in ALPHA_RESEARCH_ALL_TARGETS:
+        values = [
+            _fnum(row.get('labels', {}).get(target))
+            for row in rows
+        ]
+        values = [value for value in values if value is not None]
+        report[target] = {
+            'coverage': len(values) / total if total else 0.0,
+            'distribution': _distribution(values),
+        }
+    status_counts = Counter(
+        str(row.get('target_quality_status') or row.get('label_status') or 'UNKNOWN').upper()
+        for row in rows
+    )
+    canonical_coverage = report[CANONICAL_T1_TARGET]['coverage']
+    return {
+        'sample_count': total,
+        'targets': report,
+        'canonical_target': CANONICAL_T1_TARGET,
+        'canonical_target_coverage': canonical_coverage,
+        'status_counts': dict(status_counts),
+        'unknown_count': status_counts.get('UNKNOWN', 0),
+        'not_fillable_count': status_counts.get('NOT_FILLABLE', 0),
+        'pending_count': status_counts.get('PENDING', 0),
+        'missing_by_date': dict(Counter(
+            row['trade_date']
+            for row in rows
+            if not row.get('target_valid')
+        )),
+        'quality_gate': {
+            'required_coverage': 0.95,
+            'passed': bool(
+                total
+                and canonical_coverage >= 0.95
+                and all(
+                    report[target]['coverage'] >= 0.95
+                    for target in ALPHA_RESEARCH_TARGETS
+                )
+            ),
+        },
+    }
+
+
+def _factor_family_ic(
+    rows: List[Dict[str, Any]],
+    universe: str,
+) -> Dict[str, Any]:
+    selected = [
+        row for row in rows
+        if row['universe_flags'].get(universe) and row['target_valid']
+    ]
+    result: Dict[str, Any] = {}
+    for family, features in ALPHA_RESEARCH_FEATURES.items():
+        family_rows = []
+        for row in selected:
+            values = [
+                row['features'].get(feature)
+                for feature in features
+                if row['features'].get(feature) is not None
+            ]
+            if values:
+                family_rows.append((
+                    sum(values) / len(values),
+                    row['labels'][CANONICAL_T1_TARGET],
+                ))
+        xs = [item[0] for item in family_rows]
+        ys = [item[1] for item in family_rows]
+        result[family] = {
+            'count': len(family_rows),
+            'correlation': _correlation(xs, ys),
+        }
+    return result
+
+
+def _correlation(x: List[float], y: List[float]) -> Dict[str, Optional[float]]:
+    if len(x) < 3 or len(x) != len(y):
+        return {'pearson': None, 'spearman': None, 'rank_ic': None}
+    if len(set(x)) < 2 or len(set(y)) < 2:
+        return {'pearson': None, 'spearman': None, 'rank_ic': None}
+    try:
+        from scipy.stats import pearsonr, spearmanr
+        pearson = float(pearsonr(x, y).statistic)
+        spearman = float(spearmanr(x, y).statistic)
+        return {'pearson': pearson, 'spearman': spearman, 'rank_ic': spearman}
+    except Exception:
+        return {'pearson': None, 'spearman': None, 'rank_ic': None}
+
+
+def _single_factor_report(
+    rows: List[Dict[str, Any]],
+    *,
+    universe: str = 'U1',
+) -> List[Dict[str, Any]]:
+    selected = [
+        row for row in rows
+        if row['universe_flags'].get(universe) and row['target_valid']
+    ]
+    feature_names = sorted({
+        feature
+        for family in ALPHA_RESEARCH_FEATURES.values()
+        for feature in family
+    } | {'current_five_module_score'})
+    output: List[Dict[str, Any]] = []
+    for feature in feature_names:
+        feature_rows = [
+            row for row in selected
+            if row['features'].get(feature) is not None
+        ]
+        item: Dict[str, Any] = {
+            'feature': feature,
+            'universe': universe,
+            'count': len(feature_rows),
+            'coverage': len(feature_rows) / len(selected) if selected else 0.0,
+            'targets': {},
+        }
+        for target in (
+            't1_open_return',
+            CANONICAL_T1_TARGET,
+            't1_close_return',
+            't1_mfe',
+            't1_mae',
+        ):
+            pairs = [
+                (row['features'][feature], row['labels'][target])
+                for row in feature_rows
+                if row['labels'].get(target) is not None
+            ]
+            if not pairs:
+                item['targets'][target] = {
+                    'count': 0,
+                    'correlation': _correlation([], []),
+                }
+                continue
+            xs, ys = zip(*pairs)
+            xs, ys = list(xs), list(ys)
+            order = sorted(range(len(xs)), key=lambda i: xs[i])
+            quantile_means: List[Optional[float]] = []
+            for bucket in range(5):
+                left = (len(order) * bucket) // 5
+                right = (len(order) * (bucket + 1)) // 5
+                values = [ys[i] for i in order[left:right]]
+                quantile_means.append(sum(values) / len(values) if values else None)
+            top_n = max(1, int(math.ceil(len(order) * 0.1)))
+            top_values = [ys[i] for i in order[-top_n:]]
+            bottom_values = [ys[i] for i in order[:top_n]]
+            item['targets'][target] = {
+                'count': len(pairs),
+                'correlation': _correlation(xs, ys),
+                'quantile_mean': quantile_means,
+                'top_decile_mean': sum(top_values) / len(top_values),
+                'bottom_decile_mean': sum(bottom_values) / len(bottom_values),
+                'top_decile_hit_rate': sum(value > 0 for value in top_values) / len(top_values),
+            }
+        output.append(item)
+    return output
+
+
+def _factor_redundancy_report(rows: List[Dict[str, Any]], universe: str = 'U1') -> Dict[str, Any]:
+    selected = [
+        row for row in rows
+        if row['universe_flags'].get(universe) and row['target_valid']
+    ]
+    feature_names = sorted({
+        feature
+        for family in ALPHA_RESEARCH_FEATURES.values()
+        for feature in family
+    } | {'current_five_module_score'})
+    matrix: Dict[str, Dict[str, Optional[float]]] = {
+        feature: {} for feature in feature_names
+    }
+    for left in feature_names:
+        for right in feature_names:
+            pairs = [
+                (row['features'].get(left), row['features'].get(right))
+                for row in selected
+                if row['features'].get(left) is not None
+                and row['features'].get(right) is not None
+            ]
+            if len(pairs) < 3:
+                matrix[left][right] = None
+            else:
+                matrix[left][right] = _correlation(
+                    [pair[0] for pair in pairs],
+                    [pair[1] for pair in pairs],
+                )['pearson']
+
+    vifs: Dict[str, Optional[float]] = {}
+    try:
+        import numpy as np
+        available = [
+            feature for feature in feature_names
+            if sum(row['features'].get(feature) is not None for row in selected) >= 5
+        ]
+        complete = [
+            [row['features'][feature] for feature in available]
+            for row in selected
+            if all(row['features'].get(feature) is not None for feature in available)
+        ]
+        if len(complete) >= 5 and len(available) >= 2:
+            matrix_array = np.asarray(complete, dtype=float)
+            for index, feature in enumerate(available):
+                y = matrix_array[:, index]
+                x = np.delete(matrix_array, index, axis=1)
+                x = np.column_stack([np.ones(len(x)), x])
+                residual, *_ = np.linalg.lstsq(x, y, rcond=None)
+                predicted = x @ residual
+                denominator = float(((y - y.mean()) ** 2).sum())
+                r2 = 1.0 - float(((y - predicted) ** 2).sum()) / denominator if denominator else 1.0
+                vifs[feature] = float(1.0 / max(1e-9, 1.0 - r2))
+        else:
+            vifs = {'status': 'INSUFFICIENT_DATA'}  # type: ignore[assignment]
+    except Exception as exc:
+        vifs = {'status': f'UNAVAILABLE:{type(exc).__name__}'}  # type: ignore[assignment]
+    return {
+        'universe': universe,
+        'feature_names': feature_names,
+        'correlation_matrix': matrix,
+        'vif': vifs,
+        'factor_families': ALPHA_RESEARCH_FEATURES,
+    }
+
+
+def _bootstrap_mean_ci(values: List[float], seed: int = 20260824) -> Dict[str, Any]:
+    if len(values) < 30:
+        return {'status': 'INSUFFICIENT_DATA', 'count': len(values)}
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    arr = np.asarray(values, dtype=float)
+    draws = rng.choice(arr, size=(1000, arr.size), replace=True).mean(axis=1)
+    return {
+        'status': 'READY',
+        'count': len(values),
+        'mean': float(arr.mean()),
+        'ci95': [float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))],
+        'resamples': 1000,
+    }
+
+
+def _permutation_report(values_x: List[float], values_y: List[float]) -> Dict[str, Any]:
+    if len(values_x) < 30 or len(values_x) != len(values_y):
+        return {'status': 'INSUFFICIENT_DATA', 'count': len(values_x)}
+    import numpy as np
+    from scipy.stats import spearmanr
+    observed = float(spearmanr(values_x, values_y).statistic)
+    rng = np.random.default_rng(20260824)
+    distribution = [
+        float(spearmanr(values_x, rng.permutation(values_y)).statistic)
+        for _ in range(1000)
+    ]
+    percentile = sum(value <= observed for value in distribution) / len(distribution)
+    return {
+        'status': 'READY',
+        'count': len(values_x),
+        'observed_rank_ic': observed,
+        'permutation_percentile': percentile,
+        'resamples': 1000,
+    }
+
+
+def _alpha_target_report_by_universe(
+    rows: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        universe: _target_quality_report([
+            row for row in rows if row['universe_flags'].get(universe)
+        ])
+        for universe in RESEARCH_UNIVERSES
+    }
+
+
+def _row_net_return(row: Dict[str, Any]) -> Optional[float]:
+    labels = row.get('labels') if isinstance(row.get('labels'), dict) else {}
+    return _fnum(labels.get(CANONICAL_T1_TARGET))
+
+
+def _row_target(row: Dict[str, Any], target: str) -> Optional[float]:
+    labels = row.get('labels') if isinstance(row.get('labels'), dict) else {}
+    if target == 'tradable_edge':
+        net = _row_net_return(row)
+        mfe = _fnum(labels.get('t1_mfe'))
+        mae = _fnum(labels.get('t1_mae'))
+        if net is not None:
+            return net
+        if mfe is None:
+            return None
+        return mfe - max(0.0, -(mae or 0.0))
+    return _fnum(labels.get(target))
+
+
+def _model_feature_sets() -> Dict[str, Tuple[str, ...]]:
+    all_features = tuple(sorted({
+        feature
+        for family in ALPHA_RESEARCH_FEATURES.values()
+        for feature in family
+    } | {'current_five_module_score'}))
+    return {
+        'MODEL_0_RANDOM': (),
+        'MODEL_1_T_DAY_RETURN': ('signal_pct', 'pct_chg', 'close_position_score'),
+        'MODEL_2_PRICE_VOLUME': (
+            'signal_pct', 'pct_chg', 'close_position_score',
+            'volume_ratio', 'turnover_rate', 'amount',
+        ),
+        'MODEL_A_T1_NET_RETURN': (
+            'signal_pct', 'pct_chg', 'close_position_score',
+            'volume_ratio', 'turnover_rate', 'amount',
+        ),
+        'MODEL_3_FUND_FLOW': tuple(ALPHA_RESEARCH_FEATURES['FUND_FLOW']),
+        'MODEL_4_SECTOR_STATE': tuple(ALPHA_RESEARCH_FEATURES['SECTOR']),
+        'MODEL_5_REVERSAL_RISK': tuple(ALPHA_RESEARCH_FEATURES['RISK']),
+        'MODEL_6_CURRENT_FIVE_MODULES': ('current_five_module_score',),
+        'MODEL_7_MFE': all_features,
+        'MODEL_8_TRADABLE_EDGE': all_features,
+        'MODEL_A_T1_CLOSE': all_features,
+        'MODEL_B_T1_MFE': all_features,
+        'MODEL_C_T1_TRADABLE_EDGE': all_features,
+    }
+
+
+def _model_target(model_id: str) -> str:
+    if model_id in {'MODEL_7_MFE', 'MODEL_B_T1_MFE'}:
+        return 't1_mfe'
+    if model_id in {'MODEL_8_TRADABLE_EDGE', 'MODEL_C_T1_TRADABLE_EDGE'}:
+        return 'tradable_edge'
+    return CANONICAL_T1_TARGET
+
+
+def _feature_timestamp_status(row: Dict[str, Any]) -> Dict[str, Any]:
+    trade_date = str(row.get('trade_date') or '')[:10]
+    future_target_names = set(ALPHA_RESEARCH_ALL_TARGETS) | {
+        't1_return', 't2_return', 't3_return', 't5_return',
+    }
+    future_keys = [
+        key for key in (row.get('features') or {})
+        if str(key).lower() in future_target_names
+        or str(key).lower().startswith(('future_', 'next_day_', 'target_'))
+    ]
+    timestamp = str(
+        row.get('feature_timestamp')
+        or row.get('signal_time')
+        or row.get('asof_time')
+        or ''
+    )
+    timestamp_date = timestamp[:10] if timestamp else ''
+    violations = list(future_keys)
+    if trade_date and timestamp_date and timestamp_date > trade_date:
+        violations.append('FEATURE_TIMESTAMP_AFTER_SIGNAL_DATE')
+    return {
+        'status': 'FAIL' if violations else 'PASS',
+        'violations': list(dict.fromkeys(violations)),
+    }
+
+
+def _fit_linear_model(
+    rows: List[Dict[str, Any]],
+    feature_names: Tuple[str, ...],
+    target: str,
+) -> Dict[str, Any]:
+    if not feature_names:
+        return {'status': 'READY', 'feature_names': [], 'mean': [], 'scale': [], 'beta': [0.0]}
+    usable = [
+        row for row in rows
+        if _row_target(row, target) is not None
+        and any(_fnum((row.get('features') or {}).get(feature)) is not None for feature in feature_names)
+    ]
+    active_features = tuple(
+        feature for feature in feature_names
+        if sum(
+            _fnum((row.get('features') or {}).get(feature)) is not None
+            for row in usable
+        ) >= 3
+    )
+    if not active_features:
+        return {
+            'status': 'INSUFFICIENT_DATA',
+            'feature_names': list(feature_names),
+            'sample_count': len(usable),
+        }
+    if len(usable) < max(5, len(active_features) + 2):
+        return {
+            'status': 'INSUFFICIENT_DATA',
+            'feature_names': list(active_features),
+            'sample_count': len(usable),
+        }
+    import numpy as np
+    matrix = np.asarray([
+        [
+            _fnum((row.get('features') or {}).get(feature)) or 0.0
+            for feature in active_features
+        ]
+        for row in usable
+    ], dtype=float)
+    values = np.asarray([_row_target(row, target) for row in usable], dtype=float)
+    mean = matrix.mean(axis=0)
+    scale = matrix.std(axis=0)
+    scale[scale < 1e-9] = 1.0
+    normalized = (matrix - mean) / scale
+    design = np.column_stack([np.ones(len(normalized)), normalized])
+    beta, *_ = np.linalg.lstsq(design, values, rcond=None)
+    return {
+        'status': 'READY',
+        'feature_names': list(active_features),
+        'mean': mean.tolist(),
+        'scale': scale.tolist(),
+        'beta': beta.tolist(),
+        'sample_count': len(usable),
+    }
+
+
+def _predict_linear(row: Dict[str, Any], fitted: Dict[str, Any]) -> Optional[float]:
+    if fitted.get('status') != 'READY':
+        return None
+    feature_names = list(fitted.get('feature_names') or [])
+    if not feature_names:
+        return 0.0
+    values = [
+        _fnum((row.get('features') or {}).get(feature))
+        for feature in feature_names
+    ]
+    if not any(value is not None for value in values):
+        return None
+    import numpy as np
+    vector = np.asarray([
+        (value if value is not None else 0.0)
+        for value in values
+    ], dtype=float)
+    mean = np.asarray(fitted.get('mean') or [0.0] * len(feature_names), dtype=float)
+    scale = np.asarray(fitted.get('scale') or [1.0] * len(feature_names), dtype=float)
+    beta = np.asarray(fitted.get('beta') or [0.0] * (len(feature_names) + 1), dtype=float)
+    return float(np.asarray([1.0, *((vector - mean) / scale)]) @ beta)
+
+
+T1_ALPHA_ARTIFACT_VERSION = 't1_alpha_research_artifact_v1'
+
+
+def freeze_t1_alpha_research_model(
+    rows: List[Dict[str, Any]],
+    *,
+    model_id: str = 'MODEL_A_T1_NET_RETURN',
+    as_of_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Freeze one point-in-time research model without promoting it.
+
+    Only settled rows strictly before ``as_of_date`` are eligible for fitting.
+    The returned artifact is self-contained and can be hashed or persisted by
+    the existing model registry; it never changes the production status.
+    """
+    feature_sets = _model_feature_sets()
+    feature_names = feature_sets.get(model_id)
+    if feature_names is None:
+        raise ValueError(f'UNKNOWN_T1_ALPHA_MODEL:{model_id}')
+    training_rows = [
+        row for row in rows
+        if row.get('target_valid')
+        and (not as_of_date or str(row.get('trade_date') or '')[:10] < str(as_of_date)[:10])
+    ]
+    fitted = _fit_linear_model(training_rows, feature_names, CANONICAL_T1_TARGET)
+    targets = [
+        _row_target(row, CANONICAL_T1_TARGET)
+        for row in training_rows
+    ]
+    targets = [value for value in targets if value is not None and math.isfinite(value)]
+    execution_costs = []
+    for row in training_rows:
+        labels = row.get('labels') if isinstance(row.get('labels'), dict) else {}
+        gross = _fnum(labels.get('t1_close_return'))
+        net = _fnum(labels.get(CANONICAL_T1_TARGET))
+        if gross is not None and net is not None:
+            execution_costs.append(max(0.0, gross - net))
+    if targets:
+        import numpy as np
+        target_array = np.asarray(targets, dtype=float)
+        target_summary = {
+            'mean': float(target_array.mean()),
+            'std': float(target_array.std(ddof=1)) if target_array.size > 1 else 0.0,
+            'positive_rate': float(np.mean(target_array > 0)),
+            'downside_p10': float(np.percentile(target_array, 10)),
+            'execution_cost_mean': (
+                float(np.mean(execution_costs)) if execution_costs else 0.0
+            ),
+        }
+    else:
+        target_summary = {}
+    return {
+        'artifact_version': T1_ALPHA_ARTIFACT_VERSION,
+        'model_id': model_id,
+        'model_status': 'RESEARCH',
+        'target': CANONICAL_T1_TARGET,
+        'feature_version': 'research_feature_map_v1',
+        'label_version': ALPHA_RESEARCH_LABEL_VERSION,
+        'as_of_date': str(as_of_date or ''),
+        'training_start': min((str(row.get('trade_date'))[:10] for row in training_rows), default=''),
+        'training_end': max((str(row.get('trade_date'))[:10] for row in training_rows), default=''),
+        'training_sample_count': len(training_rows),
+        'training_target_summary': target_summary,
+        'fitted': fitted,
+        'status': 'READY' if fitted.get('status') == 'READY' and targets else 'INSUFFICIENT_DATA',
+    }
+
+
+def build_t1_alpha_research_prediction(
+    row: Dict[str, Any],
+    artifact: Dict[str, Any],
+    *,
+    signal_time: str,
+) -> Dict[str, Any]:
+    """Create an auditable research prediction for one T-day row.
+
+    This function deliberately returns ``model_status=RESEARCH``.  The sole
+    production ranking owner will reject it until registry acceptance gates
+    promote a frozen artifact.
+    """
+    if not isinstance(artifact, dict) or artifact.get('status') != 'READY':
+        return {
+            'valid': False,
+            'model_status': 'RESEARCH',
+            'reason': 'T1_ALPHA_RESEARCH_MODEL_INSUFFICIENT_DATA',
+        }
+    signal_date = str(signal_time or '')[:10]
+    training_end = str(artifact.get('training_end') or '')[:10]
+    if not signal_date or not training_end or training_end >= signal_date:
+        return {
+            'valid': False,
+            'model_status': 'RESEARCH',
+            'reason': 'T1_ALPHA_RESEARCH_TRAINING_NOT_STRICTLY_BEFORE_SIGNAL',
+        }
+    fitted = artifact.get('fitted') if isinstance(artifact.get('fitted'), dict) else {}
+    expected = _predict_linear(row, fitted)
+    if expected is None or not math.isfinite(expected):
+        return {
+            'valid': False,
+            'model_status': 'RESEARCH',
+            'reason': 'T1_ALPHA_RESEARCH_FEATURES_UNAVAILABLE',
+        }
+    target_summary = artifact.get('training_target_summary')
+    target_summary = target_summary if isinstance(target_summary, dict) else {}
+    mean_target = _fnum(target_summary.get('mean'))
+    p_win = _fnum(target_summary.get('positive_rate'))
+    uncertainty = _fnum(target_summary.get('std'))
+    downside_p10 = _fnum(target_summary.get('downside_p10'))
+    execution_cost = _fnum(target_summary.get('execution_cost_mean'))
+    if any(value is None for value in (
+        mean_target, p_win, uncertainty, downside_p10, execution_cost,
+    )):
+        return {
+            'valid': False,
+            'model_status': 'RESEARCH',
+            'reason': 'T1_ALPHA_RESEARCH_TARGETS_UNAVAILABLE',
+        }
+    expected = float(expected)
+    feature_timestamp = str(row.get('feature_timestamp') or signal_time)
+    if feature_timestamp > signal_time:
+        return {
+            'valid': False,
+            'model_status': 'RESEARCH',
+            'reason': 'T1_ALPHA_RESEARCH_FEATURE_AFTER_SIGNAL',
+        }
+    return {
+        'valid': True,
+        'model_id': artifact.get('model_id'),
+        'model_status': 'RESEARCH',
+        'signal_time': signal_time,
+        'feature_timestamp': feature_timestamp,
+        'feature_available_at': feature_timestamp,
+        'prediction_available_at': signal_time,
+        'expected_t1_net_return': expected,
+        'cross_sectional_edge': expected - float(mean_target),
+        'p_win': float(p_win),
+        'expected_downside': max(0.0, -float(downside_p10)),
+        'uncertainty': max(0.0, float(uncertainty)),
+        'execution_cost': max(0.0, float(execution_cost)),
+        'tradable_edge': expected - max(0.0, float(execution_cost)),
+        'prediction_version': T1_ALPHA_ARTIFACT_VERSION,
+    }
+
+
+def build_t1_alpha_research_predictions_for_candidates(
+    candidates: List[Dict[str, Any]],
+    *,
+    signal_time: str,
+    signal_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Generate research-only T+1 predictions for one T-day candidate set.
+
+    Historical training rows are loaded from the existing projected DB owner.
+    No T+1 row on or after the signal date is eligible for fitting, and this
+    function never mutates the database or promotes a model.
+    """
+    normalized_signal_date = str(signal_date or signal_time or '')[:10]
+    if not normalized_signal_date:
+        return {
+            'status': 'BLOCKED',
+            'reason': 'T1_ALPHA_SIGNAL_DATE_MISSING',
+            'model_status': 'RESEARCH',
+            'predictions': {},
+        }
+    candidate_rows, return_rows, active_runs, source_details = _load_t1_alpha_db_rows(
+        end_date=(dt.date.fromisoformat(normalized_signal_date) - dt.timedelta(days=1)).isoformat(),
+    )
+    dataset = build_t1_alpha_research_dataset(
+        candidate_rows,
+        return_rows,
+        active_runs=active_runs,
+    )
+    artifact = freeze_t1_alpha_research_model(
+        list(dataset.get('valid_samples') or []),
+        model_id='MODEL_A_T1_NET_RETURN',
+        as_of_date=normalized_signal_date,
+    )
+    predictions: Dict[str, Dict[str, Any]] = {}
+    for candidate in candidates or []:
+        if not isinstance(candidate, dict):
+            continue
+        symbol = str(
+            candidate.get('symbol')
+            or candidate.get('code')
+            or candidate.get('security_code')
+            or ''
+        ).strip().zfill(6)
+        if not symbol.isdigit() or len(symbol) != 6:
+            continue
+        model_row = {
+            'trade_date': normalized_signal_date,
+            'symbol': symbol,
+            'feature_timestamp': signal_time,
+            'features': _research_feature_map(candidate),
+        }
+        predictions[symbol] = build_t1_alpha_research_prediction(
+            model_row,
+            artifact,
+            signal_time=signal_time,
+        )
+    return {
+        'status': 'READY' if artifact.get('status') == 'READY' else 'INSUFFICIENT_DATA',
+        'model_status': 'RESEARCH',
+        'model_id': artifact.get('model_id'),
+        'artifact': artifact,
+        'source_details': source_details,
+        'training_dates': dataset.get('trading_dates') or [],
+        'training_sample_count': artifact.get('training_sample_count', 0),
+        'predictions': predictions,
+    }
+
+
+def _stable_random_score(row: Dict[str, Any]) -> float:
+    key = f"{row.get('trade_date', '')}:{row.get('symbol', '')}".encode('utf-8')
+    return int(hashlib.sha256(key).hexdigest()[:12], 16) / float(16 ** 12)
+
+
+def _model_score(
+    row: Dict[str, Any],
+    model_id: str,
+    fitted: Dict[str, Any],
+    edge_models: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Optional[float]:
+    if model_id == 'MODEL_0_RANDOM':
+        return _stable_random_score(row)
+    if model_id in {'MODEL_8_TRADABLE_EDGE', 'MODEL_C_T1_TRADABLE_EDGE'}:
+        models = edge_models or {}
+        probability = _predict_linear(row, models.get('probability', {}))
+        expected_profit = _predict_linear(row, models.get('profit', {}))
+        expected_risk = _predict_linear(row, models.get('risk', {}))
+        if probability is None or expected_profit is None or expected_risk is None:
+            return None
+        return max(0.0, min(1.0, probability)) * max(0.0, expected_profit) - max(0.0, expected_risk)
+    score = _predict_linear(row, fitted)
+    if score is None:
+        return None
+    if model_id in {'MODEL_6_CURRENT_FIVE_MODULES'}:
+        return _fnum((row.get('features') or {}).get('current_five_module_score')) or score
+    return score
+
+
+def _summary_for_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    values = [_row_net_return(row) for row in records]
+    values = [value for value in values if value is not None]
+    mfe = [
+        _fnum((row.get('labels') or {}).get('t1_mfe'))
+        for row in records
+    ]
+    mae = [
+        _fnum((row.get('labels') or {}).get('t1_mae'))
+        for row in records
+    ]
+    mfe = [value for value in mfe if value is not None]
+    mae = [value for value in mae if value is not None]
+    positive = sum(value for value in values if value > 0)
+    negative = sum(value for value in values if value < 0)
+    equity = 1.0
+    peak = 1.0
+    max_drawdown = 0.0
+    for value in values:
+        equity *= 1.0 + value
+        peak = max(peak, equity)
+        max_drawdown = min(max_drawdown, equity / peak - 1.0)
+    return {
+        'count': len(values),
+        'mean_net_return': sum(values) / len(values) if values else None,
+        'median_net_return': sorted(values)[len(values) // 2] if values else None,
+        'win_rate': sum(value > 0 for value in values) / len(values) if values else None,
+        'profit_factor': positive / abs(negative) if negative else (None if not positive else float('inf')),
+        'expectancy': sum(values) / len(values) if values else None,
+        'mean_mfe': sum(mfe) / len(mfe) if mfe else None,
+        'mean_mae': sum(mae) / len(mae) if mae else None,
+        'max_drawdown': max_drawdown if values else None,
+    }
+
+
+def _ranked_model_result(
+    rows: List[Dict[str, Any]],
+    model_id: str,
+    fitted: Dict[str, Any],
+    edge_models: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    scored = []
+    for row in rows:
+        score = _model_score(row, model_id, fitted, edge_models)
+        if score is None:
+            continue
+        scored.append((score, row))
+    scored.sort(key=lambda item: (-item[0], str(item[1].get('symbol') or '')))
+    ranked = [row for _, row in scored]
+    top_records = {
+        str(k): ranked[:k]
+        for k in (1, 3, 5, 10)
+    }
+    result = {
+        'top1': _summary_for_records(top_records['1']),
+        'top3': _summary_for_records(top_records['3']),
+        'top5': _summary_for_records(top_records['5']),
+        'top10': _summary_for_records(top_records['10']),
+        'universe': _summary_for_records(rows),
+    }
+    universe_mean = result['universe'].get('mean_net_return')
+    for key in ('top1', 'top3', 'top5', 'top10'):
+        top_mean = result[key].get('mean_net_return')
+        result[key]['lift_vs_universe'] = (
+            top_mean - universe_mean
+            if top_mean is not None and universe_mean is not None
+            else None
+        )
+    return ranked, result
+
+
+def _walk_forward_report(rows: List[Dict[str, Any]], universe: str = 'U1') -> Dict[str, Any]:
+    selected = [
+        row for row in rows
+        if row['universe_flags'].get(universe) and row['target_valid']
+    ]
+    leakage = [
+        {
+            'trade_date': row.get('trade_date'),
+            'symbol': row.get('symbol'),
+            **_feature_timestamp_status(row),
+        }
+        for row in selected
+        if _feature_timestamp_status(row).get('status') != 'PASS'
+    ]
+    dates = sorted({row['trade_date'] for row in selected})
+    minimum = ALPHA_RESEARCH_MIN_TRAIN_DAYS + ALPHA_RESEARCH_VALIDATION_DAYS + ALPHA_RESEARCH_MIN_OOS_DAYS
+    if len(dates) < minimum or leakage:
+        return {
+            'status': 'LEAKAGE_DETECTED' if leakage else 'INSUFFICIENT_DATA',
+            'universe': universe,
+            'available_trading_days': len(dates),
+            'required_trading_days': minimum,
+            'reason': (
+                'feature_timestamp_or_future_feature_violation'
+                if leakage else 'strict_train_validation_oos_window_not_available'
+            ),
+            'models': {},
+            'leakage_audit': {
+                'status': 'FAIL' if leakage else 'PASS',
+                'violations': leakage,
+            },
+        }
+    feature_sets = _model_feature_sets()
+    model_ids = list(feature_sets)
+    fold_rows: Dict[str, List[Dict[str, Any]]] = {model_id: [] for model_id in model_ids}
+    oos_metrics: Dict[str, List[Dict[str, Any]]] = {model_id: [] for model_id in model_ids}
+    validation_metrics: Dict[str, List[Dict[str, Any]]] = {model_id: [] for model_id in model_ids}
+    fold_count = 0
+
+    for oos_index in range(ALPHA_RESEARCH_MIN_TRAIN_DAYS + ALPHA_RESEARCH_VALIDATION_DAYS, len(dates)):
+        train_dates = dates[:oos_index - ALPHA_RESEARCH_VALIDATION_DAYS]
+        validation_dates = dates[oos_index - ALPHA_RESEARCH_VALIDATION_DAYS:oos_index]
+        oos_date = dates[oos_index]
+        train_rows = [row for row in selected if row['trade_date'] in train_dates]
+        validation_rows = [row for row in selected if row['trade_date'] in validation_dates]
+        oos_rows = [row for row in selected if row['trade_date'] == oos_date]
+        if not train_rows or not validation_rows or not oos_rows:
+            continue
+        fold_count += 1
+        for model_id in model_ids:
+            target = _model_target(model_id)
+            fitted = _fit_linear_model(train_rows, feature_sets[model_id], target)
+            edge_models = None
+            if model_id in {'MODEL_8_TRADABLE_EDGE', 'MODEL_C_T1_TRADABLE_EDGE'}:
+                edge_models = {
+                    'probability': _fit_linear_model(
+                        train_rows,
+                        feature_sets[model_id],
+                        'tradable_edge',
+                    ),
+                    'profit': _fit_linear_model(
+                        [
+                            row for row in train_rows
+                            if (_row_target(row, 'tradable_edge') or 0.0) > 0
+                        ],
+                        feature_sets[model_id],
+                        'tradable_edge',
+                    ),
+                    'risk': _fit_linear_model(
+                        train_rows,
+                        feature_sets[model_id],
+                        't1_mae',
+                    ),
+                }
+                # The probability model is trained on a binary outcome, not
+                # on a future return. Refit it locally using train rows only.
+                probability_rows = []
+                for row in train_rows:
+                    edge = _row_target(row, 'tradable_edge')
+                    if edge is not None:
+                        copied = dict(row)
+                        copied['labels'] = dict(row.get('labels') or {})
+                        copied['labels']['_profit_probability_target'] = float(edge > 0)
+                        probability_rows.append(copied)
+                edge_models['probability'] = _fit_linear_model(
+                    probability_rows,
+                    feature_sets[model_id],
+                    '_profit_probability_target',
+                )
+
+            _, validation_result = _ranked_model_result(
+                validation_rows,
+                model_id,
+                fitted,
+                edge_models,
+            )
+            validation_metrics[model_id].append({
+                'fold_id': f'{train_dates[0]}__{validation_dates[0]}__{oos_date}',
+                'validation_start': validation_dates[0],
+                'validation_end': validation_dates[-1],
+                'metrics': validation_result,
+            })
+            ranked, result = _ranked_model_result(
+                oos_rows,
+                model_id,
+                fitted,
+                edge_models,
+            )
+            top1 = ranked[0] if ranked else {}
+            top3 = ranked[:3]
+            top5 = ranked[:5]
+            top10 = ranked[:10]
+            fold_identity = {
+                'fold_id': f'{train_dates[0]}__{validation_dates[0]}__{oos_date}',
+                'train_start': train_dates[0],
+                'train_end': train_dates[-1],
+                'validation_start': validation_dates[0],
+                'validation_end': validation_dates[-1],
+                'oos_date': oos_date,
+                'train_count': len(train_rows),
+                'validation_count': len(validation_rows),
+                'oos_count': len(oos_rows),
+            }
+            record = {
+                **fold_identity,
+                'top1': top1.get('symbol'),
+                'top3': [row.get('symbol') for row in top3],
+                'top5': [row.get('symbol') for row in top5],
+                'top10': [row.get('symbol') for row in top10],
+                'selected_symbol': top1.get('symbol'),
+                'score': _model_score(top1, model_id, fitted, edge_models) if top1 else None,
+                'actual_t1_edge': _row_net_return(top1) if top1 else None,
+                'actual_t1_mfe': _fnum((top1.get('labels') or {}).get('t1_mfe')) if top1 else None,
+                'actual_t1_mae': _fnum((top1.get('labels') or {}).get('t1_mae')) if top1 else None,
+                'actual_t1_close': _fnum((top1.get('labels') or {}).get('t1_close_return')) if top1 else None,
+                'metrics': result,
+            }
+            fold_rows[model_id].append(record)
+            oos_metrics[model_id].append(result)
+
+    model_reports: Dict[str, Any] = {}
+    for model_id in model_ids:
+        folds = fold_rows[model_id]
+        top1_values = [
+            _fnum(fold.get('actual_t1_edge'))
+            for fold in folds
+            if _fnum(fold.get('actual_t1_edge')) is not None
+        ]
+        top1_scores = [
+            _fnum(fold.get('score'))
+            for fold in folds
+            if _fnum(fold.get('score')) is not None
+            and _fnum(fold.get('actual_t1_edge')) is not None
+        ]
+        top1_returns = [{'labels': {'t1_net_return': value}} for value in top1_values]
+        aggregate = _summary_for_records(top1_returns)
+        universe_means = [
+            _fnum(item.get('universe', {}).get('mean_net_return'))
+            for item in oos_metrics[model_id]
+            if _fnum(item.get('universe', {}).get('mean_net_return')) is not None
+        ]
+        aggregate['universe_mean_net_return'] = (
+            sum(universe_means) / len(universe_means)
+            if universe_means else None
+        )
+        aggregate['top1_lift'] = (
+            aggregate.get('mean_net_return') - aggregate['universe_mean_net_return']
+            if aggregate.get('mean_net_return') is not None
+            and aggregate.get('universe_mean_net_return') is not None
+            else None
+        )
+        regime_metrics: Dict[str, Dict[str, Any]] = {}
+        for fold in folds:
+            for row in selected:
+                if row.get('trade_date') != fold.get('oos_date') or row.get('symbol') != fold.get('top1'):
+                    continue
+                regime = str(row.get('market_regime') or 'unknown').lower()
+                regime_metrics.setdefault(regime, {'returns': []})['returns'].append(
+                    fold.get('actual_t1_edge')
+                )
+        for regime, item in regime_metrics.items():
+            item['returns'] = [value for value in item['returns'] if value is not None]
+            item.update(_summary_for_records([
+                {'labels': {'t1_net_return': value}}
+                for value in item['returns']
+            ]))
+        model_reports[model_id] = {
+            'status': 'OOS_EVALUATED' if folds else 'NO_OOS_FOLDS',
+            'model_type': 'deterministic_linear_research_only',
+            'target': _model_target(model_id),
+            'feature_names': list(feature_sets[model_id]),
+            'fold_count': len(folds),
+            'folds': folds,
+            'validation': validation_metrics[model_id],
+            'aggregate': aggregate,
+            'bootstrap_ci': _bootstrap_mean_ci(top1_values),
+            'permutation_test': _permutation_report(top1_scores, top1_values),
+            'regime_metrics': regime_metrics,
+            'production_eligible': False,
+        }
+    baseline_mean = _fnum(
+        (model_reports.get('MODEL_0_RANDOM') or {}).get('aggregate', {}).get('mean_net_return')
+    )
+    current_mean = _fnum(
+        (model_reports.get('MODEL_6_CURRENT_FIVE_MODULES') or {}).get('aggregate', {}).get('mean_net_return')
+    )
+    for model_id, report in model_reports.items():
+        aggregate = report.get('aggregate') or {}
+        reasons: List[str] = []
+        if report.get('status') != 'OOS_EVALUATED':
+            reasons.append('OOS_NOT_EVALUATED')
+        if report.get('fold_count', 0) < 10:
+            reasons.append('OOS_FOLD_COUNT_BELOW_10')
+        if _fnum(aggregate.get('top1_lift')) is None or aggregate.get('top1_lift', 0.0) <= 0:
+            reasons.append('TOP1_LIFT_NOT_POSITIVE')
+        if baseline_mean is not None and (
+            _fnum(aggregate.get('mean_net_return')) is None
+            or aggregate['mean_net_return'] <= baseline_mean
+        ):
+            reasons.append('TOP1_NOT_ABOVE_RANDOM')
+        if model_id != 'MODEL_0_RANDOM' and current_mean is not None and (
+            _fnum(aggregate.get('mean_net_return')) is None
+            or aggregate['mean_net_return'] <= current_mean
+        ):
+            reasons.append('TOP1_NOT_ABOVE_CURRENT_BASELINE')
+        regimes = report.get('regime_metrics') or {}
+        if len(regimes) < 2:
+            reasons.append('REGIME_COUNT_BELOW_2')
+        if (report.get('bootstrap_ci') or {}).get('status') != 'READY':
+            reasons.append('BOOTSTRAP_CI_NOT_READY')
+        if (report.get('permutation_test') or {}).get('status') != 'READY':
+            reasons.append('PERMUTATION_EVIDENCE_NOT_READY')
+        report['production_acceptance'] = {
+            'status': 'PASS' if not reasons else 'FAIL',
+            'required_gates': [
+                'TARGET_COVERAGE',
+                'LEAKAGE_AUDIT',
+                'WALK_FORWARD_OOS',
+                'TOP1_VS_RANDOM',
+                'TOP1_VS_CURRENT_BASELINE',
+                'REGIME_STABILITY',
+                'DRAWDOWN_LIMIT',
+            ],
+            'reasons': reasons,
+            'canonical_target': CANONICAL_T1_TARGET,
+            'max_drawdown': aggregate.get('max_drawdown'),
+        }
+    return {
+        'status': 'OOS_EVALUATED' if fold_count else 'NO_OOS_FOLDS',
+        'universe': universe,
+        'available_trading_days': len(dates),
+        'required_trading_days': minimum,
+        'fold_count': fold_count,
+        'models': model_reports,
+        'leakage_rule': 'feature_date <= signal_date; target_date = signal_date + 1 trading day',
+        'leakage_audit': {'status': 'PASS', 'violations': []},
+        'production_gate': {
+            'status': 'RESEARCH',
+            'reason': 'OOS evidence is research-only until explicit registry promotion',
+            'promotion_candidates': [
+                model_id
+                for model_id, report in model_reports.items()
+                if (report.get('production_acceptance') or {}).get('status') == 'PASS'
+            ],
+        },
+    }
+
+
+def build_t1_alpha_audit(dataset: Dict[str, Any]) -> Dict[str, Any]:
+    rows = list(dataset.get('samples') or [])
+    valid_rows = list(dataset.get('valid_samples') or [])
+    dates = list(dataset.get('trading_dates') or [])
+    single_factor = {
+        universe: _single_factor_report(valid_rows, universe=universe)
+        for universe in RESEARCH_UNIVERSES
+    }
+    family_ic = {
+        universe: _factor_family_ic(valid_rows, universe=universe)
+        for universe in RESEARCH_UNIVERSES
+    }
+    redundancy = {
+        universe: _factor_redundancy_report(valid_rows, universe=universe)
+        for universe in RESEARCH_UNIVERSES
+    }
+    bootstrap = {}
+    permutation = {}
+    for universe in RESEARCH_UNIVERSES:
+        selected = [
+            row for row in valid_rows
+            if row['universe_flags'].get(universe)
+        ]
+        bootstrap[universe] = {
+            target: _bootstrap_mean_ci([
+                row['labels'][target] for row in selected
+            ])
+            for target in (CANONICAL_T1_TARGET, 't1_close_return', 't1_mfe', 't1_mae')
+        }
+        pairs = [
+            (
+                row['features'].get('current_five_module_score'),
+                row['labels'].get(CANONICAL_T1_TARGET),
+            )
+            for row in selected
+            if row['features'].get('current_five_module_score') is not None
+            and row['labels'].get(CANONICAL_T1_TARGET) is not None
+        ]
+        permutation[universe] = _permutation_report(
+            [pair[0] for pair in pairs],
+            [pair[1] for pair in pairs],
+        )
+    walk_forward = {
+        universe: _walk_forward_report(valid_rows, universe=universe)
+        for universe in RESEARCH_UNIVERSES
+    }
+    return {
+        'report_type': 'XIAOGU_T1_ALPHA_AUDIT',
+        'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(),
+        't1_alpha_status': T1_ALPHA_STATUS,
+        'formal_t1_alpha': 'DISABLED_UNTIL_OOS_REGISTRY_PROMOTION',
+        'research_model_registry': {
+            'RESEARCH_WEIGHT_V0': {
+                'status': 'RESEARCH',
+                'sample_size': len(valid_rows),
+                'weights': RESEARCH_WEIGHT_V0,
+                'production_eligible': False,
+            },
+            'production_model': {
+                'status': 'NOT_REGISTERED',
+                'model_id': None,
+                'feature_version': 'research_feature_map_v1',
+                'label_version': ALPHA_RESEARCH_LABEL_VERSION,
+                'production_eligible': False,
+            },
+        },
+        'dataset_size': {
+            'samples': len(rows),
+            'valid_samples': len(valid_rows),
+            'trading_days': len(dates),
+            'date_range': [dates[0], dates[-1]] if dates else [],
+            'windows': {
+                str(days): {
+                    'status': 'READY' if len(dates) >= days else 'INSUFFICIENT_DATA',
+                    'available_trading_days': len(dates),
+                    'required_trading_days': days,
+                }
+                for days in (30, 60, 90, 120)
+            },
+        },
+        'target_quality': _alpha_target_report_by_universe(rows),
+        'target_schema': {
+            'entry_contract': 'EXPLICIT',
+            'execution_semantics': 'T_DAY_CLOSE_REFERENCE_T1_CLOSE_EXIT',
+            'price_basis': 'UNADJUSTED_DAILY_OHLC',
+            'canonical_target': CANONICAL_T1_TARGET,
+            'close_return_is_diagnostic_only': True,
+            'targets': list(ALPHA_RESEARCH_ALL_TARGETS),
+            'core_targets': list(ALPHA_RESEARCH_TARGETS),
+            'tradable_profit_probability': {
+                'status': 'UNRESOLVED',
+                'reason': 'profit and loss thresholds must be learned from validation data',
+            },
+        },
+        'feature_coverage': {
+            universe: {
+                feature: sum(
+                    row['features'].get(feature) is not None
+                    for row in valid_rows
+                    if row['universe_flags'].get(universe)
+                )
+                for feature in sorted({
+                    feature
+                    for family in ALPHA_RESEARCH_FEATURES.values()
+                    for feature in family
+                } | {'current_five_module_score'})
+            }
+            for universe in RESEARCH_UNIVERSES
+        },
+        'factor_correlation': redundancy,
+        'single_factor_ic': single_factor,
+        'factor_family_ic': family_ic,
+        'baseline_results': {
+            universe: _walk_forward_report(valid_rows, universe=universe)
+            for universe in RESEARCH_UNIVERSES
+        },
+        'five_module_results': {
+            'status': 'UNVERIFIED',
+            'feature_used': 'current_five_module_score',
+            'note': 'persisted formal score is available; individual module components are not consistently persisted',
+        },
+        'mfe_model_results': {
+            'status': 'RESEARCH_ONLY',
+            'models': {
+                universe: walk_forward[universe].get('models', {}).get('MODEL_7_MFE', {})
+                for universe in walk_forward
+            },
+        },
+        'tradable_edge_results': {
+            'status': 'RESEARCH_ONLY',
+            'models': {
+                universe: walk_forward[universe].get('models', {}).get('MODEL_8_TRADABLE_EDGE', {})
+                for universe in walk_forward
+            },
+        },
+        'walk_forward': walk_forward,
+        'bootstrap_ci': bootstrap,
+        'permutation_test': {
+            'status': 'DESCRIPTIVE_ONLY',
+            'model': 'current_five_module_score',
+            'target': CANONICAL_T1_TARGET,
+            'by_universe': permutation,
+            'note': 'Permutation results are not OOS evidence and cannot promote a production model.',
+        },
+        'regime_results': {
+            'status': 'DESCRIPTIVE_ONLY',
+            'reason': 'available dates do not support independent OOS regime validation',
+            'regimes': sorted({
+                str(row.get('market_regime') or 'unknown')
+                for row in valid_rows
+            }),
+        },
+        'selection_bias': {
+            'U0': 'INSUFFICIENT_DATA',
+            'U0_PROXY': 'available_persisted_scanner_pool_proxy',
+            'U1': 'available',
+            'U2': 'available_but_selected',
+            'path_d_training_allowed': False,
+        },
+        'snapshot_provenance': dataset.get('snapshot_provenance') or {},
+        'label_conflict_count': dataset.get('label_conflict_count', 0),
+        'production_recommendation': 'STOP_RESEARCH_ONLY_UNTIL_30_60_90_DAY_OOS_DATA_EXISTS',
+    }
+
+
+def _load_t1_alpha_db_rows(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, str], Dict[str, Any]]:
+    """Read projected fields only; never materialize the large JSON snapshots."""
+    from sqlalchemy import text as _sql
+    from xiaogu_db import engine as _engine
+
+    date_clause = ''
+    params: Dict[str, Any] = {}
+    if start_date:
+        date_clause += ' AND d.trade_date >= CAST(:start_date AS date)'
+        params['start_date'] = start_date
+    if end_date:
+        date_clause += ' AND d.trade_date <= CAST(:end_date AS date)'
+        params['end_date'] = end_date
+    candidate_query = _sql(f"""
+        WITH snapshot_counts AS (
+            SELECT
+                d.trade_date,
+                d.production_run_id,
+                COUNT(*) AS snapshot_size,
+                MIN(d.created_at) AS snapshot_created_at
+            FROM daily_candidates d
+            WHERE 1=1 {date_clause}
+            GROUP BY d.trade_date, d.production_run_id
+        ),
+        ranked_runs AS (
+            SELECT
+                s.*,
+                a.production_run_id AS active_run_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.trade_date
+                    ORDER BY
+                        s.snapshot_size DESC,
+                        CASE WHEN a.production_run_id = s.production_run_id THEN 0 ELSE 1 END,
+                        s.snapshot_created_at ASC,
+                        COALESCE(s.production_run_id, '')
+                ) AS snapshot_rank
+            FROM snapshot_counts s
+            LEFT JOIN production_run_active a
+              ON a.trade_date = s.trade_date
+        ),
+        selected_runs AS (
+            SELECT *
+            FROM ranked_runs
+            WHERE snapshot_rank = 1
+        )
+        SELECT
+            d.trade_date, d.symbol, d.stock_name, d.rank, d.final_score, d.production_run_id,
+            candidate_snapshot_id, created_at, close_price, pct_chg, volume, amount,
+            turnover_rate, signal_pct, close_position_score, fund_flow_momentum,
+            sector_catalyst_score, early_opportunity_score, topic_propagation_score,
+            d.market_regime, d.is_official_pick,
+            d.candidate_features ->> 'net_inflow_main' AS net_inflow_main,
+            d.candidate_features ->> 'volume_ratio' AS volume_ratio,
+            d.candidate_features ->> 'signal_amount' AS signal_amount,
+            d.candidate_features ->> 'formal_primary_score' AS formal_primary_score,
+            d.candidate_features ->> 'formal_eligible' AS formal_eligible,
+            d.candidate_features ->> 'in_halted' AS in_halted,
+            d.candidate_features ->> 'time_series_momentum' AS time_series_momentum,
+            d.candidate_features ->> 'continuation_gene_score' AS continuation_gene_score,
+            d.candidate_features ->> 'limitup_capture_score' AS limitup_capture_score,
+            d.candidate_features ->> 'intraday_alert_strength' AS intraday_alert_strength,
+            d.candidate_features ->> 'risk_penalty' AS risk_penalty,
+            d.candidate_features ->> 'failed_limitup_risk' AS failed_limitup_risk,
+            d.candidate_features ->> 'high_position_penalty' AS high_position_penalty,
+            d.candidate_features ->> 'full_universe_quote_count' AS full_universe_quote_count,
+            d.candidate_features ->> 'full_universe_tradable_count' AS full_universe_tradable_count,
+            d.candidate_features ->> 'universe_scope' AS universe_scope,
+            d.candidate_features ->> 'full_scan_persisted' AS full_scan_persisted,
+            d.candidate_features ->> 'main_theme_alignment_score' AS main_theme_alignment_score,
+            d.candidate_features ->> 'main_theme_core_score' AS main_theme_core_score,
+            d.candidate_features ->> 'sector_opportunity_score' AS sector_opportunity_score,
+            d.candidate_features ->> 'low_position_catalyst_score' AS low_position_catalyst_score,
+            d.factor_snapshot ->> 'sector_news_catalyst_score' AS sector_news_catalyst_score,
+            d.factor_snapshot ->> 'announcement_catalyst_score' AS announcement_catalyst_score,
+            d.factor_snapshot ->> 'news_catalyst_strength' AS news_catalyst_strength,
+            d.factor_snapshot ->> 'limitup_reason_quality_score' AS limitup_reason_quality_score,
+            d.factor_snapshot ->> 'capital_behavior_score' AS capital_behavior_score,
+            d.factor_snapshot ->> 'order_book_pressure' AS order_book_pressure,
+            d.factor_snapshot -> 'capital_risk_profile' ->> 'main_buy_outflow_pressure'
+                AS main_buy_outflow_pressure,
+            d.factor_snapshot -> 'capital_risk_profile' ->> 'profit_taking_pressure'
+                AS profit_taking_pressure,
+            d.factor_snapshot -> 'capital_risk_profile' ->> 'capital_divergence_score'
+                AS capital_divergence_score,
+            d.eligibility_snapshot ->> 'eligible' AS eligible,
+            d.eligibility_snapshot -> 'signals' ->> 'final_pick_buyable' AS final_pick_buyable,
+            d.ranking_basis -> 'candidate_pool_context' ->> 'pool_type' AS pool_type,
+            s.snapshot_size, s.snapshot_created_at
+        FROM daily_candidates d
+        JOIN selected_runs s
+          ON s.trade_date = d.trade_date
+         AND s.production_run_id IS NOT DISTINCT FROM d.production_run_id
+        ORDER BY d.trade_date, COALESCE(d.rank, 999999), d.symbol
+    """)
+    return_query = _sql(f"""
+        SELECT
+            trade_date, symbol, production_run_id, label_status, label_version,
+            label_source, entry_price, entry_price_source, entry_price_basis,
+            market_data_source, trading_calendar_source,
+            t1_open_return, t1_high_return, t1_low_return, t1_close_return,
+            t1_mfe, t1_mae, t1_vwap_return, t1_gap_return, t1_net_return,
+            slippage, commission, stamp_duty, transfer_fee, market_impact,
+            settlement_evidence
+        FROM returns
+        WHERE label_version = :label_version
+          AND label_status = 'SETTLED'
+          {date_clause.replace('d.trade_date', 'trade_date')}
+        ORDER BY trade_date, symbol
+    """)
+    with _engine.connect() as conn:
+        candidate_rows = [dict(row) for row in conn.execute(candidate_query, params).mappings()]
+        return_params = {**params, 'label_version': ALPHA_RESEARCH_LABEL_VERSION}
+        return_rows = [dict(row) for row in conn.execute(return_query, return_params).mappings()]
+        active_rows = conn.execute(_sql("""
+            SELECT trade_date, production_run_id
+            FROM production_run_active
+        """)).mappings().all()
+    active_runs = {
+        str(row['trade_date'])[:10]: str(row['production_run_id'])
+        for row in active_rows
+        if row.get('production_run_id')
+    }
+    return candidate_rows, return_rows, active_runs, {
+        'candidate_rows': len(candidate_rows),
+        'return_rows': len(return_rows),
+        'source': 'projected_daily_candidates_and_canonical_returns',
+    }
+
+
+def run_t1_alpha_audit(
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    candidate_rows, return_rows, active_runs, source_details = _load_t1_alpha_db_rows(
+        start_date=start_date,
+        end_date=end_date,
+    )
+    dataset = build_t1_alpha_research_dataset(
+        candidate_rows,
+        return_rows,
+        active_runs=active_runs,
+    )
+    result = build_t1_alpha_audit(dataset)
+    result['source_details'] = source_details
+    return result
 
 
 def _normalize_candidate_record(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -2354,6 +4100,9 @@ def main() -> None:
     ap.add_argument('--ledger', type=Path, default=DEFAULT_LEDGER)
     ap.add_argument('--min-samples', type=int, default=DEFAULT_MIN_SAMPLES)
     ap.add_argument('--source', choices=('db', 'ledger'), default='db')
+    ap.add_argument('--alpha-audit', action='store_true', dest='alpha_audit')
+    ap.add_argument('--start-date', default=None)
+    ap.add_argument('--end-date', default=None)
     ap.add_argument('--candidate-diagnostics', action='store_true', dest='candidate_diagnostics')
     ap.add_argument('--horizon-replay', action='store_true', dest='horizon_replay')
     ap.add_argument('--top-n', type=int, default=HORIZON_REPLAY_TOP_N_DEFAULT)
@@ -2364,6 +4113,23 @@ def main() -> None:
     args = ap.parse_args()
 
     focus_symbols = [symbol.strip() for symbol in str(args.focus_symbols or '').split(',') if symbol.strip()]
+    if args.alpha_audit:
+        result = run_t1_alpha_audit(
+            start_date=args.start_date,
+            end_date=args.end_date,
+        )
+        if args.as_json:
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            return
+        print(f"Target status       : {result['t1_alpha_status']}")
+        print(f"Samples             : {result['dataset_size']['samples']}")
+        print(f"Valid samples       : {result['dataset_size']['valid_samples']}")
+        print(f"Trading days        : {result['dataset_size']['trading_days']}")
+        print(f"U0                  : {result['selection_bias']['U0']}")
+        print(f"U1                  : {result['target_quality']['U1']['sample_count']}")
+        print(f"U2                  : {result['target_quality']['U2']['sample_count']}")
+        print(f"Production model    : DISABLED_UNTIL_OOS_REGISTRY_PROMOTION")
+        return
     if args.horizon_replay:
         rows, source_details = _collect_horizon_replay_sources(args.ledger, focus_symbols)
         result = build_horizon_replay(rows, top_n=args.top_n, focus_symbols=focus_symbols, source_details=source_details)

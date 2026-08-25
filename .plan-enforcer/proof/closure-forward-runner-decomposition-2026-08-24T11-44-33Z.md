@@ -1,54 +1,101 @@
-# August Full-Pool Main-Force Chain Upgrade
+# Closure Receipt -- forward-runner-decomposition
 
-**Normalized Goal:** 在现有唯一 `main_force_behavior_chain` 内，把 T 日可实际买入、
-T+1 存在可实现获利空间的规则链升级为可审计的 T+1 Tradable Edge 研究/生产
-边界：固定唯一成交语义和标签来源，把当前五模块与四条 Alpha Path 降级为
-可解释特征组/资格特征，只有通过跨日期、跨股票、跨 Regime 的 Walk-Forward
-OOS 验证的模型结果才可能申请进入正式排序；研究模型必须复用现有生产快照、
-特征、资格、硬门和排序 owner，不得建立第二条出票链。
-**Non-Negotiable:** 生产链只有 scanner -> runner -> recorder/DB -> T+1
-settlement -> scoreboard/API。不得新增第二 scorer、selector、runner、入口或
-回填链。
-**Intent packet normalized goal:** 将现有唯一 `main_force_behavior_chain` 升级为可审计的 T+1 Tradable Edge 生产候选链：固定唯一成交语义和标签来源，把当前五模块与四条 Alpha Path 降级为可解释特征组/资格特征，只有通过跨日期、跨股票、跨 Regime 的 Walk-Forward OOS 验证的模型结果才可能申请进入正式排序。研究模型必须复用现有生产快照、特征、资格、硬门和排序 owner，不得建立第二条出票链。
+**Plan source:** docs/plans/2026-08-21-forward-runner-decomposition.md
+**Closed at (UTC):** 2026-08-24T11:44:33.483Z
+**Tier:** structural
 
-## Current Active Extension: Xiaogu Production T+1 Tradable Edge
+## Prior closure
+- none (first close of this plan)
 
-**Normalized Goal:** T 日只使用当时可获得的数据生成可买候选；T+1 通过现有
-结算 owner 产生可审计标签；历史回放与生产决策复用同一快照、特征、资格、
-硬门和正式排序 owner。只有跨日期、跨股票、跨 Regime 的 Walk-Forward OOS
-证据通过后，才允许在原有 `main_force_behavior_chain` 内申请生产升级。
+## Status
+```
+30/30 verified  |  0 blocked  |  0 skipped  |  0 superseded  |  0 remaining
+drift: 0
+```
 
-**Goal:** 为现有唯一 `main_force_behavior_chain` 补齐明确执行契约、canonical
-多目标 T+1 标签、U0/U1/U2 全池研究、Walk-Forward OOS、研究模型注册和健康
-开关。OOS 通过前，五模块和 PATH_A~D 只作为特征/资格输入，生产行为保持不变。
+## Task ledger
+| ID | Task | Status | Evidence |
+|----|------|--------|----------|
+| T1 | Build the August date and snapshot inven | verified | prior replay/tests |
+| T2 | Prove owner and historical chain provena | verified | pytest tests/ -x -q |
+| T3 | Reconcile full candidate-pool persistenc | verified | pytest tests/ -x -q |
+| T4 | Settle all available candidate rows | verified | pytest tests/ -x -q |
+| T5 | Enforce replay leakage protection | verified | pytest tests/ -x -q |
+| T6 | Classify T-day decision outcomes | verified | pytest tests/ -x -q |
+| T7 | Record candidate snapshot evidence | verified | pytest tests/ -x -q |
+| T8 | Explain settled candidate outcomes | verified | pytest tests/ -x -q |
+| T9 | Aggregate settled candidate outcomes | verified | pytest tests/ -x -q |
+| T10 | Replay the current main-force baseline | verified | shadow replay JSON |
+| T11 | Benchmark baseline by full pool and emit | verified | L1 replay JSON |
+| T12 | Select one repeated T-day failure class | verified | failure tests |
+| T13 | Implement one main-force correction | verified | pytest tests/ -x -q |
+| T14 | Run baseline-versus-change promotion rep | verified | replay output |
+| T15 | Complete repository and knowledge valida | verified | 521 passed + indexes |
+| T16 | Preserve the completed runner decomposit | verified | source + tests |
+| T17 | Build settled August limit-up and high-r | verified | replay output |
+| T18 | Select one repeated, T-day-observable fa | verified | failure tests |
+| T19 | Modify the existing main-force factor ow | verified | pytest tests/ -x -q |
+| T20 | Replay the sole main-force chain against | verified | L1 replay JSON |
+| T21 | Validate and record the factor decision | verified | AgentMemory + Obsidian |
+| T22 | Restore L1 replay resource safety withou | verified | ambiguity gate test |
+| T23 | Calibrate the existing weak-regime chase | verified | regime shadow JSON |
+| T24 | Demote Intraday Limit-Up Capture Extensi | verified | reversal-risk tests |
+| T25 | Freeze the single-chain alpha contract | verified | pytest tests/ -x -q |
+| T26 | Replace formal ranking with the five-mod | verified | 521 passed |
+| T27 | Collapse admission into four primary alp | verified | path/gate tests |
+| T28 | Complete settlement labels through exist | verified | backfill tests |
+| T29 | Replay and promote only the sole chain | verified | L1 + shadow replay |
+| T30 | Refresh architecture and knowledge closu | verified | graph/index/memory close |
 
-**Constraints:** Preserve the only production decision chain:
-scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API. Use exact
-immutable snapshots and exact recorded candidate counts. Historical chain
-identity is provenance, not a second production selector. T+1 fields are
-post-decision labels only. Preserve regulatory, data-quality, price, and
-buyability hard blocks. No direct production DB edits, live trading, broker
-connections, or new selection path.
+## Decision Log summary
+_(no decision log entries)_
 
-**Non-Negotiables:** The only production decision chain remains scanner ->
-runner -> recorder/DB -> T+1 settlement -> scoreboard/API. All strategy edits
-remain in the existing `main_force_behavior_chain`; `xiaogu_forward_runner.main`
-is the only production entry.
+## Reconciliation history
+_(no reconciliation rounds recorded)_
 
-**Out of scope:** Forcing ex-post winners into PAPER_PICK, limiting analysis to
-PAPER_PICK or Top10, merging retries with different pools, changing the scanner
-universe without evidence, or promoting shadow/research output into production.
+## Files changed
+```
+HEAD: f675dd1
 
-## Assumptions
+.plan-enforcer/.user-messages.jsonl                |   2 +
+ .plan-enforcer/awareness.md                        |   4 +
+ .plan-enforcer/combobulate.md                      |  12 +-
+ .plan-enforcer/discuss.md                          |  82 ++-
+ .plan-enforcer/ledger.md                           |  50 +-
+ .plan-enforcer/statusline-state.json               |   8 +-
+ .understand-anything/config.json                   |   2 +-
+ .understand-anything/mcp-scan-result.json          |  98 +--
+ docs/architecture.md                               | 129 +++-
+ .../2026-08-21-forward-runner-decomposition.md     | 245 ++++++-
+ scrapy_scanner/runner_v2.py                        |  36 +
+ scripts/xiaogu_return_backfill.py                  |  58 +-
+ tests/test_db_backfill.py                          | 127 +++-
+ ...st_formal_rank_alignment_and_defensive_shell.py | 285 +++++++-
+ tests/test_regime_policy.py                        |  27 +
+ tests/test_xiaogu_a_share_forward_runner.py        | 204 +++++-
+ .../test_xiaogu_runtime_payload_evidence_vector.py |   5 +-
+ xiaogu_backtest_v0_1.py                            | 351 +++++++++-
+ xiaogu_case_vector_store.py                        |  21 +-
+ xiaogu_db.py                                       |  45 +-
+ xiaogu_forward_bundle_io.py                        |   4 +
+ xiaogu_forward_eligibility.py                      |  32 +-
+ xiaogu_forward_features.py                         |   5 +
+ xiaogu_forward_ranking.py                          | 742 +++++++++++++++++----
+ xiaogu_forward_result_filler_v0_1.py               | 360 +++++++++-
+ xiaogu_forward_runner.py                           | 164 +++++
+ xiaogu_forward_snapshot.py                         |   7 +-
+ xiaogu_regime_policy.py                            | 102 +++
+ 28 files changed, 2885 insertions(+), 322 deletions(-)
+```
 
-- Study window: 2026-08-01 through 2026-08-21, limited to dates with recorded
-  scanner/candidate evidence.
-- A date with fewer than 400 rows is analyzed at its exact persisted count.
-- Missing T+1 settlement is pending/provider failure, never a synthetic result.
-- Production entry remains `xiaogu_forward_runner.main`; replay remains owned by
-  `xiaogu_backtest_v0_1.py`.
+## Blocked / open coordination
+_(nothing blocked)_
 
-## Must-Haves
+## Proof artifacts
+_(no prior proof artifacts)_
+
+## Plan-specific extras
+### Must-Haves (from plan)
 
 - MH1: Every available August snapshot has immutable identity, exact candidate
   count, provenance, and retry/non-comparable status. A:I5 A:I6 A:I7
@@ -316,197 +363,3 @@ universe without evidence, or promoting shadow/research output into production.
   `517 passed, 2 warnings`; L1 exact replay and compile check passed. T+1
   labels are absent from the T-day decision input and replay performs no DB
   writes.
-
-## Current Active Extension: Production T+1 Tradable Edge
-
-**Goal:** Upgrade the existing `main_force_behavior_chain` from a rule-shaped
-T+1 selector into an auditable T+1 Tradable Edge research/production boundary:
-T-day data produces a candidate and T+1 labels are settled later; the same
-production feature/gate/ranking owner is used for historical replay and live
-paper decisions. Until OOS gates pass, production behavior remains unchanged
-and research status remains `RESEARCH` or `SHADOW`.
-
-**Constraints:** Modify existing owners first. The only production chain remains
-`scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API`.
-`xiaogu_forward_runner.main` remains the only production entry. Historical
-replay must call the existing production snapshot, feature, eligibility, hard
-gate, and formal ranking owners. No second scorer, selector, runner, entry, or
-return backfill chain.
-
-## Must-Haves
-
-- MH31: Every new PAPER_PICK and settlement uses one explicit execution contract
-  with a unique entry price and price basis; implicit `price`/`signal_close`
-  fallback is rejected.
-- MH32: Canonical T+1 settlement exposes open/high/low/close, VWAP/gap where
-  available, MFE, MAE, costed net return, label status/version, and provenance
-  without synthesizing missing values.
-- MH33: Research distinguishes U0 full scan, U1 tradable, and U2 alpha-eligible
-  rows and reports coverage/invalid/unknown/not-fillable separately.
-- MH34: Existing signal-effectiveness owner emits deterministic Walk-Forward
-  baseline/OOS outputs with leakage checks, Top-K lift, net metrics, MFE/MAE,
-  Bootstrap CI, and permutation evidence; it cannot promote production.
-- MH35: A minimum Tradable Edge gate and model health/registry state are
-  represented as research/SHADOW governance until OOS promotion criteria pass.
-- MH36: Existing production ranking, hard gates, persistence, and scheduler
-  behavior remain single-owner and regression-tested.
-- MH37: The only production chain remains
-  `scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API`;
-  research tools cannot emit a competing production ticket.
-- MH38: codebase-memory 调用链、当前源码和测试证明每项责任仍只有一个
-  owner。
-
-### Task 31: Reconcile existing owners and contracts A:I12
-- [x] Confirm `xiaogu_forward_result_filler_v0_1.py` already owns execution
-  contract and canonical labels, and `xiaogu_signal_effectiveness_v0_1.py`
-  already owns T+1 research, bootstrap, permutation, and walk-forward report
-  scaffolding.
-- [x] Confirm no new production runner or selector is required.
-- [x] Verification: source/codebase-memory call paths and current tests identify
-  the existing owners before edits, and prove one owner for execution contract,
-  settlement labels, formal ranking, eligibility, persistence, and scheduler
-  orchestration.
-
-### Task 32: Harden the canonical execution contract A:I12
-- [ ] Make `execution_contract.execution_price` the only persisted production
-  entry source; allow an explicit backfill override only when its source and
-  price basis are supplied together.
-- [ ] Set the paper baseline execution mode to the explicit close-auction
-  reference semantics and reject incomplete contracts instead of falling back
-  to `price`, `signal_close`, or another alias.
-- [ ] Preserve compatibility only through an explicit migration/legacy status,
-  never by silently selecting another price.
-- [ ] Verification: extend `tests/test_db_backfill.py` with missing-contract,
-  conflicting-price, explicit-override, and provenance assertions.
-
-### Task 33: Complete canonical T+1 labels and quality accounting A:I12
-- [ ] Extend the existing filler label payload with available VWAP, gap,
-  costed net return, and explicit execution/settlement status while retaining
-  existing database columns and evidence JSON.
-- [ ] Keep MFE/MAE based only on final T+1 OHLC rows and leave unavailable
-  values as `None`.
-- [ ] Verification: target quality tests assert exact formulas, price basis,
-  label version, source date, coverage, invalid, unknown, and not-fillable
-  counts.
-
-### Task 34: Make U0/U1/U2 research accounting explicit A:I12
-- [ ] Reuse the current projected candidate/return loader and add explicit
-  universe flags for full scan, current-day tradable, and alpha eligibility.
-- [ ] Compute close, MFE, MAE, and costed edge labels for every eligible
-  settled row without restricting analysis to PAPER_PICK or Top-K.
-- [ ] Verification: synthetic fixtures prove that U2 selection cannot change
-  U0/U1 denominators and that missing settlement is not treated as zero.
-
-### Task 35: Implement deterministic Walk-Forward baselines in the existing
-  signal-effectiveness owner A:I12
-- [ ] Replace pending-only walk-forward scaffolding with rolling train,
-  validation, and OOS fold evaluation using only feature timestamps at or before
-  each signal date.
-- [ ] Evaluate Random, T-day return, Price+Volume, Fund Flow, current five
-  modules, MFE, and Tradable Edge research baselines with explicit top1/3/5/10
-  records.
-- [ ] Emit OOS mean/median net return, win rate, expectancy, profit factor,
-  MFE/MAE, universe lift, regime buckets, and deterministic fold identity.
-- [ ] Verification: future-field injection tests leave ranks unchanged; small
-  fixtures produce stable folds and `INSUFFICIENT_DATA` when windows are short.
-
-### Task 36: Add research-only edge and registry/health state A:I12
-- [ ] Reuse `scoring_config`, `production_runs`, and signal-effectiveness
-  persistence where possible; add only the smallest registry/health schema
-  needed to record model id, feature/label hashes, training/OOS windows,
-  status, and kill-switch reason.
-- [ ] Define `T1_TRADABLE_EDGE` as a research metric:
-  probability of profitable MFE × expected profit - expected risk - costs.
-  Do not use a hand-picked threshold for promotion.
-- [ ] Keep status `UNVERIFIED`/`RESEARCH` until OOS, lift, risk, leakage, and
-  confidence gates pass. A failing health state may force `NO_PICK`, never a
-  second selector.
-- [ ] Verification: registry status transition tests reject direct
-  `RESEARCH -> PRODUCTION` without an acceptance artifact and verify kill-switch
-  behavior.
-
-### Task 37: Preserve the sole production chain A:I12
-- [ ] Do not change scanner transport, production entry, hard-block semantics,
-  or formal ranking behavior before OOS promotion evidence exists.
-- [ ] Keep PATH_A~D and five modules as existing feature/eligibility inputs;
-  do not add a new PATH or duplicate main-force score owner.
-- [ ] Verification: existing formal-rank, eligibility, buyability, source-health,
-  and production snapshot tests remain green; codebase-memory inbound/outbound
-  traces plus source inspection prove the only production chain is
-  `scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API`.
-
-### Task 38: Validate and close A:I12
-- [ ] Run focused tests, full `pytest tests/ -x -q`, compileall, `git diff
-  --check`, and research CLI/replay checks.
-- [ ] Refresh codebase-memory; inspect Understand-Anything status and record
-  graph freshness limitations without claiming a stale graph is current.
-- [ ] Save the architecture and validation decision to AgentMemory and update
-  Obsidian only when the task creates reusable project knowledge.
-- [ ] Verification: final report states exact files changed, test evidence,
-  OOS status, whether production behavior changed, and unresolved limitations.
-
-## T8 Execution Boundary
-
-The completed decomposition is a structural prerequisite for the full-pool
-analysis and possible strategy correction. It does not authorize a strategy
-change by itself; promotion remains gated by Tasks 10-14 and 17-20.
-
-## T9 T+1 Alpha 一刀切重构
-
-**Goal:** 在现有唯一 `main_force_behavior_chain` 内，把正式出票目标收敛为
-T 日可实际买入，T+1 存在可实现获利空间。只保留五个正式排序模块：
-`T1_EXPECTED_PAYOFF` 35%、`T1_REVERSAL_RISK` 25%、
-`MARGINAL_DEMAND` 20%、`STATE_FIT` 10%、`EXECUTION_QUALITY` 10%。
-
-**Constraints:** 旧字段保留为原始证据/诊断，但不得直接参与正式排序；
-`PRIMARY_ALPHA_PATH` 至少一条；硬拒绝不降级；T+1 结果只能是结算标签；
-不新建 scorer、selector、runner、入口、数据库表或第二回填链。
-
-## T9 Must-Haves
-
-- MH8: 唯一生产链保持 scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API。
-- MH9: 正式排序只由五个模块构成，至少一条 `PRIMARY_ALPHA_PATH` 才可进入正式排序。
-- MH10: T+1 标签完整可追溯但不进入 T 日排序、资格或硬门。
-- MH11: 硬拒绝、唯一生产入口和既有 return owner 保持不回退。
-
-### Task 25: Freeze the single-chain alpha contract A:I9 A:I10 A:I11
-- [ ] 在现有 ranking/eligibility owner 中定义五模块字段、四类主路径和
-  T+1 标签边界，确认唯一生产链是 scanner -> runner -> recorder/DB ->
-  T+1 settlement -> scoreboard/API，入口仍为 `xiaogu_forward_runner.main`。
-- [ ] Verification: codebase-memory 调用链、source 和现有测试均指向
-  `main_force_behavior_chain`，无第二正式排序 owner。
-
-### Task 26: Replace formal ranking with the five-module baseline A:I9 A:I10 A:I11
-- [ ] 修改 `xiaogu_forward_ranking.py` 现有正式排序 owner；旧字段仅写入
-  diagnostics，正式分数只由五模块按 35/25/20/10/10 组成。
-- [ ] `T1_EXPECTED_PAYOFF` 使用 T 日可观察的入场空间、价格兑现程度、筹码
-  压力和路径质量；`T1_REVERSAL_RISK` 聚合过热、拥挤、获利盘、派发和
-  失败涨停风险；不读取未来收益。
-- [ ] Verification: 旧字段隔离测试、五模块权重测试、未来字段注入测试通过。
-
-### Task 27: Collapse admission into four primary alpha paths A:I9 A:I10 A:I11
-- [ ] 修改 `xiaogu_forward_eligibility.py` 现有 `t1_profit_candidate_profile`；
-  输出 `PATH_A` 到 `PATH_D`，至少一条才通过 T+1 Alpha Eligibility。
-- [ ] 保留交易、监管、数据、封板、资金和异常状态硬拒绝；旧九条路径仅保留
-  为诊断映射，不再拥有独立出票权。
-- [ ] Verification: 四路径正例、无路径拒绝、硬拒绝和未来字段隔离测试通过。
-
-### Task 28: Complete settlement labels through existing return owner A:I9 A:I10 A:I11
-- [ ] 在现有 `scripts/xiaogu_return_backfill.py` 和 `xiaogu_db.upsert_return`
-  调用契约内写入同日 T+1 open/high/low/close，并将 MFE/MAE 映射到既有
-  `next_day_high_return`、`next_day_low_return`；不改变正式决策输入。
-- [ ] Verification: dry-run/回填单测记录完整标签、缺失行情保持 pending，不合成数值。
-
-### Task 29: Replay and promote only the sole chain A:I9 A:I10 A:I11
-- [ ] 在固定不可变快照上运行 baseline/change 对比，检查覆盖率、均值/中位数、
-  MFE、MAE、胜率、Profit Factor、滑点、硬拒绝回归和无 DB 写入。
-- [ ] 若风险门失败，记录阻断证据并保持唯一链路；不得创建替代策略。
-- [ ] Verification: replay artifact、focused tests、`pytest tests/ -x -q`、
-  compile 和 `git diff --check`。
-
-### Task 30: Refresh architecture and knowledge closure A:I9 A:I10 A:I11
-- [ ] 重新运行 codebase-memory moderate/full 索引和 Understand-Anything
-  增量/全量图谱；核对正式入口、owner 和调用链。
-- [ ] 更新 AgentMemory；只有有新架构/策略证据时更新既有 Obsidian owner note。
-- [ ] Verification: graph commit matches worktree, memory save exists, and
-  final receipt lists tests, replay, remaining pending data, and residual risk.

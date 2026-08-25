@@ -421,14 +421,14 @@ _GATE_REASON_CN = {
 }
 
 _RANKING_REASON_CN = {
-    "formal_profit_first": "主力行为链排序",
-    "formal_profit_first_unique_sort": "唯一正式排序器：主力行为链（T+1获利目标）",
-    "structured_evidence_primary": "唯一正式排序器：主力行为链（T+1获利目标）",
-    "正式候选排序": "唯一正式排序器：主力行为链（T+1获利目标）",
+    "t1_net_return_prediction": "T+1净收益预测排序",
+    "t1_net_return_model": "唯一正式排序器：T+1净收益模型",
+    "structured_evidence_primary": "唯一正式排序器：T+1净收益模型",
+    "正式候选排序": "唯一正式排序器：T+1净收益模型",
 }
 
-_PRODUCTION_CHAIN_NAME = "main_force_behavior_chain"
-_PRODUCTION_RANK_SOURCE = "formal_profit_first"
+_PRODUCTION_CHAIN_NAME = "t1_net_return_model"
+_PRODUCTION_RANK_SOURCE = "t1_net_return_prediction"
 
 
 def _load_latest_chain_replay() -> Dict[str, Any]:
@@ -542,7 +542,7 @@ def _cn_ranking_reason(value: Any) -> str:
     text = str(value or "").strip()
     return _RANKING_REASON_CN.get(
         text,
-        text.replace("_", " ") if text else "唯一正式排序器：主力行为链（T+1获利目标）",
+        text.replace("_", " ") if text else "唯一正式排序器：T+1净收益模型",
     )
 
 
@@ -571,12 +571,10 @@ def _candidate_selection_explanation(row: Dict[str, Any]) -> Dict[str, Any]:
     diagnostics = _as_json_object(row.get("selection_diagnostics"))
     ranking = _as_json_object(row.get("ranking_basis"))
     raw = _as_json_object(row.get("raw_json"))
-    research = _as_json_object(raw.get("research_signals"))
-    t1_profile = _as_json_object(raw.get("t1_profit_profile"))
-    ranking_components = (
-        _as_json_object(raw.get("ranking_basis_adjustment_components"))
-        or _as_json_object(ranking.get("ranking_basis_adjustment_components"))
-        or _as_json_object(factor.get("ranking_basis_adjustment_components"))
+    prediction = (
+        _as_json_object(row.get("t1_alpha_prediction"))
+        or _as_json_object(features.get("t1_alpha_prediction"))
+        or _as_json_object(raw.get("t1_alpha_prediction"))
     )
     containers = [
         row,
@@ -585,10 +583,8 @@ def _candidate_selection_explanation(row: Dict[str, Any]) -> Dict[str, Any]:
         eligibility,
         diagnostics,
         ranking,
-        ranking_components,
-        research,
+        prediction,
         raw,
-        t1_profile,
     ]
 
     factors: List[Dict[str, Any]] = []
@@ -602,11 +598,13 @@ def _candidate_selection_explanation(row: Dict[str, Any]) -> Dict[str, Any]:
                 "说明": detail,
             })
 
-    add_factor("事件催化", ["announcement_catalyst_score", "news_catalyst_strength"], "公告、政策或新闻催化强度")
-    add_factor("板块承载", ["sector_attack_score", "sector_opportunity_score", "sector_catalyst_score"], "板块承载与扩散强度")
-    add_factor("直接资金确认", ["flow_confirmation_score", "capital_behavior_score", "fund_flow_momentum", "net_inflow_main"], "T日可观测的直接资金行为")
-    add_factor("T+1空间", ["t1_room_score", "low_position_catalyst_score", "close_position_score"], "T日证据对应的次日可兑现空间")
-    add_factor("派发风险", ["distribution_risk_score", "capital_risk_profile"], "资金派发与高位兑现风险")
+    add_factor("预期T+1净收益", ["expected_t1_net_return"], "模型预测的成本前次日净收益")
+    add_factor("横截面优势", ["cross_sectional_edge"], "相对同日股票池的预测优势")
+    add_factor("T+1盈利概率", ["p_win"], "预测T+1净收益为正的概率")
+    add_factor("预期下行", ["expected_downside"], "模型预测的次日下行风险")
+    add_factor("不确定性", ["uncertainty"], "模型预测不确定性")
+    add_factor("执行成本", ["execution_cost"], "入场、滑点和交易成本估计")
+    add_factor("可交易优势", ["tradable_edge"], "扣除成本后的可交易优势")
     selection_reasons_zh = []
     for container in (row, features, eligibility):
         values = container.get("selection_reasons_zh")
@@ -637,25 +635,17 @@ def _candidate_selection_explanation(row: Dict[str, Any]) -> Dict[str, Any]:
         for item in factors
     ]
     summary = list(dict.fromkeys([*selection_reasons_zh, *summary]))
-    summary.append("门禁：通过后按主力行为链正式排序" if not blockers else f"门禁：{gate_text}")
-    ranking_key = (
-        ranking_components.get("ranking_view")
-        or raw.get("ranking_view")
-        or ranking.get("rank_source")
-        or ranking.get("basis")
-        or ranking.get("ranking_basis")
-        or "正式候选排序"
-    )
+    summary.append("门禁：通过后按T+1净收益预测正式排序" if not blockers else f"门禁：{gate_text}")
+    ranking_key = ranking.get("ranking_view") or raw.get("ranking_view") or "t1_net_return_model"
     ranking_text = (
-        "主力行为链排序"
-        if ranking_key == "main_force_behavior_chain"
-        else _cn_ranking_reason(ranking_key)
+        "T+1净收益预测排序"
+        if ranking_key == "t1_net_return_model" else _cn_ranking_reason(ranking_key)
     )
     return {
         "因子": factors,
         "门禁": blockers or ["已通过正式门禁"],
         "门禁中文": gate_text,
-        "排序依据": "门禁通过后按事件催化、板块承载、直接资金确认、T+1空间和派发风险排序",
+        "排序依据": "门禁通过后按预期T+1净收益、横截面优势、胜率、下行风险、不确定性和执行成本排序",
         "排序口径": str(ranking_text),
         "中文摘要": summary,
     }
@@ -1133,13 +1123,15 @@ def _dashboard_candidate_row(row: Dict[str, Any]) -> Dict[str, Any]:
         factor_containers,
         "sector_catalyst_score",
     )
-    output["expected_t1_profit_score"] = _factor_number(
-        factor_containers,
-        "expected_t1_profit_score",
+    output["t1_prediction"] = _as_json_object(
+        _first_json_value(
+            [row, feat, raw],
+            "t1_alpha_prediction",
+        )
     )
     production_score = _production_score_from_row(row)
     output["production_score"] = production_score
-    output["score_source"] = "formal_t1_profit_components" if production_score is not None else "UNAVAILABLE"
+    output["score_source"] = "t1_net_return_prediction" if production_score is not None else "UNAVAILABLE"
     output["ranking_view"] = _PRODUCTION_CHAIN_NAME
     output["rank_source"] = _PRODUCTION_RANK_SOURCE
     if production_score is not None:
@@ -1211,15 +1203,7 @@ def _dashboard_pick_row(row: Dict[str, Any]) -> Dict[str, Any]:
     output["selection_basis_cn"] = explanation["中文摘要"]
     output["risk_gates_cn"] = explanation["门禁"]
     output["decision_reason"] = explanation["门禁中文"]
-    output["expected_t1_profit_score"] = _factor_number(
-        [
-            candidate_row,
-            _as_json_object(candidate_row.get("factor_snapshot")),
-            _as_json_object(candidate_row.get("eligibility_snapshot")),
-            _as_json_object(candidate_features.get("t1_profit_profile")),
-        ],
-        "expected_t1_profit_score",
-    )
+    output["t1_prediction"] = _as_json_object(candidate_features.get("t1_alpha_prediction"))
     return output
 
 
@@ -1253,7 +1237,7 @@ def _production_score_from_row(row: Dict[str, Any]) -> Optional[float]:
     raw = _as_json_object(row.get("raw_json"))
     features = _as_json_object(row.get("candidate_features"))
     for container in (row, features, ranking_basis, raw):
-        for key in ("production_score", "formal_primary_score"):
+        for key in ("tradable_edge", "production_score", "formal_primary_score"):
             value = _to_float(container.get(key))
             if value is not None:
                 return round(value, 4)
@@ -1262,9 +1246,6 @@ def _production_score_from_row(row: Dict[str, Any]) -> Optional[float]:
         or str(ranking_basis.get("rank_source") or "").strip()
         or str(raw.get("rank_source") or "").strip()
     )
-    if rank_source == "formal_profit_first":
-        value = _to_float(row.get("final_score"))
-        return round(value, 4) if value is not None else None
     return None
 
 
@@ -1400,7 +1381,7 @@ def _paper_trade_chain_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
     formal_production = (
         ranking_view == _PRODUCTION_CHAIN_NAME
         and rank_source == _PRODUCTION_RANK_SOURCE
-        and score_source == "formal_t1_profit_components"
+        and score_source == "t1_net_return_prediction"
         and score_matches
         and rank_matches
     )
@@ -2213,9 +2194,9 @@ def _os_candidate_rows(limit: int = 10) -> List[Dict[str, Any]]:
             "rank": public.get("rank"),
             "score": score,
             "productionScore": score,
-            "scoreSource": "formal_t1_profit_components" if production_score is not None else "UNAVAILABLE",
-            "rankingView": "main_force_behavior_chain",
-            "rankSource": "formal_profit_first",
+            "scoreSource": "t1_net_return_prediction" if production_score is not None else "UNAVAILABLE",
+            "rankingView": "t1_net_return_model",
+            "rankSource": "t1_net_return_prediction",
             "pct_chg": _round_float(public.get("pct_chg"), 2),
             "aiRating": _score_to_stars(score),
             "trend": _score_to_stars((_to_float(public.get("close_position_score")) or 0) * 100),
@@ -2261,7 +2242,7 @@ def _os_candidate_rows(limit: int = 10) -> List[Dict[str, Any]]:
                 for item in (public.get("entry_evidence", {}).get("source_metadata") or [])[:4]
             ],
             "tradeDate": _iso(public.get("trade_date")),
-            "expectedT1ProfitScore": public.get("expected_t1_profit_score"),
+            "t1Prediction": _as_json_object(public.get("t1_prediction")),
             "pctChg": _round_float(public.get("pct_chg"), 2),
             "themeCatalyst": public.get("theme_catalyst") or "",
             "newsCatalyst": public.get("news_catalyst") or "",
@@ -2439,7 +2420,7 @@ def _os_review_payload(limit: int = 50, low_return_threshold: float = 0.01) -> D
             "review_level": "LOSS" if t1_return < 0 else "LOW_RETURN",
             "selection_reason": row.get("selection_reason") or row.get("ticket_reason") or "",
             "production_chain": _PRODUCTION_CHAIN_NAME,
-            "upgrade_target": "main_force_behavior_chain",
+            "upgrade_target": "t1_net_return_model",
         }
         case["diagnosis"] = _replay_sample_reason(row)
         cases.append(case)
@@ -2775,13 +2756,13 @@ def get_os_front_data(
         "candidateSnapshotId": active_run.get("candidate_snapshot_id"),
         "productionChain": {
             "name": _PRODUCTION_CHAIN_NAME,
-            "label": "主力行为链（唯一生产链路）",
+            "label": "T+1净收益模型（唯一生产链路）",
             "candidateSource": "daily_candidates",
             "rankSource": _PRODUCTION_RANK_SOURCE,
             "objective": "T日出票，T+1收盘获利",
             "returnField": "returns.t1_return",
             "singleOfficialOutput": "TRADING/NO_PICK",
-            "performanceSource": "main_force_behavior_chain_full_database_replay",
+            "performanceSource": "t1_net_return_model_full_database_replay",
             "performanceWindow": f"{replay['window']['start']}至{replay['window']['end']}",
             "performanceArtifact": replay.get("source"),
             "performanceSampleCount": replay.get("sample_count", 0),

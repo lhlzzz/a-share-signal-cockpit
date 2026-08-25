@@ -111,9 +111,9 @@ from xiaogu_forward_gates import (  # noqa: E402
 ALLOWED_A_SHARE_SOURCE_TOKENS = ('eastmoney_api_scan_v2', 'v2_scanner_api')
 API_A_SHARE_SOURCE_TOKENS = ('v2_scanner_api', 'eastmoney_api_scan_v2')
 PRODUCTION_CHAIN_MODE = 'strict'
-PRODUCTION_RANKING_VIEW = 'main_force_behavior_chain'
-PRODUCTION_RANK_SOURCE = 'formal_profit_first'
-PRODUCTION_SCORE_SOURCE = 'formal_t1_profit_components'
+PRODUCTION_RANKING_VIEW = 't1_net_return_model'
+PRODUCTION_RANK_SOURCE = 't1_net_return_prediction'
+PRODUCTION_SCORE_SOURCE = 't1_net_return_prediction'
 PRODUCTION_SNAPSHOT_ORIGINS = {'scan_formal_snapshot'}
 DISALLOWED_GOVERNANCE_TOKENS = ('archive', 'backup', '.bak_', 'rollback', 'crypto', 'bitget', 'us_stock', 'yfinance', 'research_only', 'research-only', 'historical_validation')
 
@@ -171,7 +171,162 @@ PRODUCTION_RETURN_FORMULA_TEXT = PRODUCTION_RETURN_FORMULA
 PRODUCTION_POLICY = 'T_DAY_BUY_T1_PROFIT'
 PRODUCTION_POLICY_ZH = 'T日买入，T+1日交易并以获利为唯一目标'
 HORIZON_NOTE = PRODUCTION_POLICY_ZH
-FORMAL_RANK_SNAPSHOT_VERSION = 'formal_profit_first_t1_close_v1'
+FORMAL_RANK_SNAPSHOT_VERSION = 't1_net_return_prediction_v1'
+DECISION_FEATURE_ALLOWLIST = {
+    RULE_VERSION: frozenset({
+        'symbol', 'name', 'price', 'close', 'open', 'high', 'low', 'prev_close',
+        'signal_pct', 'pct_chg', 'volume', 'amount', 'turnover_rate',
+        'close_position_score', 'volume_ratio', 'candidate_stage',
+        'candidate_source', 'market_regime', 'production_regime',
+        'market_adaptive_context', 'market_snapshot', 'external_market_risk_off',
+        'market_context_hash', 'regime_observation_status', 'smoothed_regime',
+        'fund_flow_momentum', 'time_series_momentum', 'order_book_pressure',
+        'capital_behavior_score', 'sector_opportunity_score',
+        'sector_attack_score', 'main_theme_alignment_score', 'main_theme_core_score',
+        'topic_propagation_score', 'low_position_catalyst_score',
+        'continuation_gene_score', 'continuation_score', 'profit_edge_score',
+        'expected_t1_profit_score', 't1_profit_candidate', 't1_profit_profile',
+        'catalyst_type', 'catalyst_quality_category', 'news_catalyst_strength',
+        'announcement_catalyst_score', 'sector_catalyst_score',
+        'limitup_reason_evidence_class', 'direct_catalyst_confirmation',
+        'risk_penalty', 'risk_notice_penalty', 'capital_risk_profile',
+        'similar_cases_boost', 'similar_cases_meta',
+    }),
+}
+LINEAGE_REQUIRED_FIELDS = (
+    'feature_name',
+    'source',
+    'source_time',
+    'asof_time',
+    'producer_version',
+    'rule_version',
+    'label_status',
+)
+LINEAGE_FUTURE_LABELS = {'MATURED', 'T1_SETTLED', 'FUTURE', 'POST_DECISION'}
+
+
+def _lineage_value_present(value: Any) -> bool:
+    return value not in (None, '', {}, [])
+
+
+def _lineage_record_value(value: Any) -> Any:
+    if isinstance(value, (dict, list, tuple)):
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(',', ':'))
+        return {
+            'type': type(value).__name__,
+            'sha256': hashlib.sha256(encoded.encode('utf-8')).hexdigest(),
+        }
+    return value
+
+
+def decision_feature_lineage_status(
+    row: Dict[str, Any],
+    bundle: Optional[Dict[str, Any]] = None,
+    *,
+    required: bool = False,
+) -> Dict[str, Any]:
+    """Validate field-level T-day provenance for the formal decision inputs."""
+    row = row if isinstance(row, dict) else {}
+    bundle = bundle if isinstance(bundle, dict) else {}
+    rule_version = str(row.get('rule_version') or bundle.get('rule_version') or '')
+    allowed = DECISION_FEATURE_ALLOWLIST.get(rule_version)
+    errors: List[str] = []
+    lineage = row.get('feature_lineage')
+    if not isinstance(lineage, dict):
+        lineage = {}
+    if allowed is None:
+        errors.append('DECISION_FEATURE_ALLOWLIST_VERSION_MISSING')
+    for feature_name in sorted(allowed or ()):
+        value = row.get(feature_name)
+        if not _lineage_value_present(value):
+            continue
+        meta = lineage.get(feature_name)
+        if not isinstance(meta, dict):
+            errors.append(f'LINEAGE_MISSING:{feature_name}')
+            continue
+        missing = [field for field in LINEAGE_REQUIRED_FIELDS if not _lineage_value_present(meta.get(field))]
+        errors.extend(f'LINEAGE_{field.upper()}_MISSING:{feature_name}' for field in missing)
+        if str(meta.get('feature_name') or '') != feature_name:
+            errors.append(f'LINEAGE_FEATURE_NAME_MISMATCH:{feature_name}')
+        if str(meta.get('rule_version') or '') != rule_version:
+            errors.append(f'LINEAGE_RULE_VERSION_MISMATCH:{feature_name}')
+        if str(meta.get('label_status') or '').upper() in LINEAGE_FUTURE_LABELS:
+            errors.append(f'LINEAGE_FUTURE_LABEL:{feature_name}')
+    similar_meta = row.get('similar_cases_meta')
+    if _lineage_value_present(row.get('similar_cases_boost')):
+        matured = isinstance(similar_meta, dict) and str(
+            similar_meta.get('case_label_status') or similar_meta.get('label_status') or ''
+        ).upper() == 'MATURED'
+        if not matured:
+            errors.append('SIMILAR_CASES_LABEL_MATURITY_UNKNOWN')
+    if required:
+        for field in ('symbol', 'price', 'signal_pct'):
+            if _lineage_value_present(row.get(field)) and field not in lineage:
+                errors.append(f'LINEAGE_MISSING:{field}')
+    return {
+        'valid': not errors,
+        'required': required,
+        'rule_version': rule_version,
+        'feature_count': len(lineage),
+        'errors': unique_text_values(errors),
+    }
+
+
+def stamp_decision_feature_lineage(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach T-day lineage to existing formal fields before final snapshot freeze."""
+    if not isinstance(bundle, dict):
+        return bundle
+    rule_version = str(bundle.get('rule_version') or RULE_VERSION)
+    producer_version = str(
+        bundle.get('producer_version')
+        or bundle.get('pipeline_version')
+        or bundle.get('source_pipeline_version')
+        or ''
+    )
+    source = str(bundle.get('candidate_source') or bundle.get('source') or '')
+    source_time = str(bundle.get('source_time') or bundle.get('scan_summary_source_time') or '')
+    asof_time = str(
+        bundle.get('_runner_asof_time')
+        or bundle.get('runner_asof_time')
+        or bundle.get('asof_time')
+        or ''
+    )
+    allowed = DECISION_FEATURE_ALLOWLIST.get(rule_version, frozenset())
+    for container_name in ('formal_ranked_pool', 'full_candidate_pool', 'paper_scoring_candidates', 'candidate'):
+        value = bundle.get(container_name)
+        rows = value if isinstance(value, list) else [value] if isinstance(value, dict) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            lineage = dict(row.get('feature_lineage') or {}) if isinstance(row.get('feature_lineage'), dict) else {}
+            row_source_time = normalized_source_time_for_candidate(row, bundle) or source_time
+            for feature_name in allowed:
+                if not _lineage_value_present(row.get(feature_name)):
+                    continue
+                existing = lineage.get(feature_name)
+                if isinstance(existing, dict) and all(
+                    _lineage_value_present(existing.get(field)) for field in LINEAGE_REQUIRED_FIELDS
+                ):
+                    continue
+                lineage[feature_name] = {
+                    'feature_name': feature_name,
+                    'value': _lineage_record_value(row.get(feature_name)),
+                    'source': source,
+                    'source_time': row_source_time,
+                    'asof_time': asof_time,
+                    'producer_version': producer_version,
+                    'rule_version': rule_version,
+                    'label_status': 'T_DAY',
+                }
+            row['feature_lineage'] = lineage
+    bundle['decision_feature_lineage_version'] = 'field_lineage_v1'
+    bundle['decision_feature_lineage_producer_version'] = producer_version
+    bundle['decision_feature_lineage_status'] = decision_feature_lineage_status(
+        (bundle.get('candidate') if isinstance(bundle.get('candidate'), dict) else {}),
+        bundle,
+        required=bool(bundle.get('strict_production_chain')),
+    )
+    return bundle
 
 
 
@@ -1876,7 +2031,107 @@ def is_strong_leader_candidate(features: Dict[str, Any]) -> bool:
     return _count_leader_conditions(features) >= 2
 
 
+def _t1_production_decision(
+    candidate: Dict[str, Any],
+    bundle: Dict[str, Any],
+    target_date: str,
+    *,
+    allow_stale_data: bool,
+) -> Tuple[str, str, str, Dict[str, Any], List[str]]:
+    """Select only from hard execution gates and accepted T+1 edge."""
+    candidate = candidate if isinstance(candidate, dict) else {}
+    bundle = bundle if isinstance(bundle, dict) else {}
+    symbol = symbol_for(candidate)
+    source_time = normalized_source_time_for_candidate(candidate, bundle) or str(
+        bundle.get('source_time') or candidate.get('source_time') or ''
+    )
+    runner_asof_time = str(bundle.get('_runner_asof_time') or candidate.get('runner_asof_time') or '')
+    source_market_date = str(bundle.get('source_market_date') or bundle.get('date') or '')[:10]
+    price = safe_float(candidate.get('price'))
+    one_lot_cost = safe_float(candidate.get('one_lot_cost'))
+    if one_lot_cost is None and price is not None:
+        one_lot_cost = price * 100
+    sizing = paper_sizing_context(bundle)
+    capacities = [
+        safe_float(sizing.get('available_cash')),
+        safe_float(sizing.get('one_lot_cost_cap')),
+    ]
+    capacity = min(value for value in capacities if value is not None) if any(value is not None for value in capacities) else None
+    flags: List[str] = []
+    if not symbol.isdigit() or len(symbol) != 6:
+        flags.append('A_SHARE_SYMBOL_INVALID')
+    if not allow_stale_data:
+        if source_market_date != target_date:
+            flags.append('SOURCE_MARKET_DATE_MISMATCH')
+        if not source_time.startswith(target_date):
+            flags.append('SOURCE_TIME_MISSING_OR_STALE')
+        age_minutes = scan_age_minutes(source_time, target_date, runner_asof_time)
+        if age_minutes is None or age_minutes < -1 or age_minutes > MAX_SCAN_STALENESS_MINUTES:
+            flags.append('SOURCE_TIME_OUTSIDE_EXECUTION_WINDOW')
+    else:
+        age_minutes = None
+    data_gate = str(bundle.get('data_gate_status') or candidate.get('data_gate_status') or 'PASS')
+    if not is_api_scan_source(bundle):
+        flags.append('PRODUCTION_SOURCE_NOT_CANONICAL')
+    full_universe = bundle.get('full_universe_scan') if isinstance(bundle.get('full_universe_scan'), dict) else {}
+    if int(full_universe.get('quote_count') or 0) < 4000:
+        flags.append('FULL_UNIVERSE_SCAN_INCOMPLETE')
+    # Source completeness is a production hard gate. The T+1 selector must
+    # fail closed before accepting a model prediction when the point-in-time
+    # market snapshot itself is incomplete or its required completeness audit
+    # is missing.
+    flags.extend(paper_pick_source_health_flags(bundle))
+    if data_gate not in ('PASS', 'OK', 'True', 'true'):
+        flags.append('DATA_GATE_NOT_PASS')
+    if bool(candidate.get('asof_leakage_flag')):
+        flags.append('ASOF_LEAKAGE_FLAG_TRUE')
+    regulatory_block = regulatory_hard_block_reason(candidate, bundle)
+    if regulatory_block:
+        flags.append('REGULATORY_HARD_BLOCK:' + regulatory_block)
+    if price is None or price <= 0:
+        flags.append('PRICE_INVALID')
+    if one_lot_cost is None or one_lot_cost <= 0:
+        flags.append('ONE_LOT_COST_INVALID')
+    elif capacity is not None and one_lot_cost > capacity:
+        flags.append('ONE_LOT_COST_EXCEEDS_CAPACITY')
+    if _forward_eligibility._inferred_sealed_limit_up(candidate):
+        flags.append('SEALED_LIMIT_UP_NOT_BUYABLE')
+    if bool(candidate.get('market_systemic_risk_block')):
+        flags.append('MARKET_SYSTEMIC_RISK_BLOCK')
+
+    prediction = t1_production_prediction(candidate)
+    features = {
+        **candidate,
+        'source_time': source_time,
+        'scan_age_minutes': None if age_minutes is None else round(age_minutes, 2),
+        'account_sizing_source': sizing.get('source'),
+        't1_alpha_prediction': prediction,
+        'production_eligibility_mode': 'T1_NET_RETURN_HARD_GATES_ONLY',
+        'legacy_scores_used_for_decision': False,
+    }
+    if flags:
+        return 'NO_PICK', '', 'T1_PRODUCTION_HARD_GATE_FAIL:' + ';'.join(unique_text_values(flags)), features, unique_text_values(flags)
+    if not prediction.get('valid'):
+        reason = str(prediction.get('reason') or 'T1_ALPHA_PREDICTION_INVALID')
+        return 'NO_PICK', '', reason, features, [reason]
+    edge_gate = minimum_tradable_edge_gate(
+        prediction,
+        minimum_edge=0.0,
+        transaction_cost=0.0,
+        model_status=str(prediction.get('model_status') or ''),
+    )
+    features['minimum_tradable_edge_gate'] = edge_gate
+    if not edge_gate.get('eligible'):
+        reason = str(edge_gate.get('reason') or 'T1_TRADABLE_EDGE_BELOW_MINIMUM')
+        return 'NO_PICK', '', reason, features, [reason]
+    return 'PAPER_PICK', symbol, 'T1_NET_RETURN_EDGE_PASS', features, []
+
+
 def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], target_date: str, allow_stale_data: bool = False) -> Tuple[str, str, str, Dict[str, Any], List[str]]:
+    return _t1_production_decision(candidate, bundle, target_date, allow_stale_data=allow_stale_data)
+
+
+def _legacy_decision_for_candidate_retired(candidate: Dict[str, Any], bundle: Dict[str, Any], target_date: str, allow_stale_data: bool = False) -> Tuple[str, str, str, Dict[str, Any], List[str]]:
     flags = []
     def get(k, default=None): return candidate.get(k, bundle.get(k, default))
     _source_layers = set(candidate.get('source_layers') or [])
@@ -1904,6 +2159,29 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
     market_block = bool(get('market_systemic_risk_block', False))
     data_gate = get('data_gate', get('data_gate_status', 'UNKNOWN'))
     blocked_reasons = get('blocked_reasons', []) or []
+    production_hard_gate_mode = str(
+        bundle.get('production_eligibility_mode') or ''
+    ).upper() == 'HARD_GATES_ONLY'
+    production_soft_blocked_reasons: List[str] = []
+    if production_hard_gate_mode:
+        production_soft_blocked_reasons = [str(item) for item in blocked_reasons if item]
+        blocked_reasons = [
+            str(item) for item in blocked_reasons
+            if any(
+                token in str(item).lower()
+                for token in (
+                    'regulatory_hard_block',
+                    'risk_notice',
+                    'risk_too_high',
+                    'data_gate',
+                    'stale_',
+                    'sealed_limit',
+                    'price_',
+                    'one_lot',
+                    'market_systemic',
+                )
+            )
+        ]
     regulatory_block = regulatory_hard_block_reason(candidate, bundle)
     research_signals = candidate.get('research_signals') if isinstance(candidate.get('research_signals'), dict) else {}
     catalyst_quality = research_signals.get('catalyst_quality') if isinstance(research_signals.get('catalyst_quality'), dict) else {}
@@ -2024,7 +2302,7 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
     if regulatory_block:
         flags.append(regulatory_block)
         flags.append('REGULATORY_HARD_BLOCK_' + regulatory_block)
-    if opportunity_block:
+    if opportunity_block and not production_hard_gate_mode:
         stock_level_limitup_expectation_pass = bool((paper_pick_eligibility.get('signals') or {}).get('stock_level_limitup_expectation_pass'))
         if (
             opportunity_block == 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION'
@@ -2035,6 +2313,12 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
         else:
             flags.append(opportunity_block)
             flags.append('OPPORTUNITY_HARD_BLOCK_' + opportunity_block)
+    elif opportunity_block:
+        features_opportunity_note = features.get('production_soft_opportunity_blocks')
+        if not isinstance(features_opportunity_note, list):
+            features_opportunity_note = []
+        features_opportunity_note.append(opportunity_block)
+        features['production_soft_opportunity_blocks'] = unique_text_values(features_opportunity_note)
     flags.extend(evidence_missing_flags)
     flags.extend(candidate_evidence_flags)
     enforce_formal_eligibility = candidate.get('paper_pick_eligibility') is not None
@@ -2147,6 +2431,9 @@ def decision_for_candidate(candidate: Dict[str, Any], bundle: Dict[str, Any], ta
     features['repo_contributions'] = repo_context['repo_contributions']
     features['repo_contribution_summary'] = repo_context['repo_contribution_summary']
     features['final_score_explanation'] = repo_context['final_score_explanation']
+    if production_hard_gate_mode:
+        features['production_eligibility_mode'] = 'HARD_GATES_ONLY'
+        features['production_soft_blocked_reasons'] = unique_text_values(production_soft_blocked_reasons)
 
     if flags:
         hard_blockers = {'DATA_GATE_NOT_PASS', 'XIAOCHAN_BLOCK', 'ASOF_LEAKAGE_FLAG_TRUE', 'STALE_BUNDLE_DATE', 'STALE_SOURCE_MARKET_DATE', 'SOURCE_MARKET_DATE_MISSING', 'STALE_SOURCE_TIME', 'SOURCE_TIME_MISSING'}
@@ -2323,6 +2610,9 @@ def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]
         'name': row.get('name'),
         'board': row.get('board'),
         'price': row.get('price'),
+        'entry_price': row.get('price'),
+        'entry_price_source': 'scanner_snapshot.close_price',
+        'entry_price_basis': 'UNADJUSTED_DAILY_OHLC',
         'one_lot_cost': price * 100 if price is not None else None,
         'signal_date': row.get('signal_date') or row.get('date'),
         'asof_time': row.get('asof_time'),
@@ -2458,23 +2748,15 @@ def basket_candidate(row: Dict[str, Any], decision_class: str) -> Dict[str, Any]
 def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_context: Dict[str, Any]) -> Dict[str, Any]:
     from xiaogu_forward_eligibility import (
         filter_current_day_tradable_candidates,
-        filter_t1_profit_candidates,
     )
 
     # Preserve regulatory rows for diagnosis; the final official gate still blocks them.
     bundle_context = bundle_context if isinstance(bundle_context, dict) else {}
     source_rows = list(enriched_rows or [])
-    if bundle_context.get('t1_profit_gate_enabled'):
-        enriched_rows, current_day_tradable_filter = filter_t1_profit_candidates(
-            enriched_rows,
-            bundle_context,
-            enforce=True,
-        )
-    else:
-        enriched_rows, current_day_tradable_filter = filter_current_day_tradable_candidates(
-            enriched_rows,
-            bundle_context,
-        )
+    enriched_rows, current_day_tradable_filter = filter_current_day_tradable_candidates(
+        enriched_rows,
+        bundle_context,
+    )
     regulatory_diagnostic_rows = [
         row for row in source_rows
         if isinstance(row, dict)
@@ -2511,8 +2793,15 @@ def build_daily_ticket_search_rows(enriched_rows: List[Dict[str, Any]], bundle_c
             stamped['production_regime'] = stamped_regime
         if not isinstance(stamped.get('market_adaptive_context'), dict):
             stamped['market_adaptive_context'] = market_ctx
+        for context_field in (
+            'market_context_hash',
+            'regime_observation_status',
+            'smoothed_regime',
+        ):
+            if not stamped.get(context_field):
+                stamped[context_field] = market_ctx.get(context_field)
         stamped_enriched.append(stamped)
-    # P1: stamp pool_rank from scanner, then rewrite rank via formal profit-first sort.
+    # Stamp observation rank, then rewrite only from accepted T+1 predictions.
     enriched_rows = apply_formal_profit_ranks(stamped_enriched)
 
     def row_is_searchable(row: Dict[str, Any]) -> bool:
@@ -3206,7 +3495,7 @@ def build_research_basket_from_latest_scan(
     try:
         bundle = _bundle_from_scan_summary(runner_summary, summary)
         if isinstance(bundle, dict):
-            bundle['ranking_view'] = 'main_force_behavior_chain'
+            bundle['ranking_view'] = PRODUCTION_RANKING_VIEW
         return bundle
     except Exception:
         return {'available': False, 'reason': 'NO_CANONICAL_DIRECT_API_SCAN'}
@@ -3314,7 +3603,6 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
     """Return decision, symbol, reason, candidate_features, risk_flags."""
     from xiaogu_forward_eligibility import (
         filter_current_day_tradable_candidates,
-        filter_t1_profit_candidates,
     )
 
     if not bundle.get('available'):
@@ -3347,10 +3635,9 @@ def evaluate_candidate_bundle(bundle: Dict[str, Any], target_date: str, allow_st
         candidates.extend([c for c in bundle['paper_scoring_candidates'] if isinstance(c, dict)])
     elif not bundle.get('strict_production_chain') and isinstance(bundle.get('candidate'), dict) and symbol_for(bundle['candidate']):
         candidates.append(bundle['candidate'])
-    candidates, current_day_tradable_filter = filter_t1_profit_candidates(
+    candidates, current_day_tradable_filter = filter_current_day_tradable_candidates(
         candidates,
         bundle,
-        enforce=bool(bundle.get('t1_profit_gate_enabled')),
     )
     bundle['current_day_tradable_filter'] = current_day_tradable_filter
     if not candidates:
@@ -3505,6 +3792,8 @@ why_not_formal_candidate = _forward_features.why_not_formal_candidate
 ensure_leader_chain_main_theme = _forward_ranking.ensure_leader_chain_main_theme
 formal_candidate_sort_key = _forward_ranking.formal_candidate_sort_key
 ranking_basis_adjustment_components = _forward_ranking.ranking_basis_adjustment_components
+t1_production_prediction = _forward_ranking.t1_production_prediction
+_primary_alpha_paths = _forward_ranking._primary_alpha_paths
 select_first_clean_with_formal_challenge = _forward_ranking.select_first_clean_with_formal_challenge
 _reason_parts = _forward_diagnostics._reason_parts
 _source_consumption_domain_summary = _forward_diagnostics._source_consumption_domain_summary
@@ -3550,6 +3839,7 @@ current_day_tradable_filter_reason = _forward_eligibility.current_day_tradable_f
 filter_current_day_tradable_candidates = _forward_eligibility.filter_current_day_tradable_candidates
 filter_t1_profit_candidates = _forward_eligibility.filter_t1_profit_candidates
 t1_profit_candidate_profile = _forward_eligibility.t1_profit_candidate_profile
+minimum_tradable_edge_gate = _forward_eligibility.minimum_tradable_edge_gate
 broken_limitup_continuation_exception = _forward_eligibility.broken_limitup_continuation_exception
 
 # Bind after eligibility exports exist so all extracted owners resolve through
@@ -3583,6 +3873,88 @@ write_daily_candidate_persist_retry_payload = _forward_bundle_io.write_daily_can
 _forward_persistence.bind_host(__import__(__name__))
 run_recorder = _forward_persistence.run_recorder
 finalize_production_run = _forward_persistence.finalize_production_run
+
+
+def production_alpha_health_gate(model_id: str = '') -> Dict[str, Any]:
+    """Read the optional research-model kill switch without adding a selector."""
+    try:
+        from xiaogu_db import alpha_kill_switch_active
+        return alpha_kill_switch_active(model_id=model_id or None)
+    except Exception as exc:
+        return {
+            'active': False,
+            'status': 'HEALTH_READ_UNAVAILABLE',
+            'reason': type(exc).__name__,
+        }
+
+
+def attach_t1_alpha_research_predictions(
+    bundle: Dict[str, Any],
+    *,
+    signal_date: str,
+    signal_time: str,
+) -> Dict[str, Any]:
+    """Attach one time-isolated research prediction to current candidates.
+
+    This is evidence generation only.  The formal selector still requires a
+    registry-accepted ``PRODUCTION`` prediction and therefore cannot be
+    promoted by this helper.
+    """
+    containers = (
+        bundle.get('paper_scoring_candidates'),
+        bundle.get('formal_ranked_pool'),
+        bundle.get('full_candidate_pool'),
+        bundle.get('scored_candidates'),
+        bundle.get('passed_candidates'),
+    )
+    candidates: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for container in containers:
+        if isinstance(container, list):
+            for candidate in container:
+                if isinstance(candidate, dict) and id(candidate) not in seen_ids:
+                    seen_ids.add(id(candidate))
+                    candidates.append(candidate)
+    if isinstance(bundle.get('candidate'), dict) and id(bundle['candidate']) not in seen_ids:
+        candidates.append(bundle['candidate'])
+    if not candidates:
+        result = {
+            'status': 'NO_CANDIDATES',
+            'model_status': 'RESEARCH',
+            'predictions': {},
+        }
+        bundle['t1_alpha_research_generation'] = result
+        return result
+    try:
+        from xiaogu_signal_effectiveness_v0_1 import (
+            build_t1_alpha_research_predictions_for_candidates,
+        )
+        result = build_t1_alpha_research_predictions_for_candidates(
+            candidates,
+            signal_date=signal_date,
+            signal_time=signal_time,
+        )
+    except Exception as exc:
+        result = {
+            'status': 'BLOCKED',
+            'model_status': 'RESEARCH',
+            'reason': f'T1_ALPHA_RESEARCH_GENERATION_ERROR:{type(exc).__name__}',
+            'predictions': {},
+        }
+    predictions = result.get('predictions') if isinstance(result, dict) else {}
+    predictions = predictions if isinstance(predictions, dict) else {}
+    for candidate in candidates:
+        # A persisted or explicitly supplied prediction belongs to the
+        # production snapshot contract. Research generation may fill a
+        # missing prediction, but it must never downgrade or rewrite one.
+        if isinstance(candidate.get('t1_alpha_prediction'), dict):
+            continue
+        symbol = symbol_for(candidate)
+        prediction = predictions.get(symbol)
+        if isinstance(prediction, dict):
+            candidate['t1_alpha_prediction'] = prediction
+    bundle['t1_alpha_research_generation'] = result
+    return result
 
 
 
@@ -3646,6 +4018,11 @@ def main() -> None:
     if production_run_id:
         bundle['production_run_id'] = production_run_id
         bundle['candidate_snapshot_id'] = production_run_id
+    attach_t1_alpha_research_predictions(
+        bundle,
+        signal_date=args.date,
+        signal_time=str(bundle.get('source_time') or f'{args.date} {args.asof_time}'),
+    )
     
     try:
         from xiaogu_db import fetch_scan_data_directory_content
@@ -3681,12 +4058,47 @@ def main() -> None:
     bundle['_runner_asof_time'] = args.asof_time
     attach_paper_pick_eligibility(bundle)
     if bundle.get('strict_production_chain'):
+        stamp_decision_feature_lineage(bundle)
         validation = validate_active_production_chain(bundle, args.date)
         bundle['production_chain_validation'] = validation
         if not validation.get('valid'):
             quarantine_nonproduction_bundle(bundle, validation)
     freeze_formal_production_snapshot(bundle)
     decision, symbol, reason, candidate_features, risk_flags = evaluate_candidate_bundle(bundle, args.date, allow_stale_data=args.allow_stale_data)
+    alpha_health = production_alpha_health_gate(
+        os.environ.get('XIAOGU_PRODUCTION_MODEL_ID', '').strip()
+    )
+    if isinstance(candidate_features, dict):
+        candidate_features['production_alpha_health'] = alpha_health
+    if alpha_health.get('active') and decision == 'PAPER_PICK':
+        decision = 'NO_PICK'
+        symbol = ''
+        reason = 'PRODUCTION_ALPHA_KILL_SWITCH:' + str(
+            alpha_health.get('reason') or alpha_health.get('status') or 'active'
+        )
+        risk_flags = unique_text_values([
+            *risk_flags,
+            'PRODUCTION_ALPHA_KILL_SWITCH',
+            'PAPER_ONLY',
+        ])
+    if os.environ.get('XIAOGU_T1_ALPHA_ENFORCE', '').strip().lower() in {'1', 'true', 'yes'}:
+        edge_gate = minimum_tradable_edge_gate(
+            candidate_features.get('t1_alpha_prediction', {})
+            if isinstance(candidate_features, dict) else {},
+            minimum_edge=float(os.environ.get('XIAOGU_MIN_TRADABLE_EDGE', '0') or 0.0),
+            transaction_cost=float(os.environ.get('XIAOGU_T1_TRANSACTION_COST', '0') or 0.0),
+            model_status=os.environ.get('XIAOGU_T1_ALPHA_MODEL_STATUS', 'UNVERIFIED'),
+        )
+        if isinstance(candidate_features, dict):
+            candidate_features['minimum_tradable_edge_gate'] = edge_gate
+        if decision == 'PAPER_PICK' and not edge_gate.get('eligible'):
+            decision = 'NO_PICK'
+            symbol = ''
+            reason = str(edge_gate.get('reason') or 'T1_TRADABLE_EDGE_GATE')
+            risk_flags = unique_text_values([
+                *risk_flags,
+                'T1_TRADABLE_EDGE_GATE',
+            ])
 
     # Symbol-level dedup: if this date already has a PAPER_PICK for a different symbol, skip
     if decision == 'PAPER_PICK' and not args.force:
@@ -3903,6 +4315,28 @@ def main() -> None:
         'payload_policy': 'slim_runtime_v1',
         **LOCKED_SAFETY,
     }
+    # Entry-price semantics are owned by the settlement module. Persist the
+    # explicit contract so settlement never infers an entry from aliases.
+    from xiaogu_forward_result_filler_v0_1 import build_execution_contract
+
+    contract_candidate = candidate_features if isinstance(candidate_features, dict) else {}
+    features['execution_contract'] = build_execution_contract(
+        {
+            'date': args.date,
+            'asof_time': args.asof_time,
+            'features_used': {'candidate_features': contract_candidate},
+            'execution_contract': {
+                'execution_price': contract_candidate.get('entry_price'),
+                'entry_price_source': contract_candidate.get('entry_price_source'),
+                'price_basis': contract_candidate.get('entry_price_basis'),
+                'execution_mode': 'EXPLICIT',
+                'execution_semantics': 'T_DAY_CLOSE_REFERENCE_T1_CLOSE_EXIT',
+                'execution_time': args.asof_time,
+                'signal_date': args.date,
+                'signal_time': args.asof_time,
+            },
+        }
+    )
     features['scoring_config_hash'] = hashlib.sha256(
         json.dumps(features['scoring_config_snapshot'], ensure_ascii=False, sort_keys=True, default=str).encode('utf-8')
     ).hexdigest()
@@ -4421,8 +4855,8 @@ def main() -> None:
             'structured_score': safe_float(_candidate.get('structured_score')),
             'ranking_basis': {
                 'basis': 'capital_behavior_t1_profit',
-                'ranking_view': 'main_force_behavior_chain',
-                'rank_source': _candidate.get('rank_source') or 'formal_profit_first',
+                'ranking_view': PRODUCTION_RANKING_VIEW,
+                'rank_source': _candidate.get('rank_source') or PRODUCTION_RANK_SOURCE,
                 'formal_rank': _candidate.get('formal_rank'),
                 'formal_primary_score': _candidate.get('formal_primary_score'),
                 'formal_sort_tuple': list(_candidate.get('formal_sort_tuple') or ()),

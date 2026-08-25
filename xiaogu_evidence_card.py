@@ -148,19 +148,21 @@ def _theme_bullets(row: Dict[str, Any]) -> List[str]:
 
 
 def _profit_evidence_bullets(row: Dict[str, Any]) -> List[str]:
-    bullets: List[str] = []
-    for key, label in (
-        ('continuation_gene_score', '涨停基因强度'),
-        ('close_position_score', '盘中承接/收盘位置'),
-        ('volume_ratio', '成交量放大'),
-        ('expected_t1_profit_score', 'T+1获利证据分'),
-    ):
-        val = _f(row.get(key))
-        if val is not None:
-            bullets.append(f'{label}：{val:.3f}')
-    if row.get('previous_limitup') or row.get('was_yesterday_limitup'):
-        bullets.append('昨日涨停延续：是')
-    return bullets[:6]
+    prediction = row.get('t1_alpha_prediction') if isinstance(row.get('t1_alpha_prediction'), dict) else {}
+    labels = (
+        ('expected_t1_net_return', '预期T+1净收益'),
+        ('cross_sectional_edge', '横截面优势'),
+        ('p_win', 'T+1盈利概率'),
+        ('expected_downside', '预期下行'),
+        ('uncertainty', '不确定性'),
+        ('execution_cost', '执行成本'),
+        ('tradable_edge', '可交易优势'),
+    )
+    return [
+        f'{label}：{_f(prediction.get(key)):.4f}'
+        for key, label in labels
+        if _f(prediction.get(key)) is not None
+    ]
 
 
 def _risk_bullets(row: Dict[str, Any], eligibility: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -195,7 +197,7 @@ def build_compact_evidence_card(
     decision: str = '',
     reason: str = '',
 ) -> Dict[str, Any]:
-    """One-page compact card: announcements / news / fund / theme / risk / social / similar."""
+    """One-page card for the accepted T+1 net-return prediction only."""
     row = dict(candidate or {})
     if isinstance(features, dict):
         # features may be outer bag or candidate-level
@@ -206,7 +208,8 @@ def build_compact_evidence_card(
             row = {**row, **features}
     symbol = str(row.get('symbol') or row.get('code') or '').zfill(6) if (row.get('symbol') or row.get('code')) else ''
     name = str(row.get('name') or row.get('stock_name') or '')
-    score = _f(row.get('final_score') if row.get('final_score') is not None else row.get('score'))
+    prediction = row.get('t1_alpha_prediction') if isinstance(row.get('t1_alpha_prediction'), dict) else {}
+    score = _f(prediction.get('tradable_edge'))
     social = _f(row.get('social_sentiment_score'))
     social_quality = str(row.get('social_signal_quality') or '').upper()
     social_collection = str(row.get('social_signal_collection_status') or '').upper()
@@ -227,19 +230,13 @@ def build_compact_evidence_card(
         'signal_pct': _f(row.get('signal_pct')),
         'price': _f(row.get('price')),
         'structured_score': _f(row.get('structured_score')),
-        'announcements': _announcement_bullets(row),
-        'news': _news_bullets(row),
-        'fund_flow': _fund_bullets(row),
-        'main_theme': _theme_bullets(row),
+        'announcements': [],
+        'news': [],
+        'fund_flow': [],
+        'main_theme': [],
         'profit_evidence': _profit_evidence_bullets(row),
         'risks': _risk_bullets(row),
-        'social': {
-            'sentiment_score': social,
-            'status': 'present' if social_present else 'missing',
-            'quality': social_quality or None,
-            'collection_status': social_collection or None,
-            'source_layers': social_layers[:4],
-        },
+        'social': {'status': 'diagnostic_only'},
         # 仓库贡献只用于机器诊断，不进入正式出票依据，避免多套模型噪音污染。
         'repo_summary': '',
         'decision_reason': _clip_text(
@@ -249,6 +246,12 @@ def build_compact_evidence_card(
         'similar_cases': list(similar_cases or [])[:5],
         'one_liner': '',
     }
+    # Main-force and theme fields remain explainability evidence only. They are
+    # deliberately excluded from the production ranking owner.
+    card['announcements'] = _announcement_bullets(row)
+    card['news'] = _news_bullets(row)
+    card['fund_flow'] = _fund_bullets(row)
+    card['main_theme'] = _theme_bullets(row)
     theme_bits = []
     if card['main_theme']:
         theme_bits.append(card['main_theme'][0])
@@ -257,7 +260,7 @@ def build_compact_evidence_card(
     risk_bits = card['risks'][:1]
     parts = [f"{symbol} {name}".strip()]
     if score is not None:
-        parts.append(f'综合分数：{score:.2f}')
+        parts.append(f'可交易优势：{score:.4f}')
     parts.extend(theme_bits)
     parts.extend(fund_bits)
     parts.extend(profit_bits)

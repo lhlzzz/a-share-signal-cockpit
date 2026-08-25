@@ -249,7 +249,7 @@ def test_leader_chain_and_soft_invalid_in_formal_sort():
     with_boost['similar_cases_boost'] = 0.3
     key_boosted = formal_candidate_sort_key(with_boost)
     assert key_boosted[0] >= key[0]
-    # Similar-loss soft demotion must lower primary/secondary dims vs baseline.
+    # Historical similarity remains diagnostic-only and cannot alter formal rank.
     with_loss = dict(filled)
     with_loss['similar_cases_boost'] = -0.35
     with_loss['similar_cases_meta'] = {
@@ -261,8 +261,7 @@ def test_leader_chain_and_soft_invalid_in_formal_sort():
         'force_pick': False,
     }
     key_loss = formal_candidate_sort_key(with_loss)
-    assert key_loss[0] < key[0]
-    assert key_loss[1] <= key[1]
+    assert key_loss == key
 
     invalid_mainline = dict(filled)
     invalid_mainline['ranking_adjustment_detail'] = {

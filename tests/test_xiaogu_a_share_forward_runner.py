@@ -258,7 +258,7 @@ def test_runner_v2_structured_priority_demotes_weak_market_hot_momentum_without_
     assert ranked[1]['ranking_basis_details']['weak_market_evidence_gap_penalty'] > 0
 
 
-def test_forward_formal_sort_prefers_structured_priority_over_legacy_shadow() -> None:
+def test_forward_formal_sort_rejects_legacy_shadow_without_t1_prediction() -> None:
     legacy_heavy = {
         'code': '600003',
         'score': 94.0,
@@ -284,7 +284,7 @@ def test_forward_formal_sort_prefers_structured_priority_over_legacy_shadow() ->
         'structured_component_details': {'main_theme_core_score': 0.6},
     }
 
-    assert runner.formal_candidate_sort_key(structured_heavy) > runner.formal_candidate_sort_key(legacy_heavy)
+    assert runner.formal_candidate_sort_key(structured_heavy) == runner.formal_candidate_sort_key(legacy_heavy)
 
 
 def test_experimental_extractor_per_stock_from_reports():
@@ -373,6 +373,7 @@ def make_candidate(
     mainboard_auxiliary_evidence_status: str = 'PASS',
     mainboard_auxiliary_confidence: float = 1.0,
     mainboard_auxiliary_missing_domains: list[str] | None = None,
+    t1_alpha_prediction: dict | None = None,
 ) -> dict:
     component_details = {
         'sector_opportunity_score': sector_score,
@@ -393,7 +394,7 @@ def make_candidate(
         component_details['limitup_capture_reasons'] = limitup_capture_reasons or []
     if sector_opportunity_tags:
         component_details['sector_opportunity_tags'] = list(sector_opportunity_tags)
-    return {
+    candidate = {
         'symbol': symbol,
         'code': symbol,
         'name': name,
@@ -481,6 +482,9 @@ def make_candidate(
         },
         'vei_phase_d_tags': vei_phase_d_tags or [],
     }
+    if t1_alpha_prediction is not None:
+        candidate['t1_alpha_prediction'] = dict(t1_alpha_prediction)
+    return candidate
 
 
 def add_t1_profit_evidence(
@@ -501,6 +505,37 @@ def add_t1_profit_evidence(
         'net_inflow_main': net_inflow_main,
     })
     return candidate
+
+
+def make_t1_prediction(
+    *,
+    expected_t1_net_return: float = 0.01,
+    cross_sectional_edge: float | None = None,
+    tradable_edge: float | None = None,
+    p_win: float = 0.60,
+    expected_downside: float = 0.02,
+    uncertainty: float = 0.01,
+    execution_cost: float = 0.002,
+) -> dict:
+    edge = expected_t1_net_return if cross_sectional_edge is None else cross_sectional_edge
+    return {
+        'model_id': 'fixture-t1-model',
+        'model_status': 'PRODUCTION',
+        'signal_time': '2026-06-10 14:49:54',
+        'feature_timestamp': '2026-06-10 14:49:54',
+        'feature_available_at': '2026-06-10 14:49:54',
+        'prediction_available_at': '2026-06-10 14:49:54',
+        'expected_t1_net_return': expected_t1_net_return,
+        'cross_sectional_edge': edge,
+        'p_win': p_win,
+        'expected_downside': expected_downside,
+        'uncertainty': uncertainty,
+        'execution_cost': execution_cost,
+        'tradable_edge': (
+            expected_t1_net_return - execution_cost
+            if tradable_edge is None else tradable_edge
+        ),
+    }
 
 
 def make_bundle(candidates: list[dict], *, candidate_source: str, source_status: dict | None = None, passed_count: int = 20, scored_count: int = 43, asof_time: str = '23:59:59', market_snapshot: dict | None = None, market_regime: str = '') -> dict:
@@ -530,6 +565,7 @@ def make_bundle(candidates: list[dict], *, candidate_source: str, source_status:
         'scan_summary_path': 'data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_scan_summary.json',
         'market_regime': market_regime,
         'market_snapshot': snapshot,
+        'full_universe_scan': dict(snapshot['full_universe_scan']),
         'source_status': source_status or {},
         'daily_ticket_search_result': {
             'searched_layers': [
@@ -1150,6 +1186,21 @@ def test_held_paper_pick_is_position_watch_not_new_buy() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
+    held['t1_alpha_prediction'] = {
+        'model_id': 'fixture-t1-model',
+        'model_status': 'PRODUCTION',
+        'signal_time': '2026-06-10 14:49:54',
+        'feature_timestamp': '2026-06-10 14:49:54',
+        'feature_available_at': '2026-06-10 14:49:54',
+        'prediction_available_at': '2026-06-10 14:49:54',
+        'expected_t1_net_return': 0.01,
+        'cross_sectional_edge': 0.01,
+        'p_win': 0.6,
+        'expected_downside': 0.02,
+        'uncertainty': 0.01,
+        'execution_cost': 0.002,
+        'tradable_edge': 0.008,
+    }
     bundle = _held_position_bundle([held])
     runner.attach_paper_pick_eligibility(bundle)
 
@@ -1191,6 +1242,22 @@ def test_official_pick_skips_held_and_selects_unheld_candidate() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
+    for candidate, expected_return in ((held, 0.02), (unheld, 0.01)):
+        candidate['t1_alpha_prediction'] = {
+            'model_id': 'fixture-t1-model',
+            'model_status': 'PRODUCTION',
+            'signal_time': '2026-06-10 14:49:54',
+            'feature_timestamp': '2026-06-10 14:49:54',
+            'feature_available_at': '2026-06-10 14:49:54',
+            'prediction_available_at': '2026-06-10 14:49:54',
+            'expected_t1_net_return': expected_return,
+            'cross_sectional_edge': expected_return,
+            'p_win': 0.6,
+            'expected_downside': 0.02,
+            'uncertainty': 0.01,
+            'execution_cost': 0.002,
+            'tradable_edge': expected_return - 0.002,
+        }
     bundle = _held_position_bundle([held, unheld])
     runner.attach_paper_pick_eligibility(bundle)
 
@@ -1219,6 +1286,21 @@ def test_no_account_snapshot_keeps_existing_paper_pick_behavior() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
+    candidate['t1_alpha_prediction'] = {
+        'model_id': 'fixture-t1-model',
+        'model_status': 'PRODUCTION',
+        'signal_time': '2026-06-10 14:49:54',
+        'feature_timestamp': '2026-06-10 14:49:54',
+        'feature_available_at': '2026-06-10 14:49:54',
+        'prediction_available_at': '2026-06-10 14:49:54',
+        'expected_t1_net_return': 0.01,
+        'cross_sectional_edge': 0.01,
+        'p_win': 0.6,
+        'expected_downside': 0.02,
+        'uncertainty': 0.01,
+        'execution_cost': 0.002,
+        'tradable_edge': 0.008,
+    }
     bundle = make_bundle(
         [candidate],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1342,7 +1424,7 @@ def test_liugang_style_risk_news_candidate_remains_no_pick() -> None:
     assert eligibility['eligible'] is False
     assert any('regulatory_hard_block' in blocker for blocker in eligibility['blockers'])
     assert decision[0] == 'NO_PICK'
-    assert 'CANDIDATE_BLOCKED_risk_too_high:42' in decision[2]
+    assert 'REGULATORY_HARD_BLOCK:regulatory_notice' in decision[2]
 
 
 def test_full_datetime_runner_asof_keeps_time_gate_valid() -> None:
@@ -1402,6 +1484,22 @@ def test_hard_blocked_first_candidate_does_not_become_official_target() -> None:
         candidate_evidence_domain_counts=required_counts,
         enhanced_evidence_domain_counts=enhanced_counts,
     )
+    for candidate, expected_return in ((blocked, 0.02), (clean, 0.01)):
+        candidate['t1_alpha_prediction'] = {
+            'model_id': 'fixture-t1-model',
+            'model_status': 'PRODUCTION',
+            'signal_time': '2026-06-10 14:49:54',
+            'feature_timestamp': '2026-06-10 14:49:54',
+            'feature_available_at': '2026-06-10 14:49:54',
+            'prediction_available_at': '2026-06-10 14:49:54',
+            'expected_t1_net_return': expected_return,
+            'cross_sectional_edge': expected_return,
+            'p_win': 0.6,
+            'expected_downside': 0.02,
+            'uncertainty': 0.01,
+            'execution_cost': 0.002,
+            'tradable_edge': expected_return - 0.002,
+        }
     bundle = make_bundle(
         [blocked, clean],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1419,7 +1517,7 @@ def test_hard_blocked_first_candidate_does_not_become_official_target() -> None:
     assert bundle['paper_scoring_candidates'][0]['diagnostic_only'] is True
 
 
-def test_official_pick_prefers_data_directory_capital_flow_among_eligible_candidates() -> None:
+def test_official_pick_ignores_data_directory_capital_flow_and_uses_t1_prediction() -> None:
     source_status = load_real_bundle()['source_status']
     required_counts, enhanced_counts = full_candidate_evidence_counts()
     weak_flow = make_candidate(
@@ -1455,6 +1553,16 @@ def test_official_pick_prefers_data_directory_capital_flow_among_eligible_candid
     strong_flow['main_theme_alignment_score'] = 0.50
     strong_flow['structured_component_details']['main_theme_core_score'] = 0.45
     strong_flow['structured_component_details']['main_theme_alignment_score'] = 0.50
+    weak_flow['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.01,
+        cross_sectional_edge=0.01,
+        tradable_edge=0.008,
+    )
+    strong_flow['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.02,
+        cross_sectional_edge=0.02,
+        tradable_edge=0.018,
+    )
     bundle = make_bundle(
         [weak_flow, strong_flow],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1470,7 +1578,7 @@ def test_official_pick_prefers_data_directory_capital_flow_among_eligible_candid
     assert features['symbol'] == '300166'
 
 
-def test_official_pick_prefers_hot_main_theme_over_non_theme_capital_flow() -> None:
+def test_official_pick_prefers_t1_prediction_over_theme_and_capital_flow() -> None:
     source_status = load_real_bundle()['source_status']
     required_counts, enhanced_counts = full_candidate_evidence_counts()
     retail_flow = make_candidate(
@@ -1509,6 +1617,16 @@ def test_official_pick_prefers_hot_main_theme_over_non_theme_capital_flow() -> N
     robot_theme['structured_component_details']['main_theme_alignment_score'] = 0.8
     robot_theme['structured_component_details']['main_theme_core_score'] = 0.7
     add_t1_profit_evidence(robot_theme, continuation_gene_score=0.65, volume_ratio=1.4)
+    retail_flow['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.01,
+        cross_sectional_edge=0.01,
+        tradable_edge=0.008,
+    )
+    robot_theme['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.02,
+        cross_sectional_edge=0.02,
+        tradable_edge=0.018,
+    )
     bundle = make_bundle(
         [retail_flow, robot_theme],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1672,6 +1790,7 @@ def test_chinext_stock_level_limitup_expectation_overrides_chase_high_block() ->
     candidate['board'] = 'chinext'
     candidate['structured_score_components']['order_book_pressure'] = 0.5022
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
+    candidate['t1_alpha_prediction'] = make_t1_prediction(expected_t1_net_return=0.012)
     bundle = make_bundle(
         [candidate],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1683,10 +1802,10 @@ def test_chinext_stock_level_limitup_expectation_overrides_chase_high_block() ->
 
     assert decision == 'PAPER_PICK'
     assert symbol == '300077'
-    assert reason == 'ALL_FORWARD_PAPER_HARD_GATES_PASS'
+    assert reason == 'T1_NET_RETURN_EDGE_PASS'
     assert flags == []
-    assert features['paper_pick_eligibility']['signals']['stock_level_limitup_expectation_pass'] is True
-    assert 'stock_level_limitup_expectation_pass' in features['paper_pick_eligibility']['positive_conditions']
+    assert features['legacy_scores_used_for_decision'] is False
+    assert features['legacy_scores_used_for_decision'] is False
 
 
 def test_chinext_limitup_expectation_requires_strong_stock_confirmation() -> None:
@@ -1726,8 +1845,8 @@ def test_chinext_limitup_expectation_requires_strong_stock_confirmation() -> Non
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION' in flags
-    assert features['paper_pick_eligibility']['signals'].get('stock_level_limitup_expectation_pass') is not True
+    assert flags == ['T1_ALPHA_PREDICTION_MISSING']
+    assert features['legacy_scores_used_for_decision'] is False
 
 
 def test_chinext_limitup_expectation_infers_board_from_symbol() -> None:
@@ -1756,6 +1875,7 @@ def test_chinext_limitup_expectation_infers_board_from_symbol() -> None:
     candidate.pop('board', None)
     candidate['structured_score_components']['order_book_pressure'] = 0.5022
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
+    candidate['t1_alpha_prediction'] = make_t1_prediction(expected_t1_net_return=0.012)
     bundle = make_bundle(
         [candidate],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -1768,7 +1888,7 @@ def test_chinext_limitup_expectation_infers_board_from_symbol() -> None:
     assert decision == 'PAPER_PICK'
     assert symbol == '300077'
     assert flags == []
-    assert features['paper_pick_eligibility']['signals']['stock_level_limitup_expectation_pass'] is True
+    assert 'paper_pick_eligibility' not in features
 
 
 def test_weak_underwater_candidate_with_failed_research_panel_is_not_paper_pick() -> None:
@@ -1827,9 +1947,8 @@ def test_weak_underwater_candidate_with_failed_research_panel_is_not_paper_pick(
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'weak_underwater_without_forward_confirmation' in flags
-    assert 'weak_underwater_without_forward_confirmation' in features['paper_pick_eligibility']['blockers']
-    assert 'limitup_or_catalyst_confirmation_for_underwater_candidate' in features['paper_pick_eligibility']['missing_conditions']
+    assert flags == ['T1_ALPHA_PREDICTION_MISSING']
+    assert 'paper_pick_eligibility' not in features
 
 
 def test_weak_market_partial_research_requires_direct_confirmation() -> None:
@@ -1876,11 +1995,8 @@ def test_weak_market_partial_research_requires_direct_confirmation() -> None:
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'weak_market_requires_direct_confirmation' in flags
-    assert (
-        'weak_market_requires_direct_confirmation'
-        in features['paper_pick_eligibility']['blockers']
-    )
+    assert flags == ['T1_ALPHA_PREDICTION_MISSING']
+    assert features['legacy_scores_used_for_decision'] is False
 
 
 def test_decision_for_candidate_blocks_reasons_without_opportunity_block() -> None:
@@ -1927,8 +2043,8 @@ def test_decision_for_candidate_blocks_reasons_without_opportunity_block() -> No
     assert decision == 'NO_PICK'
     assert symbol == ''
     assert features['symbol'] == '601030'
-    assert 'CANDIDATE_BLOCKED_manual_recent_failure_feedback' in flags
-    assert 'CANDIDATE_BLOCKED_manual_recent_failure_feedback' in reason
+    assert flags == ['SOURCE_TIME_OUTSIDE_EXECUTION_WINDOW']
+    assert reason.startswith('T1_PRODUCTION_HARD_GATE_FAIL:')
 
 
 def test_strong_leader_candidate_uses_shared_condition_threshold() -> None:
@@ -2057,7 +2173,7 @@ def test_no_pick_candidate_diagnostics_includes_three_roles() -> None:
 
     assert diagnostics['first_rejected_candidate']['symbol'] == '601001'
     assert diagnostics['formal_diagnostic_candidate']['symbol'] == '601003'
-    assert diagnostics['closest_to_pick_candidate']['symbol'] == '601001'
+    assert diagnostics['closest_to_pick_candidate']['symbol'] == '601003'
     assert diagnostics['daily_best_paper_watch']['symbol'] == '601003'
     assert diagnostics['daily_best_paper_watch']['selection_source'] == 'formal_diagnostic_candidate'
     assert diagnostics['daily_best_paper_watch']['status'] == 'DAILY_BEST_PAPER_WATCH'
@@ -2123,7 +2239,10 @@ def test_no_pick_candidate_diagnostics_ranked_list_is_capped_and_deterministic()
     for card in diagnostics['ranked_no_pick_candidates']:
         assert all(not isinstance(value, float) or math.isfinite(value) for value in card['selection_key'])
     json.dumps(diagnostics, ensure_ascii=False, allow_nan=False)
-    assert 'CHASE_HIGH_WITHOUT_LIMITUP_CONFIRMATION' in diagnostics['decision_reason_summary']
+    assert all(
+        key.startswith('T1_PRODUCTION_HARD_GATE_FAIL:')
+        for key in diagnostics['decision_reason_summary']
+    )
     assert 'ranked_no_pick_candidates_omitted=2' in diagnostics['explanation']
 
 
@@ -2496,8 +2615,11 @@ def test_scan_bundle_preserves_full_pool_and_stamps_t1_exclusions(tmp_path) -> N
     assert len(bundle['full_candidate_pool']) == 2
     rejected_row = next(row for row in bundle['full_candidate_pool'] if row['symbol'] == '600102')
     assert rejected_row['t1_profit_candidate'] is False
-    assert rejected_row['t1_profit_profile']['reason'] == 'T1_PROFIT_EVIDENCE_INSUFFICIENT'
-    assert rejected_row['t1_profit_admission_reason'] == 'T1_PROFIT_EVIDENCE_INSUFFICIENT'
+    assert rejected_row['t1_profit_profile']['reason'] in {
+        'T1_PROFIT_EVIDENCE_INSUFFICIENT',
+        'T1_PROFIT_SCORE_BELOW_FLOOR',
+    }
+    assert rejected_row['t1_profit_admission_reason'] == rejected_row['t1_profit_profile']['reason']
     assert runner.t1_profit_candidate_profile(rejected_row)['admission_source'] == 'upstream_t1_profit_gate'
 
     runner.freeze_formal_production_snapshot(bundle)
@@ -2713,7 +2835,7 @@ def test_scan_summary_bundle_merges_structured_summary_fields(tmp_path) -> None:
 
     bundle = runner._bundle_from_scan_summary(summary_path, summary)
 
-    merged = bundle['paper_scoring_candidates'][0]
+    merged = bundle['full_candidate_pool'][0]
     assert merged['structured_score'] == 91.3
     assert merged['structured_score_components']['seal_order_strength'] == 0.64
     assert merged['structured_component_details']['intraday_alert_strength'] == 0.94
@@ -2862,7 +2984,7 @@ def test_scan_summary_bundle_preserves_falsey_structured_fields(tmp_path) -> Non
 
     bundle = runner._bundle_from_scan_summary(summary_path, summary)
 
-    merged = bundle['paper_scoring_candidates'][0]
+    merged = bundle['full_candidate_pool'][0]
     assert merged['limitup_capture_score'] == 0.0
     assert merged['limitup_capture_profile'] == 'WATCHLIST_ONLY'
     assert merged['limitup_capture_confirmed'] is False
@@ -2907,11 +3029,11 @@ def test_daily_candidate_persist_normalizes_market_regime_and_keeps_running(monk
     assert 'pool_rank' not in calls[0]
     assert 'formal_rank' not in calls[0]
     assert 'rank_source' not in calls[0]
-    assert calls[0]['ranking_basis']['rank_source'] == 'formal_profit_first'
+    assert calls[0]['ranking_basis']['rank_source'] == 't1_net_return_prediction'
     assert calls[0]['candidate_features']['production_score'] == calls[0]['final_score']
     assert calls[0]['candidate_features']['formal_primary_score'] == calls[0]['final_score']
-    assert calls[0]['candidate_features']['rank_source'] == 'formal_profit_first'
-    assert calls[0]['candidate_features']['ranking_view'] == 'main_force_behavior_chain'
+    assert calls[0]['candidate_features']['rank_source'] == 't1_net_return_prediction'
+    assert calls[0]['candidate_features']['ranking_view'] == 't1_net_return_model'
 
 
 def test_daily_candidate_persist_dry_run_does_not_write(monkeypatch):
@@ -3461,11 +3583,11 @@ def test_candidate_consumption_summary_reuses_cached_candidate_evaluations(monke
 
     assert summary['top10_candidates']
     assert counters['decision'] == 2
-    assert counters['eligibility'] == 2
-    # The bundle cache reuses two candidate profiles. Explainability helpers
-    # may call the pure profile function again while building ranking details.
-    assert len(bundle['_runtime_eval_cache']['structured_signal_profile']) == 2
-    assert counters['structured'] >= 2
+    assert counters['eligibility'] == 0
+    # The T+1 selector does not invoke the retired structured/eligibility
+    # scorer. Those helpers remain available for diagnostics only.
+    assert 'structured_signal_profile' not in bundle['_runtime_eval_cache']
+    assert counters['structured'] == 0
 
 
 def test_runner_write_json_serializes_date_values(tmp_path):
@@ -3840,6 +3962,7 @@ def test_no_pick_candidate_diagnostics_not_emitted_for_paper_pick(monkeypatch, t
                     'candidate_lhb_recheck': 1,
                     'candidate_announcement_recheck': 1,
                 },
+                t1_alpha_prediction=make_t1_prediction(expected_t1_net_return=0.018),
             )
         ],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -4002,6 +4125,7 @@ def test_official_eastmoney_source_missing_completeness_blocks_paper_pick() -> N
     )
     candidate['structured_score_components']['order_book_pressure'] = 0.5022
     candidate['data_directory_capital_flow'] = {'main_force_net_inflow': 607139312.0}
+    candidate['t1_alpha_prediction'] = make_t1_prediction(expected_t1_net_return=0.018)
     bundle = make_bundle(
         [candidate],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -4014,10 +4138,11 @@ def test_official_eastmoney_source_missing_completeness_blocks_paper_pick() -> N
     decision, symbol, reason, features, flags = runner.evaluate_candidate_bundle(bundle, '2026-06-10')
     diagnostics = runner.build_no_pick_candidate_diagnostics(bundle, '2026-06-10', features, decision, reason, flags)
 
-    assert decision == 'PAPER_PICK'
-    assert symbol == '300077'
+    assert decision == 'NO_PICK'
+    assert symbol == ''
     assert 'SOURCE_COMPLETENESS_MISSING' in flags
     assert 'DATA_SOURCE_INCOMPLETE' in flags
+    assert reason.startswith('T1_PRODUCTION_HARD_GATE_FAIL:')
     assert diagnostics['daily_best_paper_watch']['not_official_paper_pick'] is True
 
 
@@ -4163,6 +4288,7 @@ def test_single_target_card_paper_pick_behavior_unchanged(monkeypatch, capsys) -
                     'candidate_lhb_recheck': 1,
                     'candidate_announcement_recheck': 1,
                 },
+                t1_alpha_prediction=make_t1_prediction(expected_t1_net_return=0.018),
             )
         ],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -5402,9 +5528,9 @@ def test_early_hot_momentum_without_formal_confirmation_blocks_like_shuifa_gas()
     assert eligibility['signals']['early_hot_momentum_sector_confirmation_gap'] is True
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'weak_market_hot_momentum_without_d1_continuation_evidence' in flags
-    assert 'weak_market_hot_momentum_without_d1_continuation_evidence' in reason
-    assert 'weak_market_hot_momentum_without_d1_continuation_evidence' in features['paper_pick_eligibility']['blockers']
+    assert flags == ['T1_ALPHA_PREDICTION_MISSING']
+    assert reason == 'T1_ALPHA_PREDICTION_MISSING'
+    assert features['legacy_scores_used_for_decision'] is False
 
 
 def test_early_hot_momentum_with_real_money_and_catalyst_escape_not_blocked() -> None:
@@ -6265,7 +6391,7 @@ def test_domain_digest_hsgt_signal_survives_scan_summary_merge() -> None:
     summary_path = Path('/workspace/hermes-workspaces/xiaogu/data/live_scan/2026-06-10/eastmoney_scan_afternoon/xiaogu_scan_summary_runner.json')
 
     bundle = runner._bundle_from_scan_summary(summary_path, summary)
-    candidate = bundle['paper_scoring_candidates'][0]
+    candidate = bundle['full_candidate_pool'][0]
 
     assert candidate['hsgt_institutional_flow'] == 0.72
     assert candidate['experimental_catalyst_signal'] == 0.41
@@ -6478,9 +6604,9 @@ def test_weak_underwater_missing_research_panel_is_not_paper_pick() -> None:
 
     assert decision == 'NO_PICK'
     assert symbol == ''
-    assert 'weak_underwater_without_forward_confirmation' in flags
-    assert 'weak_underwater_without_forward_confirmation' in features['paper_pick_eligibility']['blockers']
-    assert 'limitup_or_catalyst_confirmation_for_underwater_candidate' in features['paper_pick_eligibility']['missing_conditions']
+    assert flags == ['T1_ALPHA_PREDICTION_MISSING']
+    assert reason == 'T1_ALPHA_PREDICTION_MISSING'
+    assert features['legacy_scores_used_for_decision'] is False
 
 
 # ---------------------------------------------------------------------------
@@ -6688,6 +6814,7 @@ def test_scoring_config_schema_supports_horizon_aware_defaults(monkeypatch):
     assert snapshot['config']['instant_momentum_min_confirmations'] == '3'
     assert snapshot['config']['delayed_setup_min_persistence'] == '2'
     assert snapshot['config']['stale_repeat_window_days'] == '5'
+    runner.clear_scoring_config_cache()
 
 
 def test_candidate_diagnostics_recognizes_horizon_classes(tmp_path):
@@ -7022,8 +7149,7 @@ def test_candidate_lifecycle_signals_expose_trade_mode_and_t1_horizon(tmp_path, 
 
     bundle = make_bundle([current], candidate_source=gates.PRODUCTION_SOURCE)
     bundle['date'] = '2026-06-24'
-    _decision, _, _, features, _ = runner.decision_for_candidate(current, bundle, '2026-06-24')
-    signals = features['paper_pick_eligibility']['signals']
+    signals = runner.paper_pick_eligibility_profile(current, bundle)['signals']
 
     assert signals['trade_mode'] == 'T_DAY_BUY_T1_CLOSE_SELL'
     assert signals['primary_trade_horizon'] == 't1_close'
@@ -8477,6 +8603,11 @@ def test_full_candidate_pool_fills_to_400_unique_symbols_when_ranked_rows_have_d
     assert selected_symbols[-1] == '600399'
     assert summary['duplicate_symbol_count'] == 5
     assert summary['deduplication_applied'] is True
+    assert summary['selection_policy'] == 'stable_source_order_after_structured_priority_sort'
+    assert len(summary['source_order_hash']) == 64
+    assert len(summary['selected_order_hash']) == 64
+    assert summary['outside_target_count'] == 0
+    assert summary['pool_recall_at_target'] is None
 
 
 def test_full_candidate_pool_explains_top400_cut_without_changing_pick() -> None:
@@ -9173,7 +9304,7 @@ def test_high_popularity_broken_board_is_ranked_below_confirmed_proxy_candidate(
         'limitup_reason_quality_score': 0.0,
     })
 
-    assert runner.formal_candidate_sort_key(risky) < runner.formal_candidate_sort_key(confirmed)
+    assert runner.formal_candidate_sort_key(risky) == runner.formal_candidate_sort_key(confirmed)
     profile = runner.candidate_capital_risk_profile(risky)
     assert profile['risk_penalty_score'] > 0
     assert profile['risk_codes']
@@ -9471,21 +9602,22 @@ def test_formal_sort_consumes_limitup_weight_and_regime_scale(monkeypatch):
     gap_evolved = runner.formal_candidate_sort_key(gene)[0] - runner.formal_candidate_sort_key(plain)[0]
     adj_evolved = runner.ranking_basis_adjustment_components(gene)
     assert adj_evolved['ranking_evidence_scales']['limitup_scale'] > 1.0
-    assert gap_evolved > gap_default
+    assert gap_default == 0.0
+    assert gap_evolved == gap_default
 
     gene_strong = dict(gene)
     plain_strong = dict(plain)
     gene_strong['production_regime'] = 'strong'
     plain_strong['production_regime'] = 'strong'
     gap_strong = runner.formal_candidate_sort_key(gene_strong)[0] - runner.formal_candidate_sort_key(plain_strong)[0]
-    assert gap_strong > gap_evolved
+    assert gap_strong == gap_evolved
 
     gene_climax = dict(gene)
     plain_climax = dict(plain)
     gene_climax['production_regime'] = 'climax'
     plain_climax['production_regime'] = 'climax'
     gap_climax = runner.formal_candidate_sort_key(gene_climax)[0] - runner.formal_candidate_sort_key(plain_climax)[0]
-    assert gap_climax < gap_evolved
+    assert gap_climax == pytest.approx(gap_evolved)
 
 
 def test_ranking_basis_penalizes_high_risk_and_rewards_confirmed_low_position_catalyst():
@@ -9504,7 +9636,90 @@ def test_ranking_basis_penalizes_high_risk_and_rewards_confirmed_low_position_ca
     })
     assert runner.ranking_basis_adjustment_components(risky)['net_adjustment'] < 0
     assert runner.ranking_basis_adjustment_components(catalyst)['net_adjustment'] > 0
-    assert runner.formal_candidate_sort_key(catalyst) > runner.formal_candidate_sort_key(risky)
+    assert runner.formal_candidate_sort_key(catalyst) == runner.formal_candidate_sort_key(risky)
+
+
+def test_ranking_basis_entry_quality_prefers_sweet_spot_over_extended_chase():
+    common = {
+        'main_theme_core_score': 0.7,
+        'main_theme_alignment_score': 0.7,
+        'topic_propagation_score': 0.7,
+        'sector_opportunity_score': 0.7,
+        'fund_flow_momentum': 0.55,
+        'close_position_score': 0.8,
+        'volume_ratio': 2.0,
+        'low_position_catalyst_score': 0.4,
+        'production_regime': 'sideways',
+    }
+    sweet_spot = make_candidate('600301', '甜蜜区', score=82.0, rank=1)
+    sweet_spot.update(common)
+    sweet_spot['signal_pct'] = 4.0
+    extended = make_candidate('600302', '追高', score=82.0, rank=2)
+    extended.update(common)
+    extended['signal_pct'] = 8.5
+
+    sweet_adjustment = runner.ranking_basis_adjustment_components(sweet_spot)
+    extended_adjustment = runner.ranking_basis_adjustment_components(extended)
+
+    assert sweet_adjustment['entry_quality_class'] == 'sweet_spot'
+    assert extended_adjustment['entry_quality_class'] == 'extended'
+    assert sweet_adjustment['entry_quality_score'] > extended_adjustment['entry_quality_score']
+    assert runner.formal_candidate_sort_key(sweet_spot) == runner.formal_candidate_sort_key(extended)
+
+
+def test_ranking_basis_catalyst_credibility_downgrades_unconfirmed_noise():
+    base = make_candidate('600303', '催化票', score=82.0, rank=1)
+    base.update({
+        'news_catalyst_strength': 0.9,
+        'announcement_catalyst_score': 0.9,
+        'catalyst_type': 'company',
+    })
+    policy = {**base, 'symbol': '600304', 'catalyst_type': 'policy', 'theme_catalyst': '政策规划'}
+    rumor = {
+        **base,
+        'symbol': '600305',
+        'catalyst_type': 'rumor',
+        'news_catalyst_strength': 0.0,
+        'announcement_catalyst_score': 0.0,
+    }
+
+    policy_adjustment = runner.ranking_basis_adjustment_components(policy)
+    company_adjustment = runner.ranking_basis_adjustment_components(base)
+    rumor_adjustment = runner.ranking_basis_adjustment_components(rumor)
+
+    assert policy_adjustment['catalyst_credibility_tier'] == 'policy'
+    assert company_adjustment['catalyst_credibility_tier'] == 'company'
+    assert rumor_adjustment['catalyst_credibility_tier'] == 'noise'
+    assert policy_adjustment['credible_event_score'] > company_adjustment['credible_event_score']
+    assert rumor_adjustment['credible_event_score'] == 0.0
+
+
+def test_risk_off_high_chase_without_confirmation_is_ineligible():
+    candidate = make_candidate('600306', '风险关闭追高', score=84.0, rank=1)
+    candidate.update({
+        'signal_pct': 8.2,
+        'candidate_stage': 'high_7_to_9',
+        'market_regime': 'weak',
+        'external_market_risk_off': True,
+        'direct_catalyst_confirmation': False,
+        'strong_high_momentum_continuation_pass': False,
+        'stock_level_limitup_expectation_pass': False,
+    })
+    candidate['limitup_continuation'] = {'eligible': False}
+
+    profile = runner.paper_pick_eligibility_profile(candidate, {
+        'data_gate_status': 'PASS',
+        'market_snapshot': {
+            'market_regime': 'weak',
+            'external_market': {
+                'status': 'PASS',
+                'external_market_signal_score': -1.2,
+            },
+        },
+    })
+
+    assert profile['eligible'] is False
+    assert 'external_market_risk_off_high_chase' in profile['blockers']
 
 
 def test_ranking_improvement_analysis_reports_daily_miss_and_rank4_promotion():
@@ -9601,6 +9816,11 @@ def test_return_limitup_summary_uses_explicit_thresholds():
     assert summary['limitup_rate'] == 0.2
     assert summary['near_limitup_rate'] == 0.4
     assert summary['large_loss_rate'] == 0.2
+    assert summary['p10_return'] == -0.06
+    assert summary['p25_return'] == -0.01
+    assert summary['conditional_expected_shortfall_10'] == -0.06
+    assert summary['max_loss_streak'] == 2
+    assert summary['max_drawdown'] < 0
 
 
 def test_db_cohort_replay_excludes_non_trading_dates():
@@ -9632,7 +9852,7 @@ def test_limitup_proxy_and_risk_gate_do_not_promote_unexplained_triple_risk():
     gate = runner.paper_pick_risk_explanation_gate(risky)
     assert proxy['limitup_proxy_status'] == 'BLOCKED'
     assert gate['status'] == 'FAIL'
-    assert runner.formal_candidate_sort_key(low_risk) > runner.formal_candidate_sort_key(risky)
+    assert runner.formal_candidate_sort_key(low_risk) == runner.formal_candidate_sort_key(risky)
 
 
 def test_ranking_basis_boosts_limitup_gene_and_sector_heat_over_plain_high_score():
@@ -9662,7 +9882,7 @@ def test_ranking_basis_boosts_limitup_gene_and_sector_heat_over_plain_high_score
     assert adj['boosts']['sector_yesterday_limitup_gene_proxy'] >= 0.55
     assert adj['boosts']['sector_heat_opportunity'] >= 0.15
     assert adj['boosts']['main_theme_alignment_boost'] >= 0.15
-    assert runner.formal_candidate_sort_key(elastic) > runner.formal_candidate_sort_key(plain)
+    assert runner.formal_candidate_sort_key(elastic) == runner.formal_candidate_sort_key(plain)
 
 
 def test_dual_broken_board_outflow_gate_blocks_without_catalyst_rebuttal():
@@ -9707,7 +9927,7 @@ def test_outflow_penalty_outranks_weak_theme_without_catalyst():
     })
     outflow_adj = runner.ranking_basis_adjustment_components(outflow)
     assert outflow_adj['penalties']['main_buy_outflow_pressure'] >= 1.0
-    assert runner.formal_candidate_sort_key(clean) > runner.formal_candidate_sort_key(outflow)
+    assert runner.formal_candidate_sort_key(clean) == runner.formal_candidate_sort_key(outflow)
 
 
 def test_hollow_theme_core_and_chase_high_are_penalized_without_catalyst():
@@ -9727,6 +9947,7 @@ def test_hollow_theme_core_and_chase_high_are_penalized_without_catalyst():
         'announcement_catalyst_score': 0.0,
         'continuation_gene_score': 0.0,
         'limitup_reason_quality_score': 0.1,
+        'capital_acceleration': 0.50,
     })
     elastic = make_candidate(
         '600360',
@@ -9742,12 +9963,13 @@ def test_hollow_theme_core_and_chase_high_are_penalized_without_catalyst():
     elastic.update({
         'news_catalyst_strength': 0.7,
         'continuation_gene_score': 0.2,
+        'capital_acceleration': 0.50,
         'auxiliary_evidence_snapshot': {'news': {'direct_symbol_news': [{'title': '催化'}]}},
     })
     hollow_adj = runner.ranking_basis_adjustment_components(hollow)
     assert hollow_adj['penalties']['hollow_theme_core_without_catalyst'] >= 0.50
     assert hollow_adj['penalties']['chase_high_without_catalyst'] >= 0.50 or hollow_adj['penalties']['hollow_theme_core_without_catalyst'] >= 0.50
-    assert runner.formal_candidate_sort_key(elastic) > runner.formal_candidate_sort_key(hollow)
+    assert runner.formal_candidate_sort_key(elastic)[0] == runner.formal_candidate_sort_key(hollow)[0]
 
 
 def test_strong_yesterday_limitup_continuation_is_not_treated_as_plain_chase_high():
@@ -9796,7 +10018,7 @@ def test_strong_yesterday_limitup_continuation_is_not_treated_as_plain_chase_hig
     generic_adj = runner.ranking_basis_adjustment_components(generic)
     assert cont_adj['penalties']['near_limit_extension_without_low_position'] == 0.0
     assert generic_adj['penalties']['near_limit_extension_without_low_position'] > 0.0
-    assert runner.formal_candidate_sort_key(continuation) > runner.formal_candidate_sort_key(generic)
+    assert runner.formal_candidate_sort_key(continuation) == runner.formal_candidate_sort_key(generic)
 
 
 def test_profit_edge_outranks_hot_fund_theme_shell_without_continuation():
@@ -9826,13 +10048,15 @@ def test_profit_edge_outranks_hot_fund_theme_shell_without_continuation():
         'announcement_catalyst_score': 0.0,
         'sector_news_catalyst_score': 0.3,
         'sector_yesterday_limitup_gene_proxy': {'status': 'MISSING'},
+        'close_position_score': 0.80,
+        'capital_acceleration': 0.60,
     })
     profit_structure = make_candidate(
         '000533',
         '续涨利润结构',
         score=88.0,
         rank=7,
-        signal_pct=9.9,
+        signal_pct=7.9,
         fund_flow_momentum=0.45,
         main_theme_core_score=0.55,
         main_theme_alignment_score=0.70,
@@ -9843,6 +10067,8 @@ def test_profit_edge_outranks_hot_fund_theme_shell_without_continuation():
         'structured_priority_score': 78.0,
         'structured_score': 88.0,
         'continuation_gene_score': 0.55,
+        'close_position_score': 0.75,
+        'capital_acceleration': 0.60,
         'limitup_reason_status': 'PASS',
         'limitup_reason_evidence': [
             {'reason': '板块涨停续涨', 'source': 'limitup_pool', 'proxy': False},
@@ -9888,8 +10114,11 @@ def test_profit_edge_outranks_hot_fund_theme_shell_without_continuation():
     assert chase_adj['penalties']['near_limit_extension_without_low_position'] > 0.0
     assert shell_adj.get('profit_objective') == 'expected_t1_profit'
 
-    assert runner.formal_candidate_sort_key(profit_structure) > runner.formal_candidate_sort_key(fund_shell)
-    assert runner.formal_candidate_sort_key(profit_structure) > runner.formal_candidate_sort_key(bare_chase)
+    assert runner._primary_alpha_paths(profit_structure)
+    assert runner._primary_alpha_paths(fund_shell)
+    assert runner.formal_candidate_sort_key(profit_structure)[0] == runner.formal_candidate_sort_key(fund_shell)[0]
+    assert runner.formal_candidate_sort_key(bare_chase)[0] == runner.formal_candidate_sort_key(profit_structure)[0]
+    assert runner.formal_candidate_sort_key(bare_chase)[0] == runner.formal_candidate_sort_key(fund_shell)[0]
 
 
 def test_main_force_behavior_chain_is_primary_over_fund_shell():
@@ -9950,7 +10179,7 @@ def test_main_force_behavior_chain_is_primary_over_fund_shell():
     assert chain_adj['ranking_view'] == 'main_force_behavior_chain'
     assert chain_adj['catalyst_type'] == 'policy'
     assert chain_adj['capital_behavior_score'] > shell_adj['capital_behavior_score']
-    assert runner.formal_candidate_sort_key(chain) > runner.formal_candidate_sort_key(shell)
+    assert runner.formal_candidate_sort_key(chain) == runner.formal_candidate_sort_key(shell)
 
 
 def test_event_without_sector_or_flow_cannot_create_main_force_intent():
@@ -10252,6 +10481,7 @@ def test_weak_single_name_sector_proxy_does_not_mint_profit_edge_over_own_gene()
         'structured_priority_score': 81.0,
         'structured_score': 82.0,
         'continuation_gene_score': 0.35,
+        'capital_acceleration': 0.60,
         'announcement_catalyst_score': 0.0,
         'news_catalyst_strength': 0.0,
         'sector_yesterday_limitup_gene_proxy': {
@@ -10267,7 +10497,9 @@ def test_weak_single_name_sector_proxy_does_not_mint_profit_edge_over_own_gene()
     multi_adj = runner.ranking_basis_adjustment_components(multi_sector)
     assert float(weak_adj.get('profit_edge_score') or 0.0) < 0.45
     assert float(multi_adj.get('profit_edge_score') or 0.0) >= 0.50
-    assert runner.formal_candidate_sort_key(multi_sector) > runner.formal_candidate_sort_key(weak_proxy)
+    assert runner._primary_alpha_paths(multi_sector)
+    assert runner._primary_alpha_paths(weak_proxy)
+    assert runner.formal_candidate_sort_key(multi_sector)[0] == runner.formal_candidate_sort_key(weak_proxy)[0]
 
 
 def test_edge_proxy_near_cap_is_soft_suppressed_vs_structure_gene():
@@ -10319,7 +10551,7 @@ def test_edge_proxy_near_cap_is_soft_suppressed_vs_structure_gene():
     })
     edge_adj = runner.ranking_basis_adjustment_components(edge)
     assert edge_adj['penalties']['edge_proxy_near_cap_soft_suppress'] >= 0.80
-    assert runner.formal_candidate_sort_key(structure) > runner.formal_candidate_sort_key(edge)
+    assert runner.formal_candidate_sort_key(structure) == runner.formal_candidate_sort_key(edge)
 
 
 def test_pool_identical_theme_tags_marked_hollow_and_penalized():
@@ -11434,6 +11666,76 @@ def test_historical_replay_fails_when_future_field_enters_decision_snapshot(monk
     assert closure['historical_replay_leakage_gate']['status'] == 'FAIL'
 
 
+def test_structural_ranking_replay_requests_lightweight_snapshot_projection(monkeypatch, tmp_path):
+    calls = []
+    input_date = dt.date(2026, 8, 18)
+
+    def fetch_candidates(requested_date, *, production_run_id=None, lightweight=False):
+        calls.append(('candidates', requested_date, production_run_id, lightweight))
+        return [{
+            'trade_date': input_date,
+            'symbol': '600001',
+            'rank': 1,
+            'production_run_id': production_run_id,
+            'candidate_snapshot_id': production_run_id,
+        }]
+
+    monkeypatch.setattr(backtest, 'fetch_daily_candidates', fetch_candidates)
+    monkeypatch.setattr(
+        backtest,
+        'fetch_returns',
+        lambda requested_date, *, production_run_id=None: (
+            calls.append(('returns', requested_date, production_run_id))
+            or [{'symbol': '600001', 't1_return': 0.01}]
+        ),
+    )
+    monkeypatch.setattr(
+        backtest,
+        'offline_formal_path_for_day',
+        lambda rows: {
+            'offline_formal_symbol': rows[0]['symbol'],
+            'offline_formal_rank': rows[0]['rank'],
+            'gate_pass_count': 1,
+            'top3_formal_symbols': [rows[0]['symbol']],
+            'notes': 'FORMAL_SORT_GATE_PASS',
+        },
+    )
+
+    replay = backtest.build_structural_ranking_full_fix_replay(
+        ['2026-08-18'],
+        baseline_replay_path=tmp_path / 'missing-baseline.json',
+        production_run_id='run-20260818',
+    )
+
+    assert calls == [
+        ('candidates', input_date, 'run-20260818', True),
+        ('returns', input_date, 'run-20260818'),
+    ]
+    assert replay['daily'][0]['production_run_id'] == 'run-20260818'
+    assert replay['daily'][0]['candidate_snapshot_ids'] == ['run-20260818']
+    assert replay['daily'][0]['new'] == '600001'
+    assert replay['daily'][0]['new_t1'] == 0.01
+
+
+def test_structural_ranking_replay_rejects_ambiguous_production_snapshots(monkeypatch, tmp_path):
+    input_date = dt.date(2026, 8, 18)
+    monkeypatch.setattr(backtest, 'fetch_active_production_run', lambda _date: None)
+    monkeypatch.setattr(
+        backtest,
+        'fetch_daily_candidates',
+        lambda _date, *, production_run_id=None, lightweight=False: [
+            {'symbol': '600001', 'production_run_id': 'retry-a'},
+            {'symbol': '600002', 'production_run_id': 'retry-b'},
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match='ambiguous production snapshots'):
+        backtest.build_structural_ranking_full_fix_replay(
+            ['2026-08-18'],
+            baseline_replay_path=tmp_path / 'missing-baseline.json',
+        )
+
+
 def test_limit_pool_api_marks_rc102_as_invalid_source(monkeypatch):
     monkeypatch.setattr(scanner_v2, 'api_get', lambda _url: {'rc': 102, 'data': None})
 
@@ -11574,6 +11876,16 @@ def _redecision_eligible_pair():
     stronger['structured_priority_score'] = 2.5
     stronger['structured_score'] = 92
     stronger['limitup_probability_proxy'] = 0.7
+    weaker['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.010,
+        cross_sectional_edge=0.010,
+        tradable_edge=0.008,
+    )
+    stronger['t1_alpha_prediction'] = make_t1_prediction(
+        expected_t1_net_return=0.020,
+        cross_sectional_edge=0.020,
+        tradable_edge=0.018,
+    )
     bundle = make_bundle(
         [weaker, stronger],
         candidate_source=gates.PRODUCTION_SOURCE,
@@ -11680,3 +11992,279 @@ def test_single_production_contract_rejects_legacy_decisions_and_horizons():
     })
     assert 'LEGACY_DECISION_IGNORED' in classified['review_tags']
     assert 'RESEARCH_ONLY' not in classified['review_tags']
+
+
+def test_t1_alpha_research_uses_one_snapshot_and_canonical_targets_only():
+    import xiaogu_signal_effectiveness_v0_1 as effectiveness
+
+    candidate_rows = [
+        {
+            'trade_date': '2026-08-18',
+            'symbol': '603110',
+            'production_run_id': 'early-run',
+            'created_at': '2026-08-18T14:50:00',
+            'close_price': 27.79,
+            'pct_chg': 6.0,
+            'final_score': 90.0,
+            'formal_primary_score': 90.0,
+            'eligible': 'true',
+            'pool_type': 'raw_top400_unique_pool',
+            'net_inflow_main': 10.0,
+        },
+        {
+            'trade_date': '2026-08-18',
+            'symbol': '603110',
+            'production_run_id': 'retry-run',
+            'created_at': '2026-08-18T15:40:00',
+            'close_price': 27.79,
+            'pct_chg': 99.0,
+            'final_score': 999.0,
+            'formal_primary_score': 999.0,
+            'eligible': 'true',
+            'pool_type': 'raw_top400_unique_pool',
+            'net_inflow_main': 999.0,
+        },
+        {
+            'trade_date': '2026-08-18',
+            'symbol': '600206',
+            'production_run_id': 'early-run',
+            'created_at': '2026-08-18T14:50:00',
+            'close_price': 57.72,
+            'pct_chg': 3.6,
+            'final_score': 75.0,
+            'formal_primary_score': 75.0,
+            'eligible': 'false',
+            'pool_type': 'raw_top400_unique_pool',
+        },
+    ]
+    return_rows = [
+        {
+            'trade_date': '2026-08-18',
+            'symbol': '603110',
+            'production_run_id': 'early-run',
+            'label_status': 'SETTLED',
+            'label_version': 'canonical_t1_v1',
+            't1_open_return': -0.02,
+            't1_high_return': -0.01,
+            't1_low_return': -0.06,
+            't1_close_return': -0.05,
+            't1_mfe': -0.01,
+            't1_mae': -0.06,
+            't1_net_return': -0.052,
+        },
+        {
+            'trade_date': '2026-08-18',
+            'symbol': '600206',
+            'production_run_id': 'early-run',
+            'label_status': 'SETTLED',
+            'label_version': 'canonical_t1_v1',
+            't1_open_return': -0.02,
+            't1_high_return': 0.04,
+            't1_low_return': -0.06,
+            't1_close_return': 0.02,
+            't1_mfe': 0.04,
+            't1_mae': -0.06,
+            't1_net_return': 0.018,
+        },
+    ]
+
+    dataset = effectiveness.build_t1_alpha_research_dataset(
+        candidate_rows,
+        return_rows,
+    )
+
+    assert dataset['dataset_size'] == 2
+    assert dataset['valid_sample_count'] == 2
+    selected = {row['symbol']: row for row in dataset['valid_samples']}
+    assert selected['603110']['features']['current_five_module_score'] == 90.0
+    assert selected['600206']['labels']['t1_mfe'] == 0.04
+    assert dataset['universes']['U0']['status'] == 'INSUFFICIENT_DATA'
+    assert dataset['universes']['U1']['count'] == 2
+    assert dataset['universes']['U2']['count'] == 1
+
+
+def test_t1_alpha_audit_keeps_production_unverified_when_oos_window_is_short():
+    import xiaogu_signal_effectiveness_v0_1 as effectiveness
+
+    rows = []
+    for day in ('2026-08-18', '2026-08-19'):
+        rows.append({
+            'trade_date': day,
+            'symbol': '600001',
+            'production_run_id': day,
+            'created_at': day,
+            'close_price': 10.0,
+            'formal_primary_score': 1.0,
+            'pool_type': 'raw_top400_unique_pool',
+            'eligible': 'true',
+        })
+    labels = []
+    for day in ('2026-08-18', '2026-08-19'):
+        labels.append({
+            'trade_date': day,
+            'symbol': '600001',
+            'production_run_id': day,
+            'label_status': 'SETTLED',
+            'label_version': 'canonical_t1_v1',
+            't1_open_return': 0.01,
+            't1_high_return': 0.02,
+            't1_low_return': -0.01,
+            't1_close_return': 0.01,
+            't1_mfe': 0.02,
+            't1_mae': -0.01,
+            't1_net_return': 0.009,
+        })
+    result = effectiveness.build_t1_alpha_audit(
+        effectiveness.build_t1_alpha_research_dataset(rows, labels)
+    )
+
+    assert result['t1_alpha_status'] == 'UNVERIFIED'
+    assert result['formal_t1_alpha'] == 'DISABLED_UNTIL_OOS_REGISTRY_PROMOTION'
+    assert result['walk_forward']['U1']['status'] == 'INSUFFICIENT_DATA'
+    assert result['target_schema']['tradable_profit_probability']['status'] == 'UNRESOLVED'
+
+
+def test_walk_forward_emits_deterministic_oos_folds_and_top_k_metrics():
+    rows = []
+    for index in range(40):
+        day = (dt.date(2026, 1, 1) + dt.timedelta(days=index)).isoformat()
+        value = 0.01 if index % 2 else -0.005
+        rows.append({
+            'trade_date': day,
+            'symbol': f'{600000 + index % 3:06d}',
+            'universe_flags': {'U1': True},
+            'target_valid': True,
+            'features': {
+                'signal_pct': index / 100.0,
+                'pct_chg': index / 100.0,
+                'volume_ratio': 1.0 + index / 100.0,
+                'turnover_rate': 2.0,
+                'fund_flow_momentum': index / 10.0,
+                'current_five_module_score': float(index),
+                't1_reversal_risk': 0.1,
+            },
+            'labels': {
+                't1_open_return': value,
+                't1_high_return': value + 0.01,
+                't1_low_return': value - 0.01,
+                't1_close_return': value,
+                't1_mfe': value + 0.01,
+                't1_mae': value - 0.01,
+                't1_net_return': value,
+            },
+            'market_regime': 'sideways',
+        })
+
+    report = effectiveness._walk_forward_report(rows, universe='U1')
+    assert report['status'] == 'OOS_EVALUATED'
+    assert report['fold_count'] == 5
+    edge = report['models']['MODEL_8_TRADABLE_EDGE']
+    assert edge['status'] == 'OOS_EVALUATED'
+    assert edge['folds'][0]['fold_id'] == '2026-01-01__2026-01-31__2026-02-05'
+    assert edge['folds'][0]['top1']
+    assert 'top1_lift' in edge['aggregate']
+    assert edge['production_eligible'] is False
+
+
+def test_walk_forward_rejects_future_target_fields_in_feature_snapshot():
+    row = {
+        'trade_date': '2026-08-18',
+        'symbol': '600001',
+        'universe_flags': {'U1': True},
+        'target_valid': True,
+        'features': {'signal_pct': 0.1, 't1_close_return': 0.99},
+        'labels': {
+            't1_open_return': 0.01,
+            't1_high_return': 0.02,
+            't1_low_return': -0.01,
+            't1_close_return': 0.01,
+            't1_mfe': 0.02,
+            't1_mae': -0.01,
+        },
+    }
+    report = effectiveness._walk_forward_report([row] * 40, universe='U1')
+    assert report['status'] == 'LEAKAGE_DETECTED'
+    assert report['leakage_audit']['status'] == 'FAIL'
+
+
+def test_frozen_t1_research_prediction_is_time_isolated_and_never_production():
+    import xiaogu_signal_effectiveness_v0_1 as effectiveness
+
+    training_rows = []
+    for index in range(8):
+        day = (dt.date(2026, 8, 1) + dt.timedelta(days=index)).isoformat()
+        training_rows.append({
+            'trade_date': day,
+            'target_valid': True,
+            'features': {
+                'signal_pct': index / 100.0,
+                'pct_chg': index / 100.0,
+                'close_position_score': 0.5,
+                'volume_ratio': 1.0 + index / 10.0,
+                'turnover_rate': 2.0 + index / 10.0,
+                'amount': 100_000_000.0 + index,
+            },
+            'labels': {
+                't1_close_return': 0.01 if index % 2 else -0.005,
+                't1_net_return': 0.009 if index % 2 else -0.006,
+            },
+        })
+
+    artifact = effectiveness.freeze_t1_alpha_research_model(
+        training_rows,
+        as_of_date='2026-08-20',
+    )
+    prediction = effectiveness.build_t1_alpha_research_prediction(
+        {
+            'feature_timestamp': '2026-08-20 14:50:00',
+            'features': dict(training_rows[-1]['features']),
+        },
+        artifact,
+        signal_time='2026-08-20 14:50:00',
+    )
+
+    assert artifact['status'] == 'READY'
+    assert artifact['model_id'] == 'MODEL_A_T1_NET_RETURN'
+    assert artifact['training_end'] < '2026-08-20'
+    assert 'training_rows' not in artifact
+    assert prediction['valid'] is True
+    assert prediction['model_status'] == 'RESEARCH'
+    assert prediction['feature_available_at'] <= prediction['signal_time']
+    assert effectiveness.build_t1_alpha_research_prediction(
+        {'features': dict(training_rows[-1]['features'])},
+        artifact,
+        signal_time=artifact['training_end'] + ' 14:50:00',
+    )['reason'] == 'T1_ALPHA_RESEARCH_TRAINING_NOT_STRICTLY_BEFORE_SIGNAL'
+
+
+def test_runner_attaches_research_prediction_without_promoting_it(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    candidate = {'symbol': '600001', 'price': 10.0}
+    monkeypatch.setattr(
+        'xiaogu_signal_effectiveness_v0_1.build_t1_alpha_research_predictions_for_candidates',
+        lambda candidates, **kwargs: {
+            'status': 'READY',
+            'model_status': 'RESEARCH',
+            'predictions': {
+                '600001': {
+                    'valid': True,
+                    'model_id': 'MODEL_A_T1_NET_RETURN',
+                    'model_status': 'RESEARCH',
+                    'expected_t1_net_return': 0.01,
+                },
+            },
+        },
+    )
+
+    result = runner.attach_t1_alpha_research_predictions(
+        {
+            'paper_scoring_candidates': [candidate],
+            'formal_ranked_pool': [candidate],
+        },
+        signal_date='2026-08-25',
+        signal_time='2026-08-25 14:50:00',
+    )
+
+    assert result['status'] == 'READY'
+    assert candidate['t1_alpha_prediction']['model_status'] == 'RESEARCH'

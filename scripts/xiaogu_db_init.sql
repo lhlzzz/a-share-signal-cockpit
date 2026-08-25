@@ -123,6 +123,36 @@ ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_low_return FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_gap_return FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS next_day_drawdown FLOAT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS high_to_close_retrace FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_open_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_high_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_low_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_close_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_mfe FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_mae FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_vwap_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_gap_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_net_return FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS slippage FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS commission FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS stamp_duty FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS transfer_fee FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS market_impact FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS entry_price FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS entry_price_source VARCHAR(128);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS entry_price_basis VARCHAR(64);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS entry_date DATE;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS entry_time VARCHAR(32);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_open_price FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_high_price FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_low_price FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS t1_close_price FLOAT;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS label_status VARCHAR(32);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS label_version VARCHAR(64);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS label_source VARCHAR(128);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS label_generated_at TIMESTAMPTZ;
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS market_data_source VARCHAR(128);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS price_adjustment_mode VARCHAR(64);
+ALTER TABLE returns ADD COLUMN IF NOT EXISTS trading_calendar_source VARCHAR(64);
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS production_run_id VARCHAR(128);
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS candidate_snapshot_id VARCHAR(128);
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS return_status VARCHAR(20) DEFAULT 'PENDING';
@@ -459,3 +489,47 @@ CREATE TABLE IF NOT EXISTS scan_data_directory_content (
 CREATE INDEX IF NOT EXISTS idx_scan_dir_content_date ON scan_data_directory_content(trade_date);
 CREATE INDEX IF NOT EXISTS idx_scan_dir_content_code ON scan_data_directory_content(code);
 CREATE INDEX IF NOT EXISTS idx_scan_dir_content_item ON scan_data_directory_content(item_key);
+
+-- Research model governance. Research records never implicitly change the
+-- production runner; promotion requires an explicit acceptance artifact.
+CREATE TABLE IF NOT EXISTS model_registry (
+    model_id VARCHAR(128) PRIMARY KEY,
+    feature_version VARCHAR(128) NOT NULL,
+    label_version VARCHAR(128) NOT NULL,
+    training_start DATE,
+    training_end DATE,
+    validation_start DATE,
+    validation_end DATE,
+    oos_start DATE,
+    oos_end DATE,
+    universe_definition VARCHAR(64),
+    model_type VARCHAR(128),
+    parameters_hash VARCHAR(128),
+    feature_hash VARCHAR(128),
+    performance_summary JSONB DEFAULT '{}',
+    acceptance_artifact JSONB DEFAULT '{}',
+    status VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_model_registry_status ON model_registry(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS production_alpha_health (
+    id SERIAL PRIMARY KEY,
+    model_id VARCHAR(128) REFERENCES model_registry(model_id),
+    health_date DATE NOT NULL,
+    rolling_win_rate FLOAT,
+    rolling_expectancy FLOAT,
+    rolling_profit_factor FLOAT,
+    calibration_error FLOAT,
+    feature_drift FLOAT,
+    regime_drift FLOAT,
+    status VARCHAR(32) NOT NULL DEFAULT 'HEALTHY',
+    kill_switch BOOLEAN NOT NULL DEFAULT FALSE,
+    kill_switch_reason TEXT,
+    evidence JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(model_id, health_date)
+);
+CREATE INDEX IF NOT EXISTS idx_production_alpha_health_status
+    ON production_alpha_health(health_date DESC, kill_switch, status);

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 from xiaogu_forward_host_binding import create_host_binding
 
 _HOST = None
-REQUIRED_FROM_HOST = ('LOCKED_SAFETY', 'MISSING_INFORMATION_COVERAGE_AUDIT', 'NO_PICK_DIAGNOSTIC_CANDIDATE_LIMIT', '_cached_decision_for_candidate', '_cached_paper_pick_eligibility_profile', 'attach_paper_pick_eligibility', 'bundle_metric', 'candidate_capital_risk_profile', 'candidate_rank_value', 'candidate_score_value', 'formal_candidate_sort_key', 'load_profit_shadow_watchlist', 'normalized_block_bucket', 'official_target_exclusion_reasons', 'paper_pick_risk_explanation_gate', 'paper_sizing_context', 'ranking_basis_adjustment_components', 'safe_float', 'safe_int', 'single_target_card_status', 'symbol_for', 'unique_text_values')
+REQUIRED_FROM_HOST = ('LOCKED_SAFETY', 'MISSING_INFORMATION_COVERAGE_AUDIT', 'NO_PICK_DIAGNOSTIC_CANDIDATE_LIMIT', 'PRODUCTION_RANK_SOURCE', '_cached_decision_for_candidate', '_cached_paper_pick_eligibility_profile', 'attach_paper_pick_eligibility', 'bundle_metric', 'candidate_capital_risk_profile', 'candidate_rank_value', 'candidate_score_value', 'formal_candidate_sort_key', 'load_profit_shadow_watchlist', 'normalized_block_bucket', 'official_target_exclusion_reasons', 'paper_pick_risk_explanation_gate', 'paper_sizing_context', 'ranking_basis_adjustment_components', 'safe_float', 'safe_int', 'single_target_card_status', 'symbol_for', 'unique_text_values')
 
 bind_host, _inject_host, _with_host = create_host_binding(
     globals(), REQUIRED_FROM_HOST, preserve_existing_on_missing=True,
@@ -184,6 +184,8 @@ def formal_diagnostic_candidate_from_bundle(bundle: Dict[str, Any]) -> Tuple[Dic
         candidate
         for candidate in candidates
         if candidate_is_selection_eligible(candidate)
+        and not candidate.get('failed_limitup')
+        and not candidate.get('near_limit_up_risk')
     ]
     if not eligible:
         return None, 'no_formal_diagnostic_candidate_available'
@@ -423,13 +425,12 @@ def build_daily_best_paper_watch(no_pick_diagnostics: Dict[str, Any]) -> Dict[st
         'why_not_official_pick': card.get('why_not_official_pick') or [],
         'signals': card.get('signals') if isinstance(card.get('signals'), dict) else {},
         'selection_basis': [
-            'main_force_behavior_chain production_score desc',
-            'blocker_count asc',
-            'formal_rank asc',
+            'accepted_t1_net_return_prediction desc',
+            'hard_gate_pass only',
         ],
         'explanation': (
-            'Paper-watch follows the main-force production score and formal rank; it is diagnostic only '
-            'when the official decision is NO_PICK.'
+            'Paper-watch is diagnostic only and cannot create PAPER_PICK; production selection requires '
+            'an accepted T+1 net-return prediction.'
         ),
         **LOCKED_SAFETY,
         'allow_trade': False,
@@ -828,7 +829,11 @@ def build_rank_alignment_diagnostic(
             'rank_source': row.get('rank_source') or '',
             'search_layer': row.get('search_layer') or row.get('search_layer_hint') or '',
             'structured_priority_score': safe_float(row.get('structured_priority_score')),
-            'formal_primary_score': safe_float(row.get('formal_primary_score')) or round(float(formal_candidate_sort_key(row)[0]), 4),
+            'formal_primary_score': (
+                safe_float(row.get('formal_primary_score'))
+                if safe_float(row.get('formal_primary_score')) is not None
+                else None
+            ),
             'profit_edge_score': adj.get('profit_edge_score'),
             'capital_behavior_score': adj.get('capital_behavior_score'),
             'catalyst_type': adj.get('catalyst_type'),
@@ -856,9 +861,9 @@ def build_rank_alignment_diagnostic(
         first_clean_diag['challenged_from'] = first_clean_row.get('first_clean_challenged_from')
         first_clean_diag['challenge_reason'] = first_clean_row.get('first_clean_challenge_reason')
     return {
-        'rank_source': 'formal_profit_first',
-        'pool_rank_basis': 'scanner_structured_priority',
-        'formal_rank_basis': 'formal_candidate_sort_key',
+        'rank_source': PRODUCTION_RANK_SOURCE,
+        'pool_rank_basis': 'scanner_observation_order',
+        'formal_rank_basis': 't1_production_prediction',
         'candidate_count': len(usable),
         'top_n': top_n,
         'pool_formal_top_overlap_count': len(overlap),
@@ -869,8 +874,8 @@ def build_rank_alignment_diagnostic(
         'pool_top_not_in_formal_top': pool_only,
         'first_clean': first_clean_diag,
         'divergence_note': (
-            'pool_rank is scanner structured_priority; daily_candidates.rank is formal_profit_first; '
-            'FULL_POOL/TOP10 outcomes follow formal rank after P1 alignment.'
+            'pool_rank is diagnostic observation order; daily_candidates.rank is '
+            'the accepted T+1 prediction order. Legacy scores are diagnostic only.'
         ),
     }
 

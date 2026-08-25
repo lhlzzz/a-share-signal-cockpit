@@ -564,16 +564,9 @@ def test_factors_backfill_dry_run(tmp_path):
     assert len(parsed[0]['candidates']) == 2
 
 
-def test_return_backfill_emits_only_t1_close_return(monkeypatch):
-    """Verify backfill emits only the official T+1 close result."""
+def test_return_backfill_emits_canonical_t1_labels(monkeypatch):
+    """Verify backfill emits the complete canonical T+1 target."""
     import scripts.xiaogu_return_backfill as backfill
-
-    class FakeBaoStock:
-        def login(self):
-            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
-
-        def logout(self):
-            return None
 
     class FakeConn:
         calls = 0
@@ -603,18 +596,196 @@ def test_return_backfill_emits_only_t1_close_return(monkeypatch):
         {'date': '2026-06-29', 'open': 10.5, 'high': 10.7, 'low': 10.3, 'close': 10.6},
     ]
 
-    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
     monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
     monkeypatch.setattr(backfill, 'datetime', type('FakeDatetime', (), {'now': staticmethod(lambda: type('Now', (), {'date': lambda self: date(2026, 7, 1)})())}))
-    monkeypatch.setattr(backfill, 'fetch_kline_range_baostock', lambda symbol, start, end: klines)
+    monkeypatch.setattr(backfill, 'fetch_canonical_daily_ohlc', lambda symbol, start, end: klines)
     monkeypatch.setattr(backfill.time, 'sleep', lambda seconds: None)
+    monkeypatch.setattr(backfill, 'is_trading_day', lambda _day: True)
 
     stats = backfill.backfill_returns(dry_run=True)
     row = stats['results'][0]
 
-    assert row['returns'] == {'t1': 0.04}
-    assert set(row) == {'date', 'symbol', 'score', 'entry', 'returns', 'production_trade_mode'}
+    assert row['returns']['t1'] < 0.04
+    assert row['returns']['t1'] == round(row['t1_metrics']['t1_net_return'], 4)
+    assert set(row) == {
+        'date', 'symbol', 'score', 'entry', 'returns', 't1_metrics',
+        'execution_model', 'production_trade_mode',
+    }
+    assert row['t1_metrics']['t1_open_return'] == -0.02
+    assert row['t1_metrics']['t1_high_return'] == 0.08
+    assert row['t1_metrics']['t1_low_return'] == -0.04
+    assert row['t1_metrics']['t1_close_return'] == 0.04
+    assert row['t1_metrics']['t1_mfe'] == 0.08
+    assert row['t1_metrics']['t1_mae'] == -0.04
+    assert round(row['t1_metrics']['t1_net_return'], 4) == row['returns']['t1']
+    assert row['t1_metrics']['label_status'] == 'SETTLED'
+    assert row['execution_model']['execution_status'] == 'FILLED'
     assert 'dc.rank <= 10' not in FakeConn.queries[0]
+
+
+def test_shadow_execution_profile_marks_limit_states_and_costs():
+    from xiaogu_forward_result_filler_v0_1 import shadow_execution_profile
+
+    base = {
+        'date': '2026-08-20',
+        'symbol': '600001',
+        'execution_contract': {
+            'execution_price': 10.0,
+            'entry_price_source': 'test.snapshot.close',
+            'price_basis': 'UNADJUSTED_DAILY_OHLC',
+            'execution_mode': 'EXPLICIT',
+        },
+        'features_used': {
+            'candidate_features': {
+                'entry_price': 10.0,
+            },
+        },
+    }
+    filled = shadow_execution_profile(
+        base,
+        {
+            'date': '2026-08-21',
+            'open': 10.0,
+            'high': 10.8,
+            'low': 9.9,
+            'close': 10.5,
+            'pct_chg': 5.0,
+        },
+        {'date': '2026-08-20', 'close': 10.0},
+        gross_return=0.05,
+    )
+
+    assert filled['execution_status'] == 'FILLED'
+    assert filled['entry_reference_price'] == 10.0
+    assert filled['next_day_exit_reference_price'] == 10.5
+    assert filled['net_return'] < filled['gross_return']
+    assert filled['worst_case_return'] is not None
+    assert filled['entry_trade_state'] == 'T_DAY_BUYABLE'
+    assert filled['exit_trade_state'] == 'T1_SELLABLE'
+    assert filled['t_plus_one_sell_restriction'] == 'T_DAY_BUY_NOT_SELLABLE_UNTIL_T1'
+    assert filled['board_limit_percent'] == 10.0
+    assert filled['share_lot_constraint'] == 'MINIMUM_100_SHARES'
+    assert filled['price_basis_consistent'] is True
+
+    blocked_buy = {
+        **base,
+        'features_used': {
+            'candidate_features': {
+                'entry_price': 10.0,
+                'sealed_limit_up': True,
+            },
+        },
+    }
+    blocked = shadow_execution_profile(blocked_buy, {'close': 10.5})
+    assert blocked['entry_fill_status'] == 'NOT_FILLABLE'
+    assert blocked['execution_status'] == 'NOT_FILLABLE'
+    assert blocked['net_return'] is None
+    assert blocked['not_fillable_is_not_loss'] is True
+    assert blocked['entry_trade_state'] == 'T_DAY_NOT_BUYABLE'
+
+
+def test_shadow_execution_profile_marks_locked_limit_down_as_not_fillable():
+    from xiaogu_forward_result_filler_v0_1 import shadow_execution_profile
+
+    result = shadow_execution_profile(
+        {
+            'date': '2026-08-20',
+            'symbol': '600001',
+            'execution_contract': {
+                'execution_price': 10.0,
+                'entry_price_source': 'test.snapshot.close',
+                'price_basis': 'UNADJUSTED_DAILY_OHLC',
+                'execution_mode': 'EXPLICIT',
+            },
+            'features_used': {'candidate_features': {'entry_price': 10.0}},
+        },
+        {
+            'date': '2026-08-21',
+            'open': 9.0,
+            'high': 9.0,
+            'low': 9.0,
+            'close': 9.0,
+            'pct_chg': -10.0,
+        },
+        {'date': '2026-08-20', 'close': 10.0},
+        gross_return=-0.1,
+    )
+
+    assert result['exit_fill_status'] == 'NOT_FILLABLE'
+    assert result['execution_status'] == 'NOT_FILLABLE'
+    assert result['net_return'] is None
+
+
+def test_price_source_consistency_exposes_conflict_without_silent_selection():
+    from xiaogu_forward_result_filler_v0_1 import price_source_consistency
+
+    result = price_source_consistency({'baostock': 10.0, 'eastmoney': 10.2})
+    assert result['status'] == 'CONFLICT'
+    assert result['conflict'] is True
+    assert result['provider_count'] == 2
+
+
+def test_return_from_rows_rejects_mixed_adjustment_basis(tmp_path):
+    from xiaogu_forward_result_filler_v0_1 import return_from_rows
+
+    ret, evidence = return_from_rows(
+            {
+                'date': '2026-08-20',
+                'symbol': '600001',
+                'execution_contract': {
+                    'execution_price': 10.0,
+                    'entry_price_source': 'test.snapshot.close',
+                    'price_basis': 'UNADJUSTED_DAILY_OHLC',
+                    'execution_mode': 'EXPLICIT',
+                },
+                'features_used': {'candidate_features': {'entry_price': 10.0}},
+            },
+        't1',
+        [
+            {'date': '2026-08-20', 'close': 10.0},
+            {'date': '2026-08-21', 'close': 10.5, 'high': 10.6, 'low': 10.2, 'pct_chg': 5.0},
+        ],
+        tmp_path / 'evidence.json',
+        {'_request_url': 'https://example.test/kline?fqt=1'},
+        'test',
+    )
+
+    assert ret is None
+    assert evidence['status'] == 'PRICE_BASIS_MISMATCH'
+
+
+def test_return_from_rows_uses_canonical_market_data_source(tmp_path):
+    from xiaogu_forward_result_filler_v0_1 import (
+        CANONICAL_MARKET_DATA_SOURCE,
+        return_from_rows,
+    )
+
+    ret, evidence = return_from_rows(
+            {
+                'date': '2026-08-20',
+                'symbol': '600001',
+                'execution_contract': {
+                    'execution_price': 10.0,
+                    'entry_price_source': 'test.snapshot.close',
+                    'price_basis': 'UNADJUSTED_DAILY_OHLC',
+                    'execution_mode': 'EXPLICIT',
+                },
+                'features_used': {'candidate_features': {'entry_price': 10.0}},
+            },
+        't1',
+        [
+            {'date': '2026-08-20', 'close': 10.0},
+            {'date': '2026-08-21', 'open': 10.1, 'high': 10.8, 'low': 9.9, 'close': 10.5},
+        ],
+        tmp_path / 'evidence.json',
+        {'_request_url': 'https://example.test/kline?fqt=0'},
+        'test_source_detail',
+    )
+
+    assert ret == 0.05
+    assert evidence['source'] == CANONICAL_MARKET_DATA_SOURCE
+    assert evidence['market_data_source'] == CANONICAL_MARKET_DATA_SOURCE
+    assert evidence['market_data_source_detail'] == 'test_source_detail'
 
 
 def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
@@ -625,13 +796,6 @@ def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
         @classmethod
         def today(cls):
             return cls(2026, 7, 13)
-
-    class FakeBaoStock:
-        def login(self):
-            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
-
-        def logout(self):
-            return None
 
     class FakeConn:
         calls = 0
@@ -657,9 +821,8 @@ def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
     ]
 
     monkeypatch.setattr(backfill, 'date', FakeDate)
-    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
     monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
-    monkeypatch.setattr(backfill, 'fetch_kline_range_baostock', lambda symbol, start, end: klines)
+    monkeypatch.setattr(backfill, 'fetch_canonical_daily_ohlc', lambda symbol, start, end: klines)
     monkeypatch.setattr(backfill.time, 'sleep', lambda seconds: None)
 
     stats = backfill.backfill_returns(
@@ -669,7 +832,8 @@ def test_return_backfill_accepts_validation_day_t1_metrics(monkeypatch):
     assert stats['t1_filled'] == 1
     assert stats['new_success_count'] == 1
     row = stats['results'][0]
-    assert row['returns']['t1'] == -0.0365
+    assert row['returns']['t1'] == -0.0433
+    assert row['t1_metrics']['t1_net_return'] < row['t1_metrics']['t1_close_return']
     assert set(row['returns']) == {'t1'}
 
 
@@ -684,54 +848,17 @@ def test_return_backfill_rejects_mismatched_validation_date():
     assert stats['expected_validation_trade_date'] == '2026-07-10'
 
 
-def test_eastmoney_realtime_ohlc_only_stamps_today(monkeypatch):
-    """Realtime quote must not be backdated onto non-today target dates (T+1 pollution)."""
-    import scripts.xiaogu_return_backfill as backfill
-    from datetime import date
-
-    today = date.today().isoformat()
-
-    class FakeResp:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def read(self):
-            return b'{"data":{"f43":10.0,"f44":11.0,"f45":9.0,"f46":9.5}}'
-
-    calls = {'n': 0}
-
-    def fake_urlopen(*a, **k):
-        calls['n'] += 1
-        return FakeResp()
-
-    monkeypatch.setattr(backfill.urllib.request, 'urlopen', fake_urlopen)
-    monkeypatch.setattr(backfill, 'secid_for', lambda symbol: '1.600000')
-
-    # Non-today target: refuse without network.
-    assert backfill.fetch_eastmoney_realtime_ohlc('600000', '2026-07-21') is None
-    assert calls['n'] == 0
-
-    # Today target: allowed to fetch live OHLC.
-    row = backfill.fetch_eastmoney_realtime_ohlc('600000', today)
-    assert calls['n'] == 1
-    assert row == {'date': today, 'open': 9.5, 'high': 11.0, 'low': 9.0, 'close': 10.0}
-
-
-def test_return_backfill_exposes_only_t1_close_metrics():
+def test_return_backfill_exposes_canonical_t1_metrics():
     import scripts.xiaogu_return_backfill as backfill
 
     assert backfill.HORIZON_OFFSETS == {'t1': 1}
-    assert not hasattr(backfill, 'estimate_sellable_profit')
-    assert not hasattr(backfill, 'open_on_date')
-    assert not hasattr(backfill, 'high_on_date')
-    assert not hasattr(backfill, 'low_on_date')
+    assert backfill.CANONICAL_LABEL_VERSION == 'canonical_t1_v1'
+    assert backfill.CANONICAL_MARKET_DATA_SOURCE == 'eastmoney_push2his_daily_kline_fqt0'
+    assert backfill.CANONICAL_PRICE_BASIS == 'UNADJUSTED_DAILY_OHLC'
 
 
-def test_upsert_return_persists_only_primary_t1_return(monkeypatch):
-    """The production writer may receive historical fields but only t1 is primary."""
+def test_upsert_return_persists_canonical_t1_labels(monkeypatch):
+    """The production writer persists the canonical six-field target."""
     import xiaogu_db
 
     captured = {}
@@ -771,14 +898,291 @@ def test_upsert_return_persists_only_primary_t1_return(monkeypatch):
         next_day_gap_return=-0.02,
         next_day_drawdown=-0.1111,
         high_to_close_retrace=-0.037,
+        t1_labels={
+            't1_open_return': -0.02,
+            't1_high_return': 0.08,
+            't1_low_return': -0.04,
+            't1_close_return': 0.01,
+            't1_mfe': 0.08,
+            't1_mae': -0.04,
+            'label_status': 'SETTLED',
+        },
+        settlement_evidence={
+            'entry_price': 10.0,
+            'entry_price_source': 'BACKFILL_T_DAY_CLOSE',
+            'entry_price_basis': 'UNADJUSTED_DAILY_OHLC',
+            'label_version': 'canonical_t1_v1',
+            'source': 'baostock',
+        },
         legacy_backfill=True,
     )
 
     assert 't1_return' in captured['sql']
     assert captured['params']['t1_return'] == 0.01
+    assert 't1_open_return' in captured['sql']
+    assert captured['params']['t1_open_return'] == -0.02
+    assert captured['params']['label_version'] == 'canonical_t1_v1'
     # pick_id is auto-resolved when caller passes None
     assert captured['params']['pick_id'] == 42
     assert 'COALESCE(EXCLUDED.pick_id, returns.pick_id)' in captured['sql']
+
+
+def test_canonical_entry_rejects_legacy_aliases_and_calculates_labels():
+    from xiaogu_forward_result_filler_v0_1 import (
+        build_execution_contract,
+        calculate_t1_labels,
+        resolve_canonical_entry_price,
+        target_quality_gate,
+    )
+
+    decision = {
+        'date': '2026-08-18',
+        'asof_time': '14:50:00',
+        'features_used': {'candidate_features': {'price': 27.79, 'signal_close': 27.79}},
+    }
+    assert resolve_canonical_entry_price(decision) is None
+    assert build_execution_contract(decision)['status'] == 'INVALID'
+
+    contract = build_execution_contract(
+        {'date': '2026-08-18', 'asof_time': '15:00:00'},
+        entry_price_override=27.79,
+        entry_price_source='BACKFILL_T_DAY_CLOSE',
+        entry_price_basis='UNADJUSTED_DAILY_OHLC',
+    )
+    labels = calculate_t1_labels(
+        27.79,
+        {'open': 27.03, 'high': 27.68, 'low': 26.00, 'close': 26.17},
+    )
+    assert labels == {
+        't1_open_return': -0.027348,
+        't1_high_return': -0.003958,
+        't1_low_return': -0.064412,
+        't1_close_return': -0.058294,
+        't1_mfe': -0.003958,
+        't1_mae': -0.064412,
+        'label_status': 'SETTLED',
+    }
+    assert target_quality_gate(
+        contract,
+        {'open': 27.03, 'high': 27.68, 'low': 26.00, 'close': 26.17},
+        labels,
+    )['status'] == 'PASS'
+
+
+def test_execution_contract_is_explicit_and_rejects_conflicting_or_unproven_prices():
+    from xiaogu_forward_result_filler_v0_1 import (
+        CANONICAL_PRICE_BASIS,
+        build_execution_contract,
+    )
+
+    contract = build_execution_contract({
+        'date': '2026-08-18',
+        'asof_time': '14:50:00',
+        'execution_contract': {
+            'execution_price': 10.0,
+            'entry_price_source': 'scanner_snapshot.close_price',
+            'price_basis': CANONICAL_PRICE_BASIS,
+            'execution_mode': 'EXPLICIT',
+        },
+        'features_used': {'candidate_features': {'entry_price': 10.0}},
+    })
+    assert contract['status'] == 'VALID'
+    assert contract['execution_mode'] == 'EXPLICIT'
+    assert contract['entry_price'] == 10.0
+    assert contract['entry_source'] == 'scanner_snapshot.close_price'
+    assert contract['price_basis'] == CANONICAL_PRICE_BASIS
+
+    missing_contract = build_execution_contract({
+        'date': '2026-08-18',
+        'asof_time': '14:50:00',
+        'features_used': {'candidate_features': {'entry_price': 10.0}},
+    })
+    assert missing_contract['status'] == 'INVALID'
+    assert 'EXECUTION_CONTRACT_REQUIRED' in missing_contract['errors']
+
+    conflict = build_execution_contract({
+        'date': '2026-08-18',
+        'execution_contract': {'execution_price': 11.0},
+        'features_used': {'candidate_features': {'entry_price': 10.0}},
+    })
+    assert conflict['status'] == 'INVALID'
+    assert 'ENTRY_PRICE_CONFLICT' in conflict['errors']
+
+    override_without_provenance = build_execution_contract(
+        {'date': '2026-08-18'},
+        entry_price_override=10.0,
+        entry_price_source='MANUAL',
+    )
+    assert override_without_provenance['status'] == 'INVALID'
+    assert 'ENTRY_PRICE_BASIS_REQUIRED' in override_without_provenance['errors']
+
+
+def test_extended_t1_labels_include_vwap_gap_and_costed_net_return():
+    from xiaogu_forward_result_filler_v0_1 import calculate_t1_labels
+
+    labels = calculate_t1_labels(
+        10.0,
+        {
+            'open': 10.5,
+            'high': 11.0,
+            'low': 10.0,
+            'close': 10.8,
+            'volume': 1000,
+            'amount': 10500,
+        },
+        previous_row={'close': 10.0},
+        execution_profile={
+            'net_return': 0.07,
+            'buy_slippage': 0.001,
+            'sell_slippage': 0.002,
+            'commission': 5.0,
+            'stamp_duty': 1.0,
+            'transfer_fee': 0.1,
+            'impact_cost': 0.0005,
+        },
+        include_extended=True,
+    )
+    assert labels['t1_vwap_return'] == 0.05
+    assert labels['t1_gap_return'] == 0.05
+    assert labels['t1_net_return'] == 0.07
+    assert labels['slippage'] == 0.003
+    assert labels['market_impact'] == 0.0005
+
+
+def test_stored_execution_label_patch_only_fills_missing_net_return():
+    import scripts.xiaogu_return_backfill as backfill
+
+    row = {
+        't1_net_return': None,
+        't1_close_return': -0.02,
+        'entry_price': 10.0,
+        'label_status': 'SETTLED',
+        'settlement_evidence': {
+            'execution_model': {
+                'net_return': '-0.03125',
+                'buy_slippage': 0.001,
+                'sell_slippage': 0.001,
+                'commission': 5.0,
+                'stamp_duty': 0.5,
+                'transfer_fee': 0.01,
+                'impact_cost': 0.0005,
+            },
+        },
+    }
+
+    patch = backfill._stored_execution_label_patch(row)
+
+    assert patch['t1_net_return'] == -0.03125
+    assert patch['slippage'] == 0.002
+    assert patch['market_impact'] == 0.0005
+    assert backfill._stored_execution_label_patch({**row, 't1_net_return': 0.01}) is None
+
+
+def test_target_quality_report_requires_costed_t1_net_return():
+    from xiaogu_forward_result_filler_v0_1 import target_dataset_quality_report
+
+    rows = [{
+        't1_open_return': 0.01,
+        't1_high_return': 0.02,
+        't1_low_return': -0.01,
+        't1_close_return': 0.01,
+        't1_mfe': 0.02,
+        't1_mae': -0.01,
+        't1_net_return': None,
+        'label_status': 'SETTLED',
+    }]
+
+    report = target_dataset_quality_report(rows)
+
+    assert report['status'] == 'TARGET_NOT_READY'
+    assert report['core_coverage']['t1_net_return'] == 0.0
+
+
+def test_model_registry_requires_acceptance_and_health_can_activate_kill_switch(monkeypatch):
+    import xiaogu_db
+
+    with pytest.raises(ValueError, match='MODEL_PRODUCTION_ACCEPTANCE_REQUIRED'):
+        xiaogu_db.register_model(
+            'model-research-1',
+            feature_version='features-v1',
+            label_version='canonical_t1_v1',
+            status='PRODUCTION',
+            db=object(),
+        )
+
+    class FakeResult:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return {
+                'model_id': 'model-research-1',
+                'health_date': date(2026, 8, 25),
+                'status': 'PAPER_ONLY',
+                'kill_switch': True,
+                'kill_switch_reason': 'rolling_expectancy_below_ci',
+            }
+
+    class FakeDb:
+        def execute(self, query, params=None):
+            return FakeResult()
+
+    state = xiaogu_db.alpha_kill_switch_active(
+        model_id='model-research-1',
+        db=FakeDb(),
+    )
+    assert state['active'] is True
+    assert state['status'] == 'PAPER_ONLY'
+
+
+def test_minimum_tradable_edge_gate_returns_no_pick_below_cost_or_before_promotion():
+    import xiaogu_forward_runner as runner
+
+    assert runner.minimum_tradable_edge_gate(
+        {'tradable_edge': 0.01},
+        minimum_edge=0.0,
+        transaction_cost=0.02,
+        model_status='PRODUCTION',
+    )['status'] == 'NO_PICK'
+    assert runner.minimum_tradable_edge_gate(
+        {'tradable_edge': 0.03},
+        minimum_edge=0.0,
+        transaction_cost=0.02,
+        model_status='PRODUCTION',
+    )['eligible'] is True
+    assert runner.minimum_tradable_edge_gate(
+        {'tradable_edge': 0.03},
+        model_status='UNVERIFIED',
+    )['reason'] == 'T1_ALPHA_MODEL_NOT_PRODUCTION'
+def test_target_dataset_quality_report_never_treats_missing_as_zero():
+    from xiaogu_forward_result_filler_v0_1 import target_dataset_quality_report
+
+    report = target_dataset_quality_report([
+        {
+            't1_open_return': 0.01,
+            't1_high_return': 0.02,
+            't1_low_return': -0.01,
+            't1_close_return': 0.01,
+            't1_mfe': 0.02,
+            't1_mae': -0.01,
+            't1_net_return': 0.01,
+            'label_status': 'SETTLED',
+        },
+        {
+            't1_open_return': None,
+            't1_high_return': None,
+            't1_low_return': None,
+            't1_close_return': None,
+            't1_mfe': None,
+            't1_mae': None,
+            't1_net_return': None,
+            'label_status': 'INVALID',
+        },
+    ])
+
+    assert report['status'] == 'TARGET_NOT_READY'
+    assert report['coverage']['t1_open_return'] == 0.5
+    assert report['invalid_rows'] == 1
 
 
 def test_production_return_settlement_updates_matching_candidate_placeholder(monkeypatch):
@@ -915,13 +1319,6 @@ def test_return_backfill_timeout_continues_with_next_symbol(monkeypatch):
             sql = str(query)
             return FakeResult(rows if 'FROM daily_candidates dc' in sql else [])
 
-    class FakeBaoStock:
-        def login(self):
-            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
-
-        def logout(self):
-            return None
-
     fetch_calls = []
 
     def fetch(symbol, _start, _end):
@@ -933,9 +1330,8 @@ def test_return_backfill_timeout_continues_with_next_symbol(monkeypatch):
             {'date': '2026-07-02', 'open': 10.0, 'high': 10.5, 'low': 10.0, 'close': 10.2},
         ]
 
-    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
     monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
-    monkeypatch.setattr(backfill, 'fetch_kline_range_baostock', fetch)
+    monkeypatch.setattr(backfill, 'fetch_canonical_daily_ohlc', fetch)
     monkeypatch.setattr(backfill, 'date', type('FakeDate', (), {'today': staticmethod(lambda: date(2026, 7, 3))}))
     monkeypatch.setattr(backfill.time, 'sleep', lambda _seconds: None)
 
@@ -1029,17 +1425,9 @@ def test_return_backfill_resume_skips_existing_success(monkeypatch):
                 ])
             return FakeResult([('run-resume', '000001', 0.01)])
 
-    class FakeBaoStock:
-        def login(self):
-            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
-
-        def logout(self):
-            return None
-
     fetch_calls = []
-    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
     monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
-    monkeypatch.setattr(backfill, 'fetch_kline_range_baostock', lambda *args: fetch_calls.append(args))
+    monkeypatch.setattr(backfill, 'fetch_canonical_daily_ohlc', lambda *args: fetch_calls.append(args))
     monkeypatch.setattr(backfill, 'date', type('FakeDate', (), {'today': staticmethod(lambda: date(2026, 7, 3))}))
 
     stats = backfill.backfill_returns(dry_run=True)
@@ -1082,14 +1470,6 @@ def test_return_backfill_syncs_existing_return_to_candidate_placeholder(monkeypa
                 return FakeResult([])
             raise AssertionError(f'unexpected SQL: {sql}')
 
-    class FakeBaoStock:
-        def login(self):
-            return type('LoginResult', (), {'error_code': '0', 'error_msg': ''})()
-
-        def logout(self):
-            return None
-
-    monkeypatch.setattr(backfill, 'bs', FakeBaoStock())
     monkeypatch.setattr(backfill, 'engine', type('FakeEngine', (), {'connect': lambda self: FakeConn()})())
     monkeypatch.setattr(backfill, 'upsert_return', lambda **kwargs: synced.append(kwargs) or 1)
     monkeypatch.setattr(backfill, 'update_production_run_step', lambda *args, **kwargs: None)
@@ -1108,6 +1488,17 @@ def test_return_backfill_syncs_existing_return_to_candidate_placeholder(monkeypa
         'symbol': '000001',
         'pick_id': 301,
         't1_return': 0.01,
+        't1_labels': {
+            't1_open_return': None,
+            't1_high_return': None,
+            't1_low_return': None,
+            't1_close_return': None,
+            't1_mfe': None,
+            't1_mae': None,
+            't1_vwap_return': None,
+            't1_gap_return': None,
+            't1_net_return': None,
+        },
         'production_run_id': 'run-resume',
         'candidate_snapshot_id': 'snapshot-resume',
         'return_status': 'SETTLED',

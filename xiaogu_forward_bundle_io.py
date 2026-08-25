@@ -67,6 +67,7 @@ REQUIRED_FROM_HOST = (
     'social_confirmation_profile',
     'structured_formal_impact_summary',
     'symbol_for',
+    't1_profit_candidate_profile',
     'unique_text_values',
     'validate_active_production_chain',
     'validate_formal_rank_snapshot',
@@ -280,35 +281,27 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         apply_quote_truth(with_broken_limitup_evidence(with_structured_score(r)))
         for r in full_pool_rows
     ]
-    admitted_full_pool, full_pool_tradable_filter = filter_t1_profit_candidates(
+    full_pool_tradable, full_pool_tradable_filter = filter_current_day_tradable_candidates(
         enriched_full_pool,
         {'date': source_time[:10], 'source_time': source_time},
-        enforce=True,
     )
-    t1_profile_by_symbol = {
-        symbol_for(row): (
-            bool(row.get('t1_profit_candidate')),
-            dict(row.get('t1_profit_profile') or {}),
-            '',
-        )
-        for row in admitted_full_pool
-        if symbol_for(row)
+    full_pool_tradable_symbols = {
+        symbol_for(row) for row in full_pool_tradable if symbol_for(row)
     }
-    for dropped in full_pool_tradable_filter.get('dropped') or []:
-        if not isinstance(dropped, dict):
-            continue
-        symbol = str(dropped.get('symbol') or '').zfill(6)
+    t1_profile_by_symbol = {}
+    for row in enriched_full_pool:
+        symbol = symbol_for(row)
         if not symbol:
             continue
-        reason = str(dropped.get('reason') or 'T1_PROFIT_EVIDENCE_INSUFFICIENT')
-        profile = dropped.get('t1_profit_profile')
-        if not isinstance(profile, dict):
-            profile = {
-                'eligible': False,
-                'reason': reason,
-                'policy': 't1_expected_profit_gate_before_top10_and_paper_pick',
-            }
-        t1_profile_by_symbol[symbol] = (False, dict(profile), reason)
+        profile = t1_profit_candidate_profile(
+            row,
+            {'date': source_time[:10], 'source_time': source_time},
+        )
+        t1_profile_by_symbol[symbol] = (
+            bool(profile.get('eligible')),
+            dict(profile),
+            '' if symbol in full_pool_tradable_symbols else 'CURRENT_DAY_TRADABLE_FILTER',
+        )
     annotated_full_pool = []
     for row in enriched_full_pool:
         annotated = dict(row)
@@ -334,6 +327,8 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'source_time': source_time,
         '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
         'candidate_source': summary.get('source') or 'eastmoney_api_scan_v2',
+        'producer_version': summary.get('producer_version') or summary.get('pipeline_version') or '',
+        'pipeline_version': summary.get('pipeline_version') or '',
         'ranking_view': PRODUCTION_RANKING_VIEW,
         'rank_source': PRODUCTION_RANK_SOURCE,
         'score_source': PRODUCTION_SCORE_SOURCE,
@@ -341,7 +336,11 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
-        't1_profit_gate_enabled': True,
+        # T+1 profit evidence is a T-day feature group only. It must not
+        # pre-filter the production universe before the sole formal sorter.
+        't1_profit_gate_enabled': False,
+        't1_profit_gate_policy': 'DIAGNOSTIC_FEATURE_ONLY',
+        'production_eligibility_mode': 'HARD_GATES_ONLY',
         'data_gate_status': data_gate_status,
         'source_status': summary.get('source_status', {}),
         'full_universe_scan': summary.get('full_universe_scan', {}),
@@ -390,7 +389,10 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
     # contains formal candidates for the runner or produces the single
     # official NO_PICK outcome.
     decision_class = 'PAPER_PICK' if search_rows else 'NO_PICK'
-    selected = [basket_candidate(r, decision_class) for r in search_rows]
+    # The legacy search layers are diagnostics only. Production must receive
+    # the complete formal pool so PATH/setup/theme admission cannot become a
+    # hidden whitelist before the sole T+1 decision owner runs.
+    selected = [basket_candidate(r, decision_class) for r in formal_ranked_full_pool]
     structured_formal_impact = structured_formal_impact_summary(formal_ranked_scored, selected, bundle_context)
     weak_market_shadow_ticket = build_weak_market_shadow_ticket(
         selected,
@@ -411,6 +413,8 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'source_time': source_time,
         '_runner_asof_time': source_time[11:] if len(source_time) >= 19 else '',
         'candidate_source': summary.get('source') or 'eastmoney_api_scan_v2',
+        'producer_version': summary.get('producer_version') or summary.get('pipeline_version') or '',
+        'pipeline_version': summary.get('pipeline_version') or '',
         'ranking_view': PRODUCTION_RANKING_VIEW,
         'rank_source': PRODUCTION_RANK_SOURCE,
         'score_source': PRODUCTION_SCORE_SOURCE,
@@ -418,7 +422,11 @@ def _bundle_from_scan_summary(summary_path: Path, summary: Dict[str, Any]) -> Di
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
-        't1_profit_gate_enabled': True,
+        # T+1 profit evidence is a T-day feature group only. It must not
+        # pre-filter the production universe before the sole formal sorter.
+        't1_profit_gate_enabled': False,
+        't1_profit_gate_policy': 'DIAGNOSTIC_FEATURE_ONLY',
+        'production_eligibility_mode': 'HARD_GATES_ONLY',
         'data_gate_status': data_gate_status,
         'full_candidate_pool': formal_ranked_full_pool,
         'scored_candidates': formal_ranked_scored,
@@ -710,9 +718,9 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             row.get('formal_primary_score')
             or candidate_features.get('production_score')
         )
-        candidate_features['rank_source'] = row.get('rank_source') or 'formal_profit_first'
-        candidate_features['ranking_view'] = row.get('ranking_view') or 'main_force_behavior_chain'
-        candidate_features['score_source'] = row.get('score_source') or 'formal_t1_profit_components'
+        candidate_features['rank_source'] = row.get('rank_source') or 't1_net_return_prediction'
+        candidate_features['ranking_view'] = row.get('ranking_view') or 't1_net_return_model'
+        candidate_features['score_source'] = row.get('score_source') or 't1_net_return_prediction'
         candidate_features['formal_rank_snapshot_id'] = row.get('formal_rank_snapshot_id') or ''
         candidate_features['formal_rank_snapshot_version'] = (
             row.get('formal_rank_snapshot_version') or ''
@@ -830,14 +838,14 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'information_coverage_audit': dict(bundle.get('information_coverage_audit') or {}),
         }
         ranking_basis_snapshot = {
-            'basis': row.get('ranking_basis') or row.get('rank_source') or 'formal_profit_first',
-            'ranking_view': row.get('ranking_view') or 'main_force_behavior_chain',
-            'score_source': row.get('score_source') or 'formal_t1_profit_components',
+            'basis': row.get('ranking_basis') or row.get('rank_source') or 't1_net_return_prediction',
+            'ranking_view': row.get('ranking_view') or 't1_net_return_model',
+            'score_source': row.get('score_source') or 't1_net_return_prediction',
             'rank': row.get('rank'),
             'pool_rank': row.get('pool_rank'),
             'formal_rank': row.get('formal_rank'),
             'scanner_rank': row.get('scanner_rank'),
-            'rank_source': row.get('rank_source') or 'formal_profit_first',
+            'rank_source': row.get('rank_source') or 't1_net_return_prediction',
             'formal_primary_score': row.get('formal_primary_score'),
             'production_score': row.get('production_score') or row.get('formal_primary_score'),
             'formal_rank_snapshot_id': row.get('formal_rank_snapshot_id') or '',
@@ -892,7 +900,7 @@ def build_daily_candidate_persistence_payloads(date: str, bundle: Dict[str, Any]
             'trade_date': trade_date,
             'symbol': symbol,
             'stock_name': str(row.get('name') or row.get('stock_name') or ''),
-            # Canonical rank is formal_profit_first after P1 alignment.
+            # Canonical rank is accepted T+1 net-return prediction order.
             'rank': row.get('rank'),
             'final_score': row.get('final_score') or row.get('score'),
             'decision': evaluated_decision,

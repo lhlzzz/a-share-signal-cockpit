@@ -12,6 +12,9 @@ from xiaogu_regime_policy import (
     clamp_self_evolve_value,
     attach_regime_to_context,
     quality_escape_score_floor,
+    regime_observation_status,
+    smoothed_regime_observation,
+    market_context_hash,
 )
 
 
@@ -23,6 +26,30 @@ def test_classify_strong_weak_sideways():
     assert classify_production_regime({"market_regime": "strong", "supportive_market": True}) == "strong"
     assert classify_production_regime({"market_regime": "weak", "weak_acceptance_market": True}) == "weak"
     assert classify_production_regime({"market_regime": "neutral"}) == "sideways"
+
+
+def test_regime_unknown_is_observable_without_relabeling_legacy_sideways():
+    assert regime_observation_status({}) == "UNKNOWN"
+    context = attach_regime_to_context({})
+    assert context["production_regime"] == "sideways"
+    assert context["regime_observation_status"] == "UNKNOWN"
+    assert len(context["market_context_hash"]) == 64
+
+
+def test_regime_smoothing_keeps_recent_state_until_majority_switch():
+    result = smoothed_regime_observation(
+        "weak",
+        [{"production_regime": "strong"}, {"production_regime": "strong"}],
+        window=5,
+    )
+    assert result["smoothed_regime"] == "strong"
+    assert result["regime_switch_pending"] is True
+
+
+def test_market_context_hash_changes_with_consumed_input():
+    first = market_context_hash({"market_regime": "strong", "market_breadth_up_pct": 60})
+    second = market_context_hash({"market_regime": "weak", "market_breadth_up_pct": 60})
+    assert first != second
 
 
 def test_classify_climax_from_market_state():

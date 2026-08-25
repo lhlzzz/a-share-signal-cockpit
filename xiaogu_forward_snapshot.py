@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Tuple
 from xiaogu_forward_host_binding import create_host_binding
 
 _HOST = None
-REQUIRED_FROM_HOST = ('FORMAL_RANK_SNAPSHOT_VERSION', 'PRODUCTION_CHAIN_MODE', 'PRODUCTION_RANKING_VIEW', 'PRODUCTION_RANK_SOURCE', 'PRODUCTION_SCORE_SOURCE', 'PRODUCTION_SNAPSHOT_ORIGINS', 'formal_candidate_sort_key', 'safe_float', 'safe_int', 'symbol_for', 'unique_text_values')
+REQUIRED_FROM_HOST = ('FORMAL_RANK_SNAPSHOT_VERSION', 'PRODUCTION_CHAIN_MODE', 'PRODUCTION_RANKING_VIEW', 'PRODUCTION_RANK_SOURCE', 'PRODUCTION_SCORE_SOURCE', 'PRODUCTION_SNAPSHOT_ORIGINS', 'decision_feature_lineage_status', 'stamp_decision_feature_lineage', 'formal_candidate_sort_key', 'safe_float', 'safe_int', 'symbol_for', 't1_production_prediction', 'unique_text_values')
 
 bind_host, _inject_host, _with_host = create_host_binding(
     globals(), REQUIRED_FROM_HOST, preserve_existing_on_missing=True,
@@ -27,6 +27,8 @@ _FORMAL_RANK_STATE_FIELDS = (
     'formal_rank',
     'rank_source',
     'formal_primary_score',
+    'formal_prediction_valid',
+    'formal_prediction_reason',
     'production_score',
     'score',
     'final_score',
@@ -56,21 +58,26 @@ def apply_formal_profit_ranks(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 out['pool_rank'] = existing_scanner
             elif existing_rank is not None:
                 out['pool_rank'] = existing_rank
-        if out.get('scanner_rank') is None and existing_rank is not None and out.get('rank_source') != 'formal_profit_first':
+        if out.get('scanner_rank') is None and existing_rank is not None and out.get('rank_source') != PRODUCTION_RANK_SOURCE:
             out['scanner_rank'] = existing_rank
         stamped.append(out)
     ordered = sorted(stamped, key=formal_candidate_sort_key, reverse=True)
     for idx, row in enumerate(ordered, 1):
         row['formal_rank'] = idx
         row['rank'] = idx
-        row['rank_source'] = 'formal_profit_first'
-        primary = formal_candidate_sort_key(row)
-        row['formal_primary_score'] = round(float(primary[0]), 4) if primary else None
+        row['rank_source'] = PRODUCTION_RANK_SOURCE
+        prediction = t1_production_prediction(row)
+        row['formal_prediction_valid'] = bool(prediction.get('valid'))
+        row['formal_prediction_reason'] = str(prediction.get('reason') or '')
+        row['formal_primary_score'] = (
+            round(float(prediction['tradable_edge']), 4)
+            if prediction.get('valid') else None
+        )
         row['production_score'] = row['formal_primary_score']
         row['score'] = row['production_score']
         row['final_score'] = row['production_score']
-        row['ranking_view'] = 'main_force_behavior_chain'
-        row['score_source'] = 'formal_t1_profit_components'
+        row['ranking_view'] = PRODUCTION_RANKING_VIEW
+        row['score_source'] = PRODUCTION_SCORE_SOURCE
     snapshot_id = _formal_rank_snapshot_id(ordered)
     for row in ordered:
         row['formal_rank_snapshot_id'] = snapshot_id
@@ -83,6 +90,8 @@ def _formal_rank_snapshot_id(rows: List[Dict[str, Any]]) -> str:
             'symbol': symbol_for(row),
             'formal_rank': row.get('formal_rank'),
             'formal_primary_score': row.get('formal_primary_score'),
+            'formal_prediction_valid': row.get('formal_prediction_valid'),
+            'formal_prediction_reason': row.get('formal_prediction_reason'),
         }
         for row in rows
         if isinstance(row, dict) and symbol_for(row)
@@ -100,11 +109,36 @@ def validate_formal_rank_snapshot(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         expected = formal_candidate_sort_key(row)
         actual_score = safe_float(row.get('formal_primary_score'))
         actual_rank = safe_int(row.get('formal_rank'))
-        if actual_score is None or abs(actual_score - float(expected[0])) > 1e-4:
+        prediction = t1_production_prediction(row)
+        prediction_valid = bool(prediction.get('valid'))
+        if bool(row.get('formal_prediction_valid')) != prediction_valid:
+            errors.append({
+                'symbol': symbol_for(row),
+                'field': 'formal_prediction_valid',
+                'expected': prediction_valid,
+                'actual': row.get('formal_prediction_valid'),
+            })
+        if str(row.get('formal_prediction_reason') or '') != str(prediction.get('reason') or ''):
+            errors.append({
+                'symbol': symbol_for(row),
+                'field': 'formal_prediction_reason',
+                'expected': prediction.get('reason') or '',
+                'actual': row.get('formal_prediction_reason') or '',
+            })
+        if prediction_valid and (
+            actual_score is None or abs(actual_score - float(expected[0])) > 1e-4
+        ):
             errors.append({
                 'symbol': symbol_for(row),
                 'field': 'formal_primary_score',
                 'expected': round(float(expected[0]), 6),
+                'actual': actual_score,
+            })
+        if not prediction_valid and actual_score is not None:
+            errors.append({
+                'symbol': symbol_for(row),
+                'field': 'formal_primary_score',
+                'expected': None,
                 'actual': actual_score,
             })
         if actual_rank is None or safe_int(row.get('rank')) != actual_rank:
@@ -147,6 +181,10 @@ def validate_active_production_chain(bundle: Dict[str, Any], target_date: str = 
     }
     if not snapshot_validation.get('valid'):
         errors.append('FORMAL_RANK_SNAPSHOT_INVALID')
+    for row in formal_pool:
+        lineage_validation = decision_feature_lineage_status(row, bundle, required=True)
+        if not lineage_validation.get('valid'):
+            errors.append(f'DECISION_FEATURE_LINEAGE_INVALID:{symbol_for(row)}')
     expected_snapshot_id = str(bundle.get('formal_rank_snapshot_id') or '')
     expected_snapshot_version = str(bundle.get('formal_rank_snapshot_version') or '')
     if not expected_snapshot_id:
@@ -161,9 +199,9 @@ def validate_active_production_chain(bundle: Dict[str, Any], target_date: str = 
         ):
             if str(row.get(field) or '') != expected:
                 errors.append(f'{field.upper()}_MISMATCH:{symbol_for(row)}')
-        if safe_float(row.get('production_score')) is None:
+        if bool(row.get('formal_prediction_valid')) and safe_float(row.get('production_score')) is None:
             errors.append(f'PRODUCTION_SCORE_MISSING:{symbol_for(row)}')
-        if safe_float(row.get('formal_primary_score')) is None:
+        if bool(row.get('formal_prediction_valid')) and safe_float(row.get('formal_primary_score')) is None:
             errors.append(f'FORMAL_PRIMARY_SCORE_MISSING:{symbol_for(row)}')
         if safe_int(row.get('formal_rank')) is None:
             errors.append(f'FORMAL_RANK_MISSING:{symbol_for(row)}')
@@ -280,6 +318,7 @@ def freeze_formal_production_snapshot(bundle: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(bundle, dict):
         return bundle
     if bundle.get('strict_production_chain'):
+        stamp_decision_feature_lineage(bundle)
         validation = validate_active_production_chain(bundle, str(bundle.get('date') or ''))
         bundle['production_chain_validation'] = validation
         if not validation.get('valid'):

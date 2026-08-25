@@ -19,11 +19,24 @@ production_regime adds climax/no_main for soft/mainline-aware policy.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 # --- Taxonomy -----------------------------------------------------------------
 PRODUCTION_REGIMES = ("strong", "weak", "sideways", "climax", "no_main")
 LEGACY_MARKET_REGIMES = ("strong", "weak", "neutral")
+REGIME_OBSERVATION_FIELDS = (
+    "market_follow_through_score",
+    "market_breadth_up_pct",
+    "market_limitups",
+    "limitup_broken_ratio",
+    "broken_limitups",
+    "max_consecutive",
+    "sentiment_score",
+    "external_market_status",
+    "external_market_signal_score",
+)
 
 # Shadow variants used by xiaogu_backtest_v0_1._shadow_ranking_replay
 PREFERRED_SHADOW_VARIANT = {
@@ -265,6 +278,84 @@ def classify_production_regime(
     return "sideways"
 
 
+def regime_observation_status(
+    market_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Distinguish an observed neutral market from an unknown market input."""
+    ctx = market_context if isinstance(market_context, dict) else {}
+    explicit = str(ctx.get("market_regime") or ctx.get("production_regime") or "").strip()
+    observed = any(
+        ctx.get(field) not in (None, "", {}, [])
+        for field in REGIME_OBSERVATION_FIELDS
+    )
+    if explicit or observed or any(
+        bool(ctx.get(field)) for field in (
+            "supportive_market",
+            "weak_acceptance_market",
+            "overheated_market",
+            "broken_limit_pressure",
+        )
+    ):
+        return "KNOWN"
+    return "UNKNOWN"
+
+
+def smoothed_regime_observation(
+    current_regime: str,
+    history: Optional[List[Any]] = None,
+    *,
+    window: int = 5,
+) -> Dict[str, Any]:
+    """Return a shadow-only rolling regime with simple hysteresis.
+
+    The current production label remains unchanged. A prior label is retained
+    when it has not been displaced by a majority in the bounded recent window.
+    """
+    current = str(current_regime or "sideways").lower()
+    recent = [
+        str(item.get("production_regime") or item.get("regime") or item).lower()
+        if isinstance(item, (dict, str)) else ""
+        for item in (history or [])[-max(1, int(window) - 1):]
+    ]
+    recent = [item for item in recent if item in PRODUCTION_REGIMES]
+    labels = [*recent, current] if current in PRODUCTION_REGIMES else recent
+    if not labels:
+        return {
+            "smoothed_regime": "UNKNOWN",
+            "regime_history_count": 0,
+            "regime_switch_pending": False,
+            "regime_smoothing_window": window,
+        }
+    counts = {label: labels.count(label) for label in set(labels)}
+    winner = max(counts, key=lambda label: (counts[label], labels.index(label)))
+    prior = recent[-1] if recent else None
+    switch_pending = bool(prior and current != prior and counts.get(current, 0) <= len(labels) // 2)
+    return {
+        "smoothed_regime": prior if switch_pending else winner,
+        "regime_history_count": len(recent),
+        "regime_switch_pending": switch_pending,
+        "regime_smoothing_window": window,
+    }
+
+
+def market_context_hash(market_context: Optional[Dict[str, Any]] = None) -> str:
+    """Hash the frozen market inputs consumed by gate and ranking."""
+    ctx = market_context if isinstance(market_context, dict) else {}
+    payload = {
+        field: ctx.get(field)
+        for field in REGIME_OBSERVATION_FIELDS
+        if ctx.get(field) not in (None, "", {}, [])
+    }
+    payload.update({
+        "market_regime": ctx.get("market_regime"),
+        "production_regime": ctx.get("production_regime"),
+        "observation_status": ctx.get("regime_observation_status"),
+        "smoothed_regime": ctx.get("smoothed_regime"),
+    })
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def threshold_mode_for_context(market_context: Optional[Dict[str, Any]] = None) -> str:
     """Map adaptive flags to the stage-threshold bucket (preserves legacy behavior).
 
@@ -440,10 +531,21 @@ def attach_regime_to_context(
     """Mutate+return market_context with production_regime and policy snapshot."""
     if not isinstance(market_context, dict):
         return {}
+    observation_status = regime_observation_status(market_context)
     prod = classify_production_regime(market_context)
     market_context["production_regime"] = prod
+    market_context["regime_observation_status"] = observation_status
+    market_context.update(smoothed_regime_observation(
+        prod,
+        market_context.get("market_regime_history"),
+        window=5,
+    ))
+    market_context["market_context_hash"] = market_context_hash(market_context)
     market_context["regime_policy"] = {
         "production_regime": prod,
+        "regime_observation_status": market_context["regime_observation_status"],
+        "smoothed_regime": market_context["smoothed_regime"],
+        "market_context_hash": market_context["market_context_hash"],
         "sector_gate_threshold": sector_gate_threshold_for_market(market_context),
         "quality_escape_score_floor": quality_escape_score_floor(market_context),
         "preferred_shadow_variant": preferred_shadow_variant(prod),

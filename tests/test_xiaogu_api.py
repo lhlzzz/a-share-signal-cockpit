@@ -145,7 +145,16 @@ def test_dashboard_candidate_explanation_is_chinese_and_structured():
             'distribution_risk_score': 0.4,
         },
         'eligibility_snapshot': {'eligible': True},
-        'ranking_basis': {'rank_source': 'formal_profit_first'},
+        'ranking_basis': {'ranking_view': 't1_net_return_model'},
+        't1_alpha_prediction': {
+            'expected_t1_net_return': 0.018,
+            'cross_sectional_edge': 0.012,
+            'p_win': 0.63,
+            'expected_downside': 0.009,
+            'uncertainty': 0.004,
+            'execution_cost': 0.001,
+            'tradable_edge': 0.017,
+        },
         'blockers': [],
         'auxiliary_evidence_snapshot': {},
         'raw_json': {},
@@ -155,8 +164,8 @@ def test_dashboard_candidate_explanation_is_chinese_and_structured():
 
     assert result['selection_explanation']['门禁中文'] == '已通过正式门禁'
     factor_names = [item['名称'] for item in result['selection_explanation']['因子']]
-    assert factor_names == ['事件催化', '板块承载', '直接资金确认', 'T+1空间', '派发风险']
-    assert result['selection_explanation']['排序口径'] == '主力行为链排序'
+    assert factor_names == ['预期T+1净收益', '横截面优势', 'T+1盈利概率', '预期下行', '不确定性', '执行成本', '可交易优势']
+    assert result['selection_explanation']['排序口径'] == 'T+1净收益预测排序'
     assert 'selection_diagnostics' not in result
     assert 'ranking_basis' not in result
     assert 'eligibility_snapshot' not in result
@@ -199,11 +208,11 @@ def test_dashboard_public_candidate_does_not_expose_machine_reason_fields():
         'final_score': 78.5,
         'decision': 'PAPER_PICK',
         'selection_outcome': 'OFFICIAL_PICK',
-        'candidate_features': {'expected_t1_profit_score': 1.0},
-        'factor_snapshot': {'expected_t1_profit_score': 1.0},
+        'candidate_features': {'t1_alpha_prediction': {'tradable_edge': 0.017}},
+        'factor_snapshot': {},
         'eligibility_snapshot': {'eligible': True},
         'selection_diagnostics': {'official_decision_reason': 'INTERNAL'},
-        'ranking_basis': {'basis': 'formal_profit_first'},
+        'ranking_basis': {'basis': 't1_net_return_prediction'},
         'raw_json': {'legacy_repo_summary': 'INTERNAL'},
         'blockers': [],
         'selection_reason': {
@@ -459,9 +468,9 @@ def test_front_data_exposes_official_pick_separately_from_top_candidate(monkeypa
         'rank': 1,
         'score': 100,
         'productionScore': 100,
-        'scoreSource': 'formal_t1_profit_components',
-        'rankingView': 'main_force_behavior_chain',
-        'rankSource': 'formal_profit_first',
+        'scoreSource': 't1_net_return_prediction',
+        'rankingView': 't1_net_return_model',
+        'rankSource': 't1_net_return_prediction',
         'decision': 'WATCH',
         'entryPrice': 44.43,
         'selectionReason': '候选榜首',
@@ -479,9 +488,9 @@ def test_front_data_exposes_official_pick_separately_from_top_candidate(monkeypa
         'rank': 14,
         'score': 78.6984,
         'productionScore': 78.6984,
-        'scoreSource': 'formal_t1_profit_components',
-        'rankingView': 'main_force_behavior_chain',
-        'rankSource': 'formal_profit_first',
+        'scoreSource': 't1_net_return_prediction',
+        'rankingView': 't1_net_return_model',
+        'rankSource': 't1_net_return_prediction',
         'decision': 'TRADING',
         'entryPrice': 34.08,
         'selectionReason': '正式出票',
@@ -642,16 +651,16 @@ def test_paper_trade_chain_metadata_separates_formal_and_mixed_history():
         'rank': 1,
         'candidate_ranking_basis': {
             'formal_rank': 1,
-            'rank_source': 'formal_profit_first',
-            'ranking_view': 'main_force_behavior_chain',
-            'score_source': 'formal_t1_profit_components',
+            'rank_source': 't1_net_return_prediction',
+            'ranking_view': 't1_net_return_model',
+            'score_source': 't1_net_return_prediction',
             'production_score': 100.0,
             'formal_rank_snapshot_id': 'snapshot-2026-08-05',
         },
     })
     assert formal['chain_status'] == 'formal_production'
-    assert formal['score_source'] == 'formal_t1_profit_components'
-    assert formal['ranking_view'] == 'main_force_behavior_chain'
+    assert formal['score_source'] == 't1_net_return_prediction'
+    assert formal['ranking_view'] == 't1_net_return_model'
     assert formal['chain_audit'] == {
         'score_matches': True,
         'rank_matches': True,
@@ -663,7 +672,7 @@ def test_paper_trade_chain_metadata_separates_formal_and_mixed_history():
         'rank': 1,
         'candidate_ranking_basis': {
             'formal_rank': 1,
-            'rank_source': 'formal_profit_first',
+            'rank_source': 't1_net_return_prediction',
             'formal_primary_score': 4.2776,
         },
     })
@@ -684,9 +693,9 @@ def test_paper_portfolio_history_exposes_chain_metadata(monkeypatch):
         'close_price': 10.0,
         'candidate_ranking_basis': {
             'formal_rank': 1,
-            'rank_source': 'formal_profit_first',
-            'ranking_view': 'main_force_behavior_chain',
-            'score_source': 'formal_t1_profit_components',
+            'rank_source': 't1_net_return_prediction',
+            'ranking_view': 't1_net_return_model',
+            'score_source': 't1_net_return_prediction',
             'production_score': 100.0,
         },
         't1_return': 0.1,
@@ -696,8 +705,8 @@ def test_paper_portfolio_history_exposes_chain_metadata(monkeypatch):
 
     history = result['tradeHistory'][0]
     assert history['chain_status'] == 'formal_production'
-    assert history['score_source'] == 'formal_t1_profit_components'
-    assert history['ranking_view'] == 'main_force_behavior_chain'
+    assert history['score_source'] == 't1_net_return_prediction'
+    assert history['ranking_view'] == 't1_net_return_model'
     assert history['production_score'] == 100.0
 
 
@@ -723,8 +732,8 @@ def test_latest_chain_system_stats_are_the_only_production_score(monkeypatch):
         'winningTrades': 20,
         'losingTrades': 12,
     }
-    assert xiaogu_api._PRODUCTION_CHAIN_NAME == 'main_force_behavior_chain'
-    assert xiaogu_api._PRODUCTION_RANK_SOURCE == 'formal_profit_first'
+    assert xiaogu_api._PRODUCTION_CHAIN_NAME == 't1_net_return_model'
+    assert xiaogu_api._PRODUCTION_RANK_SOURCE == 't1_net_return_prediction'
 
 
 def test_latest_chain_replay_uses_active_production_database_rows(monkeypatch):
@@ -859,7 +868,7 @@ def test_review_payload_only_selects_losses_and_low_returns_for_obsidian_upgrade
 
     assert review["threshold"] == 0.01
     assert [row["review_level"] for row in review["cases"]] == ["LOSS", "LOW_RETURN"]
-    assert all(row["production_chain"] == "main_force_behavior_chain" for row in review["cases"])
+    assert all(row["production_chain"] == "t1_net_return_model" for row in review["cases"])
     assert review["obsidian"]["role"]
 
 
@@ -875,9 +884,9 @@ def test_portfolio_summary_without_capital_does_not_invent_account_balance(monke
         "t1_return": 0.005,
         "candidate_ranking_basis": {
             "formal_rank": 1,
-            "rank_source": "formal_profit_first",
-            "ranking_view": "main_force_behavior_chain",
-            "score_source": "formal_t1_profit_components",
+            "rank_source": "t1_net_return_prediction",
+            "ranking_view": "t1_net_return_model",
+            "score_source": "t1_net_return_prediction",
             "production_score": 100.0,
         },
     }])

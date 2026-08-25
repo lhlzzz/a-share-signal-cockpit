@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Backfill the single official T+1 close return for PAPER_PICK records.
+"""Backfill canonical T+1 labels for PAPER_PICK records.
 
-Uses baostock API to fetch close prices (forward-adjusted).
-Calculates ``(T+1 close - T-day entry close) / T-day entry close`` and updates
-the returns table. Other historical return columns are intentionally ignored.
+Uses unadjusted daily OHLC and the explicit T-day close proxy execution
+contract. Legacy return columns remain compatible, but canonical labels are
+the only research target.
 """
 import json
 import signal
 import sys
 import time
-import urllib.request
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -18,7 +17,6 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import baostock as bs
 from sqlalchemy import text
 from xiaogu_db import (
     engine,
@@ -27,9 +25,16 @@ from xiaogu_db import (
     upsert_return,
 )
 from xiaogu_forward_result_filler_v0_1 import (
-    fetch_eastmoney_klines, parse_klines as parse_eastmoney_klines,
-    secid_for,
+    CANONICAL_LABEL_VERSION,
+    CANONICAL_MARKET_DATA_SOURCE,
+    CANONICAL_PRICE_BASIS,
+    build_execution_contract,
+    calculate_t1_labels,
+    fetch_canonical_daily_ohlc,
+    shadow_execution_profile,
+    target_quality_gate,
 )
+from xiaogu_scheduler import is_trading_day as _scheduler_is_trading_day
 
 # Rate limit: 50ms between requests
 REQUEST_DELAY = 0.05
@@ -44,6 +49,7 @@ FAILURE_REASONS = {
     'BAOSTOCK_LOGIN_FAILED',
     'BAOSTOCK_QUERY_FAILED',
     'DB_WRITE_FAILED',
+    'INVALID_T1_LABELS',
     'UNKNOWN',
 }
 DEFAULT_PER_SYMBOL_TIMEOUT_SECONDS = 8
@@ -54,13 +60,147 @@ class ReturnFetchTimeout(TimeoutError):
     pass
 
 
-class BaoStockQueryError(RuntimeError):
-    pass
+def _stored_execution_label_patch(row: dict) -> Optional[dict]:
+    """Return a canonical label patch from persisted execution evidence.
+
+    Older settlement rows already contain the costed execution result inside
+    ``settlement_evidence.execution_model`` but were written before the
+    dedicated return columns were added.  This migration only fills missing
+    canonical fields; it never recomputes or replaces an existing net label.
+    """
+    if not isinstance(row, dict) or row.get('t1_net_return') is not None:
+        return None
+    evidence = row.get('settlement_evidence')
+    evidence = evidence if isinstance(evidence, dict) else {}
+    execution = evidence.get('execution_model')
+    execution = execution if isinstance(execution, dict) else {}
+    net_return = execution.get('net_return')
+    if net_return in (None, ''):
+        return None
+    try:
+        net_return = float(net_return)
+    except (TypeError, ValueError):
+        return None
+
+    labels = {
+        't1_open_return': row.get('t1_open_return'),
+        't1_high_return': row.get('t1_high_return'),
+        't1_low_return': row.get('t1_low_return'),
+        't1_close_return': row.get('t1_close_return'),
+        't1_mfe': row.get('t1_mfe'),
+        't1_mae': row.get('t1_mae'),
+        't1_vwap_return': row.get('t1_vwap_return'),
+        't1_gap_return': row.get('t1_gap_return'),
+        't1_net_return': net_return,
+        'execution_price': row.get('entry_price') or execution.get('entry_reference_price'),
+        'slippage': (
+            float(execution.get('buy_slippage') or 0.0)
+            + float(execution.get('sell_slippage') or 0.0)
+        ),
+        'commission': execution.get('commission'),
+        'stamp_duty': execution.get('stamp_duty'),
+        'transfer_fee': execution.get('transfer_fee'),
+        'market_impact': execution.get('impact_cost'),
+        'label_status': row.get('label_status') or 'SETTLED',
+    }
+    return labels
+
+
+def repair_stored_canonical_net_returns(
+    *,
+    dry_run: bool = False,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    production_run_id: Optional[str] = None,
+) -> dict:
+    """Backfill missing net labels without fetching or changing market data.
+
+    This is intentionally part of the existing return-backfill owner.  It is
+    a label migration for already settled rows, not a second settlement path.
+    """
+    clauses = [
+        "label_version = :label_version",
+        "label_status = 'SETTLED'",
+        "t1_net_return IS NULL",
+        "settlement_evidence -> 'execution_model' ->> 'net_return' IS NOT NULL",
+    ]
+    params = {'label_version': CANONICAL_LABEL_VERSION}
+    if start_date:
+        clauses.append('trade_date >= CAST(:start_date AS date)')
+        params['start_date'] = start_date
+    if end_date:
+        clauses.append('trade_date <= CAST(:end_date AS date)')
+        params['end_date'] = end_date
+    if production_run_id:
+        clauses.append('production_run_id = :production_run_id')
+        params['production_run_id'] = production_run_id
+    query = text(f"""
+        SELECT id, trade_date, symbol, pick_id, production_run_id,
+               candidate_snapshot_id, t1_return,
+               t1_open_return, t1_high_return, t1_low_return,
+               t1_close_return, t1_mfe, t1_mae, t1_vwap_return,
+               t1_gap_return, t1_net_return, entry_price,
+               label_status, settlement_evidence
+        FROM returns
+        WHERE {' AND '.join(clauses)}
+        ORDER BY trade_date, symbol, id
+    """)
+    with engine.connect() as conn:
+        rows = [dict(row) for row in conn.execute(query, params).mappings()]
+
+    result = {
+        'status': 'DRY_RUN' if dry_run else 'COMPLETED',
+        'candidate_rows': len(rows),
+        'repaired': 0,
+        'skipped_invalid_evidence': 0,
+        'rows': [],
+    }
+    for row in rows:
+        patch = _stored_execution_label_patch(row)
+        if not patch:
+            result['skipped_invalid_evidence'] += 1
+            continue
+        evidence = row.get('settlement_evidence')
+        evidence = dict(evidence) if isinstance(evidence, dict) else {}
+        evidence['t1_metrics'] = {
+            **(evidence.get('t1_metrics') if isinstance(evidence.get('t1_metrics'), dict) else {}),
+            **patch,
+        }
+        evidence['label_backfill'] = {
+            'status': 'APPLIED' if not dry_run else 'PLANNED',
+            'reason': 'RECOVERED_FROM_PERSISTED_EXECUTION_MODEL',
+            'source_row_id': row.get('id'),
+            'label_version': CANONICAL_LABEL_VERSION,
+        }
+        item = {
+            'id': row.get('id'),
+            'trade_date': str(row.get('trade_date')),
+            'symbol': str(row.get('symbol')).zfill(6),
+            't1_net_return': patch['t1_net_return'],
+        }
+        if not dry_run:
+            upsert_return(
+                trade_date=row['trade_date'],
+                symbol=item['symbol'],
+                pick_id=row.get('pick_id'),
+                # Do not pass the legacy close-return column here.  Some
+                # historical rows use a different rounding/source; the
+                # canonical label patch owns t1_close_return for this repair.
+                t1_return=None,
+                production_run_id=row.get('production_run_id'),
+                candidate_snapshot_id=row.get('candidate_snapshot_id') or '',
+                return_status='SETTLED',
+                settlement_evidence=evidence,
+                t1_labels=patch,
+            )
+        result['repaired'] += 1
+        result['rows'].append(item)
+    return result
 
 
 @contextmanager
 def per_symbol_timeout(seconds: int):
-    """Bound a blocking baostock request without abandoning the full resume run."""
+    """Bound a blocking market-data request without abandoning the full run."""
     if seconds <= 0:
         yield
         return
@@ -76,8 +216,11 @@ def per_symbol_timeout(seconds: int):
 
 
 def is_trading_day(d: date) -> bool:
-    """Check if date is a weekday (simplified - no holiday calendar)."""
-    return d.weekday() < 5
+    """Use the project's XSHG calendar, with a weekday fallback."""
+    try:
+        return bool(_scheduler_is_trading_day(d))
+    except Exception:
+        return d.weekday() < 5
 
 
 def next_trading_day(d: date, offset: int) -> date:
@@ -91,120 +234,12 @@ def next_trading_day(d: date, offset: int) -> date:
     return current
 
 
-def baostock_symbol(symbol: str) -> str:
-    """Convert to baostock format (sh.XXXXXX or sz.XXXXXX)."""
-    raw = str(symbol or '').strip()
-    if not raw.isdigit() or len(raw) > 6:
-        raise ValueError('SYMBOL_FORMAT_ERROR')
-    s = raw.zfill(6)
-    if s.startswith('6') or s.startswith('9'):
-        return f'sh.{s}'
-    return f'sz.{s}'
-
-
-def fetch_kline_range_baostock(symbol: str, start: str, end: str) -> list:
-    """Fetch daily klines from baostock API for a date range."""
-    bs_symbol = baostock_symbol(symbol)
-    rs = bs.query_history_k_data_plus(
-        bs_symbol,
-        'date,open,high,low,close',
-        start_date=start,
-        end_date=end,
-        frequency='d',
-        adjustflag='2'  # 前复权
-    )
-    if rs.error_code != '0':
-        raise BaoStockQueryError(rs.error_msg or 'baostock query failed')
-
-    data = []
-    while rs.next():
-        row = rs.get_row_data()
-        if row[4]:  # Has close price
-            data.append({
-                'date': row[0],
-                'open': float(row[1]) if row[1] else None,
-                'high': float(row[2]) if row[2] else None,
-                'low': float(row[3]) if row[3] else None,
-                'close': float(row[4]),
-            })
-    return data
-
-
-def fetch_eastmoney_realtime_ohlc(symbol: str, trade_date: str) -> Optional[dict]:
-    """Fetch current-day OHLC from Eastmoney quote endpoint after close.
-
-    Only stamps the live quote onto *today*. Using this for a future/past
-    target date previously labeled same-day OHLC as T+1 (t1_return=0 pollution).
-    """
-    if str(trade_date)[:10] != date.today().isoformat():
-        return None
-    params = '&'.join([
-        'ut=fa5fd1943c7b386f172d6893dbfba10b',
-        'fltt=2',
-        'invt=2',
-        'fields=f43,f44,f45,f46',
-        'secid=' + secid_for(symbol),
-        '_=' + str(int(time.time() * 1000)),
-    ])
-    url = 'https://push2delay.eastmoney.com/api/qt/stock/get?' + params
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 XiaoguReturnBackfill/0.1', 'Referer': 'https://quote.eastmoney.com/'})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = (json.loads(resp.read().decode('utf-8')).get('data') or {})
-    if not all(data.get(key) for key in ('f43', 'f44', 'f45', 'f46')):
-        return None
-    return {
-        'date': trade_date,
-        'open': float(data['f46']),
-        'high': float(data['f44']),
-        'low': float(data['f45']),
-        'close': float(data['f43']),
-    }
-
-
-def merge_eastmoney_missing_klines(symbol: str, start: str, end: str, klines: list) -> tuple[list, bool]:
-    """Fill missing same-day klines from Eastmoney when baostock has not published them yet."""
-    existing_dates = {row.get('date') for row in klines}
-    if end in existing_dates:
-        return klines, False
-    payload = fetch_eastmoney_klines(symbol, start, end, retries=3)
-    eastmoney_rows = parse_eastmoney_klines(payload)
-    merged = {row['date']: row for row in klines if row.get('date')}
-    for row in eastmoney_rows:
-        merged.setdefault(row['date'], {
-            'date': row['date'],
-            'open': row.get('open'),
-            'high': row.get('high'),
-            'low': row.get('low'),
-            'close': row.get('close'),
-        })
-    if end not in merged:
-        try:
-            realtime_row = fetch_eastmoney_realtime_ohlc(symbol, end)
-        except Exception:
-            realtime_row = None
-        if realtime_row:
-            merged[end] = realtime_row
-    return [merged[key] for key in sorted(merged)], end in merged and end not in existing_dates
-
-
 def price_on_date(klines: list, target_date: str, field: str = 'close') -> Optional[float]:
     """Extract price for a specific date from kline data."""
     for row in klines:
         if row['date'] == target_date:
             return row.get(field)
     return None
-
-
-def close_on_date(klines: list, target_date: str) -> Optional[float]:
-    """Extract close price for a specific date from kline data."""
-    return price_on_date(klines, target_date, 'close')
-
-
-def calculate_return(entry_price: float, exit_price: float) -> Optional[float]:
-    """Calculate return as (exit - entry) / entry."""
-    if entry_price is None or exit_price is None or entry_price <= 0:
-        return None
-    return round((exit_price - entry_price) / entry_price, 6)
 
 
 def build_return_backfill_timeout_gate(failure_reasons: dict) -> dict:
@@ -263,7 +298,6 @@ def backfill_returns(
         'before': {},
         'after': {},
         'batch_soft_timeout_exceeded': False,
-        'eastmoney_same_source_merge_count': 0,
         'return_backfill_config': {
             'per_symbol_timeout_seconds': per_symbol_timeout_seconds,
             'batch_soft_timeout_seconds': batch_soft_timeout_seconds,
@@ -366,9 +400,13 @@ def backfill_returns(
             )
 
     # Check which ones already have returns
-    with engine.connect() as conn:
-        existing = conn.execute(text("""
-            SELECT production_run_id, symbol, t1_return, settlement_evidence
+        with engine.connect() as conn:
+            existing = conn.execute(text("""
+                SELECT production_run_id, symbol, t1_return, settlement_evidence,
+                   t1_open_return, t1_high_return, t1_low_return,
+                   t1_close_return, t1_mfe, t1_mae,
+                   t1_vwap_return, t1_gap_return, t1_net_return,
+                   label_source, label_version
             FROM returns
             WHERE production_run_id IS NOT NULL
         """)).fetchall()
@@ -376,9 +414,26 @@ def backfill_returns(
     existing_map = {}
     for r in existing:
         key = (str(r[0]), str(r[1]).zfill(6))
+        stored_evidence = r[3] if len(r) > 3 and isinstance(r[3], dict) else {}
         existing_map[key] = {
             't1': r[2],
-            'settlement_evidence': r[3] if len(r) > 3 and isinstance(r[3], dict) else {},
+            'settlement_evidence': stored_evidence,
+            'legacy_shape': len(r) < 10,
+            'label_source': r[13] if len(r) > 13 else None,
+            'label_version': r[14] if len(r) > 14 else None,
+            'labels': {
+                field: r[index] if len(r) > index else (
+                    stored_evidence.get('t1_metrics', {}).get(field)
+                    if isinstance(stored_evidence.get('t1_metrics'), dict)
+                    else None
+                )
+                for field, index in zip(
+                    ('t1_open_return', 't1_high_return', 't1_low_return',
+                     't1_close_return', 't1_mfe', 't1_mae',
+                     't1_vwap_return', 't1_gap_return', 't1_net_return'),
+                    range(4, 13),
+                )
+            },
         }
 
     target_keys = {(str(row[5]), str(row[1]).zfill(6)) for row in rows}
@@ -419,31 +474,6 @@ def backfill_returns(
         'rank2_to_rank6_t1_coverage': key_coverage(rank26_keys),
     }
 
-    # Login to baostock
-    lg = bs.login()
-    if lg.error_code != '0':
-        print(f'ERROR: baostock login failed: {lg.error_msg}')
-        for row in rows:
-            record_failure(
-                row[0],
-                row[1],
-                'BAOSTOCK_LOGIN_FAILED',
-                str(row[5]),
-                str(row[6] or row[5]),
-            )
-        stats['return_backfill_timeout_gate'] = build_return_backfill_timeout_gate(stats['failure_reasons'])
-        if not dry_run:
-            for run_id in run_ids:
-                update_production_run_step(
-                    run_id,
-                    't1_settlement',
-                    'FAIL',
-                    required=True,
-                    error_message='BAOSTOCK_LOGIN_FAILED',
-                    retry_command=f'python3 scripts/xiaogu_return_backfill.py --production-run-id {run_id}',
-                )
-        return stats
-
     try:
         # Process each pick
         as_of_date = date.fromisoformat(validation_trade_date) if validation_trade_date else date.today()
@@ -460,7 +490,8 @@ def backfill_returns(
             pick_id = row[7]
             try:
                 symbol = str(raw_symbol).zfill(6)
-                baostock_symbol(raw_symbol)
+                if not raw_symbol.isdigit() or len(raw_symbol) > 6:
+                    raise ValueError('SYMBOL_FORMAT_ERROR')
             except ValueError:
                 record_failure(
                     trade_date, raw_symbol, 'SYMBOL_FORMAT_ERROR', run_id, candidate_snapshot_id,
@@ -481,9 +512,21 @@ def backfill_returns(
             key = (run_id, symbol)
             existing_ret = existing_map.get(key, {})
 
-            # The official lifecycle has exactly one result: T+1 close.
+            # A legacy close-only row must be revisited until all canonical
+            # labels exist; close-only coverage is not target readiness.
             needs = {}
-            if existing_ret.get('t1') is not None:
+            labels_complete = existing_ret.get('legacy_shape') or (
+                existing_ret.get('label_source') == CANONICAL_MARKET_DATA_SOURCE
+                and existing_ret.get('label_version') == CANONICAL_LABEL_VERSION
+                and all(
+                existing_ret.get('labels', {}).get(field) is not None
+                for field in (
+                    't1_open_return', 't1_high_return', 't1_low_return',
+                    't1_close_return', 't1_mfe', 't1_mae', 't1_net_return',
+                )
+                )
+            )
+            if existing_ret.get('t1') is not None and labels_complete:
                 stats['already_filled'] += 1
                 stats['run_settlement'][run_id]['settled'] += 1
                 if not dry_run:
@@ -493,6 +536,7 @@ def backfill_returns(
                             symbol=symbol,
                             pick_id=pick_id,
                             t1_return=existing_ret['t1'],
+                            t1_labels=existing_ret.get('labels') or {},
                             production_run_id=run_id,
                             candidate_snapshot_id=candidate_snapshot_id,
                             return_status='SETTLED',
@@ -526,30 +570,15 @@ def backfill_returns(
 
             try:
                 with per_symbol_timeout(per_symbol_timeout_seconds):
-                    klines = fetch_kline_range_baostock(symbol, str(trade_date), str(max_target))
+                    klines = fetch_canonical_daily_ohlc(symbol, str(trade_date), str(max_target))
             except ReturnFetchTimeout as exc:
                 record_failure(trade_date, symbol, 'BAOSTOCK_TIMEOUT', run_id, candidate_snapshot_id)
-                continue
-            except BaoStockQueryError:
-                record_failure(trade_date, symbol, 'BAOSTOCK_QUERY_FAILED', run_id, candidate_snapshot_id)
                 continue
             except Exception as exc:
                 reason = 'NETWORK_ERROR' if type(exc).__name__ in {'ConnectionError', 'TimeoutError'} else 'UNKNOWN'
                 record_failure(trade_date, symbol, reason, run_id, candidate_snapshot_id)
                 continue
             time.sleep(REQUEST_DELAY)
-
-            target_dates = {str(target_date) for _, target_date in needs.values()}
-            have_dates = {row.get('date') for row in klines}
-            if target_dates - have_dates:
-                try:
-                    klines, merged_same_source = merge_eastmoney_missing_klines(
-                        symbol, str(trade_date), str(max_target), klines,
-                    )
-                    if merged_same_source:
-                        stats['eastmoney_same_source_merge_count'] += 1
-                except Exception:
-                    pass
 
             if not klines:
                 record_failure(trade_date, symbol, 'NO_TRADING_DATA', run_id, candidate_snapshot_id)
@@ -563,27 +592,73 @@ def backfill_returns(
 
             stats['fetched'] += 1
 
-            # Calculate the only production return from the final T+1 close.
-            returns = {}
             t1_date = next_trading_day(trade_date, 1)
-            if t1_date <= as_of_date:
-                t1_close = close_on_date(klines, str(t1_date))
-                if t1_close is not None:
-                    returns['t1'] = calculate_return(entry_price, t1_close)
-                    if returns['t1'] is not None:
-                        stats['t1_filled'] += 1
-
-            for horizon, (offset, target_date) in needs.items():
-                exit_price = price_on_date(klines, str(target_date))
-                if horizon == 't1' and exit_price is not None and 't1' not in returns:
-                    ret = calculate_return(entry_price, exit_price)
-                    returns[horizon] = ret
-                    if ret is not None:
-                        stats[f'{horizon}_filled'] += 1
-
-            if not returns:
-                record_failure(trade_date, symbol, 'NO_TRADING_DATA', run_id, candidate_snapshot_id)
+            t1_row = next(
+                (row for row in klines if row.get('date') == str(t1_date)),
+                None,
+            )
+            execution_contract = build_execution_contract(
+                {
+                    'date': str(trade_date),
+                    'asof_time': '15:00:00',
+                    'symbol': symbol,
+                },
+                entry_price_override=entry_price,
+                entry_price_source='BACKFILL_T_DAY_CLOSE',
+                entry_price_basis=CANONICAL_PRICE_BASIS,
+            )
+            previous_rows = [
+                row for row in klines
+                if row.get('date') and row.get('date') < str(t1_date)
+            ]
+            previous_row = max(previous_rows, key=lambda row: row.get('date')) if previous_rows else None
+            t1_metrics = calculate_t1_labels(
+                entry_price,
+                t1_row,
+                previous_row=previous_row,
+                include_extended=False,
+            )
+            quality = target_quality_gate(execution_contract, t1_row, t1_metrics)
+            if quality.get('status') != 'PASS':
+                record_failure(trade_date, symbol, 'INVALID_T1_LABELS', run_id, candidate_snapshot_id)
                 continue
+            gross_return = t1_metrics.get('t1_close_return')
+            execution_evidence = shadow_execution_profile(
+                {
+                    'date': str(trade_date),
+                    'symbol': symbol,
+                    'execution_contract': execution_contract,
+                    'features_used': {
+                        'candidate_features': {
+                            'entry_price': entry_price,
+                            'execution_input_quality': 'BACKFILL_RECONSTRUCTED',
+                        },
+                    },
+                },
+                t1_row,
+                previous_row,
+                gross_return=gross_return,
+            )
+            t1_metrics = calculate_t1_labels(
+                entry_price,
+                t1_row,
+                previous_row=previous_row,
+                execution_profile=execution_evidence,
+                include_extended=True,
+            )
+            returns = {'t1': t1_metrics.get('t1_net_return')}
+            if returns['t1'] is not None:
+                stats['t1_filled'] += 1
+            public_t1_metrics = {
+                key: t1_metrics.get(key)
+                for key in (
+                    't1_open_return', 't1_high_return', 't1_low_return',
+                    't1_close_return', 't1_mfe', 't1_mae', 't1_vwap_return',
+                    't1_gap_return', 't1_net_return', 'execution_price',
+                    'slippage', 'commission', 'stamp_duty', 'transfer_fee',
+                    'market_impact', 'label_status',
+                )
+            }
 
             # Update database
             if not dry_run and returns:
@@ -597,13 +672,32 @@ def backfill_returns(
                         candidate_snapshot_id=candidate_snapshot_id,
                         return_status='SETTLED',
                         settlement_evidence={
-                            'provider': 'baostock',
+                            'provider': 'eastmoney',
+                            'source': CANONICAL_MARKET_DATA_SOURCE,
                             'entry_trade_date': str(trade_date),
                             'exit_trade_date': str(t1_date),
-                            'price_source': 'T_PLUS_1_CLOSE',
+                            'price_source': CANONICAL_MARKET_DATA_SOURCE,
+                            'price_basis': CANONICAL_PRICE_BASIS,
+                            'entry_price': entry_price,
+                            'entry_price_source': 'BACKFILL_T_DAY_CLOSE',
+                            'entry_price_basis': CANONICAL_PRICE_BASIS,
+                            'exit_open': t1_row.get('open'),
+                            'exit_high': t1_row.get('high'),
+                            'exit_low': t1_row.get('low'),
+                            'exit_close': t1_row.get('close'),
+                            'label_version': CANONICAL_LABEL_VERSION,
+                            'label_status': t1_metrics.get('label_status'),
+                            'market_data_source': CANONICAL_MARKET_DATA_SOURCE,
+                            'trading_calendar_source': 'xiaogu_scheduler',
+                            'generated_at': datetime.now().isoformat(),
+                            'execution_contract': execution_contract,
+                            't1_metrics': t1_metrics,
+                            'quality_gate': quality,
+                            'execution_model': execution_evidence,
                         },
+                        t1_labels=t1_metrics,
                     )
-                    existing_map[key] = {'t1': returns.get('t1')}
+                    existing_map[key] = {'t1': returns.get('t1'), 'labels': t1_metrics}
                 except Exception as e:
                     print(f'  ERROR: upsert_return failed for {trade_date} {symbol}: {e}')
                     record_failure(trade_date, symbol, 'DB_WRITE_FAILED', run_id, candidate_snapshot_id)
@@ -615,6 +709,8 @@ def backfill_returns(
                 'score': score,
                 'entry': entry_price,
                 'returns': {k: round(v, 4) if v is not None else None for k, v in returns.items()},
+                't1_metrics': public_t1_metrics,
+                'execution_model': execution_evidence,
                 'production_trade_mode': 'T_DAY_BUY_T1_CLOSE_SELL',
             })
             stats['new_success_count'] += 1
@@ -625,7 +721,7 @@ def backfill_returns(
                 print(f'  Progress: {i + 1}/{len(rows)} picks, {stats["fetched"]} fetched, {stats["t1_filled"]} T+1 filled')
 
     finally:
-        bs.logout()
+        pass
 
     if dry_run:
         stats['return_coverage_after'] = stats['return_coverage_before']
@@ -758,6 +854,13 @@ if __name__ == '__main__':
     import argparse
     ap = argparse.ArgumentParser(description='Backfill missing returns')
     ap.add_argument('--dry-run', action='store_true', help='Do not write to DB')
+    ap.add_argument(
+        '--repair-stored-net-labels',
+        action='store_true',
+        help='Fill missing canonical t1_net_return from persisted execution evidence',
+    )
+    ap.add_argument('--start-date', default=None, help='Lower bound for stored-label repair')
+    ap.add_argument('--end-date', default=None, help='Upper bound for stored-label repair')
     ap.add_argument('--per-symbol-timeout', type=int, default=DEFAULT_PER_SYMBOL_TIMEOUT_SECONDS, help='Baostock request timeout seconds')
     ap.add_argument('--batch-soft-timeout', type=int, default=DEFAULT_BATCH_SOFT_TIMEOUT_SECONDS, help='Soft limit for one resume batch')
     ap.add_argument('--trade-date', default=None, help='Decision date to backfill without rescanning')
@@ -767,6 +870,30 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     print('Starting return backfill...')
+    if args.repair_stored_net_labels:
+        repair_result = repair_stored_canonical_net_returns(
+            dry_run=args.dry_run,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            production_run_id=args.production_run_id or None,
+        )
+        print(
+            'Stored canonical net-label repair: '
+            f"{repair_result['status']} "
+            f"candidate_rows={repair_result['candidate_rows']} "
+            f"repaired={repair_result['repaired']}"
+        )
+        if args.dry_run:
+            output_path = ROOT / 'summary' / 'return_backfill_results.json'
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w') as f:
+                json.dump(repair_result, f, indent=2, ensure_ascii=False, default=str)
+            raise SystemExit(0)
+        output_path = ROOT / 'summary' / 'return_backfill_results.json'
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            json.dump(repair_result, f, indent=2, ensure_ascii=False, default=str)
+        raise SystemExit(0)
     stats = backfill_returns(
         dry_run=args.dry_run,
         top10_only=args.top10_only,

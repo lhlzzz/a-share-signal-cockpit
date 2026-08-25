@@ -1,64 +1,79 @@
-# August Full-Pool Main-Force Chain Upgrade
+# Xiaogu T+1-Only Production Rewrite
 
 ## Source Ask
-> 用你现在的唯一链路、主力行为链路，分析整个 8 月的出票，不仅仅是 PAPER_PICK，还有当日的候选池子；当日有多少候选就分析多少候选。记录是哪条链路出的票、盈利还是亏损、为什么盈利或亏损，然后基于此直接修改主力行为链路。
+> 那你就全部删掉 只保留对t日出票 t+1可获利的标的 就行
 
 ## Normalized Goal
-Use the current single `main_force_behavior_chain` as the production reference while
-reconstructing every available August 2026 trading day from its recorded candidate
-snapshot. Analyze every persisted candidate row, not only PAPER_PICK or Top10, with
-its historical provenance, T-day admission/ranking outcome, and T+1 result when
-settled. Use repeated, T-day-observable profit and loss patterns to make one
-evidence-backed upgrade in the existing main-force chain.
+Remove every legacy production admission and ranking mechanism that selects
+same-day strength rather than a model-predicted, cost-adjusted `T1_NET_RETURN`.
+The existing sole chain must output `PAPER_PICK` only when a production-accepted
+T-day prediction proves sufficient next-day edge; otherwise it must output
+`NO_PICK`.
 
 ## Non-Negotiables
-- NN1: The only production decision chain remains scanner -> runner -> recorder/DB -> T+1 settlement -> scoreboard/API.
-- NN2: Every available August date uses its exact recorded candidate count; do not pad, merge, or replace candidate pools.
-- NN3: Historical chain identity is recorded as provenance for attribution, but all production behavior changes land only in the current main-force chain owners.
-- NN4: T+1 returns, limit-up outcomes, and any other future fields are labels only; they cannot enter T-day ranking, admission, or gate decisions.
-- NN5: Regulatory, data-quality, price, and buyability hard blocks remain intact unless a separately approved replay proves a safe change.
-- NN6: No direct production DB mutation, live trading, broker connection, or second selection path.
+- NN1: The production chain remains scanner -> runner -> recorder/DB -> T+1
+  settlement -> scoreboard/API, with `xiaogu_forward_runner.main` as its sole entry.
+- NN2: Five-module ranking, `PATH_*`, main-force/theme/news composites,
+  `expected_t1_profit_score`, legacy final scores, and manual bonuses cannot
+  decide, admit, rank, or promote a `PAPER_PICK`.
+- NN3: Every production prediction must be based only on fields available at or
+  before its declared T-day signal time, with model and provenance evidence.
+- NN4: Missing or unaccepted model evidence must result in explainable
+  `NO_PICK`; it may not fall back to the old scorer.
+- NN5: Keep only hard data quality, provenance/freshness, regulatory,
+  buyability, liquidity/capacity, and severe-risk blocks before the model.
+- NN6: No direct production DB edits, real trading, broker connection, second
+  runner, selector, return filler, or execution chain.
 
 ## Hidden Contract Candidates
-- HC1: A candidate in the pool is an analysis subject, not automatically a tradable PAPER_PICK; preserve the exact exclusion and admission reason.
-- HC2: A historical row may have been emitted by an older chain or partial snapshot; provenance must not be mistaken for current production behavior.
-- HC3: Missing T+1 settlement is an explicit pending/data-provider state, never a synthetic result.
-- HC4: A profitable or limit-up candidate can still be correctly rejected at T time; post-decision profit alone does not authorize weakening a buyability gate.
-
-## Plausible Interpretations
-- PI1: Attribute the full August candidate population, then improve current main-force behavior only for repeated failure shapes that are observable at T time and pass a leakage-free replay.
-- PI2: Treat every ex-post profitable candidate as a missed official pick and relax gates until the best pool member is selected.
+- HC1: `T1_NET_RETURN` uses the canonical execution contract and costs; a
+  close-return, high-return, or manual score cannot substitute for it.
+- HC2: A candidate with a high old score must be behaviorally indistinguishable
+  from one with a low old score when their T+1 prediction is identical.
+- HC3: Research results and post-T-day labels cannot become production inputs.
 
 ## Chosen Interpretation
-Use PI1. The objective is reproducible T-day selection for T+1 return, not retrospective perfect selection. Full-pool analysis supplies training evidence; it does not override tradability, safety, or replay gates.
+Replace the active formal sorting and pre-sort profit gate in the existing
+owners. Preserve raw market fields for research and diagnostics only. With no
+production-accepted prediction present today, `NO_PICK` is the correct safe
+production result rather than continuing to emit a stock selected by legacy
+signals.
 
 ## Rejected / Forbidden Narrowings
-- FN1: Do not limit the study to PAPER_PICK, Top10, or only the losing dates.
-- FN2: Do not compare candidates across different snapshots or silently collapse retries.
-- FN3: Do not convert research/shadow/replay output into a PAPER_PICK path.
-- FN4: Do not modify historical rows or manufacture missing returns.
+- FN1: Do not retune legacy weights or rename an old composite as an alpha model.
+- FN2: Do not keep old signals as hidden tie-breakers, admission gates, or
+  fallback logic.
+- FN3: Do not fabricate a model prediction from a named historical winner or
+  leak T+1 labels into a T-day snapshot.
+- FN4: Do not create a parallel production chain or a second `PAPER_PICK`.
 
 ## In Scope
-- Complete August inventory of recorded candidate snapshots, candidate counts, historical provenance, admission state, formal rank/score, and T+1 settlement coverage.
-- Candidate-level profit/loss and limit-up attribution for every available August row, grouped by the T-day reason that produced, admitted, ranked, or rejected it.
-- Baseline replay of the current main-force chain against the exact recorded pools.
-- One surgical modification to an existing main-force ranking, feature, admission, or diagnostic owner only when repeated evidence and benchmark gates justify it.
+- Replace legacy formal rank inputs with explicit accepted-model prediction
+  fields only.
+- Remove old-factor influence from the active candidate filter and selector.
+- Require a cost-covered predicted edge and model acceptance for `PAPER_PICK`.
+- Prove the new boundary through focused and full tests plus a current-date
+  dry-run.
 
 ## Out of Scope
-- Forcing ex-post winners into production, weakening hard safety rules from isolated cases, rewriting the scanner universe, or building a new strategy/runner.
+- Training or promoting an unproven model, changing the scanner universe,
+  connecting a broker, or changing settled historical returns.
 
 ## Success Signals
-- Every available August candidate row has an auditable status: provenance, T-day decision path, settlement status, and reason.
-- Settled rows have exact T+1 return labels and explainable profit/loss classifications; pending rows are explicitly excluded from performance claims.
-- Baseline versus changed main-force replay reports candidate coverage, selected-pick outcomes, mean/median T+1, win rate, limit-up rate, downside, and hard-block regression.
-- The changed production chain improves the required benchmark without future-field leakage; otherwise production behavior remains unchanged and the blocking evidence is recorded.
+- Old-score perturbations cannot affect the formal rank, candidate admission,
+  or decision.
+- An accepted valid prediction produces a rankable `PAPER_PICK` candidate; a
+  missing, stale, leaked, or unaccepted prediction produces `NO_PICK`.
+- The sole chain and its recorder/filler/scoreboard ownership remain intact.
 
 ## Proof Requirements
-- Codebase-memory call paths plus source/test confirmation for each owner.
-- Read-only DB queries and immutable candidate snapshots; no manual DB edits.
-- Candidate-level replay artifact, regression tests for observed shapes, full `pytest tests/ -x -q`, compile check, and diff validation.
-- AgentMemory and Obsidian evidence closure after the decision.
+- Current source, tests, and codebase-memory call tracing prove one selection
+  owner and no legacy path to `PAPER_PICK`.
+- Focused tests, full `pytest tests/ -x -q`, compile checks, and
+  `git diff --check` pass.
+- AgentMemory and, because the decision architecture changes, the A-share
+  Obsidian vault record the result.
 
 ## Draft Handoff
-- Phase shape: inventory and lineage -> full-pool settlement/attribution -> baseline replay -> repeated failure-class selection -> one main-force change -> replay and validation.
-- Planning red lines: do not silently narrow to PAPER_PICK/Top10, do not use future labels in T-day logic, and do not create a parallel chain.
+- Replace active ranking contract -> slim active eligibility -> bind runner
+  selection -> remove legacy active-path logic -> validate ownership and replay.

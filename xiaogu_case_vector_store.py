@@ -635,7 +635,11 @@ def search_similar_cases(
                1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
         FROM {TABLE}
         WHERE embedding IS NOT NULL
-          AND (:exclude_date IS NULL OR trade_date <> CAST(:exclude_date AS date))
+          AND t1_return IS NOT NULL
+          AND (
+              :exclude_date IS NULL
+              OR trade_date < CAST(:exclude_date AS date)
+          )
           AND (:exclude_symbol IS NULL OR symbol <> :exclude_symbol)
         ORDER BY embedding <=> CAST(:embedding AS vector)
         LIMIT :limit
@@ -666,6 +670,8 @@ def search_similar_cases(
                 'similarity': round(float(r[8]), 4) if r[8] is not None else None,
                 'one_liner': (meta or {}).get('one_liner') or str(r[7] or '')[:120],
                 'embed_method': (meta or {}).get('embed_method'),
+                'case_label_status': 'MATURED',
+                'matured_at': (meta or {}).get('matured_at'),
             })
         return results
     except Exception:
@@ -742,8 +748,13 @@ def attach_similar_cases_soft_bias(
         meta = row.get('similar_cases_meta') if isinstance(row.get('similar_cases_meta'), dict) else {}
         if not meta:
             meta = similar_cases_ranking_boost(list(row.get('similar_cases') or []))
-            row['similar_cases_meta'] = meta
-            row['similar_cases_boost'] = float(meta.get('boost') or 0.0)
+        if 'case_label_status' not in meta:
+            meta['case_label_status'] = 'MATURED' if all(
+                str(item.get('case_label_status') or '').upper() == 'MATURED'
+                for item in (row.get('similar_cases') or [])
+            ) else 'UNKNOWN'
+        row['similar_cases_meta'] = meta
+        row['similar_cases_boost'] = float(meta.get('boost') or 0.0)
         return {'status': 'CACHED', 'boost': row.get('similar_cases_boost'), 'meta': meta}
     symbol = str(row.get('symbol') or row.get('code') or '')
     name = str(row.get('name') or row.get('stock_name') or '')
@@ -760,6 +771,10 @@ def attach_similar_cases_soft_bias(
     except Exception as exc:
         return {'status': 'FAILED', 'error': f'{type(exc).__name__}:{exc}'}
     meta = similar_cases_ranking_boost(similar)
+    meta['case_label_status'] = 'MATURED' if similar and all(
+        str(item.get('case_label_status') or '').upper() == 'MATURED'
+        for item in similar
+    ) else 'UNKNOWN'
     row['similar_cases'] = similar
     row['similar_cases_meta'] = meta
     row['similar_cases_boost'] = float(meta.get('boost') or 0.0)

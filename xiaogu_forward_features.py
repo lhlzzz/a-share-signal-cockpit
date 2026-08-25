@@ -1040,6 +1040,11 @@ def market_adaptive_context(row: Dict[str, Any], bundle: Dict[str, Any] | None =
         'weak_acceptance_market': weak_acceptance_market,
         'broken_limit_pressure': broken_limit_pressure,
         'overheated_market': overheated_market,
+        'market_regime_history': (
+            bundle.get('market_regime_history')
+            if isinstance(bundle.get('market_regime_history'), list)
+            else []
+        ),
     }
     try:
         from xiaogu_regime_policy import attach_regime_to_context
