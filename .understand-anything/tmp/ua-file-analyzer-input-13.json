@@ -1,0 +1,182 @@
+{
+  "projectRoot": "/workspace/hermes-workspaces/xiaogu",
+  "batchFiles": [
+    {
+      "path": ".claude/settings.json",
+      "language": "json",
+      "sizeLines": 126,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".claude/skills/buffett/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 198,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".codebase-memory/.gitattributes",
+      "language": "unknown",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".codebase-memory/artifact.json",
+      "language": "json",
+      "sizeLines": 10,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".codebase-memory/graph.db.zst",
+      "language": "zst",
+      "sizeLines": 3258,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".plan-enforcer/.session-log.jsonl",
+      "language": "jsonl",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".plan-enforcer/.user-messages.jsonl",
+      "language": "jsonl",
+      "sizeLines": 9,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md",
+      "language": "markdown",
+      "sizeLines": 365,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".skills/karpathy-daily.md",
+      "language": "markdown",
+      "sizeLines": 69,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".skills/karpathy-guidelines/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp-validate.cjs",
+      "language": "javascript",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/scan.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": "docs/architecture.md",
+      "language": "markdown",
+      "sizeLines": 176,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/plans/2026-08-21-forward-runner-decomposition.md",
+      "language": "markdown",
+      "sizeLines": 512,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/plans/2026-08-26-final-repricing-rebuild.md",
+      "language": "markdown",
+      "sizeLines": 57,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "integrations/tradingagents_adapter.py",
+      "language": "python",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scrapy_scanner/__init__.py",
+      "language": "python",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scrapy_scanner/README.md",
+      "language": "markdown",
+      "sizeLines": 65,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "scripts/agentmemory_daily.sh",
+      "language": "shell",
+      "sizeLines": 26,
+      "fileCategory": "script"
+    },
+    {
+      "path": "scripts/xiaogu_bounded_hard_backtest_three_patterns.py",
+      "language": "python",
+      "sizeLines": 792,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_daily_health_check.py",
+      "language": "python",
+      "sizeLines": 298,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_data_retention.py",
+      "language": "python",
+      "sizeLines": 196,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/xiaogu_db_init.sql",
+      "language": "sql",
+      "sizeLines": 43,
+      "fileCategory": "data"
+    },
+    {
+      "path": "xiaogu_api.py",
+      "language": "python",
+      "sizeLines": 53,
+      "fileCategory": "code"
+    }
+  ],
+  "batchImportData": {
+    ".claude/settings.json": [],
+    ".claude/skills/buffett/SKILL.md": [],
+    ".codebase-memory/.gitattributes": [],
+    ".codebase-memory/artifact.json": [],
+    ".codebase-memory/graph.db.zst": [],
+    ".plan-enforcer/.session-log.jsonl": [],
+    ".plan-enforcer/.user-messages.jsonl": [],
+    ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md": [],
+    ".skills/karpathy-daily.md": [],
+    ".skills/karpathy-guidelines/SKILL.md": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/tmp-validate.cjs": [],
+    ".understand-anything/tmp/scan.stderr": [],
+    "docs/architecture.md": [],
+    "docs/plans/2026-08-21-forward-runner-decomposition.md": [],
+    "docs/plans/2026-08-26-final-repricing-rebuild.md": [],
+    "integrations/tradingagents_adapter.py": [],
+    "scrapy_scanner/__init__.py": [],
+    "scrapy_scanner/README.md": [],
+    "scripts/agentmemory_daily.sh": [],
+    "scripts/xiaogu_bounded_hard_backtest_three_patterns.py": [],
+    "scripts/xiaogu_daily_health_check.py": [],
+    "scripts/xiaogu_data_retention.py": [],
+    "scripts/xiaogu_db_init.sql": [],
+    "xiaogu_api.py": []
+  }
+}

@@ -1,0 +1,291 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 6,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": ".plan-enforcer/awareness.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 36,
+      "nonEmptyLines": 27,
+      "sections": [
+        {
+          "heading": "Plan Enforcer Awareness Ledger",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Project-level intents",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "This-session intents",
+          "level": 2,
+          "line": 10
+        },
+        {
+          "heading": "Restate rows",
+          "level": 2,
+          "line": 27
+        },
+        {
+          "heading": "Correction rows",
+          "level": 2,
+          "line": 32
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 5
+      }
+    },
+    {
+      "path": ".plan-enforcer/combobulate.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 9,
+      "nonEmptyLines": 7,
+      "sections": [
+        {
+          "heading": "Xiaogu Final Repricing Rebuild",
+          "level": 1,
+          "line": 1
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 1
+      }
+    },
+    {
+      "path": ".plan-enforcer/config.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 7,
+      "nonEmptyLines": 7,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 0
+      }
+    },
+    {
+      "path": ".plan-enforcer/discuss.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 70,
+      "nonEmptyLines": 59,
+      "sections": [
+        {
+          "heading": "Xiaogu Final Repricing Rebuild",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Source Ask",
+          "level": 2,
+          "line": 3
+        },
+        {
+          "heading": "Normalized Goal",
+          "level": 2,
+          "line": 6
+        },
+        {
+          "heading": "Non-Negotiables",
+          "level": 2,
+          "line": 13
+        },
+        {
+          "heading": "Hidden Contract Candidates",
+          "level": 2,
+          "line": 22
+        },
+        {
+          "heading": "Chosen Interpretation",
+          "level": 2,
+          "line": 28
+        },
+        {
+          "heading": "Rejected / Forbidden Narrowings",
+          "level": 2,
+          "line": 31
+        },
+        {
+          "heading": "In Scope",
+          "level": 2,
+          "line": 38
+        },
+        {
+          "heading": "Out of Scope",
+          "level": 2,
+          "line": 46
+        },
+        {
+          "heading": "Success Signals",
+          "level": 2,
+          "line": 52
+        },
+        {
+          "heading": "Proof Requirements",
+          "level": 2,
+          "line": 59
+        },
+        {
+          "heading": "Draft Handoff",
+          "level": 2,
+          "line": 65
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 12
+      }
+    },
+    {
+      "path": ".plan-enforcer/ledger.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 28,
+      "nonEmptyLines": 23,
+      "sections": [
+        {
+          "heading": "Plan Enforcer Ledger",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Scoreboard",
+          "level": 2,
+          "line": 6
+        },
+        {
+          "heading": "Task Ledger",
+          "level": 2,
+          "line": 9
+        },
+        {
+          "heading": "Decision Log",
+          "level": 2,
+          "line": 21
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 4
+      }
+    },
+    {
+      "path": ".plan-enforcer/statusline-state.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 18,
+      "nonEmptyLines": 18,
+      "sections": [
+        {
+          "heading": "stage",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "label",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "done",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "verified",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "doneUnverified",
+          "level": 1,
+          "line": 6
+        },
+        {
+          "heading": "total",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "scope",
+          "level": 1,
+          "line": 8
+        },
+        {
+          "heading": "taskId",
+          "level": 1,
+          "line": 9
+        },
+        {
+          "heading": "taskName",
+          "level": 1,
+          "line": 10
+        },
+        {
+          "heading": "taskStatus",
+          "level": 1,
+          "line": 11
+        },
+        {
+          "heading": "projectRoot",
+          "level": 1,
+          "line": 12
+        },
+        {
+          "heading": "sessionId",
+          "level": 1,
+          "line": 13
+        },
+        {
+          "heading": "transcriptPath",
+          "level": 1,
+          "line": 14
+        },
+        {
+          "heading": "updatedAt",
+          "level": 1,
+          "line": 15
+        },
+        {
+          "heading": "title",
+          "level": 1,
+          "line": 16
+        },
+        {
+          "heading": "source",
+          "level": 1,
+          "line": 17
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 16
+      }
+    }
+  ]
+}

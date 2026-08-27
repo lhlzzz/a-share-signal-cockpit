@@ -1,0 +1,200 @@
+{
+  "scriptCompleted": true,
+  "stats": {
+    "filesScanned": 111,
+    "filesWithImports": 28,
+    "totalEdges": 51
+  },
+  "importMap": {
+    ".claude/settings.json": [],
+    ".claude/skills/buffett/references/01-thinking-frameworks.md": [],
+    ".claude/skills/buffett/references/02-investment-philosophy.md": [],
+    ".claude/skills/buffett/references/03-business-moat.md": [],
+    ".claude/skills/buffett/references/04-management-governance.md": [],
+    ".claude/skills/buffett/references/05-financial-metrics.md": [],
+    ".claude/skills/buffett/references/06-valuation-capital.md": [],
+    ".claude/skills/buffett/references/07-risk-behavior.md": [],
+    ".claude/skills/buffett/references/08-industry-playbooks.md": [],
+    ".claude/skills/buffett/SKILL.md": [],
+    ".codebase-memory/.gitattributes": [],
+    ".codebase-memory/artifact.json": [],
+    ".codebase-memory/graph.db.zst": [],
+    ".env.example": [],
+    ".github/workflows/ci.yml": [],
+    ".plan-enforcer/.session-log.jsonl": [],
+    ".plan-enforcer/.user-messages.jsonl": [],
+    ".plan-enforcer/awareness.md": [],
+    ".plan-enforcer/combobulate.md": [],
+    ".plan-enforcer/config.md": [],
+    ".plan-enforcer/discuss.md": [],
+    ".plan-enforcer/ledger.md": [],
+    ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md": [],
+    ".plan-enforcer/statusline-state.json": [],
+    ".skills/karpathy-daily.md": [],
+    ".skills/karpathy-guidelines/SKILL.md": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/config.json": [],
+    ".understand-anything/fingerprints.json": [],
+    ".understand-anything/intermediate/scan-result.json": [],
+    ".understand-anything/knowledge-graph.json": [],
+    ".understand-anything/mcp-scan-result.json": [],
+    ".understand-anything/meta.json": [],
+    "AGENTS.md": [],
+    "CLAUDE.md": [],
+    "daily_pipeline.sh": [],
+    "docs/architecture.md": [],
+    "docs/plans/2026-08-21-forward-runner-decomposition.md": [],
+    "docs/plans/2026-08-26-final-repricing-rebuild.md": [],
+    "public/index.html": [],
+    "pytest.ini": [],
+    "README.md": [],
+    "requirements.txt": [],
+    "rule_freeze_v0_1.json": [],
+    "scrapy_scanner/__init__.py": [],
+    "scrapy_scanner/README.md": [],
+    "scrapy_scanner/runner_v2.py": [
+      "xiaogu_features/__init__.py",
+      "xiaogu_utils.py"
+    ],
+    "scripts/agentmemory_daily.sh": [],
+    "scripts/xiaogu_bounded_hard_backtest_three_patterns.py": [],
+    "scripts/xiaogu_daily_health_check.py": [],
+    "scripts/xiaogu_data_retention.py": [],
+    "scripts/xiaogu_db_backfill.py": [
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_db_init.sql": [],
+    "scripts/xiaogu_ensure_database.py": [],
+    "scripts/xiaogu_ledger_migrate.py": [
+      "xiaogu_db.py"
+    ],
+    "scripts/xiaogu_loss_case_cluster_report.py": [],
+    "scripts/xiaogu_return_backfill.py": [
+      "xiaogu_db.py",
+      "xiaogu_forward_result_filler_v0_1.py",
+      "xiaogu_scheduler.py"
+    ],
+    "scripts/xiaogu_safe_self_evolve.py": [],
+    "start_api.sh": [],
+    "tests/test_db_backfill.py": [],
+    "tests/test_repricing_rebuild.py": [
+      "xiaogu_alpha/__init__.py",
+      "xiaogu_decision/__init__.py",
+      "xiaogu_evaluation/__init__.py",
+      "xiaogu_features/__init__.py"
+    ],
+    "tests/test_scanner_transport_direct.py": [],
+    "tests/test_xiaogu_api.py": [
+      "xiaogu_api.py"
+    ],
+    "tests/test_xiaogu_scheduler.py": [
+      "xiaogu_api.py",
+      "xiaogu_forward_runner.py",
+      "xiaogu_scheduler.py"
+    ],
+    "v2_1_six_repo_real_integrated_leakage_check.json": [],
+    "v2_1_six_repo_real_integrated_manifest.json": [],
+    "v2_1_six_repo_real_integrated_summary.json": [],
+    "xiaogu_alpha/__init__.py": [
+      "xiaogu_alpha/model.py",
+      "xiaogu_alpha/ranking.py",
+      "xiaogu_alpha/target.py"
+    ],
+    "xiaogu_alpha/model.py": [],
+    "xiaogu_alpha/ranking.py": [],
+    "xiaogu_alpha/target.py": [],
+    "xiaogu_api.py": [
+      "scripts/xiaogu_ensure_database.py"
+    ],
+    "xiaogu_backtest_v0_1.py": [],
+    "xiaogu_data_repair_v0_1.py": [],
+    "xiaogu_db.py": [],
+    "xiaogu_decision/__init__.py": [
+      "xiaogu_decision/picker.py"
+    ],
+    "xiaogu_decision/picker.py": [
+      "xiaogu_alpha/__init__.py",
+      "xiaogu_features/__init__.py",
+      "xiaogu_integrations/research_adapters.py"
+    ],
+    "xiaogu_eastmoney_tail_scan_v0_2.py": [
+      "xiaogu_forward_runner.py"
+    ],
+    "xiaogu_evaluation/__init__.py": [
+      "xiaogu_evaluation/returns.py"
+    ],
+    "xiaogu_evaluation/returns.py": [],
+    "xiaogu_evidence_card.py": [],
+    "xiaogu_execution/__init__.py": [
+      "xiaogu_execution/contract.py",
+      "xiaogu_execution/ledger.py",
+      "xiaogu_execution/portfolio.py"
+    ],
+    "xiaogu_execution/contract.py": [],
+    "xiaogu_execution/ledger.py": [
+      "xiaogu_execution/contract.py"
+    ],
+    "xiaogu_execution/portfolio.py": [],
+    "xiaogu_factor_store.py": [],
+    "xiaogu_features/__init__.py": [
+      "xiaogu_features/vector.py"
+    ],
+    "xiaogu_features/vector.py": [],
+    "xiaogu_forward_bundle_io.py": [
+      "xiaogu_forward_host_binding.py",
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_diagnostics.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_eligibility.py": [
+      "xiaogu_forward_gates.py",
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_features.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_gates.py": [],
+    "xiaogu_forward_host_binding.py": [],
+    "xiaogu_forward_paper_recorder_v0_1.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_persistence.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_ranking.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_forward_result_filler_v0_1.py": [
+      "xiaogu_utils.py"
+    ],
+    "xiaogu_forward_runner.py": [
+      "xiaogu_forward_bundle_io.py",
+      "xiaogu_forward_diagnostics.py",
+      "xiaogu_forward_eligibility.py",
+      "xiaogu_forward_features.py",
+      "xiaogu_forward_gates.py",
+      "xiaogu_forward_persistence.py",
+      "xiaogu_forward_ranking.py",
+      "xiaogu_forward_snapshot.py"
+    ],
+    "xiaogu_forward_snapshot.py": [
+      "xiaogu_forward_host_binding.py"
+    ],
+    "xiaogu_integrations/__init__.py": [],
+    "xiaogu_integrations/research_adapters.py": [
+      "xiaogu_integrations/research_contexts.py"
+    ],
+    "xiaogu_integrations/research_contexts.py": [],
+    "xiaogu_integrations/tradingagents_adapter.py": [],
+    "xiaogu_pick_validator.py": [],
+    "xiaogu_regime_policy.py": [],
+    "xiaogu_runtime_payload.py": [],
+    "xiaogu_scanner_scoring.py": [
+      "xiaogu_eastmoney_tail_scan_v0_2.py"
+    ],
+    "xiaogu_scheduler.py": [],
+    "xiaogu_signal_effectiveness_v0_1.py": [],
+    "xiaogu_utils.py": []
+  }
+}

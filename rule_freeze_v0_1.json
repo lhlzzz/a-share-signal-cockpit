@@ -1,162 +1,52 @@
 {
-  "rule_version": "historical_backtest_rule_v0_3",
-  "previous_rule_version": "historical_backtest_rule_v0_2",
-  "frozen_at": "2026-05-23T19:39:01",
-  "change_reason": "Production contract: T-day close buy, next trading day close sell, with T+1 close return as the only official profit metric.",
-  "source_ledger": "/root/hermes/company-ai-system/workspaces/xiaogu/historical_backtest_ledger_v0_1.jsonl",
-  "source_metrics": "/root/hermes/company-ai-system/workspaces/xiaogu/historical_backtest_ledger_v0_1_metrics.json",
-  "source_metrics_summary": {
-    "paper_pick_count": 30,
-    "t1_close_win_rate": 0.9,
-    "holdout_t1_close_win_rate": 1.0,
-    "max_gain_ge_10_rate": 0.2,
-    "t1_close_limit_up_rate": 0.13333333333333333,
-    "metric_basis": "t1_close_only; historical alternative fields are audit-only"
+  "rule_version": "repricing_production_v1",
+  "previous_rule_version": "historical_backtest_rule_v0_3",
+  "frozen_at": "2026-08-27T00:00:00+08:00",
+  "change_reason": "Xiaogu production targets a realizable five-day profit window.",
+  "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
+  "allowed_decisions": ["WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"],
+  "scanner_contract": {
+    "raw_data_only": true,
+    "candidate_ranking": false,
+    "strategy_score": false,
+    "recommendation": false
   },
-  "allowed_features_on_T_day": [
-    "candidate_source",
-    "candidate_pool_count",
-    "source_health_score",
-    "small_account_score",
-    "theme_strength_score",
-    "fund_flow_score",
-    "kline_language_score",
-    "announcement_catalyst_score",
-    "expected_edge_score",
-    "multi_agent_consensus_score",
-    "risk_penalty",
-    "final_score",
-    "blocked_score",
-    "blocked_reasons",
-    "source_health_status",
-    "one_lot_cost",
-    "price",
-    "qualified_candidate",
-    "decision_class",
-    "paper_candidate_basket",
-    "risk_panel_veto",
-    "top2_rollover",
-    "asof_leakage_flag before decision",
-    "raw live snapshot generated_at/asof_time before decision",
-    "source_market_date before decision",
-    "source_time before decision",
-    "xiaoshuju_data_gate_status before decision",
-    "xiaochan_gate_status before decision"
-  ],
-  "excluded_future_fields": [
-    "t1_return",
-    "t2_return",
-    "t3_return",
-    "t5_return",
-    "baseline_t1_return",
-    "baseline_t3_return",
-    "baseline_t5_return",
-    "fusion_v0_1_t1_return",
-    "fusion_v0_1_t3_return",
-    "fusion_v0_1_t5_return",
-    "fusion_v0_2_t1_return",
-    "fusion_v0_2_t3_return",
-    "fusion_v0_2_t5_return",
-    "hit_limit_up_t1",
-    "hit_limit_up_t2",
-    "hit_limit_up_t3",
-    "max_gain_t1_t3",
-    "min_return_t1_t3",
-    "max_drawdown",
-    "profitable_exit_possible_t1_t3",
-    "post_result labels"
-  ],
-  "thresholds": {
-    "forward_acceptance_min_paper_pick_count": 20,
-    "forward_acceptance_min_trading_days": 30,
-    "t1_close_win_rate_min": 0.75,
-    "t1_negative_rate_max": 0.25,
-    "worst_case_return_min": -0.05,
-    "consecutive_loss_max": 2,
-    "small_account_one_lot_cost_max": null,
-    "allowed_a_share_boards": "ALL",
-    "t1_close_limit_up_rate_min": 0.08,
-    "no_data_leakage_required": true,
-    "no_rewritten_decision_reason_required": true,
-    "xiaochan_not_block_required": true,
-    "historical_reference_only": true
-  },
-  "freshness_gates": {
-    "source_market_date_must_equal_decision_date": true,
-    "source_time_must_start_with_decision_date": true,
-    "forbid_stale_forward_candidate_bundle": true,
-    "same_day_scan_required_for_generated_research_basket": true,
-    "max_same_day_scan_age_minutes": 10
-  },
-  "regulatory_hard_blocks": {
-    "601991": {
-      "name": "大唐发电",
-      "type": "SERIOUS_ABNORMAL_VOLATILITY_AND_RECENT_RISK_WARNING",
-      "reason": "严重异常波动/交易风险提示"
-    },
-    "600667": {
-      "name": "太极实业",
-      "type": "ABNORMAL_VOLATILITY_2026_05_14",
-      "reason": "2026-05-14 异常波动公告"
-    },
-    "600330": {
-      "name": "天通股份",
-      "type": "RECENT_ABNORMAL_VOLATILITY_AND_LOSS_RISK_DISCLOSURES",
-      "reason": "2026-04-21 异常波动公告 + 2026Q1/2025 亏损压力 + 2026-05-15 跌幅偏离龙虎榜"
-    }
-  },
-  "opportunity_hard_blocks": {
-    "000002": {
-      "name": "万科A",
-      "type": "LOW_OPPORTUNITY_SIDEWAYS_HEAVY_OVERHANG",
-      "reason": "横盘低弹性、房地产抛压大，T+1 next-day-high 获利空间不足；只保留回填复盘，不再占用稳定获利 PAPER_PICK"
-    }
-  },
-  "recent_t1_nonprofit_cooldown": {
-    "enabled": true,
-    "basis": "user_confirmed_2026-05-21",
-    "dates": [
-    "2026-05-19",
-    "2026-05-20"
-  ],
-    "effect": "Do not force a formal PAPER_PICK from blocked candidates; emit NO_PICK unless a same-day scan candidate passes all hard gates.",
-    "cooldown_decision_classes": [
-      "NO_PICK"
+  "alpha_contract": {
+    "target": "PROFIT_WINDOW_5D",
+    "max_holding_days": 5,
+    "required_measurements": [
+      "BUSINESS", "FUTURE_DEMAND", "CAPITAL", "SUPPLY", "PRICING_GAP",
+      "REFLEXIVITY", "MARKET", "RISK", "EXECUTION"
+    ],
+    "required_buy_evidence": [
+      "BUSINESS_READY", "FUTURE_DEMAND_READY", "CAPITAL_CONVERGENCE_READY", "SUPPLY_ABSORPTION_READY",
+      "MARKET_READY", "PRICING_GAP", "FUTURE_BUYER_MAP", "PROFIT_WINDOW_READY"
+    ],
+    "forbidden_core_alpha": [
+      "intraday expected payoff", "intraday reversal safety", "formal profit rank",
+      "PATH", "limit-up gene", "yesterday limit-up continuation", "shadow score"
     ]
   },
-  "no_pick_rules": [
-    "data gate missing or failed -> NO_PICK",
-    "xiaochan gate BLOCK -> NO_PICK",
-    "asof leakage flag true -> NO_PICK",
-    "stale candidate bundle/source date mismatch -> NO_PICK",
-    "same-day scan older than 10 minutes versus runner asof -> NO_PICK",
-    "risk_panel_veto true -> NO_PICK",
-    "regulatory abnormal movement / serious abnormal movement / exchange risk warning -> NO_PICK",
-    "opportunity hard block such as sideways low-elasticity heavy-overhang candidate -> NO_PICK and continue basket rollover",
-    "Eastmoney full evidence pack missing announcements/risk_alerts/lhb/concept_industry/financials -> NO_PICK",
-    "qualified_candidate false -> no formal PAPER_PICK",
-    "hard risk or buyability uncertainty -> NO_PICK only",
-    "do not lower NO_PICK risk control to chase limit-up"
+  "evaluation": {
+    "horizons_days": [5],
+    "evaluation_window_days": [1, 2, 3, 4, 5],
+    "max_holding_boundary": 5,
+    "entry_timing_only_fields": ["short_term_overheat", "gap_risk"],
+    "outcomes_enter_after_decision": true,
+    "realizable_profit_formula": "(daily_high - entry_price) / entry_price - execution_cost_rate",
+    "profit_window_target": 0.02,
+    "outcome_metrics": ["max_realizable_profit_5d", "first_profit_day", "time_to_profit", "max_mae_5d", "net_profit_window"]
+  },
+  "excluded_future_fields": [
+    "t*_return", "future_*_return", "future_prices", "outcomes", "labels",
+    "max_favorable_excursion", "max_adverse_excursion", "realized_*", "post_result*"
   ],
-  "paper_pick_rules": [
-    "only append PAPER_PICK when all T-day visible gates pass",
-    "rule_version must equal historical_backtest_rule_v0_3",
-    "historical metrics are research reference only, not live win-rate claim",
-    "t1_return must be null at generation and is filled only from the final T+1 close",
-    "raw_data_snapshot_path required",
-    "multiple symbols may be included only as paper_candidate_basket; official ledger remains one append-only DECISION per run"
-  ],
-  "research_candidate_rules": [
-    "research and watch observations are diagnostics only and cannot be recorded as official decisions or filled results"
-  ],
-  "xiaochan_review_session": "20260512_032444_394249",
   "paper_only": true,
   "no_trade": true,
   "production_ready": false,
   "allow_forward_paper": true,
-  "allow_trade": true,
   "manual_paper_execution_allowed": true,
   "auto_order": false,
   "broker_connected": false,
-  "status": "FROZEN_FOR_MANUAL_EXECUTION_ONLY"
+  "status": "FROZEN_FOR_PAPER_REPRICING_EVALUATION"
 }

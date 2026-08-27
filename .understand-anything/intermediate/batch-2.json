@@ -1,0 +1,1616 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 5,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "tests/test_production_decision.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 83,
+      "nonEmptyLines": 68,
+      "functions": [
+        {
+          "name": "_repricing_ready_snapshot",
+          "startLine": 9,
+          "endLine": 30,
+          "params": []
+        },
+        {
+          "name": "test_only_portfolio_owner_emits_state",
+          "startLine": 33,
+          "endLine": 44,
+          "params": []
+        },
+        {
+          "name": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "startLine": 47,
+          "endLine": 74,
+          "params": []
+        },
+        {
+          "name": "test_unverified_expected_returns_cannot_enable_buy",
+          "startLine": 77,
+          "endLine": 83,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_repricing_ready_snapshot",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "test_only_portfolio_owner_emits_state",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "line": 47,
+          "isDefault": false
+        },
+        {
+          "name": "test_unverified_expected_returns_cannot_enable_buy",
+          "line": 77,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_only_portfolio_owner_emits_state",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 34
+        },
+        {
+          "caller": "test_only_portfolio_owner_emits_state",
+          "callee": "decision[\"decision_owner\"].endswith",
+          "lineNumber": 44
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "_repricing_ready_snapshot",
+          "lineNumber": 48
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 49
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 54
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 57
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 64
+        },
+        {
+          "caller": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_unverified_expected_returns_cannot_enable_buy",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 78
+        },
+        {
+          "caller": "test_unverified_expected_returns_cannot_enable_buy",
+          "callee": "_repricing_ready_snapshot",
+          "lineNumber": 79
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 4,
+        "functionCount": 4,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_core_alpha.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 182,
+      "nonEmptyLines": 168,
+      "functions": [
+        {
+          "name": "_clip",
+          "startLine": 12,
+          "endLine": 16,
+          "params": [
+            "value"
+          ]
+        },
+        {
+          "name": "_mean",
+          "startLine": 19,
+          "endLine": 21,
+          "params": []
+        },
+        {
+          "name": "_research_score",
+          "startLine": 24,
+          "endLine": 25,
+          "params": [
+            "payload"
+          ]
+        },
+        {
+          "name": "build_core_alpha",
+          "startLine": 28,
+          "endLine": 175,
+          "params": [
+            "features",
+            "industry",
+            "company",
+            "capital",
+            "integrated",
+            "future_buyer_map"
+          ]
+        },
+        {
+          "name": "_first_buyer_capacity",
+          "startLine": 178,
+          "endLine": 182,
+          "params": [
+            "raw",
+            "capital",
+            "demand"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_clip",
+          "line": 12,
+          "isDefault": false
+        },
+        {
+          "name": "_mean",
+          "line": 19,
+          "isDefault": false
+        },
+        {
+          "name": "_research_score",
+          "line": 24,
+          "isDefault": false
+        },
+        {
+          "name": "build_core_alpha",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "_first_buyer_capacity",
+          "line": 178,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_clip",
+          "callee": "max",
+          "lineNumber": 14
+        },
+        {
+          "caller": "_clip",
+          "callee": "min",
+          "lineNumber": 14
+        },
+        {
+          "caller": "_clip",
+          "callee": "float",
+          "lineNumber": 14
+        },
+        {
+          "caller": "_mean",
+          "callee": "_clip",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_mean",
+          "callee": "sum",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_mean",
+          "callee": "len",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_research_score",
+          "callee": "_mean",
+          "lineNumber": 25
+        },
+        {
+          "caller": "_research_score",
+          "callee": "payload.get",
+          "lineNumber": 25
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 48
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_research_score",
+          "lineNumber": 48
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 49
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_research_score",
+          "lineNumber": 49
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 50
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_research_score",
+          "lineNumber": 50
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 51
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 53
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_first_buyer_capacity",
+          "lineNumber": 63
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "features[\"snapshot\"].get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 70
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "axes.values",
+          "lineNumber": 70
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_clip",
+          "lineNumber": 71
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "features[\"snapshot\"].get",
+          "lineNumber": 81
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "isinstance",
+          "lineNumber": 81
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "features.get",
+          "lineNumber": 81
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "str(raw.get(\"alpha_model_status\") or \"UNVERIFIED\").upper",
+          "lineNumber": 82
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "str",
+          "lineNumber": 82
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "raw.get",
+          "lineNumber": 82
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 89
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_clip",
+          "lineNumber": 97
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "bool",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "sum",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "bool",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "completion.items",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_clip",
+          "lineNumber": 102
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_first_buyer_capacity",
+          "lineNumber": 107
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "features[\"snapshot\"].get",
+          "lineNumber": 108
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "integrated.get",
+          "lineNumber": 112
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "isinstance",
+          "lineNumber": 112
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "integrated.get",
+          "lineNumber": 112
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "str(\n        contradiction.get(\"contradiction_status\") or contradiction.get(\"status\") or \"UNKNOWN\"\n    ).upper",
+          "lineNumber": 113
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "str",
+          "lineNumber": 113
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "contradiction.get",
+          "lineNumber": 114
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "contradiction.get",
+          "lineNumber": 114
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "bool",
+          "lineNumber": 116
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "contradiction.get",
+          "lineNumber": 116
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "list",
+          "lineNumber": 117
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "(future_buyer_map or {}).get",
+          "lineNumber": 117
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "item.get",
+          "lineNumber": 119
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "item.get",
+          "lineNumber": 119
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "isinstance",
+          "lineNumber": 121
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "list",
+          "lineNumber": 130
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "demand.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "list",
+          "lineNumber": 143
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 148
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 149
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 150
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 151
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 152
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 154
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_first_buyer_capacity",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 156
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 157
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 158
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 161
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_clip",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "round",
+          "lineNumber": 164
+        },
+        {
+          "caller": "build_core_alpha",
+          "callee": "_mean",
+          "lineNumber": 164
+        },
+        {
+          "caller": "_first_buyer_capacity",
+          "callee": "raw.get",
+          "lineNumber": 179
+        },
+        {
+          "caller": "_first_buyer_capacity",
+          "callee": "_clip",
+          "lineNumber": 181
+        },
+        {
+          "caller": "_first_buyer_capacity",
+          "callee": "_mean",
+          "lineNumber": 182
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 5,
+        "functionCount": 5,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_forward_eligibility.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 56,
+      "nonEmptyLines": 51,
+      "functions": [
+        {
+          "name": "paper_pick_buyability_block_reason",
+          "startLine": 8,
+          "endLine": 29,
+          "params": [
+            "row",
+            "account"
+          ]
+        },
+        {
+          "name": "eligibility_blockers",
+          "startLine": 32,
+          "endLine": 56,
+          "params": [
+            "snapshot",
+            "account",
+            "max_staleness_minutes",
+            "as_of"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "paper_pick_buyability_block_reason",
+          "line": 8,
+          "isDefault": false
+        },
+        {
+          "name": "eligibility_blockers",
+          "line": 32,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "str(row.get(\"symbol\") or row.get(\"code\") or \"\").strip",
+          "lineNumber": 10
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "str",
+          "lineNumber": 10
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 10
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 10
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "float",
+          "lineNumber": 12
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 12
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 12
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 19
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 19
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 21
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 21
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 23
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 23
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "account.get",
+          "lineNumber": 25
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "float",
+          "lineNumber": 25
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "row.get",
+          "lineNumber": 27
+        },
+        {
+          "caller": "paper_pick_buyability_block_reason",
+          "callee": "float",
+          "lineNumber": 27
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "paper_pick_buyability_block_reason",
+          "lineNumber": 39
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "str",
+          "lineNumber": 40
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "snapshot.get",
+          "lineNumber": 40
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 42
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "datetime.fromisoformat",
+          "lineNumber": 45
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "source_time.replace",
+          "lineNumber": 45
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "asof.replace",
+          "lineNumber": 47
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "datetime.now",
+          "lineNumber": 48
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "clock.replace",
+          "lineNumber": 50
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "(clock.astimezone(timezone.utc) - asof.astimezone(timezone.utc)).total_seconds",
+          "lineNumber": 51
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "clock.astimezone",
+          "lineNumber": 51
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "asof.astimezone",
+          "lineNumber": 51
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 53
+        },
+        {
+          "caller": "eligibility_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 55
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 2,
+        "functionCount": 2,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_portfolio_decision.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 142,
+      "nonEmptyLines": 131,
+      "functions": [
+        {
+          "name": "_blockers",
+          "startLine": 17,
+          "endLine": 35,
+          "params": [
+            "alpha",
+            "features",
+            "research"
+          ]
+        },
+        {
+          "name": "_exit_reason",
+          "startLine": 38,
+          "endLine": 55,
+          "params": [
+            "alpha",
+            "features",
+            "snapshot"
+          ]
+        },
+        {
+          "name": "evaluate_candidate_bundle",
+          "startLine": 58,
+          "endLine": 142,
+          "params": [
+            "canonical",
+            "portfolio_state",
+            "account",
+            "minimum_required_return",
+            "as_of"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_blockers",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "_exit_reason",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "evaluate_candidate_bundle",
+          "line": 58,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_blockers",
+          "callee": "blockers.extend",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_blockers",
+          "callee": "readiness.items",
+          "lineNumber": 20
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 22
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 24
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 26
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 28
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 30
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_blockers",
+          "callee": "research[\"future_buyer_map\"].get",
+          "lineNumber": 33
+        },
+        {
+          "caller": "_blockers",
+          "callee": "blockers.append",
+          "lineNumber": 34
+        },
+        {
+          "caller": "_blockers",
+          "callee": "list",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_blockers",
+          "callee": "dict.fromkeys",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_exit_reason",
+          "callee": "snapshot[\"raw\"].get",
+          "lineNumber": 41
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "ValueError",
+          "lineNumber": 68
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "canonical_snapshot",
+          "lineNumber": 69
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "str",
+          "lineNumber": 71
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "canonical.get",
+          "lineNumber": 71
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "str",
+          "lineNumber": 72
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "canonical.get",
+          "lineNumber": 72
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "str",
+          "lineNumber": 73
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "canonical.get",
+          "lineNumber": 73
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "canonical.get",
+          "lineNumber": 73
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "build_feature_vector",
+          "lineNumber": 75
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "build_integrated_research_context",
+          "lineNumber": 76
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "build_core_alpha",
+          "lineNumber": 77
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "eligibility_blockers",
+          "lineNumber": 85
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "_blockers",
+          "lineNumber": 86
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "repricing_blockers.append",
+          "lineNumber": 88
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "_exit_reason",
+          "lineNumber": 93
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "\";\".join",
+          "lineNumber": 102
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "\";\".join",
+          "lineNumber": 106
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "\";\".join",
+          "lineNumber": 108
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "list",
+          "lineNumber": 115
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "features[\"CAPITAL\"].get",
+          "lineNumber": 135
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "alpha.get",
+          "lineNumber": 136
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "(account or {}).get",
+          "lineNumber": 137
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "(account or {}).get",
+          "lineNumber": 138
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "(account or {}).get",
+          "lineNumber": 139
+        },
+        {
+          "caller": "evaluate_candidate_bundle",
+          "callee": "(account or {}).get",
+          "lineNumber": 140
+        }
+      ],
+      "metrics": {
+        "importCount": 5,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_research_context.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 208,
+      "nonEmptyLines": 185,
+      "functions": [
+        {
+          "name": "_number",
+          "startLine": 7,
+          "endLine": 11,
+          "params": [
+            "value"
+          ]
+        },
+        {
+          "name": "_context",
+          "startLine": 14,
+          "endLine": 22,
+          "params": [
+            "kind",
+            "values",
+            "lineage_id",
+            "provider"
+          ]
+        },
+        {
+          "name": "build_serenity_context",
+          "startLine": 25,
+          "endLine": 42,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_buffett_context",
+          "startLine": 45,
+          "endLine": 65,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_uzi_context",
+          "startLine": 68,
+          "endLine": 95,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_supply_context",
+          "startLine": 98,
+          "endLine": 106,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_pricing_gap_context",
+          "startLine": 109,
+          "endLine": 115,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_future_buyer_map",
+          "startLine": 118,
+          "endLine": 165,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        },
+        {
+          "name": "build_tradingagents_context",
+          "startLine": 168,
+          "endLine": 172,
+          "params": [
+            "industry",
+            "company",
+            "capital",
+            "lineage_id"
+          ]
+        },
+        {
+          "name": "build_integrated_research_context",
+          "startLine": 175,
+          "endLine": 203,
+          "params": [
+            "snapshot",
+            "features"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_number",
+          "line": 7,
+          "isDefault": false
+        },
+        {
+          "name": "_context",
+          "line": 14,
+          "isDefault": false
+        },
+        {
+          "name": "build_serenity_context",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "build_buffett_context",
+          "line": 45,
+          "isDefault": false
+        },
+        {
+          "name": "build_uzi_context",
+          "line": 68,
+          "isDefault": false
+        },
+        {
+          "name": "build_supply_context",
+          "line": 98,
+          "isDefault": false
+        },
+        {
+          "name": "build_pricing_gap_context",
+          "line": 109,
+          "isDefault": false
+        },
+        {
+          "name": "build_future_buyer_map",
+          "line": 118,
+          "isDefault": false
+        },
+        {
+          "name": "build_tradingagents_context",
+          "line": 168,
+          "isDefault": false
+        },
+        {
+          "name": "build_integrated_research_context",
+          "line": 175,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_number",
+          "callee": "float",
+          "lineNumber": 9
+        },
+        {
+          "caller": "_context",
+          "callee": "values.pop",
+          "lineNumber": 20
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "_context",
+          "lineNumber": 27
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "features.get",
+          "lineNumber": 28
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "snapshot.get",
+          "lineNumber": 31
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "list",
+          "lineNumber": 32
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 32
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "snapshot.get",
+          "lineNumber": 32
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "list",
+          "lineNumber": 40
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "list",
+          "lineNumber": 41
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 41
+        },
+        {
+          "caller": "build_serenity_context",
+          "callee": "snapshot.get",
+          "lineNumber": 41
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "_context",
+          "lineNumber": 47
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "features.get",
+          "lineNumber": 48
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 50
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get",
+          "lineNumber": 50
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "_number",
+          "lineNumber": 54
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 54
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get",
+          "lineNumber": 54
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "_number",
+          "lineNumber": 62
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 62
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get",
+          "lineNumber": 62
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "list",
+          "lineNumber": 63
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "dict",
+          "lineNumber": 64
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "build_buffett_context",
+          "callee": "snapshot.get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "snapshot.get",
+          "lineNumber": 70
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "list",
+          "lineNumber": 71
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "raw.get",
+          "lineNumber": 71
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "any",
+          "lineNumber": 72
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "str",
+          "lineNumber": 73
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "row.get",
+          "lineNumber": 73
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "isinstance",
+          "lineNumber": 75
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "_context",
+          "lineNumber": 77
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "features.get",
+          "lineNumber": 78
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "raw.get",
+          "lineNumber": 79
+        },
+        {
+          "caller": "build_uzi_context",
+          "callee": "raw.get",
+          "lineNumber": 89
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "_context",
+          "lineNumber": 99
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "features.get",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "list",
+          "lineNumber": 103
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 103
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "snapshot.get",
+          "lineNumber": 103
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "list",
+          "lineNumber": 104
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 104
+        },
+        {
+          "caller": "build_supply_context",
+          "callee": "snapshot.get",
+          "lineNumber": 104
+        },
+        {
+          "caller": "build_pricing_gap_context",
+          "callee": "_context",
+          "lineNumber": 110
+        },
+        {
+          "caller": "build_pricing_gap_context",
+          "callee": "features.get",
+          "lineNumber": 111
+        },
+        {
+          "caller": "build_pricing_gap_context",
+          "callee": "snapshot.get",
+          "lineNumber": 113
+        },
+        {
+          "caller": "build_pricing_gap_context",
+          "callee": "features[\"REFLEXIVITY\"].get",
+          "lineNumber": 114
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "snapshot.get",
+          "lineNumber": 119
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "raw.get",
+          "lineNumber": 122
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "isinstance",
+          "lineNumber": 123
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "round",
+          "lineNumber": 138
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "isinstance",
+          "lineNumber": 146
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "raw.get",
+          "lineNumber": 147
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "_number",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "item.get",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "_context",
+          "lineNumber": 156
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "features.get",
+          "lineNumber": 157
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "max",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "_number",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "item.get",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "isinstance",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "max",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "_number",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "item.get",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "isinstance",
+          "lineNumber": 163
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "item.get",
+          "lineNumber": 164
+        },
+        {
+          "caller": "build_future_buyer_map",
+          "callee": "isinstance",
+          "lineNumber": 164
+        },
+        {
+          "caller": "build_tradingagents_context",
+          "callee": "integrate_research_context",
+          "lineNumber": 172
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_serenity_context",
+          "lineNumber": 176
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_buffett_context",
+          "lineNumber": 177
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_uzi_context",
+          "lineNumber": 178
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_supply_context",
+          "lineNumber": 179
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_pricing_gap_context",
+          "lineNumber": 180
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_future_buyer_map",
+          "lineNumber": 181
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "build_tradingagents_context",
+          "lineNumber": 182
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "snapshot.get(\"raw\", {}).get",
+          "lineNumber": 183
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "snapshot.get",
+          "lineNumber": 183
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "isinstance",
+          "lineNumber": 184
+        },
+        {
+          "caller": "build_integrated_research_context",
+          "callee": "features.get",
+          "lineNumber": 192
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 10,
+        "functionCount": 10,
+        "classCount": 0
+      }
+    }
+  ]
+}

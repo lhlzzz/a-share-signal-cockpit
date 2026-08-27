@@ -1,0 +1,4697 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 25,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": ".claude/settings.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 126,
+      "nonEmptyLines": 126,
+      "sections": [
+        {
+          "heading": "mcpServers",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "permissions",
+          "level": 1,
+          "line": 28
+        },
+        {
+          "heading": "hooks",
+          "level": 1,
+          "line": 48
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/SKILL.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 198,
+      "nonEmptyLines": 141,
+      "sections": [
+        {
+          "heading": "Buffett Investment Thinking System",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "Quick Filter (2 minutes, 8 questions)",
+          "level": 2,
+          "line": 19
+        },
+        {
+          "heading": "Reference File Reading Protocol",
+          "level": 2,
+          "line": 38
+        },
+        {
+          "heading": "Task Type → Reading Path",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "Deep Analysis Framework (Path B expanded)",
+          "level": 2,
+          "line": 76
+        },
+        {
+          "heading": "1 · Mental Positioning (do first — cannot skip)",
+          "level": 3,
+          "line": 78
+        },
+        {
+          "heading": "2 · Business Quality (read 03 + 04)",
+          "level": 3,
+          "line": 88
+        },
+        {
+          "heading": "3 · Financials & Valuation (read 05 + 06)",
+          "level": 3,
+          "line": 100
+        },
+        {
+          "heading": "4 · Risk (read 07 when concerns exist)",
+          "level": 3,
+          "line": 119
+        },
+        {
+          "heading": "5 · Industry (read the relevant chapter in 08)",
+          "level": 3,
+          "line": 130
+        },
+        {
+          "heading": "Standard Output Format",
+          "level": 2,
+          "line": 136
+        },
+        {
+          "heading": "Reference File Index",
+          "level": 2,
+          "line": 187
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 12
+      }
+    },
+    {
+      "path": ".codebase-memory/.gitattributes",
+      "language": "unknown",
+      "fileCategory": "code",
+      "totalLines": 3,
+      "nonEmptyLines": 3,
+      "metrics": {}
+    },
+    {
+      "path": ".codebase-memory/artifact.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 11,
+      "nonEmptyLines": 11,
+      "sections": [
+        {
+          "heading": "schema_version",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "commit",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "indexed_at",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "project",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "nodes",
+          "level": 1,
+          "line": 6
+        },
+        {
+          "heading": "edges",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "original_size",
+          "level": 1,
+          "line": 8
+        },
+        {
+          "heading": "compressed_size",
+          "level": 1,
+          "line": 9
+        },
+        {
+          "heading": "compression_level",
+          "level": 1,
+          "line": 10
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": ".codebase-memory/graph.db.zst",
+      "language": "zst",
+      "fileCategory": "code",
+      "totalLines": 3262,
+      "nonEmptyLines": 3245,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/.session-log.jsonl",
+      "language": "jsonl",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 0,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/.user-messages.jsonl",
+      "language": "jsonl",
+      "fileCategory": "code",
+      "totalLines": 9,
+      "nonEmptyLines": 9,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 365,
+      "nonEmptyLines": 329,
+      "sections": [
+        {
+          "heading": "Closure Receipt -- forward-runner-decomposition",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Prior closure",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Status",
+          "level": 2,
+          "line": 10
+        },
+        {
+          "heading": "Task ledger",
+          "level": 2,
+          "line": 16
+        },
+        {
+          "heading": "Decision Log summary",
+          "level": 2,
+          "line": 50
+        },
+        {
+          "heading": "Reconciliation history",
+          "level": 2,
+          "line": 53
+        },
+        {
+          "heading": "Files changed",
+          "level": 2,
+          "line": 56
+        },
+        {
+          "heading": "Blocked / open coordination",
+          "level": 2,
+          "line": 91
+        },
+        {
+          "heading": "Proof artifacts",
+          "level": 2,
+          "line": 94
+        },
+        {
+          "heading": "Plan-specific extras",
+          "level": 2,
+          "line": 97
+        },
+        {
+          "heading": "Must-Haves (from plan)",
+          "level": 3,
+          "line": 98
+        },
+        {
+          "heading": "Task 1: Build the August date and snapshot inventory A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 120
+        },
+        {
+          "heading": "Task 2: Prove owner and historical chain provenance A:I2 A:I6 A:I7",
+          "level": 3,
+          "line": 128
+        },
+        {
+          "heading": "Task 3: Reconcile full candidate-pool persistence A:I5 A:I7",
+          "level": 3,
+          "line": 139
+        },
+        {
+          "heading": "Task 4: Settle all available candidate rows A:I5 A:I7",
+          "level": 3,
+          "line": 147
+        },
+        {
+          "heading": "Task 5: Enforce replay leakage protection A:I5 A:I7",
+          "level": 3,
+          "line": 157
+        },
+        {
+          "heading": "Task 6: Classify T-day decision outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 165
+        },
+        {
+          "heading": "Task 7: Record candidate snapshot evidence A:I5 A:I7",
+          "level": 3,
+          "line": 172
+        },
+        {
+          "heading": "Task 8: Explain settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 178
+        },
+        {
+          "heading": "Task 9: Aggregate settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 187
+        },
+        {
+          "heading": "Task 10: Replay the current main-force baseline A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 193
+        },
+        {
+          "heading": "Task 11: Benchmark baseline by full pool and emitted ticket A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 202
+        },
+        {
+          "heading": "Task 12: Select one repeated T-day failure class A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 210
+        },
+        {
+          "heading": "Task 13: Implement one main-force correction A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 220
+        },
+        {
+          "heading": "Task 14: Run baseline-versus-change promotion replay A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 230
+        },
+        {
+          "heading": "Task 15: Complete repository and knowledge validation A:I2 A:I4 A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 240
+        },
+        {
+          "heading": "Task 16: Preserve the completed runner decomposition A:I2 A:I4 A:I6",
+          "level": 3,
+          "line": 250
+        },
+        {
+          "heading": "Task 17: Build settled August limit-up and high-return factor evidence A:I6 A:I8",
+          "level": 3,
+          "line": 258
+        },
+        {
+          "heading": "Task 18: Select one repeated, T-day-observable factor candidate A:I6 A:I8",
+          "level": 3,
+          "line": 271
+        },
+        {
+          "heading": "Task 19: Modify the existing main-force factor owner A:I6 A:I8",
+          "level": 3,
+          "line": 283
+        },
+        {
+          "heading": "Task 20: Replay the sole main-force chain against the fixed August cohort A:I6 A:I8",
+          "level": 3,
+          "line": 294
+        },
+        {
+          "heading": "Task 21: Validate and record the factor decision A:I6 A:I8",
+          "level": 3,
+          "line": 309
+        },
+        {
+          "heading": "Task 22: Restore L1 replay resource safety without changing semantics A:I5 A:I6",
+          "level": 3,
+          "line": 318
+        },
+        {
+          "heading": "Task 23: Calibrate the existing weak-regime chase factor A:I6 A:I8",
+          "level": 3,
+          "line": 332
+        },
+        {
+          "heading": "Task 24: Demote Intraday Limit-Up Capture Extension A:I6 A:I8",
+          "level": 3,
+          "line": 349
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 35
+      }
+    },
+    {
+      "path": ".skills/karpathy-daily.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 69,
+      "nonEmptyLines": 53,
+      "sections": [
+        {
+          "heading": "Karpathy Skills 日常使用指南",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "使用场景",
+          "level": 2,
+          "line": 3
+        },
+        {
+          "heading": "核心约束",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "1. 思考再编码",
+          "level": 3,
+          "line": 9
+        },
+        {
+          "heading": "2. 简单优先",
+          "level": 3,
+          "line": 15
+        },
+        {
+          "heading": "3. 精准修改",
+          "level": 3,
+          "line": 21
+        },
+        {
+          "heading": "4. 目标驱动",
+          "level": 3,
+          "line": 27
+        },
+        {
+          "heading": "检查清单",
+          "level": 2,
+          "line": 32
+        },
+        {
+          "heading": "与 xiaogu 项目结合",
+          "level": 2,
+          "line": 40
+        },
+        {
+          "heading": "候选池优化",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "数据源集成",
+          "level": 3,
+          "line": 49
+        },
+        {
+          "heading": "工具链",
+          "level": 3,
+          "line": 55
+        },
+        {
+          "heading": "任务启动挂钩（强制）",
+          "level": 2,
+          "line": 61
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 13
+      }
+    },
+    {
+      "path": ".skills/karpathy-guidelines/SKILL.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 67,
+      "nonEmptyLines": 47,
+      "sections": [
+        {
+          "heading": "Karpathy Guidelines",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "1. Think Before Coding",
+          "level": 2,
+          "line": 13
+        },
+        {
+          "heading": "2. Simplicity First",
+          "level": 2,
+          "line": 23
+        },
+        {
+          "heading": "3. Surgical Changes",
+          "level": 2,
+          "line": 35
+        },
+        {
+          "heading": "4. Goal-Driven Execution",
+          "level": 2,
+          "line": 51
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 5
+      }
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "fileCategory": "code",
+      "totalLines": 71,
+      "nonEmptyLines": 70,
+      "metrics": {}
+    },
+    {
+      "path": ".understand-anything/tmp-validate.cjs",
+      "language": "javascript",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": ".understand-anything/tmp/scan.stderr",
+      "language": "stderr",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {}
+    },
+    {
+      "path": "docs/architecture.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 176,
+      "nonEmptyLines": 141,
+      "sections": [
+        {
+          "heading": "xiaogu Architecture",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "System Overview",
+          "level": 2,
+          "line": 3
+        },
+        {
+          "heading": "Components",
+          "level": 2,
+          "line": 15
+        },
+        {
+          "heading": "Database Schema",
+          "level": 2,
+          "line": 28
+        },
+        {
+          "heading": "Data Flow",
+          "level": 2,
+          "line": 32
+        },
+        {
+          "heading": "Official Ticket Strategy",
+          "level": 2,
+          "line": 41
+        },
+        {
+          "heading": "1. Decision Inputs and Time Boundary",
+          "level": 3,
+          "line": 59
+        },
+        {
+          "heading": "2. Eligibility Is a Gate, Not a Second Ranker",
+          "level": 3,
+          "line": 70
+        },
+        {
+          "heading": "3. Single Formal Ranking",
+          "level": 3,
+          "line": 87
+        },
+        {
+          "heading": "4. Selection and Persistence",
+          "level": 3,
+          "line": 117
+        },
+        {
+          "heading": "5. Result Measurement",
+          "level": 3,
+          "line": 125
+        },
+        {
+          "heading": "6. Provenance, Regime, and Validation",
+          "level": 3,
+          "line": 144
+        },
+        {
+          "heading": "Pipeline Rules",
+          "level": 2,
+          "line": 165
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 13
+      }
+    },
+    {
+      "path": "docs/plans/2026-08-21-forward-runner-decomposition.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 512,
+      "nonEmptyLines": 451,
+      "sections": [
+        {
+          "heading": "August Full-Pool Main-Force Chain Upgrade",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Current Active Extension: Xiaogu Production T+1 Tradable Edge",
+          "level": 2,
+          "line": 14
+        },
+        {
+          "heading": "Assumptions",
+          "level": 2,
+          "line": 42
+        },
+        {
+          "heading": "Must-Haves",
+          "level": 2,
+          "line": 51
+        },
+        {
+          "heading": "Task 1: Build the August date and snapshot inventory A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 73
+        },
+        {
+          "heading": "Task 2: Prove owner and historical chain provenance A:I2 A:I6 A:I7",
+          "level": 3,
+          "line": 81
+        },
+        {
+          "heading": "Task 3: Reconcile full candidate-pool persistence A:I5 A:I7",
+          "level": 3,
+          "line": 92
+        },
+        {
+          "heading": "Task 4: Settle all available candidate rows A:I5 A:I7",
+          "level": 3,
+          "line": 100
+        },
+        {
+          "heading": "Task 5: Enforce replay leakage protection A:I5 A:I7",
+          "level": 3,
+          "line": 110
+        },
+        {
+          "heading": "Task 6: Classify T-day decision outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 118
+        },
+        {
+          "heading": "Task 7: Record candidate snapshot evidence A:I5 A:I7",
+          "level": 3,
+          "line": 125
+        },
+        {
+          "heading": "Task 8: Explain settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 131
+        },
+        {
+          "heading": "Task 9: Aggregate settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 140
+        },
+        {
+          "heading": "Task 10: Replay the current main-force baseline A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 146
+        },
+        {
+          "heading": "Task 11: Benchmark baseline by full pool and emitted ticket A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 155
+        },
+        {
+          "heading": "Task 12: Select one repeated T-day failure class A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 163
+        },
+        {
+          "heading": "Task 13: Implement one main-force correction A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 173
+        },
+        {
+          "heading": "Task 14: Run baseline-versus-change promotion replay A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 183
+        },
+        {
+          "heading": "Task 15: Complete repository and knowledge validation A:I2 A:I4 A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 193
+        },
+        {
+          "heading": "Task 16: Preserve the completed runner decomposition A:I2 A:I4 A:I6",
+          "level": 3,
+          "line": 203
+        },
+        {
+          "heading": "Task 17: Build settled August limit-up and high-return factor evidence A:I6 A:I8",
+          "level": 3,
+          "line": 211
+        },
+        {
+          "heading": "Task 18: Select one repeated, T-day-observable factor candidate A:I6 A:I8",
+          "level": 3,
+          "line": 224
+        },
+        {
+          "heading": "Task 19: Modify the existing main-force factor owner A:I6 A:I8",
+          "level": 3,
+          "line": 236
+        },
+        {
+          "heading": "Task 20: Replay the sole main-force chain against the fixed August cohort A:I6 A:I8",
+          "level": 3,
+          "line": 247
+        },
+        {
+          "heading": "Task 21: Validate and record the factor decision A:I6 A:I8",
+          "level": 3,
+          "line": 262
+        },
+        {
+          "heading": "Task 22: Restore L1 replay resource safety without changing semantics A:I5 A:I6",
+          "level": 3,
+          "line": 271
+        },
+        {
+          "heading": "Task 23: Calibrate the existing weak-regime chase factor A:I6 A:I8",
+          "level": 3,
+          "line": 285
+        },
+        {
+          "heading": "Task 24: Demote Intraday Limit-Up Capture Extension A:I6 A:I8",
+          "level": 3,
+          "line": 302
+        },
+        {
+          "heading": "Current Active Extension: Production T+1 Tradable Edge",
+          "level": 2,
+          "line": 320
+        },
+        {
+          "heading": "Must-Haves",
+          "level": 2,
+          "line": 336
+        },
+        {
+          "heading": "Task 31: Reconcile existing owners and contracts A:I12",
+          "level": 3,
+          "line": 359
+        },
+        {
+          "heading": "Task 32: Harden the canonical execution contract A:I12",
+          "level": 3,
+          "line": 370
+        },
+        {
+          "heading": "Task 33: Complete canonical T+1 labels and quality accounting A:I12",
+          "level": 3,
+          "line": 382
+        },
+        {
+          "heading": "Task 34: Make U0/U1/U2 research accounting explicit A:I12",
+          "level": 3,
+          "line": 392
+        },
+        {
+          "heading": "Task 35: Implement deterministic Walk-Forward baselines in the existing",
+          "level": 3,
+          "line": 400
+        },
+        {
+          "heading": "Task 36: Add research-only edge and registry/health state A:I12",
+          "level": 3,
+          "line": 413
+        },
+        {
+          "heading": "Task 37: Preserve the sole production chain A:I12",
+          "level": 3,
+          "line": 428
+        },
+        {
+          "heading": "Task 38: Validate and close A:I12",
+          "level": 3,
+          "line": 438
+        },
+        {
+          "heading": "T8 Execution Boundary",
+          "level": 2,
+          "line": 448
+        },
+        {
+          "heading": "T9 T+1 Alpha 一刀切重构",
+          "level": 2,
+          "line": 454
+        },
+        {
+          "heading": "T9 Must-Haves",
+          "level": 2,
+          "line": 465
+        },
+        {
+          "heading": "Task 25: Freeze the single-chain alpha contract A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 472
+        },
+        {
+          "heading": "Task 26: Replace formal ranking with the five-module baseline A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 479
+        },
+        {
+          "heading": "Task 27: Collapse admission into four primary alpha paths A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 487
+        },
+        {
+          "heading": "Task 28: Complete settlement labels through existing return owner A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 494
+        },
+        {
+          "heading": "Task 29: Replay and promote only the sole chain A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 500
+        },
+        {
+          "heading": "Task 30: Refresh architecture and knowledge closure A:I9 A:I10 A:I11",
+          "level": 3,
+          "line": 507
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 47
+      }
+    },
+    {
+      "path": "docs/plans/2026-08-26-final-repricing-rebuild.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 57,
+      "nonEmptyLines": 47,
+      "sections": [
+        {
+          "heading": "Xiaogu Final Repricing Rebuild",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Must-Haves",
+          "level": 2,
+          "line": 13
+        },
+        {
+          "heading": "Task 1: Audit and freeze ownership boundaries A:I13",
+          "level": 3,
+          "line": 23
+        },
+        {
+          "heading": "Task 2: Replace canonical snapshot and feature contracts A:I13",
+          "level": 3,
+          "line": 28
+        },
+        {
+          "heading": "Task 3: Replace alpha and decision owners A:I13",
+          "level": 3,
+          "line": 34
+        },
+        {
+          "heading": "Task 4: Add bounded research integrations A:I13",
+          "level": 3,
+          "line": 39
+        },
+        {
+          "heading": "Task 5: Migrate runner, ledger, and evaluation A:I13",
+          "level": 3,
+          "line": 44
+        },
+        {
+          "heading": "Task 6: Rebuild historical replay and remove exclusive legacy code A:I13",
+          "level": 3,
+          "line": 49
+        },
+        {
+          "heading": "Task 7: Close with runtime evidence A:I13",
+          "level": 3,
+          "line": 54
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": "integrations/tradingagents_adapter.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 31,
+      "nonEmptyLines": 27,
+      "functions": [
+        {
+          "name": "integrate_research_context",
+          "startLine": 9,
+          "endLine": 31,
+          "params": [
+            "industry",
+            "company",
+            "capital",
+            "lineage_id"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "integrate_research_context",
+          "line": 9,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 16
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 16
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 17
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "capital.get",
+          "lineNumber": 17
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 24
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 26
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "max",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "min",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "company.get",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 30
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scrapy_scanner/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scrapy_scanner/README.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 65,
+      "nonEmptyLines": 49,
+      "sections": [
+        {
+          "heading": "Scrapy Scanner for xiaogu",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Quick Start",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Output Files",
+          "level": 2,
+          "line": 17
+        },
+        {
+          "heading": "Data Fields",
+          "level": 2,
+          "line": 28
+        },
+        {
+          "heading": "Stock List",
+          "level": 3,
+          "line": 30
+        },
+        {
+          "heading": "Fund Flow",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "Limitations",
+          "level": 2,
+          "line": 49
+        },
+        {
+          "heading": "Failure Handling",
+          "level": 2,
+          "line": 54
+        },
+        {
+          "heading": "API Endpoints Used",
+          "level": 2,
+          "line": 58
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": "scripts/agentmemory_daily.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 26,
+      "nonEmptyLines": 22,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_bounded_hard_backtest_three_patterns.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 792,
+      "nonEmptyLines": 736,
+      "functions": [
+        {
+          "name": "fnum",
+          "startLine": 96,
+          "endLine": 100,
+          "params": [
+            "v"
+          ]
+        },
+        {
+          "name": "extract_factors",
+          "startLine": 103,
+          "endLine": 146,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "load_returns",
+          "startLine": 149,
+          "endLine": 173,
+          "params": [
+            "min_d",
+            "max_d"
+          ]
+        },
+        {
+          "name": "load_embedding_t1",
+          "startLine": 176,
+          "endLine": 207,
+          "params": [
+            "min_d",
+            "max_d"
+          ]
+        },
+        {
+          "name": "load_archive_candidates",
+          "startLine": 210,
+          "endLine": 247,
+          "params": [
+            "min_d",
+            "max_d"
+          ]
+        },
+        {
+          "name": "merge_audit",
+          "startLine": 250,
+          "endLine": 300,
+          "params": [
+            "cand",
+            "audit_path"
+          ]
+        },
+        {
+          "name": "apply_targets_and_returns",
+          "startLine": 303,
+          "endLine": 323,
+          "params": [
+            "cand",
+            "ret",
+            "emb"
+          ]
+        },
+        {
+          "name": "paper_like_universe",
+          "startLine": 326,
+          "endLine": 342,
+          "params": [
+            "cand"
+          ]
+        },
+        {
+          "name": "rule_r1_hollow_theme",
+          "startLine": 346,
+          "endLine": 365,
+          "params": [
+            "u"
+          ]
+        },
+        {
+          "name": "rule_r2_partial_aux_edge",
+          "startLine": 368,
+          "endLine": 382,
+          "params": [
+            "u"
+          ]
+        },
+        {
+          "name": "rule_r3_high_core_chase",
+          "startLine": 385,
+          "endLine": 400,
+          "params": [
+            "u"
+          ]
+        },
+        {
+          "name": "stats",
+          "startLine": 403,
+          "endLine": 414,
+          "params": [
+            "rows"
+          ]
+        },
+        {
+          "name": "slim",
+          "startLine": 417,
+          "endLine": 436,
+          "params": [
+            "h"
+          ]
+        },
+        {
+          "name": "summarize",
+          "startLine": 439,
+          "endLine": 462,
+          "params": [
+            "fn",
+            "sample"
+          ]
+        },
+        {
+          "name": "production_haixing_exception_allowed",
+          "startLine": 465,
+          "endLine": 493,
+          "params": []
+        },
+        {
+          "name": "pct_str",
+          "startLine": 496,
+          "endLine": 499,
+          "params": [
+            "t"
+          ]
+        },
+        {
+          "name": "build_recommendations",
+          "startLine": 502,
+          "endLine": 570,
+          "params": [
+            "targets",
+            "results",
+            "prod_hx_allowed"
+          ]
+        },
+        {
+          "name": "write_markdown",
+          "startLine": 573,
+          "endLine": 672,
+          "params": [
+            "out",
+            "path"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 675,
+          "endLine": 788,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "fnum",
+          "line": 96,
+          "isDefault": false
+        },
+        {
+          "name": "extract_factors",
+          "line": 103,
+          "isDefault": false
+        },
+        {
+          "name": "load_returns",
+          "line": 149,
+          "isDefault": false
+        },
+        {
+          "name": "load_embedding_t1",
+          "line": 176,
+          "isDefault": false
+        },
+        {
+          "name": "load_archive_candidates",
+          "line": 210,
+          "isDefault": false
+        },
+        {
+          "name": "merge_audit",
+          "line": 250,
+          "isDefault": false
+        },
+        {
+          "name": "apply_targets_and_returns",
+          "line": 303,
+          "isDefault": false
+        },
+        {
+          "name": "paper_like_universe",
+          "line": 326,
+          "isDefault": false
+        },
+        {
+          "name": "rule_r1_hollow_theme",
+          "line": 346,
+          "isDefault": false
+        },
+        {
+          "name": "rule_r2_partial_aux_edge",
+          "line": 368,
+          "isDefault": false
+        },
+        {
+          "name": "rule_r3_high_core_chase",
+          "line": 385,
+          "isDefault": false
+        },
+        {
+          "name": "stats",
+          "line": 403,
+          "isDefault": false
+        },
+        {
+          "name": "slim",
+          "line": 417,
+          "isDefault": false
+        },
+        {
+          "name": "summarize",
+          "line": 439,
+          "isDefault": false
+        },
+        {
+          "name": "production_haixing_exception_allowed",
+          "line": 465,
+          "isDefault": false
+        },
+        {
+          "name": "pct_str",
+          "line": 496,
+          "isDefault": false
+        },
+        {
+          "name": "build_recommendations",
+          "line": 502,
+          "isDefault": false
+        },
+        {
+          "name": "write_markdown",
+          "line": 573,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 675,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "fnum",
+          "callee": "float",
+          "lineNumber": 98
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 104
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "elig.get",
+          "lineNumber": 105
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 105
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 106
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "sig.get",
+          "lineNumber": 108
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 108
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "sig.get",
+          "lineNumber": 108
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "rs.get",
+          "lineNumber": 109
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 109
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "rs.get",
+          "lineNumber": 109
+        },
+        {
+          "caller": "g",
+          "callee": "isinstance",
+          "lineNumber": 114
+        },
+        {
+          "caller": "g",
+          "callee": "src.get",
+          "lineNumber": 114
+        },
+        {
+          "caller": "g",
+          "callee": "src.get",
+          "lineNumber": 115
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "bool",
+          "lineNumber": 118
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 118
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "elig.get",
+          "lineNumber": 119
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 119
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 120
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "any",
+          "lineNumber": 120
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str",
+          "lineNumber": 120
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "elig.get",
+          "lineNumber": 122
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "isinstance",
+          "lineNumber": 122
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str(g(\"limitup_reason_status\") or \"\").upper",
+          "lineNumber": 123
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str",
+          "lineNumber": 123
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 123
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str(g(\"limitup_reason_evidence_class\") or limitup_status or \"\").upper",
+          "lineNumber": 124
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str",
+          "lineNumber": 124
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 124
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 126
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 126
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 127
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 127
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 128
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 128
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str(g(\"mainboard_auxiliary_evidence_status\", \"mainboard_auxiliary_status\") or \"\").upper",
+          "lineNumber": 129
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "str",
+          "lineNumber": 129
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 129
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 132
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 132
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 133
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 133
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 134
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 134
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 135
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 135
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 136
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 136
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 137
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 137
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 138
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "g",
+          "lineNumber": 138
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "fnum",
+          "lineNumber": 141
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 141
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "bool",
+          "lineNumber": 142
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 142
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 143
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 144
+        },
+        {
+          "caller": "extract_factors",
+          "callee": "row.get",
+          "lineNumber": 145
+        },
+        {
+          "caller": "load_returns",
+          "callee": "get_db",
+          "lineNumber": 157
+        },
+        {
+          "caller": "load_returns",
+          "callee": "db.execute(\n                text(\n                    \"\"\"\n                SELECT trade_date::text AS d, symbol, t1_return\n                FROM returns\n                WHERE trade_date >= CAST(:min_d AS date)\n                  AND trade_date <= CAST(:max_d AS date)\n                  AND t1_return IS NOT NULL\n                \"\"\"\n                ),\n                {\"min_d\": min_d, \"max_d\": max_d},\n            ).mappings",
+          "lineNumber": 158
+        },
+        {
+          "caller": "load_returns",
+          "callee": "db.execute",
+          "lineNumber": 158
+        },
+        {
+          "caller": "load_returns",
+          "callee": "text",
+          "lineNumber": 159
+        },
+        {
+          "caller": "load_returns",
+          "callee": "float",
+          "lineNumber": 170
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "get_db",
+          "lineNumber": 184
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "db.execute(\n                text(\"SELECT 1 FROM information_schema.tables WHERE table_name='pick_case_embeddings'\")\n            ).fetchone",
+          "lineNumber": 185
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "db.execute",
+          "lineNumber": 185
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "text",
+          "lineNumber": 186
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "db.execute(\n                text(\n                    \"\"\"\n                SELECT trade_date::text AS d, symbol, stock_name, decision, final_score, t1_return\n                FROM pick_case_embeddings\n                WHERE trade_date >= CAST(:min_d AS date)\n                  AND trade_date <= CAST(:max_d AS date)\n                  AND t1_return IS NOT NULL\n                \"\"\"\n                ),\n                {\"min_d\": min_d, \"max_d\": max_d},\n            ).mappings",
+          "lineNumber": 189
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "db.execute",
+          "lineNumber": 189
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "text",
+          "lineNumber": 190
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "out.get",
+          "lineNumber": 202
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "str(r[\"decision\"]).upper",
+          "lineNumber": 203
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "str",
+          "lineNumber": 203
+        },
+        {
+          "caller": "load_embedding_t1",
+          "callee": "dict",
+          "lineNumber": 204
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "RT.exists",
+          "lineNumber": 212
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "sorted",
+          "lineNumber": 214
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "RT.iterdir",
+          "lineNumber": 214
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "day_dir.is_dir",
+          "lineNumber": 215
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "sorted",
+          "lineNumber": 220
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "day_dir.iterdir",
+          "lineNumber": 220
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "arch.exists",
+          "lineNumber": 222
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "json.loads",
+          "lineNumber": 225
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "arch.read_text",
+          "lineNumber": 225
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "data.get",
+          "lineNumber": 228
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "isinstance",
+          "lineNumber": 229
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "str",
+          "lineNumber": 231
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "row.get",
+          "lineNumber": 231
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "extract_factors",
+          "lineNumber": 234
+        },
+        {
+          "caller": "load_archive_candidates",
+          "callee": "cand[key].get",
+          "lineNumber": 241
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "audit_path.exists",
+          "lineNumber": 251
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "json.loads",
+          "lineNumber": 254
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "audit_path.read_text",
+          "lineNumber": 254
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "audit.get",
+          "lineNumber": 257
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "isinstance",
+          "lineNumber": 258
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "str",
+          "lineNumber": 260
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 260
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "str",
+          "lineNumber": 260
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 260
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 261
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "isinstance",
+          "lineNumber": 261
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 261
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 265
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 266
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 267
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 268
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 269
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 270
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 271
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 272
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 273
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 274
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "f.get",
+          "lineNumber": 275
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "bool",
+          "lineNumber": 282
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 282
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 285
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 287
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "cand[key].get",
+          "lineNumber": 294
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "base.get",
+          "lineNumber": 294
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "cand[key].get",
+          "lineNumber": 296
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "base.get",
+          "lineNumber": 297
+        },
+        {
+          "caller": "merge_audit",
+          "callee": "rec.get",
+          "lineNumber": 298
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "TARGET_OVERRIDES.items",
+          "lineNumber": 308
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "cand.get",
+          "lineNumber": 309
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "cur.update",
+          "lineNumber": 310
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "cur.get",
+          "lineNumber": 313
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "cand.items",
+          "lineNumber": 315
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "fac.get",
+          "lineNumber": 316
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "float",
+          "lineNumber": 321
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "fac.get",
+          "lineNumber": 322
+        },
+        {
+          "caller": "apply_targets_and_returns",
+          "callee": "emb[key].get",
+          "lineNumber": 323
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "cand.items",
+          "lineNumber": 328
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 330
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 331
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 332
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 333
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 333
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "u.get",
+          "lineNumber": 338
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "pl[key].get",
+          "lineNumber": 338
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "list",
+          "lineNumber": 342
+        },
+        {
+          "caller": "paper_like_universe",
+          "callee": "pl.values",
+          "lineNumber": 342
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 348
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 348
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 351
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 352
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 353
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 353
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 354
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 354
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 355
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 355
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 356
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 356
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "u.get",
+          "lineNumber": 357
+        },
+        {
+          "caller": "rule_r1_hollow_theme",
+          "callee": "float",
+          "lineNumber": 362
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "str(u.get(\"aux\") or \"\").upper",
+          "lineNumber": 369
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "str",
+          "lineNumber": 369
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 369
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "bool",
+          "lineNumber": 370
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 370
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 373
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "float",
+          "lineNumber": 374
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 377
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "str(u.get(\"limitup_class\") or u.get(\"limitup_status\") or \"\").upper",
+          "lineNumber": 378
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "str",
+          "lineNumber": 378
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 378
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "u.get",
+          "lineNumber": 378
+        },
+        {
+          "caller": "rule_r2_partial_aux_edge",
+          "callee": "float",
+          "lineNumber": 380
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 386
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 386
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 389
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 390
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 393
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 393
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 394
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 394
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 395
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 395
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 396
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "u.get",
+          "lineNumber": 396
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 399
+        },
+        {
+          "caller": "rule_r3_high_core_chase",
+          "callee": "float",
+          "lineNumber": 399
+        },
+        {
+          "caller": "stats",
+          "callee": "r.get",
+          "lineNumber": 404
+        },
+        {
+          "caller": "stats",
+          "callee": "len",
+          "lineNumber": 408
+        },
+        {
+          "caller": "stats",
+          "callee": "round",
+          "lineNumber": 409
+        },
+        {
+          "caller": "stats",
+          "callee": "sum",
+          "lineNumber": 409
+        },
+        {
+          "caller": "stats",
+          "callee": "len",
+          "lineNumber": 409
+        },
+        {
+          "caller": "stats",
+          "callee": "round",
+          "lineNumber": 410
+        },
+        {
+          "caller": "stats",
+          "callee": "sum",
+          "lineNumber": 410
+        },
+        {
+          "caller": "stats",
+          "callee": "len",
+          "lineNumber": 410
+        },
+        {
+          "caller": "stats",
+          "callee": "round",
+          "lineNumber": 411
+        },
+        {
+          "caller": "stats",
+          "callee": "sum",
+          "lineNumber": 411
+        },
+        {
+          "caller": "stats",
+          "callee": "sum",
+          "lineNumber": 412
+        },
+        {
+          "caller": "stats",
+          "callee": "sum",
+          "lineNumber": 413
+        },
+        {
+          "caller": "slim",
+          "callee": "h.get",
+          "lineNumber": 419
+        },
+        {
+          "caller": "summarize",
+          "callee": "fn",
+          "lineNumber": 442
+        },
+        {
+          "caller": "summarize",
+          "callee": "hits.append",
+          "lineNumber": 444
+        },
+        {
+          "caller": "summarize",
+          "callee": "h.get",
+          "lineNumber": 445
+        },
+        {
+          "caller": "summarize",
+          "callee": "u.get",
+          "lineNumber": 446
+        },
+        {
+          "caller": "summarize",
+          "callee": "fn",
+          "lineNumber": 447
+        },
+        {
+          "caller": "summarize",
+          "callee": "stats",
+          "lineNumber": 448
+        },
+        {
+          "caller": "summarize",
+          "callee": "stats",
+          "lineNumber": 448
+        },
+        {
+          "caller": "summarize",
+          "callee": "stats",
+          "lineNumber": 448
+        },
+        {
+          "caller": "summarize",
+          "callee": "len",
+          "lineNumber": 452
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 456
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 457
+        },
+        {
+          "caller": "summarize",
+          "callee": "round",
+          "lineNumber": 458
+        },
+        {
+          "caller": "summarize",
+          "callee": "sum",
+          "lineNumber": 458
+        },
+        {
+          "caller": "summarize",
+          "callee": "slim",
+          "lineNumber": 459
+        },
+        {
+          "caller": "summarize",
+          "callee": "sorted",
+          "lineNumber": 459
+        },
+        {
+          "caller": "summarize",
+          "callee": "slim",
+          "lineNumber": 460
+        },
+        {
+          "caller": "summarize",
+          "callee": "sorted",
+          "lineNumber": 460
+        },
+        {
+          "caller": "summarize",
+          "callee": "slim",
+          "lineNumber": 461
+        },
+        {
+          "caller": "summarize",
+          "callee": "sorted",
+          "lineNumber": 461
+        },
+        {
+          "caller": "summarize",
+          "callee": "x.get",
+          "lineNumber": 461
+        },
+        {
+          "caller": "summarize",
+          "callee": "x.get",
+          "lineNumber": 461
+        },
+        {
+          "caller": "production_haixing_exception_allowed",
+          "callee": "bool",
+          "lineNumber": 471
+        },
+        {
+          "caller": "production_haixing_exception_allowed",
+          "callee": "strong_sector_theme_partial_aux_exception_allowed",
+          "lineNumber": 472
+        },
+        {
+          "caller": "pct_str",
+          "callee": "float",
+          "lineNumber": 499
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 505
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 506
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 511
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 511
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 517
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 518
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 522
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 526
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 530
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 536
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "len",
+          "lineNumber": 548
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 549
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 551
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 556
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 567
+        },
+        {
+          "caller": "build_recommendations",
+          "callee": "recs.append",
+          "lineNumber": 569
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 578
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 579
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 580
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 581
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 582
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 585
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 586
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 587
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 588
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 589
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 590
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 591
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 592
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 593
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 594
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "targets.items",
+          "lineNumber": 595
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 601
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "r.get",
+          "lineNumber": 602
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "pct_str",
+          "lineNumber": 602
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "r.get",
+          "lineNumber": 602
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "yn",
+          "lineNumber": 603
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "yn",
+          "lineNumber": 603
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "yn",
+          "lineNumber": 604
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 606
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 607
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 608
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "out[\"rules_spec\"].items",
+          "lineNumber": 609
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 610
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 611
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 612
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 614
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 617
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 618
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 619
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 620
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 621
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "results.items",
+          "lineNumber": 622
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 624
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "len",
+          "lineNumber": 626
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "len",
+          "lineNumber": 626
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 628
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "results.items",
+          "lineNumber": 629
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 630
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 632
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 634
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 635
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "pct_str",
+          "lineNumber": 635
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 635
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 636
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 636
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 636
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 639
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 641
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 642
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "pct_str",
+          "lineNumber": 642
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 642
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 643
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 643
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "h.get",
+          "lineNumber": 643
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 646
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 647
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 648
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 649
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 651
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 652
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "rec.get",
+          "lineNumber": 653
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 654
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "rec.get",
+          "lineNumber": 655
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 656
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 657
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 658
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 659
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 660
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 661
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 663
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 664
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 665
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 669
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 670
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "Path",
+          "lineNumber": 670
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "out.get",
+          "lineNumber": 670
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "lines.append",
+          "lineNumber": 671
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "path.write_text",
+          "lineNumber": 672
+        },
+        {
+          "caller": "write_markdown",
+          "callee": "\"\\n\".join",
+          "lineNumber": 672
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 676
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 677
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 678
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 679
+        },
+        {
+          "caller": "main",
+          "callee": "str",
+          "lineNumber": 681
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 683
+        },
+        {
+          "caller": "main",
+          "callee": "ap.parse_args",
+          "lineNumber": 684
+        },
+        {
+          "caller": "main",
+          "callee": "load_archive_candidates",
+          "lineNumber": 687
+        },
+        {
+          "caller": "main",
+          "callee": "merge_audit",
+          "lineNumber": 688
+        },
+        {
+          "caller": "main",
+          "callee": "Path",
+          "lineNumber": 688
+        },
+        {
+          "caller": "main",
+          "callee": "load_returns",
+          "lineNumber": 689
+        },
+        {
+          "caller": "main",
+          "callee": "load_embedding_t1",
+          "lineNumber": 690
+        },
+        {
+          "caller": "main",
+          "callee": "apply_targets_and_returns",
+          "lineNumber": 691
+        },
+        {
+          "caller": "main",
+          "callee": "paper_like_universe",
+          "lineNumber": 692
+        },
+        {
+          "caller": "main",
+          "callee": "production_haixing_exception_allowed",
+          "lineNumber": 694
+        },
+        {
+          "caller": "main",
+          "callee": "summarize",
+          "lineNumber": 713
+        },
+        {
+          "caller": "main",
+          "callee": "rules.items",
+          "lineNumber": 713
+        },
+        {
+          "caller": "main",
+          "callee": "next",
+          "lineNumber": 722
+        },
+        {
+          "caller": "main",
+          "callee": "x.get",
+          "lineNumber": 722
+        },
+        {
+          "caller": "main",
+          "callee": "x.get",
+          "lineNumber": 722
+        },
+        {
+          "caller": "main",
+          "callee": "cand.get",
+          "lineNumber": 722
+        },
+        {
+          "caller": "main",
+          "callee": "(u or {}).get",
+          "lineNumber": 725
+        },
+        {
+          "caller": "main",
+          "callee": "rules.items",
+          "lineNumber": 744
+        },
+        {
+          "caller": "main",
+          "callee": "build_recommendations",
+          "lineNumber": 748
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now(timezone.utc).astimezone().strftime",
+          "lineNumber": 749
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now(timezone.utc).astimezone",
+          "lineNumber": 749
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now",
+          "lineNumber": 749
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now(timezone.utc).astimezone().isoformat",
+          "lineNumber": 755
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now(timezone.utc).astimezone",
+          "lineNumber": 755
+        },
+        {
+          "caller": "main",
+          "callee": "datetime.now",
+          "lineNumber": 755
+        },
+        {
+          "caller": "main",
+          "callee": "str",
+          "lineNumber": 762
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 767
+        },
+        {
+          "caller": "main",
+          "callee": "sum",
+          "lineNumber": 768
+        },
+        {
+          "caller": "main",
+          "callee": "u.get",
+          "lineNumber": 768
+        },
+        {
+          "caller": "main",
+          "callee": "v.items",
+          "lineNumber": 770
+        },
+        {
+          "caller": "main",
+          "callee": "rules.items",
+          "lineNumber": 770
+        },
+        {
+          "caller": "main",
+          "callee": "SUMMARY.mkdir",
+          "lineNumber": 784
+        },
+        {
+          "caller": "main",
+          "callee": "json_path.write_text",
+          "lineNumber": 785
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 785
+        },
+        {
+          "caller": "main",
+          "callee": "write_markdown",
+          "lineNumber": 786
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 787
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 787
+        },
+        {
+          "caller": "main",
+          "callee": "str",
+          "lineNumber": 787
+        },
+        {
+          "caller": "main",
+          "callee": "str",
+          "lineNumber": 787
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 19,
+        "functionCount": 19,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_daily_health_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 298,
+      "nonEmptyLines": 240,
+      "functions": [
+        {
+          "name": "_py_compile_check",
+          "startLine": 30,
+          "endLine": 38,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "_read_file_text",
+          "startLine": 41,
+          "endLine": 45,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "check_scanner_py_compile",
+          "startLine": 52,
+          "endLine": 54,
+          "params": []
+        },
+        {
+          "name": "check_runner_py_compile",
+          "startLine": 57,
+          "endLine": 59,
+          "params": []
+        },
+        {
+          "name": "check_filler_py_compile",
+          "startLine": 62,
+          "endLine": 64,
+          "params": []
+        },
+        {
+          "name": "check_api_scanner_identity",
+          "startLine": 67,
+          "endLine": 73,
+          "params": []
+        },
+        {
+          "name": "_direct_network_hits",
+          "startLine": 79,
+          "endLine": 92,
+          "params": [
+            "path",
+            "eastmoney_only"
+          ]
+        },
+        {
+          "name": "check_official_scanner_direct_network_boundary",
+          "startLine": 95,
+          "endLine": 100,
+          "params": []
+        },
+        {
+          "name": "check_post_pick_sidecar_direct_network_boundary",
+          "startLine": 103,
+          "endLine": 111,
+          "params": []
+        },
+        {
+          "name": "check_api_scanner_has_no_direct_urllib_fallback",
+          "startLine": 114,
+          "endLine": 120,
+          "params": []
+        },
+        {
+          "name": "check_external_market_api_snapshot",
+          "startLine": 123,
+          "endLine": 136,
+          "params": []
+        },
+        {
+          "name": "check_runner_requires_api_source",
+          "startLine": 139,
+          "endLine": 145,
+          "params": []
+        },
+        {
+          "name": "check_runner_consumes_external_market_signal",
+          "startLine": 148,
+          "endLine": 159,
+          "params": []
+        },
+        {
+          "name": "check_runner_has_formal_diagnostic_output",
+          "startLine": 162,
+          "endLine": 167,
+          "params": []
+        },
+        {
+          "name": "check_runner_has_closest_to_pick_output",
+          "startLine": 170,
+          "endLine": 175,
+          "params": []
+        },
+        {
+          "name": "check_sector_rotation_in_scoring",
+          "startLine": 178,
+          "endLine": 184,
+          "params": []
+        },
+        {
+          "name": "check_northbound_in_scoring",
+          "startLine": 187,
+          "endLine": 200,
+          "params": []
+        },
+        {
+          "name": "check_overheated_in_scoring",
+          "startLine": 203,
+          "endLine": 208,
+          "params": []
+        },
+        {
+          "name": "check_filler_has_fill_all_pending",
+          "startLine": 211,
+          "endLine": 216,
+          "params": []
+        },
+        {
+          "name": "check_ledger_readable",
+          "startLine": 219,
+          "endLine": 230,
+          "params": []
+        },
+        {
+          "name": "run_checks",
+          "startLine": 258,
+          "endLine": 286,
+          "params": [
+            "as_json"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 289,
+          "endLine": 294,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_py_compile_check",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "_read_file_text",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "check_scanner_py_compile",
+          "line": 52,
+          "isDefault": false
+        },
+        {
+          "name": "check_runner_py_compile",
+          "line": 57,
+          "isDefault": false
+        },
+        {
+          "name": "check_filler_py_compile",
+          "line": 62,
+          "isDefault": false
+        },
+        {
+          "name": "check_api_scanner_identity",
+          "line": 67,
+          "isDefault": false
+        },
+        {
+          "name": "_direct_network_hits",
+          "line": 79,
+          "isDefault": false
+        },
+        {
+          "name": "check_official_scanner_direct_network_boundary",
+          "line": 95,
+          "isDefault": false
+        },
+        {
+          "name": "check_post_pick_sidecar_direct_network_boundary",
+          "line": 103,
+          "isDefault": false
+        },
+        {
+          "name": "check_api_scanner_has_no_direct_urllib_fallback",
+          "line": 114,
+          "isDefault": false
+        },
+        {
+          "name": "check_external_market_api_snapshot",
+          "line": 123,
+          "isDefault": false
+        },
+        {
+          "name": "check_runner_requires_api_source",
+          "line": 139,
+          "isDefault": false
+        },
+        {
+          "name": "check_runner_consumes_external_market_signal",
+          "line": 148,
+          "isDefault": false
+        },
+        {
+          "name": "check_runner_has_formal_diagnostic_output",
+          "line": 162,
+          "isDefault": false
+        },
+        {
+          "name": "check_runner_has_closest_to_pick_output",
+          "line": 170,
+          "isDefault": false
+        },
+        {
+          "name": "check_sector_rotation_in_scoring",
+          "line": 178,
+          "isDefault": false
+        },
+        {
+          "name": "check_northbound_in_scoring",
+          "line": 187,
+          "isDefault": false
+        },
+        {
+          "name": "check_overheated_in_scoring",
+          "line": 203,
+          "isDefault": false
+        },
+        {
+          "name": "check_filler_has_fill_all_pending",
+          "line": 211,
+          "isDefault": false
+        },
+        {
+          "name": "check_ledger_readable",
+          "line": 219,
+          "isDefault": false
+        },
+        {
+          "name": "run_checks",
+          "line": 258,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 289,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_py_compile_check",
+          "callee": "os.path.isfile",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_py_compile_check",
+          "callee": "py_compile.compile",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_py_compile_check",
+          "callee": "str",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_read_file_text",
+          "callee": "os.path.isfile",
+          "lineNumber": 42
+        },
+        {
+          "caller": "_read_file_text",
+          "callee": "open",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_read_file_text",
+          "callee": "fh.read",
+          "lineNumber": 45
+        },
+        {
+          "caller": "check_scanner_py_compile",
+          "callee": "_py_compile_check",
+          "lineNumber": 53
+        },
+        {
+          "caller": "check_runner_py_compile",
+          "callee": "_py_compile_check",
+          "lineNumber": 58
+        },
+        {
+          "caller": "check_filler_py_compile",
+          "callee": "_py_compile_check",
+          "lineNumber": 63
+        },
+        {
+          "caller": "check_api_scanner_identity",
+          "callee": "_read_file_text",
+          "lineNumber": 68
+        },
+        {
+          "caller": "check_api_scanner_identity",
+          "callee": "', '.join",
+          "lineNumber": 73
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "_read_file_text",
+          "lineNumber": 80
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "text.splitlines",
+          "lineNumber": 84
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "enumerate",
+          "lineNumber": 85
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "any",
+          "lineNumber": 86
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "\"\\n\".join(lines[max(0, idx - 3): min(len(lines), idx + 3)]).lower",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "\"\\n\".join",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "max",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "min",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "len",
+          "lineNumber": 88
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "hits.append",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "os.path.relpath",
+          "lineNumber": 91
+        },
+        {
+          "caller": "_direct_network_hits",
+          "callee": "line.strip",
+          "lineNumber": 91
+        },
+        {
+          "caller": "check_official_scanner_direct_network_boundary",
+          "callee": "hits.extend",
+          "lineNumber": 99
+        },
+        {
+          "caller": "check_official_scanner_direct_network_boundary",
+          "callee": "_direct_network_hits",
+          "lineNumber": 99
+        },
+        {
+          "caller": "check_official_scanner_direct_network_boundary",
+          "callee": "\"; \".join",
+          "lineNumber": 100
+        },
+        {
+          "caller": "check_post_pick_sidecar_direct_network_boundary",
+          "callee": "hits.extend",
+          "lineNumber": 107
+        },
+        {
+          "caller": "check_post_pick_sidecar_direct_network_boundary",
+          "callee": "_direct_network_hits",
+          "lineNumber": 107
+        },
+        {
+          "caller": "check_post_pick_sidecar_direct_network_boundary",
+          "callee": "\"; \".join",
+          "lineNumber": 110
+        },
+        {
+          "caller": "check_api_scanner_has_no_direct_urllib_fallback",
+          "callee": "_read_file_text",
+          "lineNumber": 115
+        },
+        {
+          "caller": "check_api_scanner_has_no_direct_urllib_fallback",
+          "callee": "', '.join",
+          "lineNumber": 120
+        },
+        {
+          "caller": "check_external_market_api_snapshot",
+          "callee": "_read_file_text",
+          "lineNumber": 124
+        },
+        {
+          "caller": "check_external_market_api_snapshot",
+          "callee": "', '.join",
+          "lineNumber": 136
+        },
+        {
+          "caller": "check_runner_requires_api_source",
+          "callee": "_read_file_text",
+          "lineNumber": 140
+        },
+        {
+          "caller": "check_runner_requires_api_source",
+          "callee": "', '.join",
+          "lineNumber": 145
+        },
+        {
+          "caller": "check_runner_consumes_external_market_signal",
+          "callee": "_read_file_text",
+          "lineNumber": 149
+        },
+        {
+          "caller": "check_runner_consumes_external_market_signal",
+          "callee": "any",
+          "lineNumber": 150
+        },
+        {
+          "caller": "check_runner_consumes_external_market_signal",
+          "callee": "\"\\n\".join",
+          "lineNumber": 152
+        },
+        {
+          "caller": "check_runner_consumes_external_market_signal",
+          "callee": "', '.join",
+          "lineNumber": 159
+        },
+        {
+          "caller": "check_runner_has_formal_diagnostic_output",
+          "callee": "_read_file_text",
+          "lineNumber": 163
+        },
+        {
+          "caller": "check_runner_has_closest_to_pick_output",
+          "callee": "_read_file_text",
+          "lineNumber": 171
+        },
+        {
+          "caller": "check_sector_rotation_in_scoring",
+          "callee": "_read_file_text",
+          "lineNumber": 180
+        },
+        {
+          "caller": "check_northbound_in_scoring",
+          "callee": "_read_file_text",
+          "lineNumber": 189
+        },
+        {
+          "caller": "check_northbound_in_scoring",
+          "callee": "any",
+          "lineNumber": 192
+        },
+        {
+          "caller": "check_northbound_in_scoring",
+          "callee": "_read_file_text",
+          "lineNumber": 196
+        },
+        {
+          "caller": "check_overheated_in_scoring",
+          "callee": "_read_file_text",
+          "lineNumber": 204
+        },
+        {
+          "caller": "check_filler_has_fill_all_pending",
+          "callee": "_read_file_text",
+          "lineNumber": 212
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "os.path.isfile",
+          "lineNumber": 220
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "open",
+          "lineNumber": 224
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "fh.readline",
+          "lineNumber": 225
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "first.strip",
+          "lineNumber": 226
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "json.loads",
+          "lineNumber": 227
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "os.path.getsize",
+          "lineNumber": 228
+        },
+        {
+          "caller": "run_checks",
+          "callee": "fn",
+          "lineNumber": 263
+        },
+        {
+          "caller": "run_checks",
+          "callee": "results.append",
+          "lineNumber": 266
+        },
+        {
+          "caller": "run_checks",
+          "callee": "len",
+          "lineNumber": 270
+        },
+        {
+          "caller": "run_checks",
+          "callee": "print",
+          "lineNumber": 274
+        },
+        {
+          "caller": "run_checks",
+          "callee": "json.dumps",
+          "lineNumber": 274
+        },
+        {
+          "caller": "run_checks",
+          "callee": "print",
+          "lineNumber": 281
+        },
+        {
+          "caller": "run_checks",
+          "callee": "print",
+          "lineNumber": 282
+        },
+        {
+          "caller": "run_checks",
+          "callee": "print",
+          "lineNumber": 283
+        },
+        {
+          "caller": "run_checks",
+          "callee": "print",
+          "lineNumber": 284
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 290
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 291
+        },
+        {
+          "caller": "main",
+          "callee": "parser.parse_args",
+          "lineNumber": 292
+        },
+        {
+          "caller": "main",
+          "callee": "run_checks",
+          "lineNumber": 293
+        },
+        {
+          "caller": "main",
+          "callee": "sys.exit",
+          "lineNumber": 294
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 22,
+        "functionCount": 22,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_data_retention.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 196,
+      "nonEmptyLines": 173,
+      "functions": [
+        {
+          "name": "dir_size",
+          "startLine": 28,
+          "endLine": 40,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "purge_bak",
+          "startLine": 43,
+          "endLine": 55,
+          "params": [
+            "root",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_day_dirs",
+          "startLine": 58,
+          "endLine": 69,
+          "params": [
+            "day_root",
+            "keep",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_old_days",
+          "startLine": 72,
+          "endLine": 88,
+          "params": [
+            "root",
+            "max_age_days",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_large_runtime_files",
+          "startLine": 91,
+          "endLine": 112,
+          "params": [
+            "day_root",
+            "max_mb",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "run",
+          "startLine": 115,
+          "endLine": 163,
+          "params": [
+            "dry_run",
+            "keep_runtimes",
+            "keep_snapshots",
+            "max_age_days",
+            "max_file_mb"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 166,
+          "endLine": 192,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "dir_size",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "purge_bak",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "prune_day_dirs",
+          "line": 58,
+          "isDefault": false
+        },
+        {
+          "name": "prune_old_days",
+          "line": 72,
+          "isDefault": false
+        },
+        {
+          "name": "prune_large_runtime_files",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "run",
+          "line": 115,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 166,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "dir_size",
+          "callee": "path.exists",
+          "lineNumber": 30
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.is_file",
+          "lineNumber": 32
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.stat",
+          "lineNumber": 33
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.rglob",
+          "lineNumber": 34
+        },
+        {
+          "caller": "dir_size",
+          "callee": "p.is_file",
+          "lineNumber": 35
+        },
+        {
+          "caller": "dir_size",
+          "callee": "p.stat",
+          "lineNumber": 37
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.exists",
+          "lineNumber": 45
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.rglob",
+          "lineNumber": 47
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "removed.append",
+          "lineNumber": 48
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "str",
+          "lineNumber": 48
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "p.unlink",
+          "lineNumber": 50
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.rglob",
+          "lineNumber": 51
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "removed.append",
+          "lineNumber": 52
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "str",
+          "lineNumber": 52
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "p.unlink",
+          "lineNumber": 54
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "day_root.is_dir",
+          "lineNumber": 61
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "day_root.iterdir",
+          "lineNumber": 63
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "p.is_dir",
+          "lineNumber": 63
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "subdirs.sort",
+          "lineNumber": 64
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "p.stat",
+          "lineNumber": 64
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "removed.append",
+          "lineNumber": 66
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "str",
+          "lineNumber": 66
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "shutil.rmtree",
+          "lineNumber": 68
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "root.is_dir",
+          "lineNumber": 74
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "datetime.now",
+          "lineNumber": 76
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "timedelta",
+          "lineNumber": 76
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "root.iterdir",
+          "lineNumber": 77
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "day.is_dir",
+          "lineNumber": 78
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "datetime.strptime",
+          "lineNumber": 81
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "removed.append",
+          "lineNumber": 85
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "str",
+          "lineNumber": 85
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "shutil.rmtree",
+          "lineNumber": 87
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "int",
+          "lineNumber": 94
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "day_root.is_dir",
+          "lineNumber": 95
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "day_root.iterdir",
+          "lineNumber": 97
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "run_dir.is_dir",
+          "lineNumber": 98
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.is_file",
+          "lineNumber": 102
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.stat",
+          "lineNumber": 102
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "removed.append",
+          "lineNumber": 104
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "str",
+          "lineNumber": 104
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.stat",
+          "lineNumber": 108
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "datetime.now().isoformat",
+          "lineNumber": 109
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "datetime.now",
+          "lineNumber": 109
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.write_text",
+          "lineNumber": 111
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "json.dumps",
+          "lineNumber": 111
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 126
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 127
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 128
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 133
+        },
+        {
+          "caller": "run",
+          "callee": "purge_bak",
+          "lineNumber": 133
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 134
+        },
+        {
+          "caller": "run",
+          "callee": "purge_bak",
+          "lineNumber": 134
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 135
+        },
+        {
+          "caller": "run",
+          "callee": "RAW_ROOT.is_dir",
+          "lineNumber": 137
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 138
+        },
+        {
+          "caller": "run",
+          "callee": "RAW_ROOT.iterdir",
+          "lineNumber": 138
+        },
+        {
+          "caller": "run",
+          "callee": "day.is_dir",
+          "lineNumber": 139
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 140
+        },
+        {
+          "caller": "run",
+          "callee": "prune_day_dirs",
+          "lineNumber": 140
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 141
+        },
+        {
+          "caller": "run",
+          "callee": "prune_large_runtime_files",
+          "lineNumber": 141
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 142
+        },
+        {
+          "caller": "run",
+          "callee": "SNAP_ROOT.is_dir",
+          "lineNumber": 144
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 145
+        },
+        {
+          "caller": "run",
+          "callee": "SNAP_ROOT.iterdir",
+          "lineNumber": 145
+        },
+        {
+          "caller": "run",
+          "callee": "day.is_dir",
+          "lineNumber": 146
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "day.iterdir",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "p.is_file",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "p.stat",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].append",
+          "lineNumber": 150
+        },
+        {
+          "caller": "run",
+          "callee": "str",
+          "lineNumber": 150
+        },
+        {
+          "caller": "run",
+          "callee": "p.unlink",
+          "lineNumber": 152
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 153
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 154
+        },
+        {
+          "caller": "run",
+          "callee": "prune_old_days",
+          "lineNumber": 154
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 155
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 158
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 159
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 160
+        },
+        {
+          "caller": "run",
+          "callee": "len",
+          "lineNumber": 162
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 167
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 168
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 169
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 170
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 171
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 172
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 173
+        },
+        {
+          "caller": "main",
+          "callee": "ap.parse_args",
+          "lineNumber": 174
+        },
+        {
+          "caller": "main",
+          "callee": "run",
+          "lineNumber": 175
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 183
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 183
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 185
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 187
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 188
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 190
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 192
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_db_init.sql",
+      "language": "sql",
+      "fileCategory": "data",
+      "totalLines": 43,
+      "nonEmptyLines": 43,
+      "definitions": [
+        {
+          "name": "production_runs",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "status",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 1,
+          "endLine": 7
+        },
+        {
+          "name": "snapshots",
+          "kind": "table",
+          "fields": [
+            "lineage_id",
+            "trade_date",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 8,
+          "endLine": 13
+        },
+        {
+          "name": "picks",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "symbol",
+            "state",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 14,
+          "endLine": 21
+        },
+        {
+          "name": "returns",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "symbol",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 22,
+          "endLine": 28
+        },
+        {
+          "name": "ledger",
+          "kind": "table",
+          "fields": [
+            "id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 29,
+          "endLine": 33
+        },
+        {
+          "name": "model_registry",
+          "kind": "table",
+          "fields": [
+            "model_id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 34,
+          "endLine": 38
+        },
+        {
+          "name": "alpha_health",
+          "kind": "table",
+          "fields": [
+            "id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 39,
+          "endLine": 43
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "definitionCount": 7
+      }
+    },
+    {
+      "path": "xiaogu_api.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 53,
+      "nonEmptyLines": 36,
+      "functions": [
+        {
+          "name": "_records",
+          "startLine": 15,
+          "endLine": 18,
+          "params": []
+        },
+        {
+          "name": "system_health",
+          "startLine": 22,
+          "endLine": 23,
+          "params": []
+        },
+        {
+          "name": "dashboard",
+          "startLine": 27,
+          "endLine": 29,
+          "params": []
+        },
+        {
+          "name": "picks",
+          "startLine": 33,
+          "endLine": 34,
+          "params": []
+        },
+        {
+          "name": "portfolio",
+          "startLine": 38,
+          "endLine": 39,
+          "params": []
+        },
+        {
+          "name": "returns",
+          "startLine": 43,
+          "endLine": 44,
+          "params": []
+        },
+        {
+          "name": "research_context",
+          "startLine": 48,
+          "endLine": 53,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_records",
+          "line": 15,
+          "isDefault": false
+        },
+        {
+          "name": "system_health",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "dashboard",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "picks",
+          "line": 32,
+          "isDefault": false
+        },
+        {
+          "name": "portfolio",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "returns",
+          "line": 42,
+          "isDefault": false
+        },
+        {
+          "name": "research_context",
+          "line": 47,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_records",
+          "callee": "LEDGER.exists",
+          "lineNumber": 16
+        },
+        {
+          "caller": "_records",
+          "callee": "json.loads",
+          "lineNumber": 18
+        },
+        {
+          "caller": "_records",
+          "callee": "LEDGER.read_text(encoding=\"utf-8\").splitlines",
+          "lineNumber": 18
+        },
+        {
+          "caller": "_records",
+          "callee": "LEDGER.read_text",
+          "lineNumber": 18
+        },
+        {
+          "caller": "_records",
+          "callee": "line.strip",
+          "lineNumber": 18
+        },
+        {
+          "caller": "system_health",
+          "callee": "LEDGER.exists",
+          "lineNumber": 23
+        },
+        {
+          "caller": "dashboard",
+          "callee": "_records",
+          "lineNumber": 28
+        },
+        {
+          "caller": "dashboard",
+          "callee": "len",
+          "lineNumber": 29
+        },
+        {
+          "caller": "picks",
+          "callee": "_records",
+          "lineNumber": 34
+        },
+        {
+          "caller": "picks",
+          "callee": "record.get",
+          "lineNumber": 34
+        },
+        {
+          "caller": "portfolio",
+          "callee": "picks",
+          "lineNumber": 39
+        },
+        {
+          "caller": "returns",
+          "callee": "_records",
+          "lineNumber": 44
+        },
+        {
+          "caller": "returns",
+          "callee": "record.get",
+          "lineNumber": 44
+        },
+        {
+          "caller": "research_context",
+          "callee": "record[\"features_used\"].get",
+          "lineNumber": 50
+        },
+        {
+          "caller": "research_context",
+          "callee": "picks",
+          "lineNumber": 51
+        },
+        {
+          "caller": "research_context",
+          "callee": "isinstance",
+          "lineNumber": 52
+        },
+        {
+          "caller": "research_context",
+          "callee": "record.get",
+          "lineNumber": 52
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    }
+  ]
+}

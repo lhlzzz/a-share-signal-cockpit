@@ -1,0 +1,107 @@
+[
+  {
+    "order": 1,
+    "title": "项目概览与规则",
+    "description": "先阅读项目说明和工作规则，了解 xiaogu 的目标、数据流和 PAPER_PICK 边界。",
+    "nodeIds": [
+      "document:.claude/skills/buffett/references/01-thinking-frameworks.md",
+      "document:.claude/skills/buffett/references/02-investment-philosophy.md",
+      "document:.claude/skills/buffett/references/03-business-moat.md",
+      "document:.claude/skills/buffett/references/04-management-governance.md",
+      "document:.claude/skills/buffett/references/05-financial-metrics.md",
+      "document:.claude/skills/buffett/references/06-valuation-capital.md",
+      "document:.claude/skills/buffett/references/07-risk-behavior.md",
+      "document:.claude/skills/buffett/references/08-industry-playbooks.md",
+      "document:AGENTS.md",
+      "document:CLAUDE.md",
+      "document:README.md",
+      "config:.claude/settings.json"
+    ]
+  },
+  {
+    "order": 2,
+    "title": "扫描与市场数据入口",
+    "description": "从扫描器和快照模块开始，理解市场数据如何采集、规范化并形成候选输入。",
+    "nodeIds": [
+      "file:scrapy_scanner/runner_v2.py",
+      "file:xiaogu_forward_snapshot.py",
+      "file:scrapy_scanner/__init__.py",
+      "document:scrapy_scanner/README.md",
+      "file:xiaogu_scanner_scoring.py"
+    ]
+  },
+  {
+    "order": 3,
+    "title": "Runner 与决策编排",
+    "description": "跟随 runner 和 scheduler，理解候选如何经过资格判断、评分与最终决策。",
+    "nodeIds": [
+      "file:scrapy_scanner/runner_v2.py",
+      "file:xiaogu_forward_eligibility.py",
+      "file:xiaogu_forward_runner.py",
+      "document:.plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md",
+      "document:docs/plans/2026-08-21-forward-runner-decomposition.md",
+      "file:xiaogu_scanner_scoring.py",
+      "file:xiaogu_scheduler.py"
+    ]
+  },
+  {
+    "order": 4,
+    "title": "研究特征与组合选择",
+    "description": "查看特征、研究上下文和组合决策模块，理解信号如何转化为可解释的选择结果。",
+    "nodeIds": [
+      "file:xiaogu_core_alpha.py",
+      "file:xiaogu_portfolio_decision.py",
+      "file:xiaogu_research_context.py",
+      "file:xiaogu_forward_features.py"
+    ]
+  },
+  {
+    "order": 5,
+    "title": "记录、回填与收益评估",
+    "description": "检查 recorder、filler 和回测评估路径，理解 PAPER_PICK 记录如何与后续收益验证闭环。",
+    "nodeIds": [
+      "file:tests/test_return_calculation.py",
+      "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "file:xiaogu_forward_result_filler_v0_1.py",
+      "file:xiaogu_horizon_evaluation.py",
+      "file:xiaogu_backtest_v0_1.py",
+      "file:scripts/xiaogu_bounded_hard_backtest_three_patterns.py"
+    ]
+  },
+  {
+    "order": 6,
+    "title": "数据库与 API",
+    "description": "从数据库初始化、持久化和 API 文件了解状态如何保存，以及外部查询如何读取结果。",
+    "nodeIds": [
+      "file:scripts/xiaogu_db_backfill.py",
+      "file:scripts/xiaogu_ensure_database.py",
+      "file:xiaogu_db.py",
+      "document:.claude/skills/buffett/references/06-valuation-capital.md",
+      "file:start_api.sh",
+      "file:.codebase-memory/graph.db.zst",
+      "table:scripts/xiaogu_db_init.sql",
+      "table:scripts/xiaogu_db_init.sql:production_runs",
+      "table:scripts/xiaogu_db_init.sql:snapshots",
+      "table:scripts/xiaogu_db_init.sql:picks",
+      "table:scripts/xiaogu_db_init.sql:returns",
+      "table:scripts/xiaogu_db_init.sql:ledger"
+    ]
+  },
+  {
+    "order": 7,
+    "title": "测试与运行保障",
+    "description": "最后查看测试和健康检查脚本，确认关键链路的回归验证与运行诊断方式。",
+    "nodeIds": [
+      "file:tests/test_return_calculation.py",
+      "file:tests/test_production_decision.py",
+      "file:tests/test_data_contract.py",
+      "file:tests/test_no_future_leakage.py",
+      "file:tests/test_historical_replay.py",
+      "file:xiaogu_backtest_v0_1.py",
+      "config:pytest.ini",
+      "config:v2_1_six_repo_real_integrated_leakage_check.json",
+      "file:scripts/xiaogu_bounded_hard_backtest_three_patterns.py",
+      "file:scripts/xiaogu_daily_health_check.py"
+    ]
+  }
+]

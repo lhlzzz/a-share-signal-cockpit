@@ -1,0 +1,855 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 8,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": ".claude/skills/buffett/references/01-thinking-frameworks.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 185,
+      "nonEmptyLines": 122,
+      "sections": [
+        {
+          "heading": "Thinking Tools and Mental Models",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Circle of Competence",
+          "level": 2,
+          "line": 9
+        },
+        {
+          "heading": "Inversion",
+          "level": 2,
+          "line": 36
+        },
+        {
+          "heading": "Mr. Market",
+          "level": 2,
+          "line": 58
+        },
+        {
+          "heading": "Long-term Orientation",
+          "level": 2,
+          "line": 87
+        },
+        {
+          "heading": "Munger's Lattice of Mental Models",
+          "level": 2,
+          "line": 115
+        },
+        {
+          "heading": "Independent Thinking",
+          "level": 2,
+          "line": 138
+        },
+        {
+          "heading": "Opportunity Cost Awareness",
+          "level": 2,
+          "line": 156
+        },
+        {
+          "heading": "Patience as Edge",
+          "level": 2,
+          "line": 172
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/02-investment-philosophy.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 268,
+      "nonEmptyLines": 157,
+      "sections": [
+        {
+          "heading": "Core Investment Philosophy",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Focus Investing",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Efficient Market Theory",
+          "level": 2,
+          "line": 62
+        },
+        {
+          "heading": "Market Forecasting",
+          "level": 2,
+          "line": 103
+        },
+        {
+          "heading": "Undervalued & Margin of Safety",
+          "level": 2,
+          "line": 141
+        },
+        {
+          "heading": "Compounding",
+          "level": 2,
+          "line": 193
+        },
+        {
+          "heading": "Intrinsic Value",
+          "level": 2,
+          "line": 230
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 7
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/03-business-moat.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 266,
+      "nonEmptyLines": 156,
+      "sections": [
+        {
+          "heading": "Business Quality: Moat and Business Model",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Economic Moat",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "The Essence of a Moat",
+          "level": 3,
+          "line": 9
+        },
+        {
+          "heading": "Five Types of Moats",
+          "level": 3,
+          "line": 15
+        },
+        {
+          "heading": "Dynamic Moat Assessment",
+          "level": 3,
+          "line": 66
+        },
+        {
+          "heading": "Business Model Types",
+          "level": 2,
+          "line": 98
+        },
+        {
+          "heading": "Franchise Business vs. Commodity Business",
+          "level": 3,
+          "line": 100
+        },
+        {
+          "heading": "Key Characteristics of a Business Model",
+          "level": 3,
+          "line": 137
+        },
+        {
+          "heading": "Practical Testing Tools for Business Models",
+          "level": 3,
+          "line": 151
+        },
+        {
+          "heading": "Goodwill: Economic Goodwill vs. Accounting Goodwill",
+          "level": 2,
+          "line": 163
+        },
+        {
+          "heading": "Two Fundamentally Different Forms of Goodwill",
+          "level": 3,
+          "line": 169
+        },
+        {
+          "heading": "Three Primary Sources of Economic Goodwill",
+          "level": 3,
+          "line": 185
+        },
+        {
+          "heading": "Accounting Goodwill Amortization Should Be Ignored in Analysis",
+          "level": 3,
+          "line": 192
+        },
+        {
+          "heading": "Economic Goodwill Is a Natural Ally in an Inflationary Era",
+          "level": 3,
+          "line": 200
+        },
+        {
+          "heading": "Distinguishing Real from Fake Goodwill",
+          "level": 3,
+          "line": 212
+        },
+        {
+          "heading": "The Durability of Competitive Advantage",
+          "level": 2,
+          "line": 227
+        },
+        {
+          "heading": "Practical Tests for Competitive Advantage",
+          "level": 3,
+          "line": 248
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 17
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/04-management-governance.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 227,
+      "nonEmptyLines": 146,
+      "sections": [
+        {
+          "heading": "Management, Culture, and Corporate Governance",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Management Evaluation",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Three-Dimensional Evaluation Framework",
+          "level": 3,
+          "line": 9
+        },
+        {
+          "heading": "Institutional Imperative",
+          "level": 3,
+          "line": 66
+        },
+        {
+          "heading": "Supporting Judgment Methods",
+          "level": 3,
+          "line": 85
+        },
+        {
+          "heading": "Corporate Culture",
+          "level": 2,
+          "line": 95
+        },
+        {
+          "heading": "Culture as an \"Operating System\"",
+          "level": 3,
+          "line": 99
+        },
+        {
+          "heading": "Core Characteristics of Berkshire's Culture",
+          "level": 3,
+          "line": 107
+        },
+        {
+          "heading": "Cultural Continuity",
+          "level": 3,
+          "line": 123
+        },
+        {
+          "heading": "Signals for Identifying Culture Quality",
+          "level": 3,
+          "line": 131
+        },
+        {
+          "heading": "Acquisition Logic (Acquisition Criteria)",
+          "level": 2,
+          "line": 149
+        },
+        {
+          "heading": "Corporate Governance and Shareholder Orientation",
+          "level": 2,
+          "line": 186
+        },
+        {
+          "heading": "Alignment of Interests: The Essence of Governance",
+          "level": 3,
+          "line": 192
+        },
+        {
+          "heading": "Treatment of Shareholders",
+          "level": 3,
+          "line": 208
+        },
+        {
+          "heading": "Practical Evaluation Checklist",
+          "level": 3,
+          "line": 221
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 15
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/05-financial-metrics.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 135,
+      "nonEmptyLines": 98,
+      "sections": [
+        {
+          "heading": "Financial Analysis and Key Metrics",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Core Principle: See Through Accounting to Economic Reality",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Owner Earnings",
+          "level": 2,
+          "line": 11
+        },
+        {
+          "heading": "Key Financial Metrics",
+          "level": 2,
+          "line": 40
+        },
+        {
+          "heading": "Profitability",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "Cash Flow Quality",
+          "level": 3,
+          "line": 60
+        },
+        {
+          "heading": "Balance Sheet Health",
+          "level": 3,
+          "line": 76
+        },
+        {
+          "heading": "Earnings Quality Signals",
+          "level": 3,
+          "line": 88
+        },
+        {
+          "heading": "Look-Through Earnings",
+          "level": 2,
+          "line": 102
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/06-valuation-capital.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 327,
+      "nonEmptyLines": 214,
+      "sections": [
+        {
+          "heading": "Valuation, Capital Allocation, and Special Instruments",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Intrinsic Value Estimation",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Method 1: Owner Earnings Multiple (Most Common)",
+          "level": 3,
+          "line": 9
+        },
+        {
+          "heading": "Method 2: Discounted Cash Flow (Simplified)",
+          "level": 3,
+          "line": 29
+        },
+        {
+          "heading": "Method 3: Historical Earnings Power Method (Graham Tradition)",
+          "level": 3,
+          "line": 43
+        },
+        {
+          "heading": "Margin of Safety",
+          "level": 2,
+          "line": 53
+        },
+        {
+          "heading": "The Relationship Between Purchase Price and Intrinsic Value",
+          "level": 2,
+          "line": 75
+        },
+        {
+          "heading": "Capital Allocation Analysis",
+          "level": 2,
+          "line": 112
+        },
+        {
+          "heading": "Share Buyback Analysis",
+          "level": 2,
+          "line": 147
+        },
+        {
+          "heading": "Dividends, Retained Earnings, and Tax Efficiency",
+          "level": 2,
+          "line": 181
+        },
+        {
+          "heading": "The One Dollar Test",
+          "level": 3,
+          "line": 183
+        },
+        {
+          "heading": "Book Value and Its Limitations",
+          "level": 3,
+          "line": 209
+        },
+        {
+          "heading": "P/E Ratio: The Correct Way to Use It",
+          "level": 3,
+          "line": 227
+        },
+        {
+          "heading": "Tax Efficiency",
+          "level": 3,
+          "line": 243
+        },
+        {
+          "heading": "Special Investment Instruments",
+          "level": 2,
+          "line": 270
+        },
+        {
+          "heading": "Arbitrage / Workouts",
+          "level": 3,
+          "line": 272
+        },
+        {
+          "heading": "Bonds",
+          "level": 3,
+          "line": 293
+        },
+        {
+          "heading": "Convertible Securities",
+          "level": 3,
+          "line": 312
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 18
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/07-risk-behavior.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 228,
+      "nonEmptyLines": 148,
+      "sections": [
+        {
+          "heading": "Risk Identification and Investment Psychology",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "When to Sell (Clear Criteria)",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Value Traps",
+          "level": 2,
+          "line": 44
+        },
+        {
+          "heading": "Leverage Risk",
+          "level": 2,
+          "line": 64
+        },
+        {
+          "heading": "The Impact of Inflation",
+          "level": 2,
+          "line": 116
+        },
+        {
+          "heading": "Derivatives Risk",
+          "level": 2,
+          "line": 156
+        },
+        {
+          "heading": "Common Behavioral Biases (Psychological Traps in Investing)",
+          "level": 2,
+          "line": 206
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 7
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/references/08-industry-playbooks.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 505,
+      "nonEmptyLines": 315,
+      "sections": [
+        {
+          "heading": "Industry Analysis Playbooks",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Insurance",
+          "level": 2,
+          "line": 9
+        },
+        {
+          "heading": "The Industry's Unique Logic",
+          "level": 3,
+          "line": 13
+        },
+        {
+          "heading": "Core Evaluation Metrics",
+          "level": 3,
+          "line": 21
+        },
+        {
+          "heading": "Underwriting Discipline (Most Important)",
+          "level": 3,
+          "line": 31
+        },
+        {
+          "heading": "GEICO's Sources of Competitive Advantage",
+          "level": 3,
+          "line": 44
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 49
+        },
+        {
+          "heading": "Underwriting Discipline",
+          "level": 2,
+          "line": 62
+        },
+        {
+          "heading": "The Essence: The Ability to Say \"No\"",
+          "level": 3,
+          "line": 66
+        },
+        {
+          "heading": "Three Key Principles",
+          "level": 3,
+          "line": 72
+        },
+        {
+          "heading": "The Relationship Between Underwriting Discipline and Float Cost",
+          "level": 3,
+          "line": 77
+        },
+        {
+          "heading": "Organizational Culture Is the Foundation",
+          "level": 3,
+          "line": 86
+        },
+        {
+          "heading": "General Re: Discipline Collapse and Rebuilding",
+          "level": 3,
+          "line": 92
+        },
+        {
+          "heading": "Insurance Float",
+          "level": 2,
+          "line": 102
+        },
+        {
+          "heading": "Definition",
+          "level": 3,
+          "line": 104
+        },
+        {
+          "heading": "Growth Trajectory",
+          "level": 3,
+          "line": 110
+        },
+        {
+          "heading": "Three Structural Advantages of Float",
+          "level": 3,
+          "line": 121
+        },
+        {
+          "heading": "How Float Transmits Competitive Advantage",
+          "level": 3,
+          "line": 131
+        },
+        {
+          "heading": "Banking",
+          "level": 2,
+          "line": 142
+        },
+        {
+          "heading": "The Industry's Special Nature",
+          "level": 3,
+          "line": 146
+        },
+        {
+          "heading": "Core Evaluation Metrics",
+          "level": 3,
+          "line": 152
+        },
+        {
+          "heading": "Buffett's Warnings on Banking",
+          "level": 3,
+          "line": 164
+        },
+        {
+          "heading": "Wells Fargo's Long-Term Appeal (Historical)",
+          "level": 3,
+          "line": 173
+        },
+        {
+          "heading": "Case Study in Failure: Irish Banks",
+          "level": 3,
+          "line": 181
+        },
+        {
+          "heading": "Why He Ultimately Moved Away from Banking",
+          "level": 3,
+          "line": 185
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 189
+        },
+        {
+          "heading": "Consumer Brands & Retail",
+          "level": 2,
+          "line": 200
+        },
+        {
+          "heading": "See's Candies: The Turning Point in Investment Philosophy",
+          "level": 3,
+          "line": 204
+        },
+        {
+          "heading": "Coca-Cola: Eternal Consumer Logic",
+          "level": 3,
+          "line": 212
+        },
+        {
+          "heading": "Nebraska Furniture Mart: The Retail Success Template",
+          "level": 3,
+          "line": 216
+        },
+        {
+          "heading": "Consumer Brand Moat Characteristics",
+          "level": 3,
+          "line": 224
+        },
+        {
+          "heading": "Risks in Consumer Retail",
+          "level": 3,
+          "line": 231
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 241
+        },
+        {
+          "heading": "Media & Publishing",
+          "level": 2,
+          "line": 250
+        },
+        {
+          "heading": "The Former \"Toll Bridge\"",
+          "level": 3,
+          "line": 254
+        },
+        {
+          "heading": "Buffalo News: A Classic in Monopoly Profits",
+          "level": 3,
+          "line": 262
+        },
+        {
+          "heading": "The Process of Moat Erosion",
+          "level": 3,
+          "line": 266
+        },
+        {
+          "heading": "Modern Media / Platform Analysis Framework",
+          "level": 3,
+          "line": 280
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 289
+        },
+        {
+          "heading": "Energy & Utilities",
+          "level": 2,
+          "line": 297
+        },
+        {
+          "heading": "Industry Characteristics",
+          "level": 3,
+          "line": 301
+        },
+        {
+          "heading": "Why Buffett Likes Regulated Utilities",
+          "level": 3,
+          "line": 307
+        },
+        {
+          "heading": "Renewable Energy: The Iowa Case",
+          "level": 3,
+          "line": 316
+        },
+        {
+          "heading": "Oil Investments: Opportunism and Lessons",
+          "level": 3,
+          "line": 322
+        },
+        {
+          "heading": "Evaluation Points",
+          "level": 3,
+          "line": 330
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 337
+        },
+        {
+          "heading": "Railways",
+          "level": 2,
+          "line": 346
+        },
+        {
+          "heading": "Sources of Competitive Advantage",
+          "level": 3,
+          "line": 352
+        },
+        {
+          "heading": "The Other Side of Railways: Capital Consumers",
+          "level": 3,
+          "line": 360
+        },
+        {
+          "heading": "Core Evaluation Metrics",
+          "level": 3,
+          "line": 364
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 377
+        },
+        {
+          "heading": "Technology & Internet",
+          "level": 2,
+          "line": 387
+        },
+        {
+          "heading": "Buffett's Framework for Analyzing Technology",
+          "level": 3,
+          "line": 391
+        },
+        {
+          "heading": "IBM: A Failed Attempt",
+          "level": 3,
+          "line": 405
+        },
+        {
+          "heading": "Why He Bought Apple (An Important Case Study)",
+          "level": 3,
+          "line": 409
+        },
+        {
+          "heading": "The Valuation Challenge for Technology Companies",
+          "level": 3,
+          "line": 421
+        },
+        {
+          "heading": "Honest Reflection on Missing Amazon and Google",
+          "level": 3,
+          "line": 427
+        },
+        {
+          "heading": "Macro Sensitivities",
+          "level": 3,
+          "line": 433
+        },
+        {
+          "heading": "Industries to Avoid (Counter-Examples)",
+          "level": 2,
+          "line": 442
+        },
+        {
+          "heading": "Airlines",
+          "level": 3,
+          "line": 444
+        },
+        {
+          "heading": "Macro Sensitivities (Airlines)",
+          "level": 3,
+          "line": 464
+        },
+        {
+          "heading": "Textiles",
+          "level": 3,
+          "line": 473
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 62
+      }
+    }
+  ]
+}

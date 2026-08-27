@@ -1,0 +1,240 @@
+"""Context-only research boundaries for demand, business, capital, and contradiction."""
+from __future__ import annotations
+
+from typing import Any, Dict
+
+
+def _number(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _context(kind: str, values: Dict[str, Any], lineage_id: str, provider: str) -> Dict[str, Any]:
+    return {
+        "context_type": kind,
+        "status": "RESEARCH_ONLY",
+        "provider": provider,
+        "lineage_id": lineage_id,
+        "provenance": {"provider": provider, "lineage_id": lineage_id, "as_of": values.pop("as_of", "")},
+        **values,
+    }
+
+
+def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    demand = features["FUTURE_DEMAND"]
+    return _context("FutureDemandContext", {
+        "as_of": features.get("available_at", ""),
+        "market_story": demand["market_story"],
+        "system_change": demand["system_change"],
+        "industry": snapshot.get("sector", ""),
+        "required_components": list(snapshot.get("raw", {}).get("required_components") or []),
+        "bottleneck": demand["bottleneck_strength"],
+        "supply_constraint": demand["supply_constraint"],
+        "demand": demand["demand_strength"],
+        "demand_visibility": demand["demand_visibility"],
+        "industry_cycle": demand["industry_cycle"],
+        "industry_catalyst": demand["industry_catalyst"],
+        "evidence_strength": demand["evidence_strength"],
+        "invalidation": list(demand["invalidation_condition"]),
+        "reports": list(snapshot.get("raw", {}).get("industry_reports") or []),
+    }, features["lineage_id"], "Serenity")
+
+
+def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    business = features["BUSINESS"]
+    return _context("CompanyContext", {
+        "as_of": features.get("available_at", ""),
+        "business_quality": business["score"],
+        "ability_circle": snapshot.get("raw", {}).get("ability_circle", "unknown"),
+        "moat": business["moat"],
+        "pricing_power": business["pricing_power"],
+        "earnings_quality": business["earnings_quality"],
+        "cash_flow": _number(snapshot.get("raw", {}).get("cash_flow_quality")),
+        "roic": business["roic"],
+        "roe": business["roe"],
+        "growth": business["growth"],
+        "management": business["management"],
+        "debt_safety": business["debt_safety"],
+        "capital_allocation": business["capital_allocation"],
+        "valuation": business["valuation"],
+        "margin_of_safety": _number(snapshot.get("raw", {}).get("margin_of_safety")),
+        "reports": list(snapshot.get("raw", {}).get("stock_reports") or []),
+        "earnings_preview": dict(snapshot.get("raw", {}).get("earnings_preview") or {}),
+    }, features["lineage_id"], "Buffett")
+
+
+def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    capital = features["CAPITAL"]
+    raw = snapshot.get("raw", {})
+    lhb_rows = list(raw.get("lhb") or [])
+    institution_signal = any(
+        "机构" in str(row.get("EXPLAIN") or "")
+        for row in lhb_rows
+        if isinstance(row, dict)
+    )
+    return _context("CapitalContext", {
+        "as_of": features.get("available_at", ""),
+        "institution_vs_hot_money": raw.get(
+            "institution_vs_hot_money",
+            "institution" if institution_signal else "unknown",
+        ),
+        "fund_flow": capital["fund_flow"],
+        "fund_flow_acceleration": capital["fund_flow_acceleration"],
+        "fund_flow_persistence": capital["fund_flow_persistence"],
+        "capital_persistence": capital["capital_persistence"],
+        "capital_acceleration": capital["capital_acceleration"],
+        "main_force_flow": capital["main_force_flow"],
+        "institutional_flow": capital["institutional_flow"],
+        "hot_money_flow": capital["hot_money_flow"],
+        "lhb_quality": capital["lhb_quality"],
+        "seat_behavior": raw.get("seat_behavior", "unknown"),
+        "accumulation": capital["accumulation"],
+        "distribution": capital["distribution_risk"],
+        "capital_price_impact": capital["capital_price_impact"],
+        "capital_divergence": capital["capital_price_divergence"],
+        "lhb_events": lhb_rows,
+    }, features["lineage_id"], "UZI")
+
+
+def build_supply_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    return _context("SupplyContext", {
+        "as_of": features.get("available_at", ""),
+        **features["SUPPLY"],
+        "source_rows": {
+            "shareholder_changes": list(snapshot.get("raw", {}).get("shareholder_changes") or []),
+            "lockup": list(snapshot.get("raw", {}).get("lockup_expiry") or []),
+        },
+    }, features["lineage_id"], "XiaoguFeatureEngine")
+
+
+def build_pricing_gap_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    return _context("PricingGapContext", {
+        "as_of": features.get("available_at", ""),
+        **features["PRICING_GAP"],
+        "price": snapshot.get("price"),
+        "attention": features["REFLEXIVITY"].get("attention_growth", 0.0),
+    }, features["lineage_id"], "XiaoguFeatureEngine")
+
+
+def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    raw = snapshot.get("raw", {})
+    demand = features["FUTURE_DEMAND"]
+    capital = features["CAPITAL"]
+    buyers = raw.get("future_buyers")
+    if not isinstance(buyers, list):
+        # A buyer is a hypothesis only when a same-day measurable trigger
+        # exists. Missing evidence must not become a bullish default.
+        candidates = [
+            ("institutions", capital["institutional_flow"], "earnings/order visibility"),
+            ("mutual_funds", capital["institutional_flow"] * 0.80, "fundamental estimate revision"),
+            ("ETF/index", demand["evidence_strength"], "industry weight or benchmark attention"),
+            ("quant", features["MARKET"]["follow_through"], "breadth and liquidity confirmation"),
+            ("hot_money", capital["hot_money_flow"], "catalyst and leader identity"),
+            ("retail", features["REFLEXIVITY"]["attention_growth"], "attention broadening"),
+            ("industry_capital", demand["supply_constraint"], "capacity expansion or strategic demand"),
+        ]
+        buyers = [
+            {
+                "buyer": buyer,
+                "capacity": round(capacity, 8),
+                "trigger": trigger,
+                "evidence_status": (
+                    "OBSERVED" if buyer in {"institutions", "hot_money"} and capacity > 0
+                    else "EVIDENCE_BACKED" if capacity > 0 else "UNKNOWN"
+                ),
+            }
+            for buyer, capacity, trigger in candidates
+            if capacity > 0
+        ]
+    else:
+        buyers = [item for item in buyers if isinstance(item, dict)]
+        for item in buyers:
+            status = str(item.get("evidence_status") or item.get("status") or "UNKNOWN").upper()
+            if status == "INFERRED":
+                status = "EVIDENCE_BACKED"
+            item["evidence_status"] = status if status in {"OBSERVED", "EVIDENCE_BACKED", "UNKNOWN"} else "UNKNOWN"
+    current_buyer = raw.get("current_buyer")
+    if not current_buyer:
+        current_buyer = [
+            buyer for buyer, capacity in (
+                ("institutions", capital["institutional_flow"]),
+                ("hot_money", capital["hot_money_flow"]),
+            ) if capacity > 0.50
+        ] or ["unknown"]
+    next_buyers = [
+        item for item in buyers
+        if _number(item.get("capacity")) > 0.50
+        and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
+    ]
+    observed_buyers = [item for item in buyers if item.get("evidence_status") == "OBSERVED"]
+    evidence_map = {
+        category: next(
+            (item.get("evidence_status") for item in buyers if item.get("buyer") == category),
+            "UNKNOWN",
+        )
+        for category in ("institutions", "mutual_funds", "ETF/index", "quant", "hot_money", "retail", "industry_capital")
+    }
+    observed_capacity = max((_number(item.get("capacity")) for item in observed_buyers), default=0.0)
+    return _context("FutureBuyerMap", {
+        "as_of": features.get("available_at", ""),
+        "buyer_categories": ["institutions", "mutual_funds", "ETF/index", "quant", "hot_money", "retail", "industry_capital"],
+        "buyer_evidence": evidence_map,
+        "observed_buyers": observed_buyers,
+        "current_buyer": current_buyer,
+        "next_buyer": next_buyers,
+        "potential_next_buyer": buyers,
+        "buyer_capacity": observed_capacity,
+        "observed_buyer_capacity": observed_capacity,
+        # UNKNOWN buyers remain visible to research but cannot add alpha.
+        "future_buyer_capacity": max(
+            (_number(item.get("capacity")) for item in buyers
+             if item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}),
+            default=0.0,
+        ),
+        "buyer_trigger": [item.get("trigger", "") for item in buyers if isinstance(item, dict)],
+    }, features["lineage_id"], "XiaoguFeatureEngine")
+
+
+def build_tradingagents_context(
+    industry: Dict[str, Any], company: Dict[str, Any], capital: Dict[str, Any], lineage_id: str
+) -> Dict[str, Any]:
+    from integrations.tradingagents_adapter import integrate_research_context
+    return integrate_research_context(industry, company, capital, lineage_id=lineage_id)
+
+
+def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
+    industry = build_serenity_context(snapshot, features)
+    company = build_buffett_context(snapshot, features)
+    capital = build_uzi_context(snapshot, features)
+    supply = build_supply_context(snapshot, features)
+    pricing_gap = build_pricing_gap_context(snapshot, features)
+    future_buyer_map = build_future_buyer_map(snapshot, features)
+    integrated = build_tradingagents_context(industry, company, capital, features["lineage_id"])
+    raw_tradingagents = snapshot.get("raw", {}).get("tradingagents")
+    if isinstance(raw_tradingagents, dict):
+        for key in ("bull_thesis", "bear_thesis", "strongest_counterargument", "missing_evidence", "thesis_invalidation", "contradiction_status", "veto", "key_conflicts"):
+            if key in raw_tradingagents:
+                integrated[key] = raw_tradingagents[key]
+    return {
+        "context_type": "ResearchContext",
+        "status": "RESEARCH_ONLY",
+        "lineage_id": features["lineage_id"],
+        "as_of": features.get("available_at", ""),
+        "industry": industry,
+        "company": company,
+        "company_industry": {"industry": industry, "company": company},
+        "CompanyIndustryContext": {"industry": industry, "company": company},
+        "capital": capital,
+        "supply": supply,
+        "pricing_gap": pricing_gap,
+        "future_buyer_map": future_buyer_map,
+        "integrated": integrated,
+        "contradiction": integrated,
+    }
+
+
+# One public context owner; the descriptive name is kept for callers that
+# consume the production graph directly.
+build_research_context = build_integrated_research_context

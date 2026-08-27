@@ -1,0 +1,2235 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 22,
+  "filesSkipped": [
+    "docs/architecture.md",
+    "docs/plans/2026-08-21-forward-runner-decomposition.md",
+    "scripts/xiaogu_bounded_hard_backtest_three_patterns.py"
+  ],
+  "results": [
+    {
+      "path": ".claude/settings.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 126,
+      "nonEmptyLines": 126,
+      "sections": [
+        {
+          "heading": "mcpServers",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "permissions",
+          "level": 1,
+          "line": 28
+        },
+        {
+          "heading": "hooks",
+          "level": 1,
+          "line": 48
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 3
+      }
+    },
+    {
+      "path": ".claude/skills/buffett/SKILL.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 198,
+      "nonEmptyLines": 141,
+      "sections": [
+        {
+          "heading": "Buffett Investment Thinking System",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "Quick Filter (2 minutes, 8 questions)",
+          "level": 2,
+          "line": 19
+        },
+        {
+          "heading": "Reference File Reading Protocol",
+          "level": 2,
+          "line": 38
+        },
+        {
+          "heading": "Task Type → Reading Path",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "Deep Analysis Framework (Path B expanded)",
+          "level": 2,
+          "line": 76
+        },
+        {
+          "heading": "1 · Mental Positioning (do first — cannot skip)",
+          "level": 3,
+          "line": 78
+        },
+        {
+          "heading": "2 · Business Quality (read 03 + 04)",
+          "level": 3,
+          "line": 88
+        },
+        {
+          "heading": "3 · Financials & Valuation (read 05 + 06)",
+          "level": 3,
+          "line": 100
+        },
+        {
+          "heading": "4 · Risk (read 07 when concerns exist)",
+          "level": 3,
+          "line": 119
+        },
+        {
+          "heading": "5 · Industry (read the relevant chapter in 08)",
+          "level": 3,
+          "line": 130
+        },
+        {
+          "heading": "Standard Output Format",
+          "level": 2,
+          "line": 136
+        },
+        {
+          "heading": "Reference File Index",
+          "level": 2,
+          "line": 187
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 12
+      }
+    },
+    {
+      "path": ".codebase-memory/.gitattributes",
+      "language": "unknown",
+      "fileCategory": "code",
+      "totalLines": 3,
+      "nonEmptyLines": 3,
+      "metrics": {}
+    },
+    {
+      "path": ".codebase-memory/artifact.json",
+      "language": "json",
+      "fileCategory": "config",
+      "totalLines": 11,
+      "nonEmptyLines": 11,
+      "sections": [
+        {
+          "heading": "schema_version",
+          "level": 1,
+          "line": 2
+        },
+        {
+          "heading": "commit",
+          "level": 1,
+          "line": 3
+        },
+        {
+          "heading": "indexed_at",
+          "level": 1,
+          "line": 4
+        },
+        {
+          "heading": "project",
+          "level": 1,
+          "line": 5
+        },
+        {
+          "heading": "nodes",
+          "level": 1,
+          "line": 6
+        },
+        {
+          "heading": "edges",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "original_size",
+          "level": 1,
+          "line": 8
+        },
+        {
+          "heading": "compressed_size",
+          "level": 1,
+          "line": 9
+        },
+        {
+          "heading": "compression_level",
+          "level": 1,
+          "line": 10
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": ".codebase-memory/graph.db.zst",
+      "language": "zst",
+      "fileCategory": "code",
+      "totalLines": 2575,
+      "nonEmptyLines": 2566,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/.session-log.jsonl",
+      "language": "jsonl",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 0,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/.user-messages.jsonl",
+      "language": "jsonl",
+      "fileCategory": "code",
+      "totalLines": 9,
+      "nonEmptyLines": 9,
+      "metrics": {}
+    },
+    {
+      "path": ".plan-enforcer/proof/closure-forward-runner-decomposition-2026-08-24T11-44-33Z.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 365,
+      "nonEmptyLines": 329,
+      "sections": [
+        {
+          "heading": "Closure Receipt -- forward-runner-decomposition",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Prior closure",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Status",
+          "level": 2,
+          "line": 10
+        },
+        {
+          "heading": "Task ledger",
+          "level": 2,
+          "line": 16
+        },
+        {
+          "heading": "Decision Log summary",
+          "level": 2,
+          "line": 50
+        },
+        {
+          "heading": "Reconciliation history",
+          "level": 2,
+          "line": 53
+        },
+        {
+          "heading": "Files changed",
+          "level": 2,
+          "line": 56
+        },
+        {
+          "heading": "Blocked / open coordination",
+          "level": 2,
+          "line": 91
+        },
+        {
+          "heading": "Proof artifacts",
+          "level": 2,
+          "line": 94
+        },
+        {
+          "heading": "Plan-specific extras",
+          "level": 2,
+          "line": 97
+        },
+        {
+          "heading": "Must-Haves (from plan)",
+          "level": 3,
+          "line": 98
+        },
+        {
+          "heading": "Task 1: Build the August date and snapshot inventory A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 120
+        },
+        {
+          "heading": "Task 2: Prove owner and historical chain provenance A:I2 A:I6 A:I7",
+          "level": 3,
+          "line": 128
+        },
+        {
+          "heading": "Task 3: Reconcile full candidate-pool persistence A:I5 A:I7",
+          "level": 3,
+          "line": 139
+        },
+        {
+          "heading": "Task 4: Settle all available candidate rows A:I5 A:I7",
+          "level": 3,
+          "line": 147
+        },
+        {
+          "heading": "Task 5: Enforce replay leakage protection A:I5 A:I7",
+          "level": 3,
+          "line": 157
+        },
+        {
+          "heading": "Task 6: Classify T-day decision outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 165
+        },
+        {
+          "heading": "Task 7: Record candidate snapshot evidence A:I5 A:I7",
+          "level": 3,
+          "line": 172
+        },
+        {
+          "heading": "Task 8: Explain settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 178
+        },
+        {
+          "heading": "Task 9: Aggregate settled candidate outcomes A:I5 A:I7",
+          "level": 3,
+          "line": 187
+        },
+        {
+          "heading": "Task 10: Replay the current main-force baseline A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 193
+        },
+        {
+          "heading": "Task 11: Benchmark baseline by full pool and emitted ticket A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 202
+        },
+        {
+          "heading": "Task 12: Select one repeated T-day failure class A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 210
+        },
+        {
+          "heading": "Task 13: Implement one main-force correction A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 220
+        },
+        {
+          "heading": "Task 14: Run baseline-versus-change promotion replay A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 230
+        },
+        {
+          "heading": "Task 15: Complete repository and knowledge validation A:I2 A:I4 A:I5 A:I6 A:I7",
+          "level": 3,
+          "line": 240
+        },
+        {
+          "heading": "Task 16: Preserve the completed runner decomposition A:I2 A:I4 A:I6",
+          "level": 3,
+          "line": 250
+        },
+        {
+          "heading": "Task 17: Build settled August limit-up and high-return factor evidence A:I6 A:I8",
+          "level": 3,
+          "line": 258
+        },
+        {
+          "heading": "Task 18: Select one repeated, T-day-observable factor candidate A:I6 A:I8",
+          "level": 3,
+          "line": 271
+        },
+        {
+          "heading": "Task 19: Modify the existing main-force factor owner A:I6 A:I8",
+          "level": 3,
+          "line": 283
+        },
+        {
+          "heading": "Task 20: Replay the sole main-force chain against the fixed August cohort A:I6 A:I8",
+          "level": 3,
+          "line": 294
+        },
+        {
+          "heading": "Task 21: Validate and record the factor decision A:I6 A:I8",
+          "level": 3,
+          "line": 309
+        },
+        {
+          "heading": "Task 22: Restore L1 replay resource safety without changing semantics A:I5 A:I6",
+          "level": 3,
+          "line": 318
+        },
+        {
+          "heading": "Task 23: Calibrate the existing weak-regime chase factor A:I6 A:I8",
+          "level": 3,
+          "line": 332
+        },
+        {
+          "heading": "Task 24: Demote Intraday Limit-Up Capture Extension A:I6 A:I8",
+          "level": 3,
+          "line": 349
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 35
+      }
+    },
+    {
+      "path": ".skills/karpathy-daily.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 69,
+      "nonEmptyLines": 53,
+      "sections": [
+        {
+          "heading": "Karpathy Skills 日常使用指南",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "使用场景",
+          "level": 2,
+          "line": 3
+        },
+        {
+          "heading": "核心约束",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "1. 思考再编码",
+          "level": 3,
+          "line": 9
+        },
+        {
+          "heading": "2. 简单优先",
+          "level": 3,
+          "line": 15
+        },
+        {
+          "heading": "3. 精准修改",
+          "level": 3,
+          "line": 21
+        },
+        {
+          "heading": "4. 目标驱动",
+          "level": 3,
+          "line": 27
+        },
+        {
+          "heading": "检查清单",
+          "level": 2,
+          "line": 32
+        },
+        {
+          "heading": "与 xiaogu 项目结合",
+          "level": 2,
+          "line": 40
+        },
+        {
+          "heading": "候选池优化",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "数据源集成",
+          "level": 3,
+          "line": 49
+        },
+        {
+          "heading": "工具链",
+          "level": 3,
+          "line": 55
+        },
+        {
+          "heading": "任务启动挂钩（强制）",
+          "level": 2,
+          "line": 61
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 13
+      }
+    },
+    {
+      "path": ".skills/karpathy-guidelines/SKILL.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 67,
+      "nonEmptyLines": 47,
+      "sections": [
+        {
+          "heading": "Karpathy Guidelines",
+          "level": 1,
+          "line": 7
+        },
+        {
+          "heading": "1. Think Before Coding",
+          "level": 2,
+          "line": 13
+        },
+        {
+          "heading": "2. Simplicity First",
+          "level": 2,
+          "line": 23
+        },
+        {
+          "heading": "3. Surgical Changes",
+          "level": 2,
+          "line": 35
+        },
+        {
+          "heading": "4. Goal-Driven Execution",
+          "level": 2,
+          "line": 51
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 5
+      }
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "fileCategory": "code",
+      "totalLines": 71,
+      "nonEmptyLines": 70,
+      "metrics": {}
+    },
+    {
+      "path": ".understand-anything/tmp-validate.cjs",
+      "language": "javascript",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": ".understand-anything/tmp/scan.stderr",
+      "language": "stderr",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {}
+    },
+    {
+      "path": "docs/plans/2026-08-26-final-repricing-rebuild.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 62,
+      "nonEmptyLines": 51,
+      "sections": [
+        {
+          "heading": "Xiaogu 3.0 Repricing Production Rebuild",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Must-Haves",
+          "level": 2,
+          "line": 7
+        },
+        {
+          "heading": "Task 1: Audit current owners and freeze the production boundary A:I13",
+          "level": 3,
+          "line": 17
+        },
+        {
+          "heading": "Task 2: Replace snapshot and price-formation measurement contracts A:I13",
+          "level": 3,
+          "line": 23
+        },
+        {
+          "heading": "Task 3: Replace research, Core Alpha, and the single decision owner A:I13",
+          "level": 3,
+          "line": 29
+        },
+        {
+          "heading": "Task 4: Convert Scanner to Market Reality Capture A:I13",
+          "level": 3,
+          "line": 35
+        },
+        {
+          "heading": "Task 5: Migrate runner and paper ledger A:I13",
+          "level": 3,
+          "line": 41
+        },
+        {
+          "heading": "Task 6: Migrate database, filler, and five-horizon evaluation A:I13",
+          "level": 3,
+          "line": 46
+        },
+        {
+          "heading": "Task 7: Rebuild historical replay and remove obsolete exclusive code A:I13",
+          "level": 3,
+          "line": 51
+        },
+        {
+          "heading": "Task 8: Close with runtime and architecture evidence A:I13",
+          "level": 3,
+          "line": 57
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 10
+      }
+    },
+    {
+      "path": "integrations/tradingagents_adapter.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 36,
+      "nonEmptyLines": 32,
+      "functions": [
+        {
+          "name": "integrate_research_context",
+          "startLine": 9,
+          "endLine": 36,
+          "params": [
+            "industry",
+            "company",
+            "capital",
+            "lineage_id"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "integrate_research_context",
+          "line": 9,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 16
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 16
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 17
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "capital.get",
+          "lineNumber": 17
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 24
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 26
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "list",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 29
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "list",
+          "lineNumber": 30
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 30
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "bool",
+          "lineNumber": 32
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "max",
+          "lineNumber": 34
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "min",
+          "lineNumber": 34
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "float",
+          "lineNumber": 34
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "company.get",
+          "lineNumber": 34
+        },
+        {
+          "caller": "integrate_research_context",
+          "callee": "industry.get",
+          "lineNumber": 35
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scrapy_scanner/__init__.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 1,
+      "nonEmptyLines": 1,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scrapy_scanner/README.md",
+      "language": "markdown",
+      "fileCategory": "docs",
+      "totalLines": 65,
+      "nonEmptyLines": 49,
+      "sections": [
+        {
+          "heading": "Scrapy Scanner for xiaogu",
+          "level": 1,
+          "line": 1
+        },
+        {
+          "heading": "Quick Start",
+          "level": 2,
+          "line": 5
+        },
+        {
+          "heading": "Output Files",
+          "level": 2,
+          "line": 17
+        },
+        {
+          "heading": "Data Fields",
+          "level": 2,
+          "line": 28
+        },
+        {
+          "heading": "Stock List",
+          "level": 3,
+          "line": 30
+        },
+        {
+          "heading": "Fund Flow",
+          "level": 3,
+          "line": 42
+        },
+        {
+          "heading": "Limitations",
+          "level": 2,
+          "line": 49
+        },
+        {
+          "heading": "Failure Handling",
+          "level": 2,
+          "line": 54
+        },
+        {
+          "heading": "API Endpoints Used",
+          "level": 2,
+          "line": 58
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "sectionCount": 9
+      }
+    },
+    {
+      "path": "scripts/agentmemory_daily.sh",
+      "language": "shell",
+      "fileCategory": "script",
+      "totalLines": 26,
+      "nonEmptyLines": 22,
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_daily_health_check.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 143,
+      "nonEmptyLines": 112,
+      "functions": [
+        {
+          "name": "_text",
+          "startLine": 28,
+          "endLine": 30,
+          "params": [
+            "name"
+          ]
+        },
+        {
+          "name": "_compile",
+          "startLine": 33,
+          "endLine": 38,
+          "params": [
+            "name"
+          ]
+        },
+        {
+          "name": "_contains",
+          "startLine": 41,
+          "endLine": 44,
+          "params": [
+            "name"
+          ]
+        },
+        {
+          "name": "check_scanner_contract",
+          "startLine": 47,
+          "endLine": 48,
+          "params": []
+        },
+        {
+          "name": "check_decision_owner",
+          "startLine": 51,
+          "endLine": 52,
+          "params": []
+        },
+        {
+          "name": "check_price_formation_features",
+          "startLine": 55,
+          "endLine": 59,
+          "params": []
+        },
+        {
+          "name": "check_five_horizon_outcomes",
+          "startLine": 62,
+          "endLine": 67,
+          "params": []
+        },
+        {
+          "name": "check_scheduler_outcome_job",
+          "startLine": 70,
+          "endLine": 71,
+          "params": []
+        },
+        {
+          "name": "check_pipeline_chain",
+          "startLine": 74,
+          "endLine": 75,
+          "params": []
+        },
+        {
+          "name": "check_rule_freeze",
+          "startLine": 78,
+          "endLine": 92,
+          "params": []
+        },
+        {
+          "name": "check_ledger_readable",
+          "startLine": 95,
+          "endLine": 105,
+          "params": []
+        },
+        {
+          "name": "main",
+          "startLine": 121,
+          "endLine": 139,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_text",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "_compile",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "_contains",
+          "line": 41,
+          "isDefault": false
+        },
+        {
+          "name": "check_scanner_contract",
+          "line": 47,
+          "isDefault": false
+        },
+        {
+          "name": "check_decision_owner",
+          "line": 51,
+          "isDefault": false
+        },
+        {
+          "name": "check_price_formation_features",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "check_five_horizon_outcomes",
+          "line": 62,
+          "isDefault": false
+        },
+        {
+          "name": "check_scheduler_outcome_job",
+          "line": 70,
+          "isDefault": false
+        },
+        {
+          "name": "check_pipeline_chain",
+          "line": 74,
+          "isDefault": false
+        },
+        {
+          "name": "check_rule_freeze",
+          "line": 78,
+          "isDefault": false
+        },
+        {
+          "name": "check_ledger_readable",
+          "line": 95,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 121,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_text",
+          "callee": "open",
+          "lineNumber": 29
+        },
+        {
+          "caller": "_text",
+          "callee": "handle.read",
+          "lineNumber": 30
+        },
+        {
+          "caller": "_compile",
+          "callee": "py_compile.compile",
+          "lineNumber": 35
+        },
+        {
+          "caller": "_compile",
+          "callee": "str",
+          "lineNumber": 38
+        },
+        {
+          "caller": "_contains",
+          "callee": "_text",
+          "lineNumber": 42
+        },
+        {
+          "caller": "_contains",
+          "callee": "\", \".join",
+          "lineNumber": 44
+        },
+        {
+          "caller": "check_scanner_contract",
+          "callee": "_contains",
+          "lineNumber": 48
+        },
+        {
+          "caller": "check_decision_owner",
+          "callee": "_contains",
+          "lineNumber": 52
+        },
+        {
+          "caller": "check_price_formation_features",
+          "callee": "_contains",
+          "lineNumber": 56
+        },
+        {
+          "caller": "check_five_horizon_outcomes",
+          "callee": "_contains",
+          "lineNumber": 64
+        },
+        {
+          "caller": "check_five_horizon_outcomes",
+          "callee": "tuple",
+          "lineNumber": 67
+        },
+        {
+          "caller": "check_five_horizon_outcomes",
+          "callee": "tuple",
+          "lineNumber": 67
+        },
+        {
+          "caller": "check_scheduler_outcome_job",
+          "callee": "_contains",
+          "lineNumber": 71
+        },
+        {
+          "caller": "check_pipeline_chain",
+          "callee": "_contains",
+          "lineNumber": 75
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "open",
+          "lineNumber": 79
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "json.load",
+          "lineNumber": 80
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "set",
+          "lineNumber": 81
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 81
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 84
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 85
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get(\"evaluation\", {}).get",
+          "lineNumber": 87
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 87
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 88
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 89
+        },
+        {
+          "caller": "check_rule_freeze",
+          "callee": "rule.get",
+          "lineNumber": 90
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "os.path.exists",
+          "lineNumber": 96
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "open",
+          "lineNumber": 99
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "line.strip",
+          "lineNumber": 101
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "json.loads",
+          "lineNumber": 102
+        },
+        {
+          "caller": "check_ledger_readable",
+          "callee": "repr",
+          "lineNumber": 105
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 122
+        },
+        {
+          "caller": "main",
+          "callee": "parser.add_argument",
+          "lineNumber": 123
+        },
+        {
+          "caller": "main",
+          "callee": "parser.parse_args",
+          "lineNumber": 124
+        },
+        {
+          "caller": "main",
+          "callee": "check",
+          "lineNumber": 128
+        },
+        {
+          "caller": "main",
+          "callee": "repr",
+          "lineNumber": 130
+        },
+        {
+          "caller": "main",
+          "callee": "results.append",
+          "lineNumber": 131
+        },
+        {
+          "caller": "main",
+          "callee": "sum",
+          "lineNumber": 132
+        },
+        {
+          "caller": "main",
+          "callee": "len",
+          "lineNumber": 132
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 134
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 134
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 137
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 138
+        },
+        {
+          "caller": "main",
+          "callee": "SystemExit",
+          "lineNumber": 139
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 12,
+        "functionCount": 12,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_data_retention.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 196,
+      "nonEmptyLines": 173,
+      "functions": [
+        {
+          "name": "dir_size",
+          "startLine": 28,
+          "endLine": 40,
+          "params": [
+            "path"
+          ]
+        },
+        {
+          "name": "purge_bak",
+          "startLine": 43,
+          "endLine": 55,
+          "params": [
+            "root",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_day_dirs",
+          "startLine": 58,
+          "endLine": 69,
+          "params": [
+            "day_root",
+            "keep",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_old_days",
+          "startLine": 72,
+          "endLine": 88,
+          "params": [
+            "root",
+            "max_age_days",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "prune_large_runtime_files",
+          "startLine": 91,
+          "endLine": 112,
+          "params": [
+            "day_root",
+            "max_mb",
+            "dry_run"
+          ]
+        },
+        {
+          "name": "run",
+          "startLine": 115,
+          "endLine": 163,
+          "params": [
+            "dry_run",
+            "keep_runtimes",
+            "keep_snapshots",
+            "max_age_days",
+            "max_file_mb"
+          ]
+        },
+        {
+          "name": "main",
+          "startLine": 166,
+          "endLine": 192,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "dir_size",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "purge_bak",
+          "line": 43,
+          "isDefault": false
+        },
+        {
+          "name": "prune_day_dirs",
+          "line": 58,
+          "isDefault": false
+        },
+        {
+          "name": "prune_old_days",
+          "line": 72,
+          "isDefault": false
+        },
+        {
+          "name": "prune_large_runtime_files",
+          "line": 91,
+          "isDefault": false
+        },
+        {
+          "name": "run",
+          "line": 115,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 166,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "dir_size",
+          "callee": "path.exists",
+          "lineNumber": 30
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.is_file",
+          "lineNumber": 32
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.stat",
+          "lineNumber": 33
+        },
+        {
+          "caller": "dir_size",
+          "callee": "path.rglob",
+          "lineNumber": 34
+        },
+        {
+          "caller": "dir_size",
+          "callee": "p.is_file",
+          "lineNumber": 35
+        },
+        {
+          "caller": "dir_size",
+          "callee": "p.stat",
+          "lineNumber": 37
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.exists",
+          "lineNumber": 45
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.rglob",
+          "lineNumber": 47
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "removed.append",
+          "lineNumber": 48
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "str",
+          "lineNumber": 48
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "p.unlink",
+          "lineNumber": 50
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "root.rglob",
+          "lineNumber": 51
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "removed.append",
+          "lineNumber": 52
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "str",
+          "lineNumber": 52
+        },
+        {
+          "caller": "purge_bak",
+          "callee": "p.unlink",
+          "lineNumber": 54
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "day_root.is_dir",
+          "lineNumber": 61
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "day_root.iterdir",
+          "lineNumber": 63
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "p.is_dir",
+          "lineNumber": 63
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "subdirs.sort",
+          "lineNumber": 64
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "p.stat",
+          "lineNumber": 64
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "removed.append",
+          "lineNumber": 66
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "str",
+          "lineNumber": 66
+        },
+        {
+          "caller": "prune_day_dirs",
+          "callee": "shutil.rmtree",
+          "lineNumber": 68
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "root.is_dir",
+          "lineNumber": 74
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "datetime.now",
+          "lineNumber": 76
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "timedelta",
+          "lineNumber": 76
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "root.iterdir",
+          "lineNumber": 77
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "day.is_dir",
+          "lineNumber": 78
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "datetime.strptime",
+          "lineNumber": 81
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "removed.append",
+          "lineNumber": 85
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "str",
+          "lineNumber": 85
+        },
+        {
+          "caller": "prune_old_days",
+          "callee": "shutil.rmtree",
+          "lineNumber": 87
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "int",
+          "lineNumber": 94
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "day_root.is_dir",
+          "lineNumber": 95
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "day_root.iterdir",
+          "lineNumber": 97
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "run_dir.is_dir",
+          "lineNumber": 98
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.is_file",
+          "lineNumber": 102
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.stat",
+          "lineNumber": 102
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "removed.append",
+          "lineNumber": 104
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "str",
+          "lineNumber": 104
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.stat",
+          "lineNumber": 108
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "datetime.now().isoformat",
+          "lineNumber": 109
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "datetime.now",
+          "lineNumber": 109
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "f.write_text",
+          "lineNumber": 111
+        },
+        {
+          "caller": "prune_large_runtime_files",
+          "callee": "json.dumps",
+          "lineNumber": 111
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 126
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 127
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 128
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 133
+        },
+        {
+          "caller": "run",
+          "callee": "purge_bak",
+          "lineNumber": 133
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 134
+        },
+        {
+          "caller": "run",
+          "callee": "purge_bak",
+          "lineNumber": 134
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 135
+        },
+        {
+          "caller": "run",
+          "callee": "RAW_ROOT.is_dir",
+          "lineNumber": 137
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 138
+        },
+        {
+          "caller": "run",
+          "callee": "RAW_ROOT.iterdir",
+          "lineNumber": 138
+        },
+        {
+          "caller": "run",
+          "callee": "day.is_dir",
+          "lineNumber": 139
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 140
+        },
+        {
+          "caller": "run",
+          "callee": "prune_day_dirs",
+          "lineNumber": 140
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 141
+        },
+        {
+          "caller": "run",
+          "callee": "prune_large_runtime_files",
+          "lineNumber": 141
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 142
+        },
+        {
+          "caller": "run",
+          "callee": "SNAP_ROOT.is_dir",
+          "lineNumber": 144
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 145
+        },
+        {
+          "caller": "run",
+          "callee": "SNAP_ROOT.iterdir",
+          "lineNumber": 145
+        },
+        {
+          "caller": "run",
+          "callee": "day.is_dir",
+          "lineNumber": 146
+        },
+        {
+          "caller": "run",
+          "callee": "sorted",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "day.iterdir",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "p.is_file",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "p.stat",
+          "lineNumber": 148
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].append",
+          "lineNumber": 150
+        },
+        {
+          "caller": "run",
+          "callee": "str",
+          "lineNumber": 150
+        },
+        {
+          "caller": "run",
+          "callee": "p.unlink",
+          "lineNumber": 152
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 153
+        },
+        {
+          "caller": "run",
+          "callee": "report['removed'].extend",
+          "lineNumber": 154
+        },
+        {
+          "caller": "run",
+          "callee": "prune_old_days",
+          "lineNumber": 154
+        },
+        {
+          "caller": "run",
+          "callee": "report['actions'].append",
+          "lineNumber": 155
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 158
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 159
+        },
+        {
+          "caller": "run",
+          "callee": "dir_size",
+          "lineNumber": 160
+        },
+        {
+          "caller": "run",
+          "callee": "len",
+          "lineNumber": 162
+        },
+        {
+          "caller": "main",
+          "callee": "argparse.ArgumentParser",
+          "lineNumber": 167
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 168
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 169
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 170
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 171
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 172
+        },
+        {
+          "caller": "main",
+          "callee": "ap.add_argument",
+          "lineNumber": 173
+        },
+        {
+          "caller": "main",
+          "callee": "ap.parse_args",
+          "lineNumber": 174
+        },
+        {
+          "caller": "main",
+          "callee": "run",
+          "lineNumber": 175
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 183
+        },
+        {
+          "caller": "main",
+          "callee": "json.dumps",
+          "lineNumber": 183
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 185
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 187
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 188
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 190
+        },
+        {
+          "caller": "main",
+          "callee": "print",
+          "lineNumber": 192
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "scripts/xiaogu_db_init.sql",
+      "language": "sql",
+      "fileCategory": "data",
+      "totalLines": 84,
+      "nonEmptyLines": 82,
+      "definitions": [
+        {
+          "name": "production_runs",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "status",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 1,
+          "endLine": 7
+        },
+        {
+          "name": "snapshots",
+          "kind": "table",
+          "fields": [
+            "lineage_id",
+            "trade_date",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 8,
+          "endLine": 13
+        },
+        {
+          "name": "picks",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "symbol",
+            "state",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 14,
+          "endLine": 21
+        },
+        {
+          "name": "returns",
+          "kind": "table",
+          "fields": [
+            "id",
+            "trade_date",
+            "symbol",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 22,
+          "endLine": 28
+        },
+        {
+          "name": "ledger",
+          "kind": "table",
+          "fields": [
+            "id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 29,
+          "endLine": 33
+        },
+        {
+          "name": "model_registry",
+          "kind": "table",
+          "fields": [
+            "model_id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 34,
+          "endLine": 38
+        },
+        {
+          "name": "alpha_health",
+          "kind": "table",
+          "fields": [
+            "id",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 39,
+          "endLine": 43
+        },
+        {
+          "name": "canonical_historical_snapshots",
+          "kind": "table",
+          "fields": [
+            "lineage_id",
+            "symbol",
+            "trade_date",
+            "signal_time",
+            "source",
+            "source_timestamp",
+            "snapshot_version",
+            "point_in_time",
+            "available_at",
+            "price_basis",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 47,
+          "endLine": 62
+        },
+        {
+          "name": "canonical_future_prices",
+          "kind": "table",
+          "fields": [
+            "symbol",
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "source",
+            "source_timestamp",
+            "price_basis",
+            "payload",
+            "created_at"
+          ],
+          "startLine": 66,
+          "endLine": 82
+        },
+        {
+          "name": "idx_canonical_historical_snapshots_date",
+          "kind": "index",
+          "fields": [],
+          "startLine": 63,
+          "endLine": 63
+        },
+        {
+          "name": "idx_canonical_future_prices_date",
+          "kind": "index",
+          "fields": [],
+          "startLine": 83,
+          "endLine": 83
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 0,
+        "functionCount": 0,
+        "classCount": 0,
+        "definitionCount": 11
+      }
+    },
+    {
+      "path": "xiaogu_api.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 76,
+      "nonEmptyLines": 57,
+      "functions": [
+        {
+          "name": "_records",
+          "startLine": 16,
+          "endLine": 19,
+          "params": []
+        },
+        {
+          "name": "system_health",
+          "startLine": 23,
+          "endLine": 24,
+          "params": []
+        },
+        {
+          "name": "dashboard",
+          "startLine": 28,
+          "endLine": 30,
+          "params": []
+        },
+        {
+          "name": "picks",
+          "startLine": 34,
+          "endLine": 35,
+          "params": []
+        },
+        {
+          "name": "portfolio",
+          "startLine": 39,
+          "endLine": 43,
+          "params": []
+        },
+        {
+          "name": "returns",
+          "startLine": 47,
+          "endLine": 52,
+          "params": []
+        },
+        {
+          "name": "repricing_state",
+          "startLine": 56,
+          "endLine": 67,
+          "params": []
+        },
+        {
+          "name": "research_context",
+          "startLine": 71,
+          "endLine": 76,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "_records",
+          "line": 16,
+          "isDefault": false
+        },
+        {
+          "name": "system_health",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "dashboard",
+          "line": 27,
+          "isDefault": false
+        },
+        {
+          "name": "picks",
+          "line": 33,
+          "isDefault": false
+        },
+        {
+          "name": "portfolio",
+          "line": 38,
+          "isDefault": false
+        },
+        {
+          "name": "returns",
+          "line": 46,
+          "isDefault": false
+        },
+        {
+          "name": "repricing_state",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "research_context",
+          "line": 70,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_records",
+          "callee": "LEDGER.exists",
+          "lineNumber": 17
+        },
+        {
+          "caller": "_records",
+          "callee": "json.loads",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_records",
+          "callee": "LEDGER.read_text(encoding=\"utf-8\").splitlines",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_records",
+          "callee": "LEDGER.read_text",
+          "lineNumber": 19
+        },
+        {
+          "caller": "_records",
+          "callee": "line.strip",
+          "lineNumber": 19
+        },
+        {
+          "caller": "system_health",
+          "callee": "LEDGER.exists",
+          "lineNumber": 24
+        },
+        {
+          "caller": "dashboard",
+          "callee": "_records",
+          "lineNumber": 29
+        },
+        {
+          "caller": "dashboard",
+          "callee": "len",
+          "lineNumber": 30
+        },
+        {
+          "caller": "picks",
+          "callee": "_records",
+          "lineNumber": 35
+        },
+        {
+          "caller": "picks",
+          "callee": "has_decision_payload",
+          "lineNumber": 35
+        },
+        {
+          "caller": "portfolio",
+          "callee": "picks",
+          "lineNumber": 41
+        },
+        {
+          "caller": "portfolio",
+          "callee": "str",
+          "lineNumber": 42
+        },
+        {
+          "caller": "portfolio",
+          "callee": "record.get",
+          "lineNumber": 42
+        },
+        {
+          "caller": "portfolio",
+          "callee": "list",
+          "lineNumber": 43
+        },
+        {
+          "caller": "portfolio",
+          "callee": "latest.values",
+          "lineNumber": 43
+        },
+        {
+          "caller": "returns",
+          "callee": "_records",
+          "lineNumber": 49
+        },
+        {
+          "caller": "returns",
+          "callee": "record.get",
+          "lineNumber": 50
+        },
+        {
+          "caller": "returns",
+          "callee": "str",
+          "lineNumber": 51
+        },
+        {
+          "caller": "returns",
+          "callee": "record.get",
+          "lineNumber": 51
+        },
+        {
+          "caller": "returns",
+          "callee": "list",
+          "lineNumber": 52
+        },
+        {
+          "caller": "returns",
+          "callee": "latest.values",
+          "lineNumber": 52
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 59
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 60
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 61
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "(record.get(\"features_used\") or {}).get",
+          "lineNumber": 62
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 62
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "(record.get(\"features_used\") or {}).get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 63
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "(record.get(\"features_used\") or {}).get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "record.get",
+          "lineNumber": 64
+        },
+        {
+          "caller": "repricing_state",
+          "callee": "portfolio",
+          "lineNumber": 66
+        },
+        {
+          "caller": "research_context",
+          "callee": "record[\"features_used\"].get",
+          "lineNumber": 73
+        },
+        {
+          "caller": "research_context",
+          "callee": "picks",
+          "lineNumber": 74
+        },
+        {
+          "caller": "research_context",
+          "callee": "isinstance",
+          "lineNumber": 75
+        },
+        {
+          "caller": "research_context",
+          "callee": "record.get",
+          "lineNumber": 75
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 8,
+        "functionCount": 8,
+        "classCount": 0
+      }
+    }
+  ]
+}

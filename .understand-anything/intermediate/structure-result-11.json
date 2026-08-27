@@ -1,0 +1,1538 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 3,
+  "filesSkipped": [
+    "xiaogu_social_sentiment.py"
+  ],
+  "results": [
+    {
+      "path": "xiaogu_factor_store.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 112,
+      "nonEmptyLines": 95,
+      "functions": [
+        {
+          "name": "write_factors",
+          "startLine": 29,
+          "endLine": 60,
+          "params": [
+            "trade_date",
+            "candidates"
+          ]
+        },
+        {
+          "name": "read_factors",
+          "startLine": 63,
+          "endLine": 69,
+          "params": [
+            "trade_date"
+          ]
+        },
+        {
+          "name": "read_all_factors",
+          "startLine": 72,
+          "endLine": 86,
+          "params": [
+            "start_date",
+            "end_date"
+          ]
+        },
+        {
+          "name": "factors_summary",
+          "startLine": 89,
+          "endLine": 96,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "write_factors",
+          "line": 29,
+          "isDefault": false
+        },
+        {
+          "name": "read_factors",
+          "line": 63,
+          "isDefault": false
+        },
+        {
+          "name": "read_all_factors",
+          "line": 72,
+          "isDefault": false
+        },
+        {
+          "name": "factors_summary",
+          "line": 89,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "write_factors",
+          "callee": "FACTOR_DIR.mkdir",
+          "lineNumber": 31
+        },
+        {
+          "caller": "write_factors",
+          "callee": "trade_date.replace",
+          "lineNumber": 32
+        },
+        {
+          "caller": "write_factors",
+          "callee": "c.get",
+          "lineNumber": 39
+        },
+        {
+          "caller": "write_factors",
+          "callee": "isinstance",
+          "lineNumber": 41
+        },
+        {
+          "caller": "write_factors",
+          "callee": "','.join",
+          "lineNumber": 42
+        },
+        {
+          "caller": "write_factors",
+          "callee": "str",
+          "lineNumber": 42
+        },
+        {
+          "caller": "write_factors",
+          "callee": "rows.append",
+          "lineNumber": 44
+        },
+        {
+          "caller": "write_factors",
+          "callee": "pd.DataFrame",
+          "lineNumber": 49
+        },
+        {
+          "caller": "write_factors",
+          "callee": "pd.to_numeric",
+          "lineNumber": 57
+        },
+        {
+          "caller": "write_factors",
+          "callee": "pq.write_table",
+          "lineNumber": 59
+        },
+        {
+          "caller": "write_factors",
+          "callee": "pa.Table.from_pandas",
+          "lineNumber": 59
+        },
+        {
+          "caller": "read_factors",
+          "callee": "trade_date.replace",
+          "lineNumber": 65
+        },
+        {
+          "caller": "read_factors",
+          "callee": "path.exists",
+          "lineNumber": 67
+        },
+        {
+          "caller": "read_factors",
+          "callee": "pq.read_table(path).to_pandas",
+          "lineNumber": 69
+        },
+        {
+          "caller": "read_factors",
+          "callee": "pq.read_table",
+          "lineNumber": 69
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "sorted",
+          "lineNumber": 74
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "FACTOR_DIR.glob",
+          "lineNumber": 74
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "start_date.replace",
+          "lineNumber": 78
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "end_date.replace",
+          "lineNumber": 80
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "dfs.append",
+          "lineNumber": 83
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "pq.read_table(f).to_pandas",
+          "lineNumber": 83
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "pq.read_table",
+          "lineNumber": 83
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "pd.concat",
+          "lineNumber": 86
+        },
+        {
+          "caller": "read_all_factors",
+          "callee": "pd.DataFrame",
+          "lineNumber": 86
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "sorted",
+          "lineNumber": 91
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "FACTOR_DIR.glob",
+          "lineNumber": 91
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "len",
+          "lineNumber": 93
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "round",
+          "lineNumber": 95
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "sum",
+          "lineNumber": 95
+        },
+        {
+          "caller": "factors_summary",
+          "callee": "f.stat",
+          "lineNumber": 95
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 4,
+        "functionCount": 4,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_pick_validator.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 307,
+      "nonEmptyLines": 272,
+      "functions": [
+        {
+          "name": "validate_pick_with_serenity",
+          "startLine": 15,
+          "endLine": 110,
+          "params": [
+            "symbol",
+            "candidate"
+          ]
+        },
+        {
+          "name": "validate_pick_with_buffett",
+          "startLine": 113,
+          "endLine": 231,
+          "params": [
+            "symbol",
+            "candidate"
+          ]
+        },
+        {
+          "name": "validate_pick",
+          "startLine": 234,
+          "endLine": 292,
+          "params": [
+            "symbol",
+            "candidate"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "validate_pick_with_serenity",
+          "line": 15,
+          "isDefault": false
+        },
+        {
+          "name": "validate_pick_with_buffett",
+          "line": 113,
+          "isDefault": false
+        },
+        {
+          "name": "validate_pick",
+          "line": 234,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 39
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 40
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "(candidate.get('structured_component_details') or {}).get",
+          "lineNumber": 41
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 41
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 44
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 45
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 46
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "candidate.get",
+          "lineNumber": 47
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 52
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 55
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 58
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 61
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 68
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 71
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 74
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 79
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 82
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['risk_factors'].append",
+          "lineNumber": 88
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['risk_factors'].append",
+          "lineNumber": 90
+        },
+        {
+          "caller": "validate_pick_with_serenity",
+          "callee": "result['risk_factors'].append",
+          "lineNumber": 92
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 139
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 140
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 142
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 143
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "(candidate.get('structured_component_details') or {}).get",
+          "lineNumber": 144
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 144
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 147
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "candidate.get",
+          "lineNumber": 148
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "sum",
+          "lineNumber": 171
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['quick_filter_answers'].values",
+          "lineNumber": 171
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 177
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 180
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 183
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 186
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 191
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 196
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 201
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 204
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 207
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 210
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "max",
+          "lineNumber": 216
+        },
+        {
+          "caller": "validate_pick_with_buffett",
+          "callee": "result['reasoning'].append",
+          "lineNumber": 223
+        },
+        {
+          "caller": "validate_pick",
+          "callee": "validate_pick_with_serenity",
+          "lineNumber": 239
+        },
+        {
+          "caller": "validate_pick",
+          "callee": "validate_pick_with_buffett",
+          "lineNumber": 240
+        },
+        {
+          "caller": "validate_pick",
+          "callee": "buffett['quick_filter_answers'].get",
+          "lineNumber": 280
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 3,
+        "functionCount": 3,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_regime_policy.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 570,
+      "nonEmptyLines": 509,
+      "functions": [
+        {
+          "name": "classify_production_regime",
+          "startLine": 255,
+          "endLine": 278,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "regime_observation_status",
+          "startLine": 281,
+          "endLine": 300,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "smoothed_regime_observation",
+          "startLine": 303,
+          "endLine": 338,
+          "params": [
+            "current_regime",
+            "history",
+            "window"
+          ]
+        },
+        {
+          "name": "market_context_hash",
+          "startLine": 341,
+          "endLine": 356,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "threshold_mode_for_context",
+          "startLine": 359,
+          "endLine": 379,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "stage_bucket",
+          "startLine": 382,
+          "endLine": 388,
+          "params": [
+            "candidate_stage"
+          ]
+        },
+        {
+          "name": "market_adaptive_thresholds",
+          "startLine": 391,
+          "endLine": 400,
+          "params": [
+            "candidate_stage",
+            "market_context"
+          ]
+        },
+        {
+          "name": "sector_gate_threshold_for_market",
+          "startLine": 403,
+          "endLine": 417,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "quality_escape_score_floor",
+          "startLine": 420,
+          "endLine": 423,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "preferred_shadow_variant",
+          "startLine": 426,
+          "endLine": 428,
+          "params": [
+            "regime"
+          ]
+        },
+        {
+          "name": "normalize_regime_for_ranking_scale",
+          "startLine": 431,
+          "endLine": 443,
+          "params": [
+            "regime"
+          ]
+        },
+        {
+          "name": "resolve_ranking_evidence_scales",
+          "startLine": 446,
+          "endLine": 501,
+          "params": [
+            "config",
+            "production_regime"
+          ]
+        },
+        {
+          "name": "self_evolve_bounds",
+          "startLine": 504,
+          "endLine": 506,
+          "params": []
+        },
+        {
+          "name": "clamp_self_evolve_value",
+          "startLine": 509,
+          "endLine": 514,
+          "params": [
+            "key",
+            "value"
+          ]
+        },
+        {
+          "name": "resolve_evolve_key_for_shadow",
+          "startLine": 517,
+          "endLine": 525,
+          "params": [
+            "selected_variant",
+            "regime"
+          ]
+        },
+        {
+          "name": "attach_regime_to_context",
+          "startLine": 528,
+          "endLine": 556,
+          "params": [
+            "market_context"
+          ]
+        },
+        {
+          "name": "policy_snapshot",
+          "startLine": 559,
+          "endLine": 570,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "classify_production_regime",
+          "line": 255,
+          "isDefault": false
+        },
+        {
+          "name": "regime_observation_status",
+          "line": 281,
+          "isDefault": false
+        },
+        {
+          "name": "smoothed_regime_observation",
+          "line": 303,
+          "isDefault": false
+        },
+        {
+          "name": "market_context_hash",
+          "line": 341,
+          "isDefault": false
+        },
+        {
+          "name": "threshold_mode_for_context",
+          "line": 359,
+          "isDefault": false
+        },
+        {
+          "name": "stage_bucket",
+          "line": 382,
+          "isDefault": false
+        },
+        {
+          "name": "market_adaptive_thresholds",
+          "line": 391,
+          "isDefault": false
+        },
+        {
+          "name": "sector_gate_threshold_for_market",
+          "line": 403,
+          "isDefault": false
+        },
+        {
+          "name": "quality_escape_score_floor",
+          "line": 420,
+          "isDefault": false
+        },
+        {
+          "name": "preferred_shadow_variant",
+          "line": 426,
+          "isDefault": false
+        },
+        {
+          "name": "normalize_regime_for_ranking_scale",
+          "line": 431,
+          "isDefault": false
+        },
+        {
+          "name": "resolve_ranking_evidence_scales",
+          "line": 446,
+          "isDefault": false
+        },
+        {
+          "name": "self_evolve_bounds",
+          "line": 504,
+          "isDefault": false
+        },
+        {
+          "name": "clamp_self_evolve_value",
+          "line": 509,
+          "isDefault": false
+        },
+        {
+          "name": "resolve_evolve_key_for_shadow",
+          "line": 517,
+          "isDefault": false
+        },
+        {
+          "name": "attach_regime_to_context",
+          "line": 528,
+          "isDefault": false
+        },
+        {
+          "name": "policy_snapshot",
+          "line": 559,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "classify_production_regime",
+          "callee": "isinstance",
+          "lineNumber": 259
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "bool",
+          "lineNumber": 260
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "ctx.get",
+          "lineNumber": 260
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "bool",
+          "lineNumber": 261
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "ctx.get",
+          "lineNumber": 261
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "bool",
+          "lineNumber": 262
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "ctx.get",
+          "lineNumber": 262
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "str(ctx.get(\"market_regime\") or \"\").lower",
+          "lineNumber": 263
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "str",
+          "lineNumber": 263
+        },
+        {
+          "caller": "classify_production_regime",
+          "callee": "ctx.get",
+          "lineNumber": 263
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "isinstance",
+          "lineNumber": 285
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "str(ctx.get(\"market_regime\") or ctx.get(\"production_regime\") or \"\").strip",
+          "lineNumber": 286
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "str",
+          "lineNumber": 286
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "ctx.get",
+          "lineNumber": 286
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "ctx.get",
+          "lineNumber": 286
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "any",
+          "lineNumber": 287
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "ctx.get",
+          "lineNumber": 288
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "any",
+          "lineNumber": 291
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "bool",
+          "lineNumber": 292
+        },
+        {
+          "caller": "regime_observation_status",
+          "callee": "ctx.get",
+          "lineNumber": 292
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "str(current_regime or \"sideways\").lower",
+          "lineNumber": 314
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "str",
+          "lineNumber": 314
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "str(item.get(\"production_regime\") or item.get(\"regime\") or item).lower",
+          "lineNumber": 316
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "str",
+          "lineNumber": 316
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "item.get",
+          "lineNumber": 316
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "item.get",
+          "lineNumber": 316
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "isinstance",
+          "lineNumber": 317
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "max",
+          "lineNumber": 318
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "int",
+          "lineNumber": 318
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "labels.count",
+          "lineNumber": 329
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "set",
+          "lineNumber": 329
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "max",
+          "lineNumber": 330
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "labels.index",
+          "lineNumber": 330
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "bool",
+          "lineNumber": 332
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "counts.get",
+          "lineNumber": 332
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "len",
+          "lineNumber": 332
+        },
+        {
+          "caller": "smoothed_regime_observation",
+          "callee": "len",
+          "lineNumber": 335
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "isinstance",
+          "lineNumber": 343
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 345
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 347
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "payload.update",
+          "lineNumber": 349
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 350
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 351
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 352
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "ctx.get",
+          "lineNumber": 353
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "json.dumps",
+          "lineNumber": 355
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "hashlib.sha256(encoded.encode(\"utf-8\")).hexdigest",
+          "lineNumber": 356
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "hashlib.sha256",
+          "lineNumber": 356
+        },
+        {
+          "caller": "market_context_hash",
+          "callee": "encoded.encode",
+          "lineNumber": 356
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "isinstance",
+          "lineNumber": 365
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "bool",
+          "lineNumber": 366
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "ctx.get",
+          "lineNumber": 366
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "bool",
+          "lineNumber": 367
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "ctx.get",
+          "lineNumber": 367
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "bool",
+          "lineNumber": 368
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "ctx.get",
+          "lineNumber": 368
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "str(ctx.get(\"production_regime\") or \"\").lower",
+          "lineNumber": 376
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "str",
+          "lineNumber": 376
+        },
+        {
+          "caller": "threshold_mode_for_context",
+          "callee": "ctx.get",
+          "lineNumber": 376
+        },
+        {
+          "caller": "stage_bucket",
+          "callee": "str(candidate_stage or \"\").strip",
+          "lineNumber": 383
+        },
+        {
+          "caller": "stage_bucket",
+          "callee": "str",
+          "lineNumber": 383
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "threshold_mode_for_context",
+          "lineNumber": 396
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "_STAGE_TABLE.get",
+          "lineNumber": 397
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "stage_bucket",
+          "lineNumber": 398
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "table.get",
+          "lineNumber": 399
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "table.get",
+          "lineNumber": 399
+        },
+        {
+          "caller": "market_adaptive_thresholds",
+          "callee": "dict",
+          "lineNumber": 400
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "isinstance",
+          "lineNumber": 405
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "str(ctx.get(\"production_regime\") or \"\").lower",
+          "lineNumber": 406
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "str",
+          "lineNumber": 406
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 406
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "bool",
+          "lineNumber": 409
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 409
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "str",
+          "lineNumber": 409
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 409
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "bool",
+          "lineNumber": 411
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 411
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "str",
+          "lineNumber": 411
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 411
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "str",
+          "lineNumber": 413
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "ctx.get",
+          "lineNumber": 413
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "classify_production_regime",
+          "lineNumber": 416
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "float",
+          "lineNumber": 417
+        },
+        {
+          "caller": "sector_gate_threshold_for_market",
+          "callee": "SECTOR_GATE_THRESHOLD.get",
+          "lineNumber": 417
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "isinstance",
+          "lineNumber": 421
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "str(ctx.get(\"production_regime\") or classify_production_regime(ctx)).lower",
+          "lineNumber": 422
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "str",
+          "lineNumber": 422
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "ctx.get",
+          "lineNumber": 422
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "classify_production_regime",
+          "lineNumber": 422
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "float",
+          "lineNumber": 423
+        },
+        {
+          "caller": "quality_escape_score_floor",
+          "callee": "QUALITY_ESCAPE_SCORE_FLOOR.get",
+          "lineNumber": 423
+        },
+        {
+          "caller": "preferred_shadow_variant",
+          "callee": "str(regime or \"sideways\").lower",
+          "lineNumber": 427
+        },
+        {
+          "caller": "preferred_shadow_variant",
+          "callee": "str",
+          "lineNumber": 427
+        },
+        {
+          "caller": "preferred_shadow_variant",
+          "callee": "PREFERRED_SHADOW_VARIANT.get",
+          "lineNumber": 428
+        },
+        {
+          "caller": "normalize_regime_for_ranking_scale",
+          "callee": "str(regime or \"sideways\").lower().strip",
+          "lineNumber": 432
+        },
+        {
+          "caller": "normalize_regime_for_ranking_scale",
+          "callee": "str(regime or \"sideways\").lower",
+          "lineNumber": 432
+        },
+        {
+          "caller": "normalize_regime_for_ranking_scale",
+          "callee": "str",
+          "lineNumber": 432
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "isinstance",
+          "lineNumber": 456
+        },
+        {
+          "caller": "_weight",
+          "callee": "cfg.get",
+          "lineNumber": 459
+        },
+        {
+          "caller": "_weight",
+          "callee": "float",
+          "lineNumber": 461
+        },
+        {
+          "caller": "_weight",
+          "callee": "float",
+          "lineNumber": 463
+        },
+        {
+          "caller": "_weight",
+          "callee": "float",
+          "lineNumber": 465
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_weight",
+          "lineNumber": 467
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_weight",
+          "lineNumber": 468
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_weight",
+          "lineNumber": 469
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "normalize_regime_for_ranking_scale",
+          "lineNumber": 475
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "RANKING_EVIDENCE_REGIME_SCALE.get",
+          "lineNumber": 476
+        },
+        {
+          "caller": "_clamp",
+          "callee": "round",
+          "lineNumber": 480
+        },
+        {
+          "caller": "_clamp",
+          "callee": "max",
+          "lineNumber": 480
+        },
+        {
+          "caller": "_clamp",
+          "callee": "min",
+          "lineNumber": 480
+        },
+        {
+          "caller": "_clamp",
+          "callee": "float",
+          "lineNumber": 480
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_clamp",
+          "lineNumber": 482
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 482
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_clamp",
+          "lineNumber": 483
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 483
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "_clamp",
+          "lineNumber": 484
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 484
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 490
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 491
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 492
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 493
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 494
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "round",
+          "lineNumber": 495
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 496
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 497
+        },
+        {
+          "caller": "resolve_ranking_evidence_scales",
+          "callee": "float",
+          "lineNumber": 498
+        },
+        {
+          "caller": "self_evolve_bounds",
+          "callee": "tuple",
+          "lineNumber": 506
+        },
+        {
+          "caller": "self_evolve_bounds",
+          "callee": "SELF_EVOLVE_BOUNDS.items",
+          "lineNumber": 506
+        },
+        {
+          "caller": "clamp_self_evolve_value",
+          "callee": "SELF_EVOLVE_BOUNDS.get",
+          "lineNumber": 510
+        },
+        {
+          "caller": "clamp_self_evolve_value",
+          "callee": "round",
+          "lineNumber": 514
+        },
+        {
+          "caller": "clamp_self_evolve_value",
+          "callee": "max",
+          "lineNumber": 514
+        },
+        {
+          "caller": "clamp_self_evolve_value",
+          "callee": "min",
+          "lineNumber": 514
+        },
+        {
+          "caller": "clamp_self_evolve_value",
+          "callee": "float",
+          "lineNumber": 514
+        },
+        {
+          "caller": "resolve_evolve_key_for_shadow",
+          "callee": "str",
+          "lineNumber": 519
+        },
+        {
+          "caller": "resolve_evolve_key_for_shadow",
+          "callee": "REGIME_EVOLVE_PREFERRED_KEYS.get",
+          "lineNumber": 522
+        },
+        {
+          "caller": "resolve_evolve_key_for_shadow",
+          "callee": "str(regime or \"sideways\").lower",
+          "lineNumber": 522
+        },
+        {
+          "caller": "resolve_evolve_key_for_shadow",
+          "callee": "str",
+          "lineNumber": 522
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "isinstance",
+          "lineNumber": 532
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "regime_observation_status",
+          "lineNumber": 534
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "classify_production_regime",
+          "lineNumber": 535
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "market_context.update",
+          "lineNumber": 538
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "smoothed_regime_observation",
+          "lineNumber": 538
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "market_context.get",
+          "lineNumber": 540
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "market_context_hash",
+          "lineNumber": 543
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "sector_gate_threshold_for_market",
+          "lineNumber": 549
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "quality_escape_score_floor",
+          "lineNumber": 550
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "preferred_shadow_variant",
+          "lineNumber": 551
+        },
+        {
+          "caller": "attach_regime_to_context",
+          "callee": "threshold_mode_for_context",
+          "lineNumber": 552
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "list",
+          "lineNumber": 561
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "dict",
+          "lineNumber": 562
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "dict",
+          "lineNumber": 563
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "list",
+          "lineNumber": 564
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "SELF_EVOLVE_BOUNDS.keys",
+          "lineNumber": 564
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "dict",
+          "lineNumber": 566
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "RANKING_EVIDENCE_REGIME_SCALE.items",
+          "lineNumber": 566
+        },
+        {
+          "caller": "policy_snapshot",
+          "callee": "dict",
+          "lineNumber": 568
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 17,
+        "functionCount": 17,
+        "classCount": 0
+      }
+    }
+  ]
+}

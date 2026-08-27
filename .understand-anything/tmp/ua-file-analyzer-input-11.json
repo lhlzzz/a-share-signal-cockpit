@@ -1,0 +1,147 @@
+{
+  "projectRoot": "/workspace/hermes-workspaces/xiaogu",
+  "batchFiles": [
+    {
+      "path": ".understand-anything/intermediate/assembled-graph.json",
+      "language": "json",
+      "sizeLines": 41988,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batches.json",
+      "language": "json",
+      "sizeLines": 3263,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/deterministic-scan.json",
+      "language": "json",
+      "sizeLines": 699,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/fingerprint-input.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/import-input.json",
+      "language": "json",
+      "sizeLines": 670,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/import-map.json",
+      "language": "json",
+      "sizeLines": 199,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/scan-result.json",
+      "language": "json",
+      "sizeLines": 506,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-1.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-10.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-11.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-2.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-3.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-4.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-5.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-6.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-7.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-8.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-9.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-1.json",
+      "language": "json",
+      "sizeLines": 62941,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-10.json",
+      "language": "json",
+      "sizeLines": 9460,
+      "fileCategory": "config"
+    }
+  ],
+  "batchImportData": {
+    ".understand-anything/intermediate/assembled-graph.json": [],
+    ".understand-anything/intermediate/batches.json": [],
+    ".understand-anything/intermediate/deterministic-scan.json": [],
+    ".understand-anything/intermediate/fingerprint-input.json": [],
+    ".understand-anything/intermediate/import-input.json": [],
+    ".understand-anything/intermediate/import-map.json": [],
+    ".understand-anything/intermediate/scan-result.json": [],
+    ".understand-anything/intermediate/structure-input-1.json": [],
+    ".understand-anything/intermediate/structure-input-10.json": [],
+    ".understand-anything/intermediate/structure-input-11.json": [],
+    ".understand-anything/intermediate/structure-input-2.json": [],
+    ".understand-anything/intermediate/structure-input-3.json": [],
+    ".understand-anything/intermediate/structure-input-4.json": [],
+    ".understand-anything/intermediate/structure-input-5.json": [],
+    ".understand-anything/intermediate/structure-input-6.json": [],
+    ".understand-anything/intermediate/structure-input-7.json": [],
+    ".understand-anything/intermediate/structure-input-8.json": [],
+    ".understand-anything/intermediate/structure-input-9.json": [],
+    ".understand-anything/intermediate/structure-result-1.json": [],
+    ".understand-anything/intermediate/structure-result-10.json": []
+  }
+}

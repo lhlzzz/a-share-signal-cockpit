@@ -1,0 +1,2510 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 4,
+  "filesSkipped": [],
+  "results": [
+    {
+      "path": "tests/test_data_contract.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 164,
+      "nonEmptyLines": 140,
+      "functions": [
+        {
+          "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "startLine": 9,
+          "endLine": 19,
+          "params": []
+        },
+        {
+          "name": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "startLine": 22,
+          "endLine": 32,
+          "params": []
+        },
+        {
+          "name": "test_eastmoney_quote_fields_feed_existing_measurements",
+          "startLine": 35,
+          "endLine": 42,
+          "params": []
+        },
+        {
+          "name": "test_eastmoney_capital_flow_reaches_core_alpha",
+          "startLine": 45,
+          "endLine": 52,
+          "params": []
+        },
+        {
+          "name": "test_capital_price_impact_distinguishes_flow_and_price_response",
+          "startLine": 61,
+          "endLine": 66,
+          "params": [
+            "flow",
+            "change",
+            "expected"
+          ]
+        },
+        {
+          "name": "test_same_day_research_observations_feed_existing_contexts",
+          "startLine": 69,
+          "endLine": 92,
+          "params": []
+        },
+        {
+          "name": "test_scanner_fixture_only_emits_canonical_market_observations",
+          "startLine": 95,
+          "endLine": 104,
+          "params": []
+        },
+        {
+          "name": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "startLine": 107,
+          "endLine": 128,
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ]
+        },
+        {
+          "name": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "startLine": 131,
+          "endLine": 148,
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ]
+        },
+        {
+          "name": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "startLine": 151,
+          "endLine": 164,
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "line": 9,
+          "isDefault": false
+        },
+        {
+          "name": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "line": 22,
+          "isDefault": false
+        },
+        {
+          "name": "test_eastmoney_quote_fields_feed_existing_measurements",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "test_eastmoney_capital_flow_reaches_core_alpha",
+          "line": 45,
+          "isDefault": false
+        },
+        {
+          "name": "test_capital_price_impact_distinguishes_flow_and_price_response",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "test_same_day_research_observations_feed_existing_contexts",
+          "line": 69,
+          "isDefault": false
+        },
+        {
+          "name": "test_scanner_fixture_only_emits_canonical_market_observations",
+          "line": 95,
+          "isDefault": false
+        },
+        {
+          "name": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "line": 107,
+          "isDefault": false
+        },
+        {
+          "name": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "line": 131,
+          "isDefault": false
+        },
+        {
+          "name": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "line": 151,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "pytest.raises",
+          "lineNumber": 10
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "canonical_snapshot",
+          "lineNumber": 11
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "pytest.raises",
+          "lineNumber": 12
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "canonical_snapshot",
+          "lineNumber": 13
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "canonical_snapshot({\"symbol\": \"600001\", \"source_time\": \"2026-08-25 14:39:45+08\"})[\"source_time\"].endswith",
+          "lineNumber": 17
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "canonical_snapshot",
+          "lineNumber": 17
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "build_feature_vector",
+          "lineNumber": 18
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "canonical_snapshot",
+          "lineNumber": 18
+        },
+        {
+          "caller": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "callee": "tuple",
+          "lineNumber": 19
+        },
+        {
+          "caller": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "callee": "pytest.raises",
+          "lineNumber": 23
+        },
+        {
+          "caller": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "callee": "canonical_snapshot",
+          "lineNumber": 24
+        },
+        {
+          "caller": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "callee": "pytest.raises",
+          "lineNumber": 28
+        },
+        {
+          "caller": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "callee": "attach_research_observations",
+          "lineNumber": 29
+        },
+        {
+          "caller": "test_eastmoney_quote_fields_feed_existing_measurements",
+          "callee": "build_feature_vector",
+          "lineNumber": 36
+        },
+        {
+          "caller": "test_eastmoney_quote_fields_feed_existing_measurements",
+          "callee": "canonical_snapshot",
+          "lineNumber": 36
+        },
+        {
+          "caller": "test_eastmoney_capital_flow_reaches_core_alpha",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 46
+        },
+        {
+          "caller": "test_capital_price_impact_distinguishes_flow_and_price_response",
+          "callee": "build_feature_vector",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_capital_price_impact_distinguishes_flow_and_price_response",
+          "callee": "canonical_snapshot",
+          "lineNumber": 62
+        },
+        {
+          "caller": "test_same_day_research_observations_feed_existing_contexts",
+          "callee": "canonical_snapshot",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_same_day_research_observations_feed_existing_contexts",
+          "callee": "attach_research_observations",
+          "lineNumber": 70
+        },
+        {
+          "caller": "test_same_day_research_observations_feed_existing_contexts",
+          "callee": "evaluate_candidate_bundle",
+          "lineNumber": 86
+        },
+        {
+          "caller": "test_scanner_fixture_only_emits_canonical_market_observations",
+          "callee": "build_canonical_snapshots",
+          "lineNumber": 96
+        },
+        {
+          "caller": "test_scanner_fixture_only_emits_canonical_market_observations",
+          "callee": "len",
+          "lineNumber": 101
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 111
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 112
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 113
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 114
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "recorder.append_production_decision",
+          "lineNumber": 122
+        },
+        {
+          "caller": "test_production_recorder_uses_repricing_freeze_and_pending_five_horizon_outcomes",
+          "callee": "path.exists",
+          "lineNumber": 123
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "scan_dir.mkdir",
+          "lineNumber": 135
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "canonical_path.write_text",
+          "lineNumber": 137
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "(scan_dir / \"xiaogu_scan_summary.json\").write_text",
+          "lineNumber": 141
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "str",
+          "lineNumber": 142
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 144
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "bundles.load_latest_snapshot_bundle",
+          "lineNumber": 145
+        },
+        {
+          "caller": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "callee": "str",
+          "lineNumber": 147
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "ledger.write_text",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "\"\\n\".join",
+          "lineNumber": 155
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "monkeypatch.setattr",
+          "lineNumber": 160
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "len",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "xiaogu_api.picks",
+          "lineNumber": 161
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "xiaogu_api.portfolio",
+          "lineNumber": 162
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "xiaogu_api.repricing_state",
+          "lineNumber": 163
+        },
+        {
+          "caller": "test_api_exposes_latest_portfolio_and_repricing_state",
+          "callee": "xiaogu_api.returns",
+          "lineNumber": 164
+        }
+      ],
+      "metrics": {
+        "importCount": 3,
+        "exportCount": 10,
+        "functionCount": 10,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "tests/test_no_future_leakage.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 9,
+      "nonEmptyLines": 6,
+      "functions": [
+        {
+          "name": "test_future_outcomes_are_rejected",
+          "startLine": 7,
+          "endLine": 9,
+          "params": [
+            "field"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "test_future_outcomes_are_rejected",
+          "line": 6,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "test_future_outcomes_are_rejected",
+          "callee": "pytest.raises",
+          "lineNumber": 8
+        },
+        {
+          "caller": "test_future_outcomes_are_rejected",
+          "callee": "canonical_snapshot",
+          "lineNumber": 9
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 1,
+        "functionCount": 1,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_forward_features.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 354,
+      "nonEmptyLines": 323,
+      "functions": [
+        {
+          "name": "_number",
+          "startLine": 21,
+          "endLine": 25,
+          "params": [
+            "value",
+            "default"
+          ]
+        },
+        {
+          "name": "_first",
+          "startLine": 28,
+          "endLine": 32,
+          "params": [
+            "payload",
+            "default"
+          ]
+        },
+        {
+          "name": "_clip",
+          "startLine": 35,
+          "endLine": 36,
+          "params": [
+            "value",
+            "low",
+            "high"
+          ]
+        },
+        {
+          "name": "_ratio",
+          "startLine": 39,
+          "endLine": 41,
+          "params": [
+            "numerator",
+            "denominator"
+          ]
+        },
+        {
+          "name": "_signed_strength",
+          "startLine": 44,
+          "endLine": 45,
+          "params": [
+            "value",
+            "scale"
+          ]
+        },
+        {
+          "name": "_percentile",
+          "startLine": 48,
+          "endLine": 52,
+          "params": [
+            "values",
+            "current"
+          ]
+        },
+        {
+          "name": "_raw",
+          "startLine": 55,
+          "endLine": 57,
+          "params": [
+            "snapshot"
+          ]
+        },
+        {
+          "name": "_market_stage",
+          "startLine": 60,
+          "endLine": 74,
+          "params": [
+            "raw",
+            "capital",
+            "supply",
+            "market"
+          ]
+        },
+        {
+          "name": "build_feature_vector",
+          "startLine": 77,
+          "endLine": 354,
+          "params": [
+            "snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_number",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "_first",
+          "line": 28,
+          "isDefault": false
+        },
+        {
+          "name": "_clip",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "_ratio",
+          "line": 39,
+          "isDefault": false
+        },
+        {
+          "name": "_signed_strength",
+          "line": 44,
+          "isDefault": false
+        },
+        {
+          "name": "_percentile",
+          "line": 48,
+          "isDefault": false
+        },
+        {
+          "name": "_raw",
+          "line": 55,
+          "isDefault": false
+        },
+        {
+          "name": "_market_stage",
+          "line": 60,
+          "isDefault": false
+        },
+        {
+          "name": "build_feature_vector",
+          "line": 77,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_number",
+          "callee": "float",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_number",
+          "callee": "str(value).replace(\",\", \"\").replace",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_number",
+          "callee": "str(value).replace",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_number",
+          "callee": "str",
+          "lineNumber": 23
+        },
+        {
+          "caller": "_first",
+          "callee": "payload.get",
+          "lineNumber": 30
+        },
+        {
+          "caller": "_clip",
+          "callee": "max",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_clip",
+          "callee": "min",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_clip",
+          "callee": "_number",
+          "lineNumber": 36
+        },
+        {
+          "caller": "_ratio",
+          "callee": "_number",
+          "lineNumber": 40
+        },
+        {
+          "caller": "_ratio",
+          "callee": "_clip",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_ratio",
+          "callee": "_number",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_signed_strength",
+          "callee": "_clip",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_signed_strength",
+          "callee": "_number",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_percentile",
+          "callee": "sorted",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_percentile",
+          "callee": "_number",
+          "lineNumber": 49
+        },
+        {
+          "caller": "_percentile",
+          "callee": "sum",
+          "lineNumber": 52
+        },
+        {
+          "caller": "_percentile",
+          "callee": "_number",
+          "lineNumber": 52
+        },
+        {
+          "caller": "_percentile",
+          "callee": "len",
+          "lineNumber": 52
+        },
+        {
+          "caller": "_raw",
+          "callee": "snapshot.get",
+          "lineNumber": 56
+        },
+        {
+          "caller": "_raw",
+          "callee": "isinstance",
+          "lineNumber": 57
+        },
+        {
+          "caller": "_market_stage",
+          "callee": "str(_first(raw, \"repricing_state\", \"market_stage\", default=\"\") or \"\").upper",
+          "lineNumber": 61
+        },
+        {
+          "caller": "_market_stage",
+          "callee": "str",
+          "lineNumber": 61
+        },
+        {
+          "caller": "_market_stage",
+          "callee": "_first",
+          "lineNumber": 61
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "canonical_snapshot",
+          "lineNumber": 81
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_raw",
+          "lineNumber": 82
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 83
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 83
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 83
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 84
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 84
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 84
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 85
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 85
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 85
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 86
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 86
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 86
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 87
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 87
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 88
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 88
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 89
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 89
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 90
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 90
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 91
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 91
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 92
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 92
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 93
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 93
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 93
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 94
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 94
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_ratio",
+          "lineNumber": 95
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 96
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 97
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 98
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 98
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 99
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 99
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 100
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 101
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 101
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 101
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 101
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 104
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 104
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 105
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 105
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 106
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "abs",
+          "lineNumber": 106
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 106
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "abs",
+          "lineNumber": 106
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 107
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 107
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 108
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 109
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 110
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "any",
+          "lineNumber": 113
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 114
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "row.get",
+          "lineNumber": 114
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 115
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 116
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 133
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 133
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 133
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 133
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 134
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 134
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 135
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 135
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 136
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 136
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 137
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 137
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 137
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 138
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 138
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 138
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 138
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 139
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 139
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 139
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 140
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 140
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 141
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 141
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 142
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 142
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 143
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 143
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "sum",
+          "lineNumber": 145
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "business.values",
+          "lineNumber": 145
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "len",
+          "lineNumber": 145
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 150
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 150
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 151
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 151
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 152
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 152
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 153
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 153
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 154
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 154
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 155
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "str(_first(raw, \"industry_cycle\", default=\"UNKNOWN\") or \"UNKNOWN\").upper",
+          "lineNumber": 156
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "str",
+          "lineNumber": 156
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 156
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 157
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 157
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 158
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 158
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "list",
+          "lineNumber": 159
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 159
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "future_demand.items",
+          "lineNumber": 161
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "sum",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "len",
+          "lineNumber": 162
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 166
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 166
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 167
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 167
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 168
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 168
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 169
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 169
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 170
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 170
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 171
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 171
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 172
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 172
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 173
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 173
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 174
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 174
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 175
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 175
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 181
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 182
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 183
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 186
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 205
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 205
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 206
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 208
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 208
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 209
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 209
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 210
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 210
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 211
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 211
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 212
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 212
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 213
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 213
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 214
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 214
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 215
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 215
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 216
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 216
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 217
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 217
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 217
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 220
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "sum",
+          "lineNumber": 220
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "isinstance",
+          "lineNumber": 220
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_number",
+          "lineNumber": 220
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "row.get",
+          "lineNumber": 220
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 221
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 229
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 231
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 244
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 244
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 244
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 244
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 244
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 245
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 245
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 246
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 246
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 247
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 247
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 248
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 248
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 249
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 249
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 249
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 250
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 250
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 251
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 251
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 251
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 252
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 252
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 254
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "str(_first(raw, \"market_regime\", default=\"UNKNOWN\") or \"UNKNOWN\").upper",
+          "lineNumber": 265
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "str",
+          "lineNumber": 265
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 265
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 268
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 268
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 271
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 271
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 272
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 272
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_market_stage",
+          "lineNumber": 274
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 275
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 275
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 276
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 282
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 282
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 286
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "sum",
+          "lineNumber": 286
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 287
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 288
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 289
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 290
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "bool",
+          "lineNumber": 296
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 296
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 296
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "bool",
+          "lineNumber": 297
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 297
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 297
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 298
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 298
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 299
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 299
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 300
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 300
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "bool",
+          "lineNumber": 301
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 301
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 303
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "float",
+          "lineNumber": 303
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "float",
+          "lineNumber": 303
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "raw.get",
+          "lineNumber": 307
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 308
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 308
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 309
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 309
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "max",
+          "lineNumber": 309
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 310
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_first",
+          "lineNumber": 310
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "_clip",
+          "lineNumber": 313
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 318
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 318
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 319
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "list",
+          "lineNumber": 321
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "result[family].update",
+          "lineNumber": 333
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 335
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 336
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "snap.get",
+          "lineNumber": 336
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "result.update",
+          "lineNumber": 339
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "key.lower",
+          "lineNumber": 339
+        },
+        {
+          "caller": "build_feature_vector",
+          "callee": "result.update",
+          "lineNumber": 342
+        }
+      ],
+      "metrics": {
+        "importCount": 1,
+        "exportCount": 9,
+        "functionCount": 9,
+        "classCount": 0
+      }
+    },
+    {
+      "path": "xiaogu_forward_snapshot.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 145,
+      "nonEmptyLines": 126,
+      "functions": [
+        {
+          "name": "_number",
+          "startLine": 19,
+          "endLine": 23,
+          "params": [
+            "value"
+          ]
+        },
+        {
+          "name": "_first",
+          "startLine": 26,
+          "endLine": 27,
+          "params": [
+            "row"
+          ]
+        },
+        {
+          "name": "_normalize_timestamp",
+          "startLine": 30,
+          "endLine": 34,
+          "params": [
+            "value"
+          ]
+        },
+        {
+          "name": "_future_fields",
+          "startLine": 37,
+          "endLine": 53,
+          "params": [
+            "payload",
+            "path"
+          ]
+        },
+        {
+          "name": "_assert_visible",
+          "startLine": 56,
+          "endLine": 59,
+          "params": [
+            "payload",
+            "location"
+          ]
+        },
+        {
+          "name": "attach_research_observations",
+          "startLine": 62,
+          "endLine": 93,
+          "params": [
+            "row",
+            "stock_capital_flow",
+            "earnings_preview",
+            "org_surveys",
+            "stock_reports",
+            "lhb",
+            "announcements",
+            "industry_flow",
+            "industry_reports",
+            "news",
+            "shareholder_changes",
+            "lockup_expiry"
+          ]
+        },
+        {
+          "name": "canonical_snapshot",
+          "startLine": 96,
+          "endLine": 142,
+          "params": [
+            "row",
+            "trade_date",
+            "source",
+            "source_time",
+            "timestamp",
+            "source_timestamp"
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "name": "_number",
+          "line": 19,
+          "isDefault": false
+        },
+        {
+          "name": "_first",
+          "line": 26,
+          "isDefault": false
+        },
+        {
+          "name": "_normalize_timestamp",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "_future_fields",
+          "line": 37,
+          "isDefault": false
+        },
+        {
+          "name": "_assert_visible",
+          "line": 56,
+          "isDefault": false
+        },
+        {
+          "name": "attach_research_observations",
+          "line": 62,
+          "isDefault": false
+        },
+        {
+          "name": "canonical_snapshot",
+          "line": 96,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "_number",
+          "callee": "float",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_number",
+          "callee": "str(value).replace(\",\", \"\").replace",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_number",
+          "callee": "str(value).replace",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_number",
+          "callee": "str",
+          "lineNumber": 21
+        },
+        {
+          "caller": "_first",
+          "callee": "next",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_first",
+          "callee": "row.get",
+          "lineNumber": 27
+        },
+        {
+          "caller": "_normalize_timestamp",
+          "callee": "str(value or \"\").strip",
+          "lineNumber": 31
+        },
+        {
+          "caller": "_normalize_timestamp",
+          "callee": "str",
+          "lineNumber": 31
+        },
+        {
+          "caller": "_normalize_timestamp",
+          "callee": "re.search",
+          "lineNumber": 32
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "isinstance",
+          "lineNumber": 39
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "payload.items",
+          "lineNumber": 41
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "any",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "pattern.search",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "str",
+          "lineNumber": 43
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "fields.append",
+          "lineNumber": 44
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "fields.extend",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "_future_fields",
+          "lineNumber": 45
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "isinstance",
+          "lineNumber": 47
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "enumerate",
+          "lineNumber": 50
+        },
+        {
+          "caller": "_future_fields",
+          "callee": "_future_fields",
+          "lineNumber": 51
+        },
+        {
+          "caller": "_assert_visible",
+          "callee": "_future_fields",
+          "lineNumber": 57
+        },
+        {
+          "caller": "_assert_visible",
+          "callee": "ValueError",
+          "lineNumber": 59
+        },
+        {
+          "caller": "_assert_visible",
+          "callee": "\",\".join",
+          "lineNumber": 59
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "dict",
+          "lineNumber": 78
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "enriched.update",
+          "lineNumber": 79
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "dict",
+          "lineNumber": 80
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "dict",
+          "lineNumber": 81
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 82
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 83
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 84
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 85
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "dict",
+          "lineNumber": 86
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 87
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 88
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 89
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "list",
+          "lineNumber": 90
+        },
+        {
+          "caller": "attach_research_observations",
+          "callee": "_assert_visible",
+          "lineNumber": 92
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "dict",
+          "lineNumber": 105
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_assert_visible",
+          "lineNumber": 106
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "isinstance",
+          "lineNumber": 107
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 107
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 107
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_assert_visible",
+          "lineNumber": 108
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_normalize_timestamp",
+          "lineNumber": 111
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 112
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str(_first(row, \"symbol\", \"code\", \"f12\") or \"\").strip().zfill",
+          "lineNumber": 115
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str(_first(row, \"symbol\", \"code\", \"f12\") or \"\").strip",
+          "lineNumber": 115
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str",
+          "lineNumber": 115
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 115
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str",
+          "lineNumber": 116
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 116
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str",
+          "lineNumber": 117
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 117
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 122
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 122
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 123
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 123
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 124
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 124
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 125
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 125
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 126
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 126
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 127
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 127
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 128
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 128
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "str",
+          "lineNumber": 129
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_first",
+          "lineNumber": 129
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "_number",
+          "lineNumber": 130
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 130
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 131
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 132
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 132
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 133
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 133
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 134
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 134
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 135
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 135
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "row.get",
+          "lineNumber": 136
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "hashlib.sha256(\n        json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str).encode(\"utf-8\")\n    ).hexdigest",
+          "lineNumber": 139
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "hashlib.sha256",
+          "lineNumber": 139
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str).encode",
+          "lineNumber": 140
+        },
+        {
+          "caller": "canonical_snapshot",
+          "callee": "json.dumps",
+          "lineNumber": 140
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 7,
+        "functionCount": 7,
+        "classCount": 0
+      }
+    }
+  ]
+}

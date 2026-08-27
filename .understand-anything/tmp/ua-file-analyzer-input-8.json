@@ -1,0 +1,91 @@
+{
+  "projectRoot": "/workspace/hermes-workspaces/xiaogu",
+  "batchFiles": [
+    {
+      "path": ".env.example",
+      "language": "config",
+      "sizeLines": 13,
+      "fileCategory": "config"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 256,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "CLAUDE.md",
+      "language": "markdown",
+      "sizeLines": 67,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 61,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "daily_pipeline.sh",
+      "language": "shell",
+      "sizeLines": 11,
+      "fileCategory": "script"
+    },
+    {
+      "path": "pytest.ini",
+      "language": "config",
+      "sizeLines": 4,
+      "fileCategory": "config"
+    },
+    {
+      "path": "requirements.txt",
+      "language": "txt",
+      "sizeLines": 9,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "rule_freeze_v0_1.json",
+      "language": "json",
+      "sizeLines": 162,
+      "fileCategory": "config"
+    },
+    {
+      "path": "start_api.sh",
+      "language": "shell",
+      "sizeLines": 7,
+      "fileCategory": "script"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_leakage_check.json",
+      "language": "json",
+      "sizeLines": 79,
+      "fileCategory": "config"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_manifest.json",
+      "language": "json",
+      "sizeLines": 324,
+      "fileCategory": "config"
+    },
+    {
+      "path": "v2_1_six_repo_real_integrated_summary.json",
+      "language": "json",
+      "sizeLines": 303,
+      "fileCategory": "config"
+    }
+  ],
+  "batchImportData": {
+    ".env.example": [],
+    "AGENTS.md": [],
+    "CLAUDE.md": [],
+    "README.md": [],
+    "daily_pipeline.sh": [],
+    "pytest.ini": [],
+    "requirements.txt": [],
+    "rule_freeze_v0_1.json": [],
+    "start_api.sh": [],
+    "v2_1_six_repo_real_integrated_leakage_check.json": [],
+    "v2_1_six_repo_real_integrated_manifest.json": [],
+    "v2_1_six_repo_real_integrated_summary.json": []
+  }
+}

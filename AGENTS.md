@@ -69,7 +69,7 @@ Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → F
 | Table | Purpose |
 |-------|---------|
 | picks | Daily pick decisions |
-| returns | T+1 returns (high/vwap/close) |
+| returns | T+1..T+5 profit-window outcomes (OHLC/realizable profit/MAE) |
 | scan_sessions | Scanner run metadata |
 | signal_effectiveness | Signal validity analysis |
 | signals | Raw signal snapshots |
@@ -165,7 +165,7 @@ A task is complete only if:
 2. **14:30** v2 Scanner runs again (afternoon data)
 3. **14:50** Runner evaluates candidates → PAPER_PICK or NO_PICK
 4. **14:50** Recorder writes to ledger
-5. **15:30** Filler backfills T+1 returns
+5. **20:00** Filler backfills T+1..T+5 profit-window outcomes
 6. **20:00** Signal effectiveness analysis
 
 ### Pipeline Command
@@ -205,7 +205,7 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 1. **新知识**：本任务是否产生可复用的架构结论、策略/研究证据、验证结论、运行规则或 Bug 根因？
 2. **Obsidian 更新**：有新知识时，是否需要更新既有笔记或新增一条可检索的项目记录？没有新知识时，明确不写，避免制造噪声。
 3. **Decisions**：重要架构决定写入 `ashare:decisions/`；只有跨项目的接口、模式或知识地图才同步摘要到 `shenlin:项目接口/` 或 `shenlin:想法池/`。
-4. **Lessons**：可复用的 Bug 根因、失效模式、修复验证和防回归措施写入 `ashare:失败案例/`（Lessons owner，首次需要时创建）；已验证的 PAPER_PICK/NO_PICK、T+1 结果、亏损归因和逻辑变化也是知识，分别写入 `决策日志/`、`跟踪记录/`、`失败案例/`；不要把行情原始明细、密钥或未验证猜测写入知识库。
+4. **Lessons**：可复用的 Bug 根因、失效模式、修复验证和防回归措施写入 `ashare:失败案例/`（Lessons owner，首次需要时创建）；已验证的 PAPER_PICK/NO_PICK、T+1..T+5 盈利窗口结果、亏损归因和逻辑变化也是知识，分别写入 `决策日志/`、`跟踪记录/`、`失败案例/`；不要把行情原始明细、密钥或未验证猜测写入知识库。
 
 通过项目配置的 `obsidian` MCP 管理 vault。默认 vault 是 `ashare`；删除操作保持禁用。知识记录必须包含日期、结论、证据/验证和受影响路径，且不得替代 source code、测试、运行日志或 Git diff 作为事实依据。
 
@@ -229,7 +229,7 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --force
 - 2026-06-25: Chase_high gate softened (sector/fund flow exemption)
 - 2026-06-26: Contrarian re-scoring with regime awareness
 - 2026-06-26: DB schema finalized (8 tables)
-- 2026-06-26: Return methodology: T+1 close as primary, high/vwap as reference
+- 2026-06-26: Return methodology: close is a historical compatibility field; realizable high is the primary 5D outcome
 - 2026-06-26: Score cap (95) for win rate improvement
 - 2026-06-26: Weekday blocklist (Mon/Fri blocked) for win rate improvement
 - 2026-06-26: Historical social-sentiment experiment retired; it is not part of the production chain.

@@ -1,298 +1,144 @@
 #!/usr/bin/env python3
-"""
-xiaogu 每日健康检查脚本
-使用方式: python3 scripts/xiaogu_daily_health_check.py [--json]
-在每个交易日开盘前运行，验证完整链路各环节状态。
-"""
+"""Validate the Xiaogu repricing production contract without mutating state."""
+from __future__ import annotations
 
 import argparse
 import json
 import os
 import py_compile
 import sys
-import tempfile
 
-# 确保从 workspace 根目录可以 import 各模块
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if WORKSPACE_ROOT not in sys.path:
     sys.path.insert(0, WORKSPACE_ROOT)
 
-SCANNER_FILE = os.path.join(WORKSPACE_ROOT, "scrapy_scanner", "runner_v2.py")
-RUNNER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_runner.py")
-FEATURES_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_features.py")
-SCHEDULER_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_scheduler.py")
-DAILY_PIPELINE_FILE = os.path.join(WORKSPACE_ROOT, "daily_pipeline.sh")
-FILLER_FILE  = os.path.join(WORKSPACE_ROOT, "xiaogu_forward_result_filler_v0_1.py")
-RETURN_BACKFILL_FILE = os.path.join(WORKSPACE_ROOT, "scripts", "xiaogu_return_backfill.py")
-SOCIAL_FILE = os.path.join(WORKSPACE_ROOT, "xiaogu_social_sentiment.py")
-LEDGER_FILE  = os.path.join(WORKSPACE_ROOT, "forward_paper_ledger_v0_1.jsonl")
+PATHS = {
+    "scanner": os.path.join(WORKSPACE_ROOT, "scrapy_scanner", "runner_v2.py"),
+    "runner": os.path.join(WORKSPACE_ROOT, "xiaogu_forward_runner.py"),
+    "features": os.path.join(WORKSPACE_ROOT, "xiaogu_forward_features.py"),
+    "decision": os.path.join(WORKSPACE_ROOT, "xiaogu_portfolio_decision.py"),
+    "filler": os.path.join(WORKSPACE_ROOT, "xiaogu_forward_result_filler_v0_1.py"),
+    "scheduler": os.path.join(WORKSPACE_ROOT, "xiaogu_scheduler.py"),
+    "pipeline": os.path.join(WORKSPACE_ROOT, "daily_pipeline.sh"),
+    "rule": os.path.join(WORKSPACE_ROOT, "rule_freeze_v0_1.json"),
+    "ledger": os.path.join(WORKSPACE_ROOT, "forward_paper_ledger_v0_1.jsonl"),
+}
 
 
-def _py_compile_check(path: str):
-    """返回 (ok: bool, detail: str)"""
-    if not os.path.isfile(path):
-        return False, f"file not found: {path}"
+def _text(name: str) -> str:
+    with open(PATHS[name], encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _compile(name: str):
     try:
-        py_compile.compile(path, doraise=True)
-        return True, ""
+        py_compile.compile(PATHS[name], doraise=True)
+        return True, "ok"
     except py_compile.PyCompileError as exc:
         return False, str(exc)
 
 
-def _read_file_text(path: str):
-    if not os.path.isfile(path):
-        return None
-    with open(path, encoding="utf-8") as fh:
-        return fh.read()
+def _contains(name: str, *tokens: str):
+    text = _text(name)
+    missing = [token for token in tokens if token not in text]
+    return not missing, "ok" if not missing else "missing: " + ", ".join(missing)
 
 
-# ---------------------------------------------------------------------------
-# 各检查项
-# ---------------------------------------------------------------------------
-
-def check_scanner_py_compile():
-    ok, detail = _py_compile_check(SCANNER_FILE)
-    return ok, detail or "ok"
+def check_scanner_contract():
+    return _contains("scanner", "canonical_snapshot", "DATA_CAPTURE_ONLY", '"selection": False')
 
 
-def check_runner_py_compile():
-    ok, detail = _py_compile_check(RUNNER_FILE)
-    return ok, detail or "ok"
+def check_decision_owner():
+    return _contains("decision", "def evaluate_candidate_bundle", "WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
 
 
-def check_filler_py_compile():
-    ok, detail = _py_compile_check(FILLER_FILE)
-    return ok, detail or "ok"
-
-
-def check_api_scanner_identity():
-    text = _read_file_text(SCANNER_FILE)
-    if text is None:
-        return False, "scanner file not found"
-    required_tokens = ("eastmoney_api_scan_v2", "v2_scanner_api", "api_get", "source_id")
-    missing = [token for token in required_tokens if token not in text]
-    return not missing, "direct API scanner identity confirmed" if not missing else f"missing: {', '.join(missing)}"
-
-
-DIRECT_NETWORK_TOKENS = ("urllib.request.urlopen", "DIRECT_OPENER.open", "requests.get", "requests.post")
-
-
-def _direct_network_hits(path: str, *, eastmoney_only: bool = False):
-    text = _read_file_text(path)
-    if text is None:
-        return [f"missing:{path}"]
-    hits = []
-    lines = text.splitlines()
-    for idx, line in enumerate(lines, 1):
-        if not any(token in line for token in DIRECT_NETWORK_TOKENS):
-            continue
-        context = "\n".join(lines[max(0, idx - 3): min(len(lines), idx + 3)]).lower()
-        if eastmoney_only and "eastmoney" not in context and "push2" not in context and "datacenter" not in context:
-            continue
-        hits.append(f"{os.path.relpath(path, WORKSPACE_ROOT)}:{idx}:{line.strip()}")
-    return hits
-
-
-def check_official_scanner_direct_network_boundary():
-    paths = [SCANNER_FILE, RUNNER_FILE, DAILY_PIPELINE_FILE, SCHEDULER_FILE]
-    hits = []
-    for path in paths:
-        hits.extend(_direct_network_hits(path, eastmoney_only=True))
-    return not hits, "official direct-network boundary PASS" if not hits else "; ".join(hits[:8])
-
-
-def check_post_pick_sidecar_direct_network_boundary():
-    paths = [FILLER_FILE, RETURN_BACKFILL_FILE, SOCIAL_FILE]
-    hits = []
-    for path in paths:
-        hits.extend(_direct_network_hits(path, eastmoney_only=False))
-    detail = "WARN/INFO only; no official pre-pick block"
-    if hits:
-        detail += ": " + "; ".join(hits[:8])
-    return True, detail
-
-
-def check_api_scanner_has_no_direct_urllib_fallback():
-    text = _read_file_text(SCANNER_FILE)
-    if text is None:
-        return False, "scanner file not found"
-    forbidden_tokens = ("DIRECT_OPENER", "urllib.request.urlopen")
-    present = [token for token in forbidden_tokens if token in text]
-    return not present, "no direct urllib Eastmoney fallback" if not present else f"found: {', '.join(present)}"
-
-
-def check_external_market_api_snapshot():
-    text = _read_file_text(SCANNER_FILE)
-    if text is None:
-        return False, "scanner file not found"
-    required_tokens = (
-        "fetch_external_market_snapshot",
-        "push2delay.eastmoney.com/api/qt/stock/get",
-        "100.DJIA",
-        "100.SPX",
-        "100.NDX",
-        "100.KS11",
+def check_price_formation_features():
+    return _contains(
+        "features", "BUSINESS", "FUTURE_DEMAND", "CAPITAL", "SUPPLY", "PRICING_GAP",
+        "REFLEXIVITY", "MARKET", "RISK", "EXECUTION", "capital_price_impact_state",
     )
-    missing = [token for token in required_tokens if token not in text]
-    return not missing, "Eastmoney external-market API snapshot confirmed" if not missing else f"missing: {', '.join(missing)}"
 
 
-def check_runner_requires_api_source():
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    required_tokens = ("API_A_SHARE_SOURCE_TOKENS = ('v2_scanner_api', 'eastmoney_api_scan_v2')", "is_active_api_source")
-    missing = [token for token in required_tokens if token not in text]
-    return not missing, "runner API source gate confirmed" if not missing else f"missing: {', '.join(missing)}"
-
-
-def check_runner_consumes_external_market_signal():
-    texts = [_read_file_text(path) for path in (RUNNER_FILE, FEATURES_FILE)]
-    if any(text is None for text in texts):
-        return False, "runner/features owner not found"
-    text = "\n".join(texts)
-    required_tokens = (
-        "external_market_signal_score",
-        "external_market_risk_off",
-        "external_market_supportive",
-    )
-    missing = [token for token in required_tokens if token not in text]
-    return not missing, "runner external-market feature owner confirmed" if not missing else f"missing: {', '.join(missing)}"
-
-
-def check_runner_has_formal_diagnostic_output():
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    ok = "formal_diagnostic_candidate" in text
-    return ok, "found" if ok else "string 'formal_diagnostic_candidate' not found in runner"
-
-
-def check_runner_has_closest_to_pick_output():
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    ok = "closest_to_pick_candidate" in text
-    return ok, "found" if ok else "string 'closest_to_pick_candidate' not found in runner"
-
-
-def check_sector_rotation_in_scoring():
-    """检查 runner 含 sector 相关评分逻辑（sector_opportunity 或 sector_fund_flow）。"""
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    ok = ("sector_opportunity" in text) or ("sector_fund_flow" in text)
-    return ok, "found sector signal" if ok else "no sector scoring signal found"
-
-
-def check_northbound_in_scoring():
-    """检查 runner 含北向/机构资金相关评分逻辑（hsgt 或 northbound 或 institutional）。"""
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    ok = any(kw in text for kw in ("hsgt", "northbound", "institutional", "north_bound"))
-    # 若 runner 本身确实没有这些词也记录实际情况
+def check_horizon_outcomes():
+    from xiaogu_horizon_evaluation import HORIZONS
+    ok, detail = _contains("filler", "fill_pending_results", "--pending", "calculate_horizon_outcomes")
     if not ok:
-        # 降级：检查 scanner 是否有相关 tab（sector_fund_flow 覆盖资金流向）
-        scanner_text = _read_file_text(SCANNER_FILE)
-        ok = scanner_text is not None and "sector_fund_flow" in scanner_text
-        detail = "sector_fund_flow tab present in scanner (northbound proxy)" if ok else "no northbound/hsgt signal found"
         return ok, detail
-    return True, "found northbound/institutional signal"
+    return tuple(HORIZONS) == (5,), "ok" if tuple(HORIZONS) == (5,) else "unexpected horizon set"
 
 
-def check_overheated_in_scoring():
-    text = _read_file_text(RUNNER_FILE)
-    if text is None:
-        return False, "runner file not found"
-    ok = "overheated_market" in text
-    return ok, "found" if ok else "string 'overheated_market' not found in runner"
+def check_scheduler_outcome_job():
+    return _contains("scheduler", "xiaogu_forward_result_filler_v0_1.py", "--pending")
 
 
-def check_filler_has_fill_all_pending():
-    text = _read_file_text(FILLER_FILE)
-    if text is None:
-        return False, "filler file not found"
-    ok = "--fill-all-pending" in text
-    return ok, "found" if ok else "'--fill-all-pending' not found in filler"
+def check_pipeline_chain():
+    return _contains("pipeline", "scrapy_scanner/runner_v2.py", "xiaogu_forward_runner.py")
+
+
+def check_rule_freeze():
+    with open(PATHS["rule"], encoding="utf-8") as handle:
+        rule = json.load(handle)
+    decisions = set(rule.get("allowed_decisions") or [])
+    required = {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"}
+    ok = (
+        rule.get("rule_version") == "repricing_production_v1"
+        and rule.get("production_owner") == "xiaogu_portfolio_decision.evaluate_candidate_bundle"
+        and decisions == required
+        and rule.get("evaluation", {}).get("horizons_days") == [5]
+        and rule.get("evaluation", {}).get("max_holding_boundary") == 5
+        and rule.get("alpha_contract", {}).get("target") == "PROFIT_WINDOW_5D"
+        and rule.get("paper_only") is True
+        and rule.get("auto_order") is False
+        and rule.get("broker_connected") is False
+    )
+    return ok, "ok" if ok else "repricing rule freeze contract mismatch"
 
 
 def check_ledger_readable():
-    if not os.path.isfile(LEDGER_FILE):
-        # 若 ledger 不存在则跳过（返回 PASS with note）
-        return True, "ledger not present — skipped"
+    if not os.path.exists(PATHS["ledger"]):
+        return True, "ledger not present - skipped"
     try:
-        with open(LEDGER_FILE, encoding="utf-8") as fh:
-            first = fh.readline()
-        if first.strip():
-            json.loads(first)  # 验证第一行是合法 JSON
-        return True, f"readable ({os.path.getsize(LEDGER_FILE)} bytes)"
-    except Exception as exc:
-        return False, f"read/parse error: {exc}"
+        with open(PATHS["ledger"], encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    json.loads(line)
+        return True, "ok"
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, repr(exc)
 
-
-# ---------------------------------------------------------------------------
-# 检查注册表
-# ---------------------------------------------------------------------------
 
 CHECKS = [
-    ("scanner_py_compile",              check_scanner_py_compile),
-    ("runner_py_compile",               check_runner_py_compile),
-    ("filler_py_compile",               check_filler_py_compile),
-    ("api_scanner_identity",            check_api_scanner_identity),
-    ("official_scanner_direct_network_boundary", check_official_scanner_direct_network_boundary),
-    ("post_pick_sidecar_direct_network_boundary", check_post_pick_sidecar_direct_network_boundary),
-    ("api_scanner_has_no_direct_urllib_fallback", check_api_scanner_has_no_direct_urllib_fallback),
-    ("external_market_api_snapshot",    check_external_market_api_snapshot),
-    ("runner_requires_api_source",      check_runner_requires_api_source),
-    ("runner_consumes_external_market_signal", check_runner_consumes_external_market_signal),
-    ("runner_has_formal_diagnostic_output", check_runner_has_formal_diagnostic_output),
-    ("runner_has_closest_to_pick_output", check_runner_has_closest_to_pick_output),
-    ("sector_rotation_in_scoring",      check_sector_rotation_in_scoring),
-    ("northbound_in_scoring",           check_northbound_in_scoring),
-    ("overheated_in_scoring",           check_overheated_in_scoring),
-    ("filler_has_fill_all_pending",     check_filler_has_fill_all_pending),
-    ("ledger_readable",                 check_ledger_readable),
+    *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
+    ("scanner_contract", check_scanner_contract),
+    ("decision_owner", check_decision_owner),
+    ("price_formation_features", check_price_formation_features),
+    ("horizon_outcomes", check_horizon_outcomes),
+    ("scheduler_outcome_job", check_scheduler_outcome_job),
+    ("pipeline_chain", check_pipeline_chain),
+    ("rule_freeze", check_rule_freeze),
+    ("ledger_readable", check_ledger_readable),
 ]
 
 
-def run_checks(as_json: bool = False):
-    results = []
-    passed = 0
-    for name, fn in CHECKS:
-        try:
-            ok, detail = fn()
-        except Exception as exc:
-            ok, detail = False, f"exception: {exc}"
-        results.append({"name": name, "ok": ok, "detail": detail})
-        if ok:
-            passed += 1
-
-    total = len(results)
-    failed = total - passed
-
-    if as_json:
-        print(json.dumps({"checks": results, "passed": passed, "total": total}, ensure_ascii=False, indent=2))
-    else:
-        for r in results:
-            tag = "[PASS]" if r["ok"] else "[FAIL]"
-            line = f"{tag} {r['name']}"
-            if r["detail"] and r["detail"] not in ("ok", "found"):
-                line += f" — {r['detail']}"
-            print(line)
-        print()
-        print(f"SUMMARY: {passed}/{total} checks passed")
-        print(f"EXIT_CODE: {0 if failed == 0 else 1}")
-
-    return failed == 0
-
-
-def main():
-    parser = argparse.ArgumentParser(description="xiaogu 每日健康检查")
-    parser.add_argument("--json", action="store_true", help="输出 JSON 格式")
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Xiaogu repricing production health check")
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    ok = run_checks(as_json=args.json)
-    sys.exit(0 if ok else 1)
+    results = []
+    for name, check in CHECKS:
+        try:
+            ok, detail = check()
+        except Exception as exc:
+            ok, detail = False, repr(exc)
+        results.append({"name": name, "ok": ok, "detail": detail})
+    payload = {"checks": results, "passed": sum(item["ok"] for item in results), "total": len(results)}
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        for result in results:
+            print(f"[{'PASS' if result['ok'] else 'FAIL'}] {result['name']}: {result['detail']}")
+        print(f"SUMMARY: {payload['passed']}/{payload['total']}")
+    raise SystemExit(0 if payload["passed"] == payload["total"] else 1)
 
 
 if __name__ == "__main__":

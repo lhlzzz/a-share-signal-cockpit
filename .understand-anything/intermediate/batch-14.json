@@ -1,0 +1,192 @@
+{
+  "scriptCompleted": true,
+  "filesAnalyzed": 1,
+  "filesSkipped": [
+    "xiaogu_factor_store.py",
+    "xiaogu_scanner_scoring.py"
+  ],
+  "results": [
+    {
+      "path": "xiaogu_scheduler.py",
+      "language": "python",
+      "fileCategory": "code",
+      "totalLines": 48,
+      "nonEmptyLines": 31,
+      "functions": [
+        {
+          "name": "is_trading_day",
+          "startLine": 17,
+          "endLine": 18,
+          "params": [
+            "check_date"
+          ]
+        },
+        {
+          "name": "_run",
+          "startLine": 21,
+          "endLine": 22,
+          "params": []
+        },
+        {
+          "name": "job_morning_scan",
+          "startLine": 25,
+          "endLine": 27,
+          "params": []
+        },
+        {
+          "name": "job_afternoon_scan_and_pick",
+          "startLine": 30,
+          "endLine": 32,
+          "params": []
+        },
+        {
+          "name": "job_horizon_evaluation",
+          "startLine": 35,
+          "endLine": 36,
+          "params": []
+        },
+        {
+          "name": "main",
+          "startLine": 39,
+          "endLine": 44,
+          "params": []
+        }
+      ],
+      "exports": [
+        {
+          "name": "is_trading_day",
+          "line": 17,
+          "isDefault": false
+        },
+        {
+          "name": "_run",
+          "line": 21,
+          "isDefault": false
+        },
+        {
+          "name": "job_morning_scan",
+          "line": 25,
+          "isDefault": false
+        },
+        {
+          "name": "job_afternoon_scan_and_pick",
+          "line": 30,
+          "isDefault": false
+        },
+        {
+          "name": "job_horizon_evaluation",
+          "line": 35,
+          "isDefault": false
+        },
+        {
+          "name": "main",
+          "line": 39,
+          "isDefault": false
+        }
+      ],
+      "callGraph": [
+        {
+          "caller": "is_trading_day",
+          "callee": "(check_date or datetime.now(TZ).date()).weekday",
+          "lineNumber": 18
+        },
+        {
+          "caller": "is_trading_day",
+          "callee": "datetime.now(TZ).date",
+          "lineNumber": 18
+        },
+        {
+          "caller": "is_trading_day",
+          "callee": "datetime.now",
+          "lineNumber": 18
+        },
+        {
+          "caller": "_run",
+          "callee": "subprocess.run",
+          "lineNumber": 22
+        },
+        {
+          "caller": "job_morning_scan",
+          "callee": "is_trading_day",
+          "lineNumber": 26
+        },
+        {
+          "caller": "job_morning_scan",
+          "callee": "_run",
+          "lineNumber": 27
+        },
+        {
+          "caller": "job_morning_scan",
+          "callee": "datetime.now",
+          "lineNumber": 27
+        },
+        {
+          "caller": "job_afternoon_scan_and_pick",
+          "callee": "is_trading_day",
+          "lineNumber": 31
+        },
+        {
+          "caller": "job_afternoon_scan_and_pick",
+          "callee": "subprocess.run",
+          "lineNumber": 32
+        },
+        {
+          "caller": "job_afternoon_scan_and_pick",
+          "callee": "datetime.now",
+          "lineNumber": 32
+        },
+        {
+          "caller": "job_horizon_evaluation",
+          "callee": "_run",
+          "lineNumber": 36
+        },
+        {
+          "caller": "main",
+          "callee": "BlockingScheduler",
+          "lineNumber": 40
+        },
+        {
+          "caller": "main",
+          "callee": "scheduler.add_job",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "CronTrigger",
+          "lineNumber": 41
+        },
+        {
+          "caller": "main",
+          "callee": "scheduler.add_job",
+          "lineNumber": 42
+        },
+        {
+          "caller": "main",
+          "callee": "CronTrigger",
+          "lineNumber": 42
+        },
+        {
+          "caller": "main",
+          "callee": "scheduler.add_job",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "CronTrigger",
+          "lineNumber": 43
+        },
+        {
+          "caller": "main",
+          "callee": "scheduler.start",
+          "lineNumber": 44
+        }
+      ],
+      "metrics": {
+        "importCount": 0,
+        "exportCount": 6,
+        "functionCount": 6,
+        "classCount": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+Found 14 batch files (14 logical batches, 0 multi-part):
+  batch-1.json: 55 nodes, 178 edges
+  batch-2.json: 13 nodes, 15 edges
+  batch-3.json: 33 nodes, 76 edges
+  batch-4.json: 9 nodes, 10 edges
+  batch-5.json: 6 nodes, 10 edges
+  batch-6.json: 1 nodes, 0 edges
+  batch-7.json: 8 nodes, 0 edges
+  batch-8.json: 16 nodes, 4 edges
+  batch-9.json: 6 nodes, 0 edges
+  batch-10.json: 5 nodes, 0 edges
+  batch-11.json: 20 nodes, 0 edges
+  batch-12.json: 9 nodes, 0 edges
+  batch-13.json: 63 nodes, 67 edges
+  batch-14.json: 5 nodes, 2 edges
+
+Input: 249 nodes, 362 edges
+
+Output: 249 nodes, 269 edges
+
+Imports edge recovery:
+  Recovered 0 `imports` edges from importMap (112 entries scanned)
+
+Written to /workspace/hermes-workspaces/xiaogu/.understand-anything/intermediate/assembled-graph.json (164 KB)

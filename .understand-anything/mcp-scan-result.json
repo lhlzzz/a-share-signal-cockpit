@@ -8,6 +8,78 @@
       "fileCategory": "config"
     },
     {
+      "path": ".claude/skills/buffett/references/01-thinking-frameworks.md",
+      "language": "markdown",
+      "sizeLines": 185,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/02-investment-philosophy.md",
+      "language": "markdown",
+      "sizeLines": 268,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/03-business-moat.md",
+      "language": "markdown",
+      "sizeLines": 266,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/04-management-governance.md",
+      "language": "markdown",
+      "sizeLines": 227,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/05-financial-metrics.md",
+      "language": "markdown",
+      "sizeLines": 135,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/06-valuation-capital.md",
+      "language": "markdown",
+      "sizeLines": 327,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/07-risk-behavior.md",
+      "language": "markdown",
+      "sizeLines": 228,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/references/08-industry-playbooks.md",
+      "language": "markdown",
+      "sizeLines": 505,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".claude/skills/buffett/SKILL.md",
+      "language": "markdown",
+      "sizeLines": 198,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".codebase-memory/.gitattributes",
+      "language": "unknown",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".codebase-memory/artifact.json",
+      "language": "json",
+      "sizeLines": 10,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".codebase-memory/graph.db.zst",
+      "language": "zst",
+      "sizeLines": 2321,
+      "fileCategory": "code"
+    },
+    {
       "path": ".env.example",
       "language": "config",
       "sizeLines": 13,
@@ -40,7 +112,7 @@
     {
       "path": ".plan-enforcer/combobulate.md",
       "language": "markdown",
-      "sizeLines": 9,
+      "sizeLines": 7,
       "fileCategory": "docs"
     },
     {
@@ -52,13 +124,13 @@
     {
       "path": ".plan-enforcer/discuss.md",
       "language": "markdown",
-      "sizeLines": 79,
+      "sizeLines": 68,
       "fileCategory": "docs"
     },
     {
       "path": ".plan-enforcer/ledger.md",
       "language": "markdown",
-      "sizeLines": 35,
+      "sizeLines": 29,
       "fileCategory": "docs"
     },
     {
@@ -100,31 +172,709 @@
     {
       "path": ".understand-anything/fingerprints.json",
       "language": "json",
-      "sizeLines": 19724,
+      "sizeLines": 4659,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/assemble-review.json",
+      "language": "json",
+      "sizeLines": 12,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/assembled-graph.json",
+      "language": "json",
+      "sizeLines": 5915,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-1.json",
+      "language": "json",
+      "sizeLines": 2160,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-10.json",
+      "language": "json",
+      "sizeLines": 69,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-11.json",
+      "language": "json",
+      "sizeLines": 264,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-12.json",
+      "language": "json",
+      "sizeLines": 121,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-13.json",
+      "language": "json",
+      "sizeLines": 1408,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-14.json",
+      "language": "json",
+      "sizeLines": 91,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-2.json",
+      "language": "json",
+      "sizeLines": 308,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-3.json",
+      "language": "json",
+      "sizeLines": 1081,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-4.json",
+      "language": "json",
+      "sizeLines": 212,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-5.json",
+      "language": "json",
+      "sizeLines": 161,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-6.json",
+      "language": "json",
+      "sizeLines": 17,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-7.json",
+      "language": "json",
+      "sizeLines": 108,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-8.json",
+      "language": "json",
+      "sizeLines": 240,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batch-9.json",
+      "language": "json",
+      "sizeLines": 82,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/batches.json",
+      "language": "json",
+      "sizeLines": 1491,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/deterministic-scan.json",
+      "language": "json",
+      "sizeLines": 699,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/fingerprint-input.json",
+      "language": "json",
+      "sizeLines": 117,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/import-input.json",
+      "language": "json",
+      "sizeLines": 670,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/import-map.json",
+      "language": "json",
+      "sizeLines": 199,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/layers.json",
+      "language": "json",
+      "sizeLines": 173,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/review.json",
+      "language": "json",
+      "sizeLines": 107,
       "fileCategory": "config"
     },
     {
       "path": ".understand-anything/intermediate/scan-result.json",
       "language": "json",
-      "sizeLines": 725,
+      "sizeLines": 853,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-1.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-10.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-11.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-2.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-3.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-4.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-5.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-6.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-7.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-8.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-input-9.json",
+      "language": "json",
+      "sizeLines": 0,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-1.json",
+      "language": "json",
+      "sizeLines": 62941,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-10.json",
+      "language": "json",
+      "sizeLines": 9460,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-11.json",
+      "language": "json",
+      "sizeLines": 1537,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-2.json",
+      "language": "json",
+      "sizeLines": 30994,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-3.json",
+      "language": "json",
+      "sizeLines": 31524,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-4.json",
+      "language": "json",
+      "sizeLines": 1961,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-5.json",
+      "language": "json",
+      "sizeLines": 9674,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-6.json",
+      "language": "json",
+      "sizeLines": 37,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-7.json",
+      "language": "json",
+      "sizeLines": 847,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-8.json",
+      "language": "json",
+      "sizeLines": 290,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/structure-result-9.json",
+      "language": "json",
+      "sizeLines": 196,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/intermediate/tour.json",
+      "language": "json",
+      "sizeLines": 106,
       "fileCategory": "config"
     },
     {
       "path": ".understand-anything/knowledge-graph.json",
       "language": "json",
-      "sizeLines": 64032,
+      "sizeLines": 5915,
       "fileCategory": "config"
     },
     {
       "path": ".understand-anything/mcp-scan-result.json",
       "language": "json",
-      "sizeLines": 620,
+      "sizeLines": 698,
       "fileCategory": "config"
     },
     {
       "path": ".understand-anything/meta.json",
       "language": "json",
       "sizeLines": 6,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp-validate.cjs",
+      "language": "javascript",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/assemble-batches.mjs",
+      "language": "javascript",
+      "sizeLines": 254,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/batches.stderr",
+      "language": "stderr",
+      "sizeLines": 3,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/finalize-graph.mjs",
+      "language": "javascript",
+      "sizeLines": 130,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/import.stderr",
+      "language": "stderr",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/merge.stderr",
+      "language": "stderr",
+      "sizeLines": 24,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/scan.stderr",
+      "language": "stderr",
+      "sizeLines": 1,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-1.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-1.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-10.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-10.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-11.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-11.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-12.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-12.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-13.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-13.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-14.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-14.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-2.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-2.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-3.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-3.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-4.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-4.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-5.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-5.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-6.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-6.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-7.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-7.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-8.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-8.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-9.stderr",
+      "language": "stderr",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/structure-9.stdout",
+      "language": "stdout",
+      "sizeLines": 0,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-1.json",
+      "language": "json",
+      "sizeLines": 58,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-10.json",
+      "language": "json",
+      "sizeLines": 41,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-11.json",
+      "language": "json",
+      "sizeLines": 146,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-12.json",
+      "language": "json",
+      "sizeLines": 69,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-13.json",
+      "language": "json",
+      "sizeLines": 181,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-14.json",
+      "language": "json",
+      "sizeLines": 27,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-2.json",
+      "language": "json",
+      "sizeLines": 49,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-3.json",
+      "language": "json",
+      "sizeLines": 40,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-4.json",
+      "language": "json",
+      "sizeLines": 42,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-5.json",
+      "language": "json",
+      "sizeLines": 45,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-6.json",
+      "language": "json",
+      "sizeLines": 13,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-7.json",
+      "language": "json",
+      "sizeLines": 62,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-8.json",
+      "language": "json",
+      "sizeLines": 90,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-analyzer-input-9.json",
+      "language": "json",
+      "sizeLines": 48,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-1.json",
+      "language": "json",
+      "sizeLines": 15903,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-10.json",
+      "language": "json",
+      "sizeLines": 196,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-11.json",
+      "language": "json",
+      "sizeLines": 706,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-12.json",
+      "language": "json",
+      "sizeLines": 330,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-13.json",
+      "language": "json",
+      "sizeLines": 4696,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-14.json",
+      "language": "json",
+      "sizeLines": 528,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-2.json",
+      "language": "json",
+      "sizeLines": 967,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-3.json",
+      "language": "json",
+      "sizeLines": 5386,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-4.json",
+      "language": "json",
+      "sizeLines": 1143,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-5.json",
+      "language": "json",
+      "sizeLines": 518,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-6.json",
+      "language": "json",
+      "sizeLines": 37,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-7.json",
+      "language": "json",
+      "sizeLines": 854,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-8.json",
+      "language": "json",
+      "sizeLines": 839,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-file-extract-results-9.json",
+      "language": "json",
+      "sizeLines": 290,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-import-map-input.json",
+      "language": "json",
+      "sizeLines": 676,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-import-map-output.json",
+      "language": "json",
+      "sizeLines": 164,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-inline-validate.cjs",
+      "language": "javascript",
+      "sizeLines": 42,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/tmp/ua-scan-files.json",
+      "language": "json",
+      "sizeLines": 705,
       "fileCategory": "config"
     },
     {
@@ -142,32 +892,20 @@
     {
       "path": "daily_pipeline.sh",
       "language": "shell",
-      "sizeLines": 551,
+      "sizeLines": 11,
       "fileCategory": "script"
     },
     {
-      "path": "docs/architecture.md",
+      "path": "docs/plans/2026-08-26-final-repricing-rebuild.md",
       "language": "markdown",
-      "sizeLines": 176,
+      "sizeLines": 62,
       "fileCategory": "docs"
     },
     {
-      "path": "docs/plans/2026-08-21-forward-runner-decomposition.md",
-      "language": "markdown",
-      "sizeLines": 512,
-      "fileCategory": "docs"
-    },
-    {
-      "path": "docs/plans/2026-08-25-t1-net-return-production-rewrite.md",
-      "language": "markdown",
-      "sizeLines": 112,
-      "fileCategory": "docs"
-    },
-    {
-      "path": "public/index.html",
-      "language": "html",
-      "sizeLines": 678,
-      "fileCategory": "markup"
+      "path": "integrations/tradingagents_adapter.py",
+      "language": "python",
+      "sizeLines": 36,
+      "fileCategory": "code"
     },
     {
       "path": "pytest.ini",
@@ -190,7 +928,7 @@
     {
       "path": "rule_freeze_v0_1.json",
       "language": "json",
-      "sizeLines": 162,
+      "sizeLines": 47,
       "fileCategory": "config"
     },
     {
@@ -208,7 +946,7 @@
     {
       "path": "scrapy_scanner/runner_v2.py",
       "language": "python",
-      "sizeLines": 4840,
+      "sizeLines": 424,
       "fileCategory": "code"
     },
     {
@@ -218,15 +956,9 @@
       "fileCategory": "script"
     },
     {
-      "path": "scripts/xiaogu_bounded_hard_backtest_three_patterns.py",
-      "language": "python",
-      "sizeLines": 792,
-      "fileCategory": "code"
-    },
-    {
       "path": "scripts/xiaogu_daily_health_check.py",
       "language": "python",
-      "sizeLines": 299,
+      "sizeLines": 143,
       "fileCategory": "code"
     },
     {
@@ -236,69 +968,15 @@
       "fileCategory": "code"
     },
     {
-      "path": "scripts/xiaogu_db_backfill.py",
-      "language": "python",
-      "sizeLines": 815,
-      "fileCategory": "code"
-    },
-    {
       "path": "scripts/xiaogu_db_init.sql",
       "language": "sql",
-      "sizeLines": 535,
+      "sizeLines": 43,
       "fileCategory": "data"
     },
     {
       "path": "scripts/xiaogu_ensure_database.py",
       "language": "python",
-      "sizeLines": 221,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_knowledge_asset_export.py",
-      "language": "python",
-      "sizeLines": 847,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_ledger_migrate.py",
-      "language": "python",
-      "sizeLines": 683,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_loss_case_cluster_report.py",
-      "language": "python",
-      "sizeLines": 347,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_profit_candidates_shadow.py",
-      "language": "python",
-      "sizeLines": 1688,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_regime_shadow_replay.py",
-      "language": "python",
-      "sizeLines": 386,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_return_backfill.py",
-      "language": "python",
-      "sizeLines": 917,
-      "fileCategory": "code"
-    },
-    {
-      "path": "scripts/xiaogu_safe_self_evolve.py",
-      "language": "python",
-      "sizeLines": 206,
-      "fileCategory": "code"
-    },
-    {
-      "path": "six_repo_integration_real_v2_1.py",
-      "language": "python",
-      "sizeLines": 173,
+      "sizeLines": 4,
       "fileCategory": "code"
     },
     {
@@ -308,319 +986,159 @@
       "fileCategory": "script"
     },
     {
-      "path": "tests/test_buyability_sealed_limit_infer.py",
+      "path": "tests/test_data_contract.py",
       "language": "python",
-      "sizeLines": 367,
+      "sizeLines": 164,
       "fileCategory": "code"
     },
     {
-      "path": "tests/test_db_backfill.py",
+      "path": "tests/test_historical_replay.py",
       "language": "python",
-      "sizeLines": 1569,
+      "sizeLines": 26,
       "fileCategory": "code"
     },
     {
-      "path": "tests/test_formal_rank_alignment_and_defensive_shell.py",
+      "path": "tests/test_no_future_leakage.py",
       "language": "python",
-      "sizeLines": 903,
+      "sizeLines": 9,
       "fileCategory": "code"
     },
     {
-      "path": "tests/test_knowledge_asset_export.py",
+      "path": "tests/test_production_decision.py",
       "language": "python",
-      "sizeLines": 279,
+      "sizeLines": 83,
       "fileCategory": "code"
     },
     {
-      "path": "tests/test_l3_hydrate_fair_aux_and_nopick.py",
+      "path": "tests/test_return_calculation.py",
       "language": "python",
-      "sizeLines": 146,
+      "sizeLines": 66,
       "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_post_limitup_and_quality_escape_tightening.py",
-      "language": "python",
-      "sizeLines": 145,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_profit_candidates_shadow.py",
-      "language": "python",
-      "sizeLines": 504,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_profit_shadow_and_mainline_soft.py",
-      "language": "python",
-      "sizeLines": 45,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_regime_policy.py",
-      "language": "python",
-      "sizeLines": 161,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_scanner_transport_direct.py",
-      "language": "python",
-      "sizeLines": 338,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_xiaogu_a_share_forward_runner.py",
-      "language": "python",
-      "sizeLines": 12270,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_xiaogu_api.py",
-      "language": "python",
-      "sizeLines": 899,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_xiaogu_runtime_payload_evidence_vector.py",
-      "language": "python",
-      "sizeLines": 271,
-      "fileCategory": "code"
-    },
-    {
-      "path": "tests/test_xiaogu_scheduler.py",
-      "language": "python",
-      "sizeLines": 454,
-      "fileCategory": "code"
-    },
-    {
-      "path": "v2_1_six_repo_real_integrated_leakage_check.json",
-      "language": "json",
-      "sizeLines": 79,
-      "fileCategory": "config"
-    },
-    {
-      "path": "v2_1_six_repo_real_integrated_manifest.json",
-      "language": "json",
-      "sizeLines": 324,
-      "fileCategory": "config"
-    },
-    {
-      "path": "v2_1_six_repo_real_integrated_summary.json",
-      "language": "json",
-      "sizeLines": 303,
-      "fileCategory": "config"
     },
     {
       "path": "xiaogu_api.py",
       "language": "python",
-      "sizeLines": 3553,
+      "sizeLines": 76,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_backtest_v0_1.py",
       "language": "python",
-      "sizeLines": 5206,
+      "sizeLines": 80,
       "fileCategory": "code"
     },
     {
-      "path": "xiaogu_case_vector_store.py",
+      "path": "xiaogu_core_alpha.py",
       "language": "python",
-      "sizeLines": 1002,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_data_repair_v0_1.py",
-      "language": "python",
-      "sizeLines": 347,
+      "sizeLines": 145,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_db.py",
       "language": "python",
-      "sizeLines": 2800,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_eastmoney_tail_scan_v0_2.py",
-      "language": "python",
-      "sizeLines": 334,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_evidence_card.py",
-      "language": "python",
-      "sizeLines": 290,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_factor_store.py",
-      "language": "python",
-      "sizeLines": 112,
+      "sizeLines": 83,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_bundle_io.py",
       "language": "python",
-      "sizeLines": 1259,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_diagnostics.py",
-      "language": "python",
-      "sizeLines": 889,
+      "sizeLines": 46,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_eligibility.py",
       "language": "python",
-      "sizeLines": 2595,
+      "sizeLines": 56,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_features.py",
       "language": "python",
-      "sizeLines": 2802,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_gates.py",
-      "language": "python",
-      "sizeLines": 168,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_host_binding.py",
-      "language": "python",
-      "sizeLines": 49,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_judge_scoreboard_v0_1.py",
-      "language": "python",
-      "sizeLines": 848,
+      "sizeLines": 314,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_paper_recorder_v0_1.py",
       "language": "python",
-      "sizeLines": 159,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_persistence.py",
-      "language": "python",
-      "sizeLines": 148,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_forward_ranking.py",
-      "language": "python",
-      "sizeLines": 1278,
+      "sizeLines": 226,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_result_filler_v0_1.py",
       "language": "python",
-      "sizeLines": 1317,
+      "sizeLines": 238,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_runner.py",
       "language": "python",
-      "sizeLines": 5164,
+      "sizeLines": 62,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_forward_snapshot.py",
       "language": "python",
-      "sizeLines": 407,
+      "sizeLines": 141,
       "fileCategory": "code"
     },
     {
-      "path": "xiaogu_native_repo_runtime_v0_1.py",
+      "path": "xiaogu_horizon_evaluation.py",
       "language": "python",
-      "sizeLines": 1688,
+      "sizeLines": 63,
       "fileCategory": "code"
     },
     {
-      "path": "xiaogu_pick_validator.py",
+      "path": "xiaogu_portfolio_decision.py",
       "language": "python",
-      "sizeLines": 307,
+      "sizeLines": 131,
       "fileCategory": "code"
     },
     {
-      "path": "xiaogu_regime_policy.py",
+      "path": "xiaogu_research_context.py",
       "language": "python",
-      "sizeLines": 570,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_runtime_payload.py",
-      "language": "python",
-      "sizeLines": 395,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_scanner_scoring.py",
-      "language": "python",
-      "sizeLines": 4908,
+      "sizeLines": 167,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_scheduler.py",
       "language": "python",
-      "sizeLines": 208,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_signal_effectiveness_v0_1.py",
-      "language": "python",
-      "sizeLines": 4183,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_social_sentiment.py",
-      "language": "python",
-      "sizeLines": 504,
+      "sizeLines": 48,
       "fileCategory": "code"
     },
     {
       "path": "xiaogu_utils.py",
       "language": "python",
-      "sizeLines": 157,
-      "fileCategory": "code"
-    },
-    {
-      "path": "xiaogu_v2_1_six_repo_real_integrated.py",
-      "language": "python",
-      "sizeLines": 1870,
+      "sizeLines": 115,
       "fileCategory": "code"
     }
   ],
-  "totalFiles": 99,
+  "totalFiles": 185,
   "filteredByIgnore": 0,
-  "estimatedComplexity": "moderate",
+  "estimatedComplexity": "large",
   "stats": {
-    "filesScanned": 99,
+    "filesScanned": 185,
     "byCategory": {
-      "config": 14,
+      "config": 89,
+      "docs": 23,
+      "code": 68,
       "infra": 1,
-      "code": 63,
-      "docs": 16,
       "script": 3,
-      "markup": 1,
       "data": 1
     },
     "byLanguage": {
-      "json": 12,
+      "json": 87,
+      "markdown": 22,
+      "unknown": 2,
+      "zst": 1,
       "config": 2,
       "yaml": 1,
       "jsonl": 2,
-      "markdown": 15,
-      "unknown": 1,
+      "javascript": 4,
+      "stderr": 18,
+      "stdout": 14,
       "shell": 3,
-      "html": 1,
+      "python": 27,
       "txt": 1,
-      "python": 60,
       "sql": 1
     }
   }
