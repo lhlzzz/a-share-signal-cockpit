@@ -4,7 +4,7 @@
   "done": 8,
   "verified": 8,
   "doneUnverified": 0,
-  "total": null,
+  "total": 8,
   "scope": null,
   "taskId": null,
   "taskName": null,
@@ -12,7 +12,7 @@
   "projectRoot": "/workspace/hermes-workspaces/xiaogu",
   "sessionId": null,
   "transcriptPath": null,
-  "updatedAt": "2026-08-27T12:20:00+08:00",
+  "updatedAt": "2026-08-28T10:22:00Z",
   "title": "2026-08-26-final-repricing-rebuild.md",
-  "source": "review-cli"
+  "source": "completion-verification"
 }

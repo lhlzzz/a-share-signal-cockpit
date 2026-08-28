@@ -883,6 +883,7 @@ def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any]
         "entry_price_source": decision.get("entry_price_source"),
         "feature_vector": decision.get("feature_vector"),
         "canonical_snapshot": decision.get("canonical_snapshot"),
+        "future_buyer_map": decision.get("future_buyer_map"),
         "core_alpha": {
             key: alpha.get(key)
             for key in (
@@ -890,7 +891,8 @@ def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any]
                 "expected_time_to_profit", "expected_mae_5d", "repricing_state",
                 "accumulation_phase", "capital_convergence",
                 "profit_window_feature_values", "axes", "supply_absorption",
-                "future_buyer_capacity", "pricing_gap", "execution_feasibility",
+                "capital_price_impact", "real_pricing_gap", "repricing_probability",
+                "future_buyer_capacity", "future_buyer_evidence", "pricing_gap", "execution_feasibility",
                 "downside_risk", "alpha_version", "feature_version",
             )
         },
@@ -1525,8 +1527,10 @@ def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     DEFAULT_CALIBRATION_ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
+    calibration = dict(report.get("calibration") or {})
+    calibration["production_gates"] = report.get("production_gates") or {}
     DEFAULT_CALIBRATION_ARTIFACT.write_text(
-        json.dumps(report.get("calibration") or {}, ensure_ascii=False, indent=2, default=str),
+        json.dumps(calibration, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
     print(json.dumps({

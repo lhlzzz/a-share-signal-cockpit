@@ -9,8 +9,12 @@ from xiaogu_backtest_v0_1 import (
     persist_historical_replay,
     supplement_database_future_prices,
 )
-from xiaogu_horizon_evaluation import target_quality_gate
-from xiaogu_horizon_evaluation import evaluate_replay
+from xiaogu_horizon_evaluation import (
+    _probability_separation,
+    diagnose_features,
+    evaluate_replay,
+    target_quality_gate,
+)
 
 
 def _return_row(**kwargs):
@@ -83,6 +87,59 @@ def test_evaluation_reports_mfe_and_mae_for_diagnostic_groups():
     }])["horizon_metrics"]["PROFIT_WINDOW_5D"]
     assert metrics["mean_mfe"] == pytest.approx(0.08)
     assert metrics["mean_mae"] == pytest.approx(-0.04)
+
+
+def test_feature_diagnostics_marks_zero_filled_production_inputs_missing():
+    row = {
+        "target_quality": "CANONICAL",
+        "profit_window": True,
+        "max_daily_bar_profit_opportunity_5d": 0.03,
+        "current_decision_payload": {
+            "core_alpha": {
+                "profit_window_feature_values": {
+                    "capital_persistence": 0.0,
+                    "supply_absorption": 0.0,
+                    "pricing_gap": 0.1,
+                },
+                "axes": {"MARKET": 0.5},
+            },
+            "feature_vector": {"MARKET": {"score": 0.5}},
+            "canonical_snapshot": {"raw": {}},
+        },
+    }
+    diagnostics = diagnose_features([row], feature_names=("capital_persistence", "supply_absorption", "pricing_gap"))
+    assert diagnostics["features"]["capital_persistence"]["missing_rate"] == 1.0
+    assert diagnostics["features"]["supply_absorption"]["missing_rate"] == 1.0
+    assert diagnostics["features"]["pricing_gap"]["missing_rate"] == 1.0
+    assert set(diagnostics["constant_features"]) == {"capital_persistence", "supply_absorption", "pricing_gap"}
+    assert diagnostics["label_counts"] == {"positive": 1, "negative": 0, "missing": 0}
+
+
+def test_probability_separation_blocks_constant_predictions():
+    rows = [{"profit_window": True}, {"profit_window": False}]
+    separation = _probability_separation(rows, [0.55, 0.55])
+    assert separation["status"] == "MODEL_NOT_DISCRIMINATIVE"
+
+
+def test_feature_diagnostics_accepts_only_complete_future_buyer_evidence():
+    row = {
+        "profit_window": True,
+        "current_decision_payload": {
+            "core_alpha": {"profit_window_feature_values": {"future_buyer_evidence": 0.8}},
+            "future_buyer_map": {
+                "potential_next_buyer": [{
+                    "buyer": "institutions",
+                    "capacity": 0.8,
+                    "evidence_status": "OBSERVED",
+                    "evidence": "allocation notice",
+                    "source": "exchange_filing",
+                    "observed_at": "2026-08-28T14:00:00+08:00",
+                }],
+            },
+        },
+    }
+    diagnostics = diagnose_features([row], feature_names=("future_buyer_evidence",))
+    assert diagnostics["features"]["future_buyer_evidence"]["missing_rate"] == 0.0
 
 
 def test_profit_window_uses_cost_adjusted_high_not_close():

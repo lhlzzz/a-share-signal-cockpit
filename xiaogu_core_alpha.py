@@ -128,19 +128,37 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, 
         model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return 0.0, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}"}
-    status = str(model.get("status") or "").upper()
-    if status not in {"CALIBRATED", "VALIDATED"}:
+    artifact_status = str(model.get("status") or "").upper()
+    if artifact_status not in {"CALIBRATED", "EXPERIMENTAL", "VALIDATED"}:
         return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_STATUS_INVALID"}
     names = model.get("feature_names") or []
     coefficients = model.get("coefficients") or []
     if len(names) != len(coefficients):
         return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_CONTRACT_INVALID"}
+    oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
+    production_gates = model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {}
+    required_gates = (
+        "data_quality",
+        "oos_pass",
+        "monotonicity",
+        "probability_separation",
+        "full_alpha_baseline_increment",
+        "capital_supply_repricing_increment",
+    )
+    gates_pass = all(production_gates.get(name) is True for name in required_gates)
+    validation_status = (
+        "VALIDATED"
+        if artifact_status == "VALIDATED" and oos.get("passed") is True and gates_pass
+        else "EXPERIMENTAL"
+    )
     logit = float(model.get("intercept") or 0.0) + sum(float(weight) * values.get(name, 0.0) for name, weight in zip(names, coefficients))
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
     return _clip(probability), {
-        "status": status,
+        "status": artifact_status,
+        "validation_status": validation_status,
         "model_id": model.get("model_id"),
-        "oos": model.get("oos"),
+        "oos": oos,
+        "production_gates": production_gates,
     }
 
 
@@ -207,13 +225,20 @@ def build_core_alpha(
         convergence["score"], supply["supply_absorption"], gap["score"], probability_features["repricing_state"]
     )
     # Expected outcome fields are model outputs, not deterministic transforms
-    # of the same-day evidence.  Keep them absent until an OOS-validated
-    # calibration artifact supplies them; this prevents an unvalidated alpha
-    # from manufacturing a positive expected return.
-    expected_max_profit_5d = None
-    expected_mae_5d = None
-    expected_time_to_profit = None
-    expected_net_profit_window = None
+    # of same-day evidence.  They are only released by an OOS-validated
+    # artifact; the stored outcome is a daily-bar research approximation.
+    model_status = calibration.get("validation_status", calibration.get("status"))
+    outcome = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
+    if model_status == "VALIDATED":
+        expected_max_profit_5d = outcome.get("mean_max_profit_5d", outcome.get("mean_profit"))
+        expected_mae_5d = outcome.get("mean_mae")
+        expected_time_to_profit = outcome.get("average_time_to_profit")
+        expected_net_profit_window = outcome.get("mean_net_profit", outcome.get("mean_profit"))
+    else:
+        expected_max_profit_5d = None
+        expected_mae_5d = None
+        expected_time_to_profit = None
+        expected_net_profit_window = None
 
     readiness = {
         "BUSINESS_READY": axes["BUSINESS"] >= 0.50,
@@ -228,15 +253,14 @@ def build_core_alpha(
         "MARKET_READY": market["score"] >= 0.35,
         "COMPLETION_CLEAR": not completion["completed"],
         "PROFIT_WINDOW_READY": (
-            calibration["status"] == "VALIDATED"
+            model_status == "VALIDATED"
             and profit_window_probability >= 0.45
             and expected_net_profit_window is not None
             and expected_net_profit_window > 0
         ),
     }
     thesis_score = _mean(*axes.values(), risk["score"], execution_feasibility)
-    model_status = calibration["status"]
-    core_alpha_status = calibration["status"]
+    core_alpha_status = model_status
     contradiction = integrated.get("contradiction") if isinstance(integrated.get("contradiction"), dict) else integrated
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
     contradiction_veto = contradiction_status in {"BEARISH", "VETO"} or bool(contradiction.get("veto"))
@@ -266,7 +290,11 @@ def build_core_alpha(
         "model_id": MODEL_ID,
         "model_status": model_status,
         "core_alpha_status": core_alpha_status,
-        "output_status": "PAPER_PRODUCTION" if model_status == "VALIDATED" else "DATA_INSUFFICIENT",
+        "output_status": (
+            "PAPER_PRODUCTION" if model_status == "VALIDATED"
+            else "EXPERIMENTAL" if model_status == "EXPERIMENTAL"
+            else "DATA_INSUFFICIENT"
+        ),
         "alpha_version": MODEL_ID,
         "feature_version": FEATURE_VERSION,
         "target": "PROFIT_WINDOW_5D",
@@ -328,6 +356,10 @@ def build_core_alpha(
         "contradiction": {"status": contradiction_status, "veto": contradiction_veto},
         "thesis": thesis,
         "lineage_id": features["lineage_id"],
-        "expected_return_status": "VALIDATED" if model_status == "VALIDATED" else "DATA_INSUFFICIENT",
+        "expected_return_status": (
+            "VALIDATED" if model_status == "VALIDATED"
+            else "EXPERIMENTAL" if model_status == "EXPERIMENTAL"
+            else "DATA_INSUFFICIENT"
+        ),
         "model_validation": calibration,
     }
