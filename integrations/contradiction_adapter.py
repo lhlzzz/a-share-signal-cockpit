@@ -1,9 +1,9 @@
-"""Pinned TradingAgents boundary. It returns analysis context, never decisions."""
+"""Contradiction / bear-case context only. It never emits BUY, SELL, RANK, or PICK."""
 from __future__ import annotations
 
 from typing import Any, Dict
 
-TRADINGAGENTS_COMMIT = "a33fd4c0f134485a43553a2c23a63cb14adbd88f"
+CONTRADICTION_ADAPTER_COMMIT = "a33fd4c0f134485a43553a2c23a63cb14adbd88f"
 
 
 def integrate_research_context(
@@ -18,8 +18,8 @@ def integrate_research_context(
     return {
         "context_type": "IntegratedResearchContext",
         "status": "RESEARCH_ONLY",
-        "provider": "TradingAgents",
-        "provider_commit": TRADINGAGENTS_COMMIT,
+        "provider": "Contradiction",
+        "provider_commit": CONTRADICTION_ADAPTER_COMMIT,
         "lineage_id": lineage_id,
         "bull_case": industry.get("catalyst") or "",
         "bear_case": "capital distribution risk" if risk else "",

@@ -184,11 +184,14 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
     }, features["lineage_id"], "XiaoguFeatureEngine")
 
 
-def build_tradingagents_context(
+def build_contradiction_context(
     industry: Dict[str, Any], company: Dict[str, Any], capital: Dict[str, Any], lineage_id: str
 ) -> Dict[str, Any]:
-    from integrations.tradingagents_adapter import integrate_research_context
+    from integrations.contradiction_adapter import integrate_research_context
     return integrate_research_context(industry, company, capital, lineage_id=lineage_id)
+
+
+build_tradingagents_context = build_contradiction_context
 
 
 def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
@@ -198,7 +201,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
     supply = build_supply_context(snapshot, features)
     pricing_gap = build_pricing_gap_context(snapshot, features)
     future_buyer_map = build_future_buyer_map(snapshot, features)
-    integrated = build_tradingagents_context(industry, company, capital, features["lineage_id"])
+    integrated = build_contradiction_context(industry, company, capital, features["lineage_id"])
     raw_tradingagents = snapshot.get("raw", {}).get("tradingagents")
     if isinstance(raw_tradingagents, dict):
         for key in ("bull_thesis", "bear_thesis", "strongest_counterargument", "missing_evidence", "thesis_invalidation", "contradiction_status", "veto", "key_conflicts"):

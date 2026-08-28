@@ -1,6 +1,6 @@
 # Xiaogu Capital-Behavior Repricing System
 
-Paper-only A-share market-data, capital-behavior, repricing, and outcome system. It does not place trades and is not investment advice.
+Paper-only A-share capture, measurement, 5D profit-window alpha, and portfolio-decision system. It does not place trades and is not investment advice.
 
 ## Run
 
@@ -14,29 +14,33 @@ managed outside this repository.
 
 Start the query API with `bash start_api.sh`.
 
-Run the scheduler separately when the daily paper-trading workflow is required:
-
 ```bash
+python3 scrapy_scanner/runner_v2.py
+python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --mode PRODUCTION
 python3 xiaogu_scheduler.py
 ```
 
+`--snapshot-json` is development / replay / debug only. Production reads persisted trusted canonical snapshots.
+
 ## Architecture
 
-`Eastmoney -> canonical snapshot -> cheap eligibility -> candidate universe -> features -> research context -> Core Alpha -> portfolio decision -> recorder -> T+1..T+5 outcome -> position review -> memory`
+```
+Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
+→ Feature Engine → Research Context → Core Alpha → Portfolio Decision
+→ Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian Memory
+```
 
 - Scanner: `scrapy_scanner/runner_v2.py` captures raw market reality only.
-- Decision runner: `xiaogu_forward_runner.py` calls the sole decision owner, `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
+- Canonical: `xiaogu_forward_snapshot.validate_and_build_canonical_snapshot()` is the only trusted-snapshot builder.
 - Features: `xiaogu_forward_features.py` measures BUSINESS, FUTURE_DEMAND, CAPITAL, SUPPLY, PRICING_GAP, REFLEXIVITY, MARKET, RISK, and EXECUTION.
-- Eligibility: `xiaogu_forward_eligibility.py` checks only objective market and operational prerequisites.
-- Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends post-decision T+1..T+5 OHLC and execution-aware profit-window outcomes.
-- Scheduler: `xiaogu_scheduler.py`
-- API: `xiaogu_api.py`
-- Persistence: `xiaogu_db.py`
+- Research: Serenity, Buffett, UZI, and Contradiction supply context only.
+- Alpha owner: `xiaogu_core_alpha.build_core_alpha()`.
+- Decision owner: `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
+- Production runner: `xiaogu_forward_runner.run_production_decision()`.
+- Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.
+- Position state lives in PostgreSQL. JSONL is an audit artifact. Obsidian is memory only.
 
-The sole alpha target is `PROFIT_WINDOW_5D`; `T+1` is an evaluation day inside the five-day window, not a separate alpha target. `WATCH` and `READY` are analysis states. The recorder persists only `BUY`, `HOLD`, `REDUCE`, and `SELL`.
-
-Optional research adapters are intentionally not vendored. A missing adapter
-is recorded as unavailable and blocks a new `BUY` decision.
+The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. T+5 closes the trade. `WATCH` and `READY` are analysis states. The recorder persists only `BUY`, `HOLD`, `REDUCE`, and `SELL`. BUY stays blocked until the alpha is OOS-validated.
 
 ## API
 
@@ -55,7 +59,3 @@ pytest tests/ -x -q
 python -m compileall -q .
 python scripts/xiaogu_daily_health_check.py
 ```
-
-## Evidence and Limits
-
-Forward validation and backtest data are stored in PostgreSQL and Obsidian; they are not a performance guarantee.

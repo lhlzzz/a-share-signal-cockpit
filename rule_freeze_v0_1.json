@@ -1,9 +1,16 @@
 {
   "rule_version": "repricing_production_v1",
   "frozen_at": "2026-08-27T00:00:00+08:00",
-  "change_reason": "Xiaogu production targets a five-day profit window with explicit bar-approximation semantics.",
+  "change_reason": "Lock trusted canonical snapshots, independent capital evidence, DB position state, and T+5 close.",
   "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
-  "allowed_decisions": ["WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"],
+  "allowed_decisions": [
+    "WATCH",
+    "READY",
+    "BUY",
+    "HOLD",
+    "REDUCE",
+    "SELL"
+  ],
   "scanner_contract": {
     "raw_data_only": true,
     "candidate_ranking": false,
@@ -14,29 +21,77 @@
     "target": "PROFIT_WINDOW_5D",
     "max_holding_days": 5,
     "required_measurements": [
-      "BUSINESS", "FUTURE_DEMAND", "CAPITAL", "SUPPLY", "PRICING_GAP",
-      "REFLEXIVITY", "MARKET", "RISK", "EXECUTION"
+      "BUSINESS",
+      "FUTURE_DEMAND",
+      "CAPITAL",
+      "SUPPLY",
+      "PRICING_GAP",
+      "REFLEXIVITY",
+      "MARKET",
+      "RISK",
+      "EXECUTION"
     ],
     "required_buy_evidence": [
-      "BUSINESS_READY", "FUTURE_DEMAND_READY", "CAPITAL_CONVERGENCE_READY", "SUPPLY_ABSORPTION_READY",
-      "MARKET_READY", "PRICING_GAP", "FUTURE_BUYER_MAP", "PROFIT_WINDOW_READY"
+      "BUSINESS_READY",
+      "FUTURE_DEMAND_READY",
+      "CAPITAL_CONVERGENCE_READY",
+      "SUPPLY_ABSORPTION_READY",
+      "MARKET_READY",
+      "PRICING_GAP_READY",
+      "FUTURE_BUYERS_READY",
+      "PROFIT_WINDOW_READY"
     ]
   },
   "evaluation": {
-    "horizons_days": [1, 2, 3, 4, 5],
-    "evaluation_window_days": [1, 2, 3, 4, 5],
+    "horizons_days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "evaluation_window_days": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
     "max_holding_boundary": 5,
-    "entry_timing_only_fields": ["short_term_overheat", "gap_risk"],
+    "entry_timing_only_fields": [
+      "short_term_overheat",
+      "gap_risk"
+    ],
     "outcomes_enter_after_decision": true,
     "bar_opportunity_formula": "(daily_high - entry_price) / entry_price - canonical_cost_model",
     "profit_window_target": 0.02,
-    "outcome_metrics": ["max_daily_bar_profit_opportunity_5d", "first_profit_day", "time_to_profit", "max_mae_5d", "net_profit_window"],
+    "outcome_metrics": [
+      "max_daily_bar_profit_opportunity_5d",
+      "first_profit_day",
+      "time_to_profit",
+      "max_mae_5d",
+      "net_profit_window"
+    ],
     "realizability_level": "DAILY_BAR_APPROXIMATION",
-    "canonical_cost_model": {"transaction_cost": 0.003, "slippage": 0.0, "spread": 0.0}
+    "canonical_cost_model": {
+      "commission": 0.0005,
+      "stamp_duty": 0.0005,
+      "slippage": 0.0,
+      "spread": 0.0,
+      "transaction_cost": 0.003
+    },
+    "not_executable_fill": true
   },
   "excluded_future_fields": [
-    "t*_return", "future_*_return", "future_prices", "outcomes", "labels",
-    "max_favorable_excursion", "max_adverse_excursion", "realized_*", "post_result*"
+    "t*_return",
+    "future_*_return",
+    "future_prices",
+    "outcomes",
+    "labels",
+    "max_favorable_excursion",
+    "max_adverse_excursion",
+    "realized_*",
+    "post_result*"
   ],
   "paper_only": true,
   "no_trade": true,
@@ -45,5 +100,23 @@
   "manual_paper_execution_allowed": true,
   "auto_order": false,
   "broker_connected": false,
-  "status": "FROZEN_FOR_PAPER_REPRICING_EVALUATION"
+  "status": "FROZEN_FOR_PAPER_REPRICING_EVALUATION",
+  "alpha_owner": "xiaogu_core_alpha.build_core_alpha",
+  "runner_owner": "xiaogu_forward_runner.run_production_decision",
+  "position_states": [
+    "FLAT",
+    "LONG"
+  ],
+  "trade_actions": [
+    "BUY",
+    "HOLD",
+    "REDUCE",
+    "SELL"
+  ],
+  "production_modes": [
+    "PRODUCTION",
+    "REPLAY",
+    "DRY_RUN",
+    "RESEARCH"
+  ]
 }

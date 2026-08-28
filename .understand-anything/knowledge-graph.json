@@ -299,11 +299,11 @@
       "complexity": "moderate"
     },
     {
-      "id": "file:integrations/tradingagents_adapter.py",
+      "id": "file:integrations/contradiction_adapter.py",
       "type": "file",
-      "name": "tradingagents_adapter.py",
-      "filePath": "integrations/tradingagents_adapter.py",
-      "summary": "当前文件：integrations/tradingagents_adapter.py；状态：tracked。 函数 1。",
+      "name": "contradiction_adapter.py",
+      "filePath": "integrations/contradiction_adapter.py",
+      "summary": "当前文件：integrations/contradiction_adapter.py；状态：tracked。 函数 1。",
       "tags": [
         "xiaogu",
         "status:tracked",
@@ -312,11 +312,11 @@
       "complexity": "moderate"
     },
     {
-      "id": "function:integrations/tradingagents_adapter.py:integrate_research_context",
+      "id": "function:integrations/contradiction_adapter.py:integrate_research_context",
       "type": "function",
       "name": "integrate_research_context",
-      "filePath": "integrations/tradingagents_adapter.py",
-      "summary": "函数 integrate_research_context，位于 integrations/tradingagents_adapter.py。",
+      "filePath": "integrations/contradiction_adapter.py",
+      "summary": "函数 integrate_research_context，位于 integrations/contradiction_adapter.py。",
       "tags": [
         "xiaogu",
         "status:tracked",
@@ -6071,8 +6071,8 @@
   ],
   "edges": [
     {
-      "source": "file:integrations/tradingagents_adapter.py",
-      "target": "function:integrations/tradingagents_adapter.py:integrate_research_context",
+      "source": "file:integrations/contradiction_adapter.py",
+      "target": "function:integrations/contradiction_adapter.py:integrate_research_context",
       "type": "contains",
       "direction": "forward",
       "weight": 1.0
@@ -12414,7 +12414,7 @@
     },
     {
       "source": "file:xiaogu_research_context.py",
-      "target": "file:integrations/tradingagents_adapter.py",
+      "target": "file:integrations/contradiction_adapter.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
@@ -12463,7 +12463,7 @@
     },
     {
       "source": "function:xiaogu_research_context.py:build_tradingagents_context",
-      "target": "function:integrations/tradingagents_adapter.py:integrate_research_context",
+      "target": "function:integrations/contradiction_adapter.py:integrate_research_context",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -12602,7 +12602,7 @@
       "name": "特征与研究上下文",
       "description": "特征工程、研究上下文和仅提供 evidence 的外部集成。",
       "nodeIds": [
-        "file:integrations/tradingagents_adapter.py",
+        "file:integrations/contradiction_adapter.py",
         "file:xiaogu_forward_features.py",
         "file:xiaogu_research_context.py"
       ]

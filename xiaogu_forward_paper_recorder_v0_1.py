@@ -60,8 +60,7 @@ def memory_root() -> Path:
     configured = os.environ.get("XIAOGU_MEMORY_ROOT")
     if configured:
         return Path(configured)
-    vault = Path("/mnt/d/obisidian/Obsidian/Project/A股")
-    return vault / "xiaogu_memory" if vault.exists() else BASE / "xiaogu_memory"
+    return Path("/mnt/d/obisidian/Obsidian/Project/A股") / "xiaogu_memory"
 
 
 def _memory_symbol(value: Any) -> str:
@@ -404,11 +403,18 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
         record['database_persistence'] = {'status': 'PASS'}
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
-    try:
-        record['memory_path'] = write_trade_memory(record) or None
-    except OSError as exc:
-        record['memory_path'] = None
-        record['memory_error'] = repr(exc)
+    memory_error = None
+    memory_path = None
+    for _attempt in range(2):
+        try:
+            memory_path = write_trade_memory(record) or None
+            memory_error = None
+            break
+        except OSError as exc:
+            memory_error = repr(exc)
+    record['memory_path'] = memory_path
+    if memory_error:
+        record['memory_error'] = memory_error
     dump_json(snap, snapshot)
     append_jsonl(FORWARD_LEDGER, record)
     return snap, record

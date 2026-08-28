@@ -149,6 +149,103 @@ def fetch_picks() -> List[Dict[str, Any]]:
         return [dict(row) for row in db.execute(text("SELECT * FROM picks ORDER BY id DESC")).mappings()]
 
 
+
+
+def _table_columns(table_name: str) -> set[str]:
+    with engine.connect() as db:
+        return {
+            str(row["column_name"])
+            for row in db.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = :table_name
+                    """
+                ),
+                {"table_name": table_name},
+            ).mappings()
+        }
+
+
+def fetch_open_positions() -> List[Dict[str, Any]]:
+    """Latest DB decision per symbol that still has a LONG position."""
+    columns = _table_columns("picks")
+    select_state = "state" if "state" in columns else "decision AS state"
+    select_payload = ", payload" if "payload" in columns else ""
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    f"""
+                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}
+                    FROM picks
+                    ORDER BY symbol, id DESC
+                    """
+                )
+            ).mappings()
+        ]
+    positions = []
+    for row in rows:
+        action = str(row.get("state") or row.get("decision") or "")
+        if action not in {"BUY", "HOLD", "REDUCE"}:
+            continue
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            payload = {}
+        positions.append({
+            **payload,
+            "id": row.get("id"),
+            "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
+            "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
+            "state": action,
+            "decision": payload.get("action") or action,
+            "decision_id": payload.get("decision_id") or row.get("id"),
+        })
+    return positions
+
+
+def fetch_position_outcome(symbol: str, decision_id: str = "") -> Dict[str, Any]:
+    """Read the latest 5D outcome for an open position from PostgreSQL."""
+    del decision_id
+    columns = _table_columns("returns")
+    with engine.connect() as db:
+        if "payload" in columns:
+            row = db.execute(
+                text(
+                    """
+                    SELECT payload
+                    FROM returns
+                    WHERE symbol = :symbol
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"symbol": symbol},
+            ).mappings().first()
+            if not row:
+                return {}
+            payload = row.get("payload")
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            return payload if isinstance(payload, dict) else {}
+        row = db.execute(
+            text(
+                """
+                SELECT *
+                FROM returns
+                WHERE symbol = :symbol
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"symbol": symbol},
+        ).mappings().first()
+    return dict(row) if row else {}
+
 def fetch_returns() -> List[Dict[str, Any]]:
     with engine.connect() as db:
         return [dict(row) for row in db.execute(text("SELECT * FROM returns ORDER BY id DESC")).mappings()]

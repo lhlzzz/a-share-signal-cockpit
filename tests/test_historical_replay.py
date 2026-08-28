@@ -14,7 +14,7 @@ def test_replay_uses_production_decision():
 def test_replay_strips_future_labels_before_calling_production_owner(monkeypatch):
     seen = []
 
-    def fake_production_owner(snapshot):
+    def fake_production_owner(snapshot, **_kwargs):
         seen.append(snapshot)
         assert "future_prices" not in snapshot
         assert "outcomes" not in snapshot

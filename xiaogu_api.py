@@ -122,8 +122,7 @@ def _memory_root() -> Path:
     configured = os.environ.get("XIAOGU_MEMORY_ROOT")
     if configured:
         return Path(configured)
-    vault = Path("/mnt/d/obisidian/Obsidian/Project/A股")
-    return vault / "xiaogu_memory" if vault.exists() else BASE / "xiaogu_memory"
+    return Path("/mnt/d/obisidian/Obsidian/Project/A股") / "xiaogu_memory"
 
 
 @app.get("/memory")

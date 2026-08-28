@@ -10,7 +10,7 @@ from xiaogu_forward_features import FEATURE_GROUPS
 MODEL_ID = "profit_window_alpha_5d_v2"
 FEATURE_VERSION = "capital_behavior_measurements_v2"
 PROFIT_WINDOW_DAYS = 5
-CANONICAL_COST_MODEL = {"transaction_cost": 0.003, "slippage": 0.0, "spread": 0.0}
+CANONICAL_COST_MODEL = {"commission": 0.0005, "stamp_duty": 0.0005, "slippage": 0.0, "spread": 0.0, "transaction_cost": 0.003}
 DEFAULT_COST_RATE = CANONICAL_COST_MODEL["transaction_cost"]
 DEFAULT_PROFIT_TARGET = 0.02
 CALIBRATION_PATH = Path(__file__).resolve().parent / "data" / "research" / "profit_window_calibration.json"
@@ -51,6 +51,14 @@ def _first_buyer_capacity(
     return max(eligible, default=0.0)
 
 
+def _direct_evidence_items(behavior: Dict[str, Any]) -> list[Dict[str, Any]]:
+    items = [item for item in (behavior.get("evidence") or []) if isinstance(item, dict)]
+    return [
+        item for item in items
+        if item.get("observed") and str(item.get("evidence_family") or "").startswith("DIRECT_")
+    ]
+
+
 def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     behaviors = {
         "institution": dict(capital.get("institution_behavior") or {}),
@@ -59,7 +67,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     channels = {
         name: _clip(behavior.get("strength"))
-        if behavior.get("evidence_status") == "OBSERVED" and int(behavior.get("evidence_count") or 0) > 0
+        if behavior.get("evidence_status") == "OBSERVED" and _direct_evidence_items(behavior)
         else 0.0
         for name, behavior in behaviors.items()
     }
@@ -69,18 +77,39 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     confirmed = sum(value >= 0.50 for value in channels.values())
     observed = sum(value > 0 for value in channels.values())
-    evidence_count = sum(int(behavior.get("evidence_count") or 0) for behavior in behaviors.values())
-    independent_channel_count = sum(
-        behavior.get("evidence_status") == "OBSERVED" and int(behavior.get("evidence_count") or 0) > 0
-        for behavior in behaviors.values()
-    )
+    evidence_items = [item for behavior in behaviors.values() for item in _direct_evidence_items(behavior)]
+    independent_sources = {str(item.get("source") or "") for item in evidence_items if item.get("source")}
+    independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
+    independent_channel_count = min(len(independent_sources), len(independent_families))
     score = _mean(*[value for value in channels.values() if value > 0])
     distribution = _clip(capital.get("distribution_risk"))
     conflict = distribution >= 0.70 or capital.get("capital_price_impact_state") in {
         "DISTRIBUTION_RISK",
         "PRICE_SUPPORTED_DIVERGENCE",
     }
-    status = "UNKNOWN" if observed == 0 else "CONFLICT" if conflict else "CONVERGENCE" if confirmed >= 2 and independent_channel_count >= 2 else "PARTIAL"
+    bullish_directions = {
+        "INSTITUTION_BUYING", "INSTITUTION_ACCUMULATING", "ACCELERATING", "PRESENT",
+        "HOT_MONEY_BUYING", "HOT_MONEY_ACCELERATING", "HOT_MONEY_PRESENT",
+    }
+    directional = [
+        name for name, behavior in behaviors.items()
+        if channels[name] >= 0.50 and str(behavior.get("direction") or "") in bullish_directions
+    ]
+    aligned = len(directional) >= 2
+    status = (
+        "UNKNOWN" if observed == 0
+        else "CONFLICT" if conflict
+        else "CONVERGENCE" if confirmed >= 2 and independent_channel_count >= 2 and aligned
+        else "PARTIAL"
+    )
+    qualities = [_clip(behavior.get("confidence")) for behavior in behaviors.values() if _direct_evidence_items(behavior)]
+    freshness = _mean(*[
+        1.0 if item.get("available_at") else 0.5
+        for item in evidence_items
+    ])
+    confidence = _clip(
+        (independent_channel_count / 3.0) * _mean(*qualities) * freshness
+    ) if evidence_items else 0.0
     return {
         "score": round(score, 8),
         "institution": round(channels["institution"], 8),
@@ -92,33 +121,49 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "hot_money_level": levels["hot_money"],
         "confirmed_channels": confirmed,
         "observed_channels": observed,
-        "evidence_count": evidence_count,
+        "evidence_count": len(evidence_items),
         "independent_channel_count": independent_channel_count,
-        "confidence": round(_mean(*(behavior.get("confidence") for behavior in behaviors.values())), 8),
+        "independent_sources": sorted(independent_sources),
+        "independent_families": sorted(independent_families),
+        "confidence": round(confidence, 8),
         "behaviors": behaviors,
         "status": status,
         "state": status,
     }
 
 
-def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Dict[str, Any], convergence: Dict[str, Any]) -> str:
+def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Dict[str, Any], convergence: Dict[str, Any]) -> Dict[str, Any]:
+    evidence = []
     if capital.get("distribution_risk", 0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK":
-        return "DISTRIBUTION"
-    if market.get("stage") in {"CLIMAX", "DISTRIBUTION"}:
-        return market["stage"]
-    if market.get("attention", 0) >= 0.85 and market.get("price_strength", 0) >= 0.80:
-        return "CLIMAX"
-    if convergence["status"] == "CONVERGENCE" and capital.get("fund_flow_acceleration", 0) >= 0.60 and market.get("price_strength", 0) >= 0.50:
-        return "IGNITION"
-    if convergence["status"] == "CONVERGENCE" and market.get("sector_breadth", 0) >= 0.60 and market.get("leader_strength", 0) >= 0.60:
-        return "EXPANSION"
-    if (
+        evidence.append("distribution_risk")
+        state = "DISTRIBUTION"
+    elif market.get("stage") in {"CLIMAX", "DISTRIBUTION"}:
+        evidence.append("market_stage")
+        state = market["stage"]
+    elif market.get("attention", 0) >= 0.85 and market.get("price_strength", 0) >= 0.80:
+        evidence.extend(["attention_extreme", "price_strength"])
+        state = "CLIMAX"
+    elif convergence["status"] == "CONVERGENCE" and capital.get("fund_flow_acceleration", 0) >= 0.60 and market.get("price_strength", 0) >= 0.50:
+        evidence.extend(["capital_acceleration", "price_response", "capital_convergence"])
+        state = "IGNITION"
+    elif convergence["status"] == "CONVERGENCE" and market.get("sector_breadth", 0) >= 0.60 and market.get("leader_strength", 0) >= 0.60:
+        evidence.extend(["capital_convergence", "breadth_expansion", "leader_strength"])
+        state = "EXPANSION"
+    elif (
         capital.get("fund_flow_persistence", 0) >= 0.55
         and supply.get("supply_absorption_state") == "ABSORPTION"
         and market.get("price_strength", 0) < 0.55
     ):
-        return "ACCUMULATION"
-    return "UNKNOWN"
+        evidence.extend(["capital_persistence", "supply_absorption", "price_contained"])
+        state = "ACCUMULATION"
+    else:
+        state = "UNKNOWN"
+    return {
+        "state": state,
+        "evidence": evidence,
+        "evidence_count": len(evidence),
+        "confidence": round(_clip(len(evidence) / 3.0), 8),
+    }
 
 
 def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, Any]]:
@@ -183,17 +228,21 @@ def build_core_alpha(
     raw = features["snapshot"].get("raw") if isinstance(features.get("snapshot"), dict) else {}
     convergence = _capital_convergence(capital_measure)
     buyer_capacity = _first_buyer_capacity(raw, future_buyer_map)
+    buyer_observed = buyer_capacity > 0
 
+    # Diagnostic axes remain measurements. Production probability uses only the
+    # calibrated artifact below, never a second handmade average of these axes.
     axes = {
-        "BUSINESS": _mean(business["score"], _research_score(company, "business_quality", "valuation")),
-        "FUTURE_DEMAND": _mean(demand["score"], _research_score(industry, "demand", "bottleneck")),
-        "CAPITAL": _mean(capital_measure["accumulation"], convergence["score"], capital_measure["capital_price_impact"]),
-        "SUPPLY": _mean(supply["supply_absorption"], 1.0 - supply["effective_supply"]),
-        "PRICING_GAP": gap["score"],
-        "REFLEXIVITY": _mean(reflexivity["score"], 1.0 - reflexivity["break"]),
+        "BUSINESS": business["score"],
+        "FUTURE_DEMAND": demand["score"],
+        "CAPITAL": capital_measure["accumulation"],
+        "SUPPLY": supply["supply_absorption"],
+        "PRICING_GAP": gap["real_pricing_gap"],
+        "REFLEXIVITY": reflexivity["score"],
         "MARKET": market["score"],
     }
-    repricing_state = _repricing_state(capital_measure, supply, market, convergence)
+    repricing = _repricing_state(capital_measure, supply, market, convergence)
+    repricing_state = repricing["state"]
     completion = {
         "price_expanded": market["price_strength"] >= 0.80,
         "valuation_expanded": gap["price_reflection"] >= 0.80,
@@ -212,33 +261,34 @@ def build_core_alpha(
         "capital_persistence": capital_measure["fund_flow_persistence"],
         "capital_acceleration": capital_measure["fund_flow_acceleration"],
         "supply_absorption": supply["supply_absorption"],
-        "pricing_gap": gap["score"],
+        "pricing_gap": gap["real_pricing_gap"],
         "repricing_state": {"ACCUMULATION": 0.35, "IGNITION": 0.65, "EXPANSION": 0.55}.get(repricing_state, 0.0),
-        "future_buyer_evidence": buyer_capacity,
+        "future_buyer_evidence": buyer_capacity if buyer_observed else None,
         "reflexivity": reflexivity["score"],
         "market_state": market["score"],
         "execution_quality": execution_feasibility,
         "risk": risk["downside"],
     }
-    profit_window_probability, calibration = _calibrated_probability(probability_features)
-    repricing_probability = _mean(
-        convergence["score"], supply["supply_absorption"], gap["score"], probability_features["repricing_state"]
+    profit_window_probability, calibration = _calibrated_probability(
+        {key: (0.0 if value is None else value) for key, value in probability_features.items()}
     )
-    # Expected outcome fields are model outputs, not deterministic transforms
-    # of same-day evidence.  They are only released by an OOS-validated
-    # artifact; the stored outcome is a daily-bar research approximation.
+    oos = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
+    probability_std = oos.get("probability_std")
+    if calibration.get("validation_status") == "VALIDATED" and (
+        probability_std is not None and float(probability_std) < 0.02
+    ):
+        calibration["validation_status"] = "MODEL_NOT_DISCRIMINATIVE"
+        calibration["reason"] = "PROBABILITY_COLLAPSE"
+    repricing_probability = _mean(
+        convergence["score"], supply["supply_absorption"], gap["real_pricing_gap"], probability_features["repricing_state"]
+    )
+    # No conditional expected-profit model exists. Do not copy OOS averages
+    # onto each candidate; keep these fields unset so BUY stays fail-closed.
     model_status = calibration.get("validation_status", calibration.get("status"))
-    outcome = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
-    if model_status == "VALIDATED":
-        expected_max_profit_5d = outcome.get("mean_max_profit_5d", outcome.get("mean_profit"))
-        expected_mae_5d = outcome.get("mean_mae")
-        expected_time_to_profit = outcome.get("average_time_to_profit")
-        expected_net_profit_window = outcome.get("mean_net_profit", outcome.get("mean_profit"))
-    else:
-        expected_max_profit_5d = None
-        expected_mae_5d = None
-        expected_time_to_profit = None
-        expected_net_profit_window = None
+    expected_max_profit_5d = None
+    expected_mae_5d = None
+    expected_time_to_profit = None
+    expected_net_profit_window = None
 
     readiness = {
         "BUSINESS_READY": axes["BUSINESS"] >= 0.50,
@@ -246,7 +296,7 @@ def build_core_alpha(
         "CAPITAL_CONVERGENCE_READY": convergence["status"] == "CONVERGENCE",
         "SUPPLY_ABSORPTION_READY": supply["supply_absorption_state"] == "ABSORPTION",
         "PRICING_GAP_READY": gap["score"] >= 0.35,
-        "FUTURE_BUYERS_READY": buyer_capacity >= 0.35,
+        "FUTURE_BUYERS_READY": buyer_observed and buyer_capacity >= 0.35,
         "REFLEXIVITY_READY": reflexivity["score"] >= 0.35 and reflexivity["break"] < 0.70,
         "EXECUTION_FEASIBLE": execution_feasibility >= 0.35,
         "RISK_READY": risk["score"] >= 0.50,
@@ -259,7 +309,10 @@ def build_core_alpha(
             and expected_net_profit_window > 0
         ),
     }
-    thesis_score = _mean(*axes.values(), risk["score"], execution_feasibility)
+    thesis_inputs = list(axes.values()) + [risk["score"], execution_feasibility]
+    if buyer_observed:
+        thesis_inputs.append(buyer_capacity)
+    thesis_score = _mean(*thesis_inputs)
     core_alpha_status = model_status
     contradiction = integrated.get("contradiction") if isinstance(integrated.get("contradiction"), dict) else integrated
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
@@ -303,7 +356,8 @@ def build_core_alpha(
         "readiness": readiness,
         "repricing_readiness": readiness,
         "REPRICING_READINESS": readiness,
-        "repricing_readiness_score": round(_mean(axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["score"], buyer_capacity, axes["REFLEXIVITY"]), 8),
+        "repricing_readiness_score": round(_mean(*([axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["real_pricing_gap"], axes["REFLEXIVITY"]] + ([buyer_capacity] if buyer_observed else []))), 8),
+        "repricing_state_evidence": repricing,
         "business_quality": round(axes["BUSINESS"], 8),
         "future_demand": round(axes["FUTURE_DEMAND"], 8),
         "capital_accumulation": round(capital_measure["accumulation"], 8),

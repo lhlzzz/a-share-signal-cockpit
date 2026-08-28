@@ -8,11 +8,13 @@ from typing import Any, Dict
 from xiaogu_core_alpha import build_core_alpha
 from xiaogu_forward_eligibility import eligibility_blockers
 from xiaogu_forward_features import build_feature_vector
-from xiaogu_forward_snapshot import canonical_snapshot
+from xiaogu_forward_snapshot import CanonicalSnapshot, validate_and_build_canonical_snapshot
 from xiaogu_research_context import build_integrated_research_context
 
 PORTFOLIO_STATES = ("WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
-HELD_STATES = {"BUY", "HOLD"}
+TRADE_ACTIONS = ("BUY", "HOLD", "REDUCE", "SELL")
+POSITION_STATES = ("FLAT", "LONG")
+HELD_ACTIONS = {"BUY", "HOLD", "REDUCE"}
 MAX_HOLDING_DAYS = 5
 
 
@@ -96,11 +98,16 @@ def evaluate_candidate_bundle(
     """Evaluate one T-day snapshot; this is the only function allowed to emit states."""
     if portfolio_state not in PORTFOLIO_STATES:
         raise ValueError(f"INVALID_PORTFOLIO_STATE:{portfolio_state}")
-    snapshot = canonical_snapshot(
-        canonical,
-        trade_date=str(canonical.get("trade_date") or ""),
-        source=str(canonical.get("source") or "eastmoney_api_scan_v2"),
-        source_time=str(canonical.get("source_time") or canonical.get("as_of") or ""),
+    snapshot = (
+        canonical
+        if isinstance(canonical, CanonicalSnapshot)
+        else validate_and_build_canonical_snapshot(
+            canonical,
+            trade_date=str(canonical.get("trade_date") or ""),
+            source=str(canonical.get("source") or "eastmoney_api_scan_v2"),
+            source_time=str(canonical.get("source_time") or canonical.get("as_of") or ""),
+            decision_time=as_of,
+        )
     )
     features = build_feature_vector(snapshot)
     research = build_integrated_research_context(snapshot, features)
@@ -124,10 +131,10 @@ def evaluate_candidate_bundle(
     elif minimum_required_return > 0 and expected_net_profit is None:
         repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
     all_blockers = hard_blockers + repricing_blockers
-    held = portfolio_state in HELD_STATES
+    held = portfolio_state in HELD_ACTIONS
 
     if held:
-        if (account or {}).get("holding_days", 0) >= MAX_HOLDING_DAYS:
+        if int((account or {}).get("holding_days", 0) or 0) >= MAX_HOLDING_DAYS:
             state, reason = "SELL", "MAX_HOLDING_BOUNDARY_CLOSED"
         else:
             exit_reason = _exit_reason(alpha, features, snapshot, account)
@@ -160,9 +167,9 @@ def evaluate_candidate_bundle(
     return {
         "decision_id": _decision_id(snapshot, state, as_of),
         "state": state,
-        "action": state,
-        "position_state": "LONG" if held and state != "SELL" else "FLAT",
-        "trade_status": "CLOSED" if state == "SELL" else "OPEN" if held else "NOT_OPEN",
+        "action": state if state in TRADE_ACTIONS else None,
+        "position_state": "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG",
+        "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
         "symbol": snapshot["symbol"],
         "reason": reason,
         "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",

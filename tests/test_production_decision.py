@@ -206,3 +206,33 @@ def test_five_day_boundary_closes_even_after_profit_window_hit():
     assert decision["state"] == "SELL"
     assert decision["reason"] == "MAX_HOLDING_BOUNDARY_CLOSED"
     assert decision["trade_status"] == "CLOSED"
+
+
+def test_duplicate_evidence_family_does_not_inflate_independent_channels():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot() | {
+            "lhb": [
+                {"EXPLAIN": "1家机构买入", "institution": True},
+                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True},
+            ],
+        },
+        as_of=AS_OF,
+    )
+    convergence = decision["core_alpha"]["capital_convergence"]
+    assert "lhb" in convergence["independent_sources"]
+    assert convergence["independent_channel_count"] == 2
+    assert convergence["status"] in {"CONVERGENCE", "PARTIAL"}
+
+
+def test_five_day_boundary_uses_sell_action_and_closed_trade():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot(),
+        portfolio_state="HOLD",
+        account={"holding_days": 5},
+        as_of=AS_OF,
+    )
+    assert decision["action"] == "SELL"
+    assert decision["position_state"] == "FLAT"
+    assert decision["trade_status"] == "CLOSED"
+    assert decision["state"] == "SELL"
+

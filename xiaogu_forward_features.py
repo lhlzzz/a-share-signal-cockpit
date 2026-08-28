@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable
 
-from xiaogu_forward_snapshot import canonical_snapshot
+from xiaogu_forward_snapshot import CanonicalSnapshot, canonical_snapshot
 
 FEATURE_GROUPS = (
     "BUSINESS",
@@ -16,6 +16,29 @@ FEATURE_GROUPS = (
     "RISK",
     "EXECUTION",
 )
+DIRECT_EVIDENCE_FAMILIES = (
+    "DIRECT_INSTITUTION",
+    "DIRECT_MAIN_FORCE",
+    "DIRECT_HOT_MONEY",
+)
+
+
+def _evidence(
+    *,
+    observed: bool,
+    source: str,
+    available_at: str,
+    evidence_family: str,
+    **extra: Any,
+) -> Dict[str, Any]:
+    return {
+        "observed": bool(observed),
+        "source": source,
+        "available_at": available_at,
+        "evidence_family": evidence_family,
+        **extra,
+    }
+
 
 
 def _number(value: Any, default: float = 0.0) -> float:
@@ -81,9 +104,9 @@ def _market_stage(raw: Dict[str, Any], capital: Dict[str, Any], supply: Dict[str
 
 def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     """Build bounded measurements; missing evidence remains explicitly missing."""
-    # Re-validate pre-canonicalized payloads so a forged lineage cannot bypass
-    # the snapshot's future-field boundary.
-    snap = canonical_snapshot(snapshot)
+    if not isinstance(snapshot, CanonicalSnapshot) or snapshot.get("trusted_snapshot") is not True:
+        raise TypeError("FEATURE_ENGINE_REQUIRES_CANONICAL_SNAPSHOT")
+    snap = snapshot
     raw = _raw(snap)
     flow = raw.get("stock_capital_flow") if isinstance(raw.get("stock_capital_flow"), dict) else {}
     industry_flow = raw.get("industry_flow") if isinstance(raw.get("industry_flow"), dict) else {}
@@ -198,58 +221,167 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     capital["capital_persistence"] = capital["fund_flow_persistence"]
     capital["capital_acceleration"] = capital["fund_flow_acceleration"]
+    available_at = str(snap.get("as_of") or snap.get("source_time") or "")
     lhb_rows = [row for row in raw.get("lhb") or [] if isinstance(row, dict)]
-    institution_evidence = sum(
-        (
+    flow_source = "stock_capital_flow" if isinstance(raw.get("stock_capital_flow"), dict) and raw.get("stock_capital_flow") else "quote_flow"
+    industry_source = "industry_flow" if industry_flow else ""
+
+    def _institution_row(row: Dict[str, Any]) -> bool:
+        return (
             "机构" in str(row.get("EXPLAIN") or "")
             or row.get("institution") is True
             or row.get("institution_type") is True
         )
-        for row in lhb_rows
-    ) + sum(
-        bool(raw.get(key))
-        for key in (
-            "institution_position_change",
-            "institution_holding_change",
-            "institution_flow_evidence",
-            "institution_trade_evidence",
-        )
-    )
-    hot_money_evidence = sum(
-        bool(
+
+    def _hot_money_row(row: Dict[str, Any]) -> bool:
+        return bool(
             row.get("hot_money") is True
             or row.get("hot_money_type") is True
             or row.get("游资") is True
+            or "游资" in str(row.get("EXPLAIN") or "")
+        ) and not _institution_row(row)
+
+    def _lhb_direction(rows: list[Dict[str, Any]]) -> str:
+        text = " ".join(str(row.get("EXPLAIN") or "") for row in rows)
+        net = sum(_number(row.get("NET_BS_AMT")) for row in rows)
+        if "卖出" in text or net < 0:
+            return "SELL"
+        if "买入" in text or net > 0:
+            return "BUY"
+        return ""
+
+    institution_rows = [row for row in lhb_rows if _institution_row(row)]
+    hot_money_rows = [row for row in lhb_rows if _hot_money_row(row)]
+    institution_direct = [
+        _evidence(
+            observed=True, source="lhb", available_at=available_at,
+            evidence_family="DIRECT_INSTITUTION", detail="lhb_institution",
         )
-        and "机构" not in str(row.get("EXPLAIN") or "")
-        for row in lhb_rows
-    ) + sum(bool(raw.get(key)) for key in ("hot_money_evidence", "hot_money_trade_evidence"))
-    main_force_evidence = sum(
-        value is not None
-        for value in (main_flow if amount else None, turnover if turnover else None, capital["fund_flow_persistence"] if raw.get("fund_flow_persistence") is not None else None)
-    )
-    def behavior(direction: str, strength: float, persistence: float, acceleration: float, count: int) -> Dict[str, Any]:
+        for _row in institution_rows
+    ]
+    for key in ("institution_position_change", "institution_holding_change", "institution_flow_evidence", "institution_trade_evidence"):
+        if raw.get(key) not in (None, "", False, 0, 0.0):
+            institution_direct.append(_evidence(
+                observed=True, source=key, available_at=available_at,
+                evidence_family="DIRECT_INSTITUTION", detail=key,
+            ))
+    hot_money_direct = [
+        _evidence(
+            observed=True, source="lhb", available_at=available_at,
+            evidence_family="DIRECT_HOT_MONEY", detail="lhb_hot_money",
+        )
+        for _row in hot_money_rows
+    ]
+    for key in ("hot_money_evidence", "hot_money_trade_evidence"):
+        if raw.get(key) not in (None, "", False, 0, 0.0):
+            hot_money_direct.append(_evidence(
+                observed=True, source=key, available_at=available_at,
+                evidence_family="DIRECT_HOT_MONEY", detail=key,
+            ))
+    main_force_direct = []
+    if amount > 0 and main_flow:
+        main_force_direct.append(_evidence(
+            observed=True, source=flow_source, available_at=available_at,
+            evidence_family="DIRECT_MAIN_FORCE", detail="main_net_inflow",
+        ))
+    price_volume_evidence = []
+    if turnover:
+        price_volume_evidence.append(_evidence(
+            observed=True, source="quote_turnover", available_at=available_at,
+            evidence_family="PRICE_VOLUME", detail="turnover",
+        ))
+    if snap.get("volume"):
+        price_volume_evidence.append(_evidence(
+            observed=True, source="quote_volume", available_at=available_at,
+            evidence_family="PRICE_VOLUME", detail="volume",
+        ))
+    persistence_evidence = []
+    if raw.get("fund_flow_persistence") not in (None, ""):
+        persistence_evidence.append(_evidence(
+            observed=True, source="fund_flow_persistence", available_at=available_at,
+            evidence_family="FLOW_PERSISTENCE", detail="fund_flow_persistence",
+        ))
+    industry_capital_evidence = []
+    if industry_source:
+        industry_capital_evidence.append(_evidence(
+            observed=True, source=industry_source, available_at=available_at,
+            evidence_family="INDUSTRY_CAPITAL", detail="industry_flow",
+        ))
+
+    institution_direction_hint = _lhb_direction(institution_rows)
+    if not institution_direct:
+        institution_direction = "UNKNOWN"
+    elif institution_direction_hint == "SELL":
+        institution_direction = "INSTITUTION_DISTRIBUTING"
+    elif institution_direction_hint == "BUY" and capital["fund_flow_persistence"] >= 0.55:
+        institution_direction = "INSTITUTION_ACCUMULATING"
+    elif institution_direction_hint == "BUY":
+        institution_direction = "INSTITUTION_BUYING"
+    elif capital["institutional_flow"] > 0 and institution_direction_hint == "BUY":
+        institution_direction = "INSTITUTION_BUYING"
+    elif capital["institutional_flow"] < 0:
+        institution_direction = "INSTITUTION_DISTRIBUTING"
+    elif capital["institutional_flow"] == 0:
+        institution_direction = "INSTITUTION_NEUTRAL"
+    else:
+        institution_direction = "INSTITUTION_PRESENT"
+
+    hot_money_direction_hint = _lhb_direction(hot_money_rows)
+    if not hot_money_direct:
+        hot_money_direction = "UNKNOWN"
+    elif hot_money_direction_hint == "SELL" or capital["hot_money_flow"] < 0:
+        hot_money_direction = "HOT_MONEY_EXITING"
+    elif capital["fund_flow_acceleration"] >= 0.60 and hot_money_direction_hint == "BUY":
+        hot_money_direction = "HOT_MONEY_ACCELERATING"
+    elif hot_money_direction_hint == "BUY" or capital["hot_money_flow"] > 0:
+        hot_money_direction = "HOT_MONEY_BUYING"
+    else:
+        hot_money_direction = "HOT_MONEY_PRESENT"
+
+    if not main_force_direct:
+        main_force_direction = "UNKNOWN"
+    elif capital["fund_flow_acceleration"] >= 0.60 and main_flow > 0:
+        main_force_direction = "ACCELERATING"
+    elif main_flow < 0:
+        main_force_direction = "DISTRIBUTING"
+    else:
+        main_force_direction = "PRESENT"
+
+    def behavior(direction: str, strength: float, persistence: float, acceleration: float, evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
+        observed = [item for item in evidence if item.get("observed") and item.get("evidence_family") in DIRECT_EVIDENCE_FAMILIES]
+        count = len(observed)
+        source_trust = 0.85 if any(item.get("source") in {"lhb", "stock_capital_flow"} for item in observed) else 0.40 if observed else 0.0
+        freshness = 1.0 if available_at else 0.5
         return {
             "direction": direction,
-            "strength": round(_clip(strength), 8),
-            "persistence": round(_clip(persistence), 8),
-            "acceleration": round(_clip(acceleration), 8),
+            "strength": round(_clip(strength if count else 0.0), 8),
+            "persistence": round(_clip(persistence if count else 0.0), 8),
+            "acceleration": round(_clip(acceleration if count else 0.0), 8),
+            "evidence": evidence,
             "evidence_count": int(count),
-            "confidence": round(_clip(min(1.0, count / 2.0) * _mean(strength, persistence)), 8),
+            "evidence_family": next((item.get("evidence_family") for item in observed), "UNKNOWN"),
+            "source": next((item.get("source") for item in observed), ""),
+            "available_at": available_at,
+            "confidence": round(_clip(min(1.0, count / 2.0) * source_trust * freshness), 8),
             "evidence_status": "OBSERVED" if count else "UNKNOWN",
         }
+
     capital["institution_behavior"] = behavior(
-        "ACCUMULATING" if institution_evidence and capital["institutional_flow"] > 0 else "UNKNOWN",
-        capital["institutional_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], institution_evidence,
+        institution_direction, capital["institutional_flow"], capital["fund_flow_persistence"],
+        capital["fund_flow_acceleration"], institution_direct,
     )
     capital["main_force_behavior"] = behavior(
-        "ACCELERATING" if main_force_evidence and capital["fund_flow_acceleration"] >= 0.60 else "PRESENT" if main_force_evidence else "UNKNOWN",
-        capital["main_force_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], main_force_evidence,
+        main_force_direction, capital["accumulation"] if main_force_direct else 0.0,
+        capital["fund_flow_persistence"], capital["fund_flow_acceleration"],
+        main_force_direct + price_volume_evidence + persistence_evidence,
     )
     capital["hot_money_behavior"] = behavior(
-        "PRESENT" if hot_money_evidence and capital["hot_money_flow"] > 0 else "UNKNOWN",
-        capital["hot_money_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], hot_money_evidence,
+        hot_money_direction, capital["hot_money_flow"], capital["fund_flow_persistence"],
+        capital["fund_flow_acceleration"], hot_money_direct,
     )
+    capital["price_volume_evidence"] = price_volume_evidence
+    capital["flow_persistence_evidence"] = persistence_evidence
+    capital["industry_capital_evidence"] = industry_capital_evidence
     capital["accumulation_quality"] = _clip(
         0.30 * capital["fund_flow_persistence"]
         + 0.25 * capital["volume_accumulation"]
@@ -315,13 +447,18 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             capital["accumulation"] > 0
             and capital["fund_flow_persistence"] > 0
             and main_flow > 0
+            and amount > 0
         ),
-        "turnover": supply["turnover"] > 0,
-        "price_response": capital["price_volume_confirmation"] > 0,
+        "turnover": turnover >= 1.0,
+        "price_response": capital["price_volume_confirmation"] > 0 and amount > 0,
         "supply": supply["supply_evidence_count"] > 0,
         "stability": close_position >= 0.45,
         "continuation": capital["fund_flow_acceleration"] > 0,
     }
+    supply["SUPPLY_OBSERVED"] = bool(absorption_components["supply"])
+    supply["DEMAND_OBSERVED"] = bool(absorption_components["funds"])
+    supply["ABSORPTION_OBSERVED"] = bool(absorption_components["funds"] and absorption_components["turnover"])
+    supply["PRICE_RESPONSE_OBSERVED"] = bool(absorption_components["price_response"])
     supply["absorption_evidence_count"] = sum(absorption_components.values())
     supply["absorption_confidence"] = round(
         _clip(supply["absorption_evidence_count"] / len(absorption_components)), 8
@@ -340,26 +477,22 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         supply["overhead_supply"],
         supply["recent_distribution"],
     )
-    supply["supply_absorption"] = round(
-        _clip(supply_support - 0.60 * supply_pressure)
-        if (
-            amount > 0
-            and supply["absorption_evidence_count"] >= 4
-            and all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
-        )
-        else 0.0,
-        8,
-    )
     supply["unlock_pressure"] = supply["unlocking_pressure"]
     supply["supply_pressure"] = supply["effective_supply"]
     supply["distribution_pressure"] = supply["sell_pressure"]
+    minimum_evidence = (
+        amount > 0
+        and turnover >= 1.0
+        and supply["absorption_evidence_count"] >= 4
+        and all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
+        and supply["PRICE_RESPONSE_OBSERVED"]
+    )
+    supply["supply_absorption"] = round(
+        _clip(supply_support - 0.60 * supply_pressure) if minimum_evidence else 0.0,
+        8,
+    )
     supply["supply_absorption_state"] = (
-        "UNKNOWN"
-        if (
-            amount <= 0
-            or supply["absorption_evidence_count"] < 4
-            or not all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
-        )
+        "UNKNOWN" if not minimum_evidence
         else "RELEASING" if supply_pressure > supply_support + 0.15
         else "ABSORPTION" if supply["supply_absorption"] >= 0.35
         else "BALANCED"
@@ -396,7 +529,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         + 0.10 * pricing_gap["attention_gap"]
         + 0.10 * pricing_gap["institutional_gap"]
     )
-    pricing_gap["low_price"] = price > 0 and price <= _number(_first(raw, "low_price_threshold", default=0.0)) if raw.get("low_price_threshold") not in (None, "") else False
+    # Low price and a prior drawdown are not a pricing gap.
+    pricing_gap["low_price"] = False
+    pricing_gap["drawdown_is_not_gap"] = True
     pricing_gap["real_pricing_gap"] = pricing_gap["score"]
 
     market = {

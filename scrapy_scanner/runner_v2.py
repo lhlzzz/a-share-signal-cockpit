@@ -299,7 +299,11 @@ def build_canonical_snapshots(results: Dict[str, Any], source_time: str) -> list
             industry_reports=(industry_reports.get(sector) or [])[:5],
         )
         snapshots.append(canonical_snapshot(
-            visible, trade_date=source_time[:10], source="eastmoney_api_scan_v2", source_time=source_time,
+            visible,
+            trade_date=source_time[:10],
+            source="eastmoney_api_scan_v2",
+            source_time=source_time,
+            producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
         ))
     return snapshots
 

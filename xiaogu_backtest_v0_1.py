@@ -1033,7 +1033,7 @@ def build_historical_5d_profit_window_dataset(
                 source_timestamp=str(snapshot_source.get("source_time") or ""),
             )
             canonical_snapshots.append(snapshot)
-            current = run_production_decision(snapshot)
+            current = run_production_decision(snapshot, mode="REPLAY", persisted=True)
         except Exception as exc:
             replay_error = f"{type(exc).__name__}:{exc}"
             if quality == "CANONICAL":
@@ -1245,7 +1245,7 @@ def historical_replay(
     for item in snapshots:
         source, future_bars, _ignored_future_prices = _replay_entry(item)
         snapshot = canonical_historical_snapshot(source) if source.get("signal_time") or source.get("source_time") else source
-        decision = run_production_decision(snapshot)
+        decision = run_production_decision(snapshot, mode="REPLAY", persisted=True)
         try:
             entry = historical_entry_contract(snapshot)
         except ValueError:

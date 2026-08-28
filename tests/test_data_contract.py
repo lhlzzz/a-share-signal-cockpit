@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 
 from xiaogu_forward_eligibility import candidate_universe
@@ -216,3 +217,62 @@ def test_api_exposes_current_state_and_trade_views(tmp_path, monkeypatch):
     decision_id = xiaogu_api.trades()[0]["decision_id"]
     assert xiaogu_api.trade(decision_id)["decision_id"] == decision_id
     assert xiaogu_api.trade("missing-decision")["found"] is False
+
+
+def test_fake_canonical_snapshot_is_blocked_from_feature_engine():
+    from xiaogu_forward_features import build_feature_vector
+
+    forged = {
+        "symbol": "600001",
+        "trusted_snapshot": True,
+        "lineage_id": "forged",
+        "raw": {"symbol": "600001", "price": 10},
+    }
+    with pytest.raises(TypeError, match="FEATURE_ENGINE_REQUIRES_CANONICAL_SNAPSHOT"):
+        build_feature_vector(forged)
+
+
+def test_production_mode_rejects_unpersisted_snapshot_json():
+    from xiaogu_forward_runner import run_production_decision
+
+    snapshot = canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    with pytest.raises(ValueError, match="NO_PRODUCTION_SNAPSHOT"):
+        run_production_decision(snapshot, mode="PRODUCTION", persisted=False, trade_date="2026-08-26")
+
+
+def test_position_review_reads_postgres_not_jsonl(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    calls = {"jsonl": 0}
+
+    def fake_positions():
+        return [{
+            "symbol": "600001",
+            "trade_date": "2026-08-25",
+            "state": "HOLD",
+            "decision": "HOLD",
+            "decision_id": "d1",
+        }]
+
+    monkeypatch.setattr("xiaogu_db.fetch_open_positions", fake_positions)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        runner,
+        "load_latest_snapshot_bundle",
+        lambda _date: {"available": True, "canonical_snapshots": [canonical_snapshot({
+            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        })]},
+    )
+    monkeypatch.setattr(runner, "run_production_decision", lambda *args, **kwargs: {
+        "state": "SELL", "reason": "MAX_HOLDING_BOUNDARY_CLOSED",
+        "canonical_snapshot": {"trade_date": "2026-08-26", "symbol": "600001", "source_time": "2026-08-26T14:50:00+08:00"},
+    })
+    monkeypatch.setattr(runner, "_write_ledger_record", lambda decision: Path("/tmp/unused"))
+    monkeypatch.setattr("xiaogu_utils.load_jsonl", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("JSONL_IS_NOT_POSITION_STATE")))
+    reviewed = runner.daily_position_review("2026-08-26")
+    assert reviewed[0]["state"] == "SELL"
+
