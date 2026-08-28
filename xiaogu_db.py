@@ -270,10 +270,8 @@ def fetch_historical_replay_assets(
     scalar_columns = {
         "picks": {
             "id", "trade_date", "symbol", "decision", "rule_version", "stock_name",
-            "production_run_id", "formal_rank_snapshot_id", "formal_rank_snapshot_version",
-            "data_version", "created_at", "updated_at", "rank", "paper_pick_eligibility",
-            "selection_reason", "ticket_reason", "scoring_config_hash", "final_score",
-            "structured_score", "ranking_basis", "blockers", "source_layers",
+            "production_run_id", "data_version", "created_at", "updated_at",
+            "blockers", "source_layers",
         },
         "returns": {
             "id", "pick_id", "trade_date", "symbol", "t1_return", "t2_return",
@@ -290,9 +288,8 @@ def fetch_historical_replay_assets(
         "daily_candidates": {
             "id", "trade_date", "symbol", "stock_name", "decision", "open_price",
             "close_price", "high_price", "low_price", "volume", "amount", "pct_chg",
-            "turnover_rate", "selection_outcome", "selection_outcome_reason",
-            "production_run_id", "candidate_snapshot_id", "data_version", "created_at",
-            "updated_at", "rank", "is_official_pick", "hard_gate_status", "blockers",
+            "turnover_rate", "production_run_id", "candidate_snapshot_id", "data_version",
+            "created_at", "updated_at", "hard_gate_status", "blockers",
         },
         "manual_execution_records": {
             "id", "production_run_id", "candidate_snapshot_id", "pick_id", "trade_date",
@@ -313,16 +310,14 @@ def fetch_historical_replay_assets(
     }
     json_columns = {
         "picks": {
-            "features", "source_layers", "ranking_basis", "ticket_reason", "selection_reason",
-            "paper_pick_eligibility", "risk_flags", "official_target_exclusion_reasons",
+            "features", "source_layers", "risk_flags", "official_target_exclusion_reasons",
             "auxiliary_evidence_status", "information_coverage_audit_snapshot",
             "payload",
         },
         "returns": {"settlement_evidence", "payload"},
         "daily_candidates": {
             # raw_json is the persisted T-day source snapshot.  The other
-            # candidate JSON columns are historical ranking/diagnostic blobs
-            # (over 2 GB in this database) and are not inputs to the current
+            # Other candidate JSON columns are not inputs to the current
             # decision owner.
             "raw_json", "source_layers",
         },
@@ -336,7 +331,7 @@ def fetch_historical_replay_assets(
         "tradingagents", "industry_reports", "stock_reports", "capital_flow",
         "fund_flow", "market", "risk", "raw", "candidate_features",
         "eligibility_snapshot", "factor_snapshot", "auxiliary_evidence_snapshot",
-        "selection_diagnostics", "ranking_basis", "source_layers",
+        "source_layers",
     )
 
     def compact_json(column: str) -> str:

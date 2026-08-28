@@ -9,11 +9,11 @@
 ## Non-Negotiables
 - NN1: Scanner 只产生 raw acquisition、canonical snapshot、lineage、source validation 和 completeness，不候选筛选、排名、打分或推荐。
 - NN2: `evaluate_candidate_bundle()` 是唯一生产决策 Owner，只输出 WATCH、READY、BUY、HOLD、REDUCE、SELL。
-- NN3: Production Alpha 不使用 T+1 payoff、PATH、limit-up gene、shadow、candidate whitelist 或旧超短排名；T+1 只能是 entry timing/risk/result compatibility。
+- NN3: Production Alpha 只使用五日窗口证据；短周期结果只能是 entry timing、risk 或 outcome compatibility。
 - NN4: BUY 必须同时通过 Business、Future Demand、Capital Accumulation、Supply Absorption、Pricing Gap、Market、Risk 和 Repricing Completion 检查，并能解释买家、卖家、吸收、未来买家和失效条件。
 - NN5: Serenity=Future Demand，Buffett=Business Quality，UZI=Capital，TradingAgents=Contradiction；任何 Skill 都不能直接 BUY。
 - NN6: 保留 PostgreSQL、canonical snapshot、production run、paper ledger、execution contract、return evaluation 和 scheduler 单一边界；不连接真实交易。
-- NN7: 历史回放与 live 使用相同 Feature、Research、Alpha、Decision Owner，计算 5D/10D/20D/30D/60D，禁止未来字段进入决策。
+- NN7: 历史回放与 live 使用相同 Feature、Research、Alpha、Decision Owner，只计算五日窗口，禁止未来字段进入决策。
 - NN8: 删除前必须完成调用链证明；不创建第二套数据库、第二个决策 Owner 或平行实现。
 
 ## Hidden Contract Candidates
@@ -30,7 +30,7 @@
 - FN1: 不把旧 T+1 分数改名为 Core Alpha。
 - FN2: 不只增加字段或文档而保留旧候选筛选进入生产。
 - FN3: 不把 `net_inflow > 0`、强势上涨、涨停或热门板块直接当作 BUY。
-- FN4: 不保留第二个 picker、shadow picker、skill picker 或 mainline picker。
+- FN4: 不保留第二个候选选择器、研究选择器或主线选择器。
 - FN5: 不为删除旧模块而绕过调用者、测试、数据库和回放验证。
 
 ## In Scope
@@ -38,8 +38,8 @@
 - 九类价格形成测量、研究上下文、资金价格影响、供给吸收、未来买家、反身性和重定价完成度。
 - Core Alpha 的五个持有期输出、风险/置信度/状态/解释契约。
 - 唯一六状态 Portfolio Decision、纸面执行、Ledger、DB 持久化和退出逻辑。
-- 同链历史回放、无未来泄漏、5/10/20/30/60D 结果评估和生产运行验证。
-- 删除经证明专属的旧候选排名、PATH、Shadow、case-vector、社会情绪和旧超短模块/测试/配置。
+- 同链历史回放、无未来泄漏、T+1..T+5 结果评估和生产运行验证。
+- 删除经证明专属的候选选择器、重复评分模块、社会情绪模块和无关测试/配置。
 
 ## Out of Scope
 - 真实交易、券商连接、凭空训练或伪造历史收益。
@@ -48,7 +48,7 @@
 ## Success Signals
 - Scanner 源码和运行产物不包含候选排序/策略分/BUY 推荐 Owner。
 - 新九类 Feature、`FutureBuyerMap`、`SupplyAbsorption`、`PricingGap`、`CapitalPriceImpact`、`RepricingState` 可从同一 canonical snapshot 生成。
-- Core Alpha 明确输出 5D/10D/20D/30D/60D，并在未校准时 fail closed。
+- Core Alpha 明确输出五日窗口，并在未校准时 fail closed。
 - `evaluate_candidate_bundle()` 单独产生六状态；BUY 具备完整价格发动机解释，缺证据时不能 BUY。
 - Replay、live snapshot、paper ledger 和结果 filler 可运行，且未来字段注入不改变决策。
 - 定向测试、`pytest tests/ -x -q`、compile、`git diff --check` 和至少一个无网络 fixture 回放通过。

@@ -12,65 +12,27 @@ build/
 *.db
 .env
 .env.*
+!.env.example
 node_modules/
 .mypy_cache/
 .ruff_cache/
 
-# Local assistant, browser, cache, and generated research output state
+# Local assistant, browser, cache, and generated runtime state
 .cache/
 .playwright-mcp/
 .agentmemory/
 .rtk/
-reports/*_final.md
-reports/*_v2.md
-summary/*_latest.json
-forward_paper_ledger_v0_1.jsonl
-
-
-# --- hermes push hygiene (2026-07-18) ---
-.env
-.env.*
-!.env.example
-data/
 forward_paper_ledger*.jsonl
 forward_paper_ledger*.jsonl.*
 *.jsonl.bak*
-topn_candidate_*.jsonl
-a_share_universe_*.jsonl
-manifests/
-summary/*_probe.png
-summary/*_latest.json
-v2_1_six_repo_real_integrated_ledger.jsonl
-.mimocode/
-.agentmemory/
-.rtk/
-.gitnexus/
-.codegraph/
-.playwright-mcp/
-.cache/
-__pycache__/
-*.pyc
-node_modules/
-*.sqlite
-*.db
-external_research/uzi_skill/
-.git.bak*/
 
-# Local operator/browser artifacts; historical summaries remain available for review.
+# Local operator/browser artifacts.
 .grok/
 logs/
 x-login-check.png
 x-login-step2.png
 
-# Runtime state is reproducible from PostgreSQL and the active production run.
-summary/
-reports/
-state/
-forward_scoreboard/
-active/
-deep_archive/
-manifests/
+# External development skills are installed outside this repository.
 .agents/
 .claude/settings.local.json
 .claude/worktrees/
-.codebase-memory/

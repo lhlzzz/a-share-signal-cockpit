@@ -79,7 +79,7 @@ Scanner (Eastmoney API v2) → Runner (gate + score) → Recorder (ledger) → F
 
 ### Pipeline Rules
 
-- Stable chain: Runner → Recorder → Filler → Scoreboard
+- Stable chain: Runner → Recorder → Filler → Position Review → Memory
 - Validation chain: six_repo_integration → xiaogu_v2_1
 - Rollback chain: CORRECTION records in ledger
 - V3 production boundary: Native Evidence + validated VEI + validated Qlib only

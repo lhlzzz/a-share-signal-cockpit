@@ -1,6 +1,5 @@
 {
   "rule_version": "repricing_production_v1",
-  "previous_rule_version": "historical_backtest_rule_v0_3",
   "frozen_at": "2026-08-27T00:00:00+08:00",
   "change_reason": "Xiaogu production targets a five-day profit window with explicit bar-approximation semantics.",
   "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
@@ -21,10 +20,6 @@
     "required_buy_evidence": [
       "BUSINESS_READY", "FUTURE_DEMAND_READY", "CAPITAL_CONVERGENCE_READY", "SUPPLY_ABSORPTION_READY",
       "MARKET_READY", "PRICING_GAP", "FUTURE_BUYER_MAP", "PROFIT_WINDOW_READY"
-    ],
-    "forbidden_core_alpha": [
-      "intraday expected payoff", "intraday reversal safety", "formal profit rank",
-      "PATH", "limit-up gene", "yesterday limit-up continuation", "shadow score"
     ]
   },
   "evaluation": {

@@ -150,7 +150,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "valuation": _clip(_first(raw, "valuation", "valuation_quality", "valuation_score", default=0.0)),
     }
     business["score"] = sum(business.values()) / len(business)
-    # Keep legacy read paths as aliases; production logic consumes BUSINESS.
+    # Accept the source synonym while keeping BUSINESS as the production axis.
     business["financial_quality"] = business["business_quality"]
 
     future_demand = {

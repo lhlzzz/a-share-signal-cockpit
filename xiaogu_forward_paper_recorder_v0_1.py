@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
 from xiaogu_utils import (
-    PRODUCTION_DECISIONS,
     PRODUCTION_TRADE_MODE,
     append_jsonl,
     now_iso,
@@ -25,7 +24,8 @@ BASE = Path(__file__).resolve().parent
 RULE_FREEZE = BASE / 'rule_freeze_v0_1.json'
 FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
-VALID_DECISIONS = set(PRODUCTION_DECISIONS)
+RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
+VALID_DECISIONS = RECORDABLE_DECISIONS
 LOCKED_AT_GENERATION = ['date','generated_at','asof_time','symbol','decision','rule_version','features_used','raw_data_snapshot_path','decision_reason','paper_only','no_trade','production_ready']
 PENDING_OUTCOME_FIELDS = tuple(
     field
@@ -82,6 +82,8 @@ def _markdown(value: Any) -> str:
 def write_trade_memory(record: Dict[str, Any]) -> str:
     """Write the single human-readable trade note for this decision."""
     state = str(record.get("decision") or "WATCH").upper()
+    if state not in RECORDABLE_DECISIONS:
+        return ""
     features = record.get("features_used") or {}
     alpha = features.get("core_alpha") or {}
     research = features.get("research_context") or {}
@@ -379,6 +381,8 @@ def _snapshot_and_record(
 def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
     """Persist a production decision through the sole append-only ledger owner."""
     rule = load_json(RULE_FREEZE)
+    if str(decision.get("state") or "") not in RECORDABLE_DECISIONS:
+        raise ValueError("RECORDER_ACCEPTS_PRODUCTION_EVENTS_ONLY")
     validate_generation(str(decision['state']), rule)
     canonical = decision['canonical_snapshot']
     snap, snapshot, record = _snapshot_and_record(
@@ -401,7 +405,7 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
     try:
-        record['memory_path'] = write_trade_memory(record)
+        record['memory_path'] = write_trade_memory(record) or None
     except OSError as exc:
         record['memory_path'] = None
         record['memory_error'] = repr(exc)
@@ -415,7 +419,7 @@ def main() -> None:
     ap.add_argument('--date', default=dt.date.today().isoformat())
     ap.add_argument('--asof-time', default='14:50:00')
     ap.add_argument('--symbol', default='')
-    ap.add_argument('--decision', required=True, choices=sorted(VALID_DECISIONS))
+    ap.add_argument('--decision', required=True, choices=sorted(RECORDABLE_DECISIONS))
     ap.add_argument('--features-json', default='{}', help='JSON string or path containing only T-day visible features')
     ap.add_argument('--decision-reason', required=True)
     ap.add_argument('--xiaochan-gate-status', default='ALLOW_FORWARD_PAPER_NO_TRADE')
@@ -431,7 +435,7 @@ def main() -> None:
     validate_generation(args.decision, rule)
     features = read_features_arg(args.features_json)
 
-    symbol = args.symbol if args.decision not in {'WATCH'} else (args.symbol or 'WATCH')
+    symbol = args.symbol
     snap, snapshot, rec = _snapshot_and_record(
         date=args.date,
         asof_time=args.asof_time,
@@ -454,7 +458,7 @@ def main() -> None:
 
     dump_json(snap, snapshot)
     try:
-        rec['memory_path'] = write_trade_memory(rec)
+        rec['memory_path'] = write_trade_memory(rec) or None
     except OSError as exc:
         rec['memory_path'] = None
         rec['memory_error'] = repr(exc)

@@ -182,3 +182,27 @@ def test_climax_or_buyer_exhaustion_blocks_new_buy():
     )
     assert decision["state"] == "READY"
     assert "BUYER_EXHAUSTION_OR_CLIMAX" in decision["repricing_risk"]["blockers"]
+
+
+def test_five_day_boundary_closes_trade():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot(),
+        portfolio_state="HOLD",
+        account={"holding_days": 5},
+        as_of=AS_OF,
+    )
+    assert decision["state"] == "SELL"
+    assert decision["position_state"] == "FLAT"
+    assert decision["trade_status"] == "CLOSED"
+
+
+def test_five_day_boundary_closes_even_after_profit_window_hit():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot(),
+        portfolio_state="HOLD",
+        account={"holding_days": 5, "profit_window_hit": True},
+        as_of=AS_OF,
+    )
+    assert decision["state"] == "SELL"
+    assert decision["reason"] == "MAX_HOLDING_BOUNDARY_CLOSED"
+    assert decision["trade_status"] == "CLOSED"

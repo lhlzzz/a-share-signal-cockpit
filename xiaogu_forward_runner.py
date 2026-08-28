@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any, Dict
 
 from xiaogu_forward_bundle_io import load_latest_snapshot_bundle
+from xiaogu_forward_eligibility import candidate_universe
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 BASE = Path(__file__).resolve().parent
+RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 
 
 def run_production_decision(
@@ -57,7 +59,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     snapshots = {str(row.get("symbol")): row for row in bundle.get("canonical_snapshots") or []}
     reviewed = []
     for symbol, prior in latest.items():
-        if prior.get("decision") not in {"BUY", "HOLD", "REDUCE"} or symbol not in snapshots:
+        if prior.get("decision") not in {"BUY", "HOLD"} or symbol not in snapshots:
             continue
         if str(prior.get("date") or "") >= str(trade_date):
             continue
@@ -112,15 +114,24 @@ def main() -> None:
         return
     if args.symbol:
         rows = [row for row in rows if str(row.get("symbol") or "").zfill(6) == args.symbol.zfill(6)]
+    rows, universe = candidate_universe(rows)
     decisions = []
+    recorded = 0
     for row in rows:
         row = dict(row)
         row.setdefault("trade_date", args.date)
         decision = run_production_decision(row, portfolio_state=args.portfolio_state)
-        if not args.dry_run:
+        if not args.dry_run and decision["state"] in RECORDABLE_ACTIONS:
             decision["ledger_path"] = str(_write_ledger_record(decision))
+            recorded += 1
         decisions.append(decision)
-    print(json.dumps({"date": args.date, "count": len(decisions), "decisions": decisions}, ensure_ascii=False, default=str))
+    print(json.dumps({
+        "date": args.date,
+        "count": len(decisions),
+        "recorded": recorded,
+        "candidate_universe": universe,
+        "decisions": decisions,
+    }, ensure_ascii=False, default=str))
 
 
 if __name__ == "__main__":

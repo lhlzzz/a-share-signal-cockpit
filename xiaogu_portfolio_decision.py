@@ -12,7 +12,7 @@ from xiaogu_forward_snapshot import canonical_snapshot
 from xiaogu_research_context import build_integrated_research_context
 
 PORTFOLIO_STATES = ("WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
-HELD_STATES = {"BUY", "HOLD", "REDUCE"}
+HELD_STATES = {"BUY", "HOLD"}
 MAX_HOLDING_DAYS = 5
 
 
@@ -127,26 +127,27 @@ def evaluate_candidate_bundle(
     held = portfolio_state in HELD_STATES
 
     if held:
-        exit_reason = _exit_reason(alpha, features, snapshot, account)
-        if exit_reason != "THESIS_INTACT":
-            state = "SELL" if exit_reason in {"BUSINESS_OR_INDUSTRY_THESIS_BROKEN", "RISK_EVENT", "REPRICING_COMPLETED", "PRICING_GAP_CLOSED", "VALUATION_EXCESS"} else "REDUCE"
-            reason = exit_reason
-        elif alpha["downside_risk"] >= alpha["confidence"] or any(
-            blocker in repricing_blockers
-            for blocker in (
-                "CAPITAL_CONVERGENCE_CONFLICT",
-                "REFLEXIVITY_BREAK",
-                "BUYER_EXHAUSTION_OR_CLIMAX",
-                "TRADINGAGENTS_CONTRADICTION",
-                "SUPPLY_REVERSAL",
-                "CAPITAL_EXIT",
-            )
-        ):
-            state, reason = "REDUCE", "REPRICING_RISK_OR_CONFIRMATION_DETERIORATED"
-        elif (account or {}).get("holding_days", 0) >= MAX_HOLDING_DAYS:
-            state, reason = "HOLD", "MAX_HOLDING_BOUNDARY_REVIEW"
+        if (account or {}).get("holding_days", 0) >= MAX_HOLDING_DAYS:
+            state, reason = "SELL", "MAX_HOLDING_BOUNDARY_CLOSED"
         else:
-            state, reason = "HOLD", "REPRICING_THESIS_STILL_VALID"
+            exit_reason = _exit_reason(alpha, features, snapshot, account)
+            if exit_reason != "THESIS_INTACT":
+                state = "SELL" if exit_reason in {"BUSINESS_OR_INDUSTRY_THESIS_BROKEN", "RISK_EVENT", "REPRICING_COMPLETED", "PRICING_GAP_CLOSED", "VALUATION_EXCESS"} else "REDUCE"
+                reason = exit_reason
+            elif alpha["downside_risk"] >= alpha["confidence"] or any(
+                blocker in repricing_blockers
+                for blocker in (
+                    "CAPITAL_CONVERGENCE_CONFLICT",
+                    "REFLEXIVITY_BREAK",
+                    "BUYER_EXHAUSTION_OR_CLIMAX",
+                    "TRADINGAGENTS_CONTRADICTION",
+                    "SUPPLY_REVERSAL",
+                    "CAPITAL_EXIT",
+                )
+            ):
+                state, reason = "REDUCE", "REPRICING_RISK_OR_CONFIRMATION_DETERIORATED"
+            else:
+                state, reason = "HOLD", "REPRICING_THESIS_STILL_VALID"
     elif hard_blockers:
         state, reason = "WATCH", "HARD_CONSTRAINT:" + ";".join(hard_blockers)
     elif not repricing_blockers:
@@ -159,6 +160,9 @@ def evaluate_candidate_bundle(
     return {
         "decision_id": _decision_id(snapshot, state, as_of),
         "state": state,
+        "action": state,
+        "position_state": "LONG" if held and state != "SELL" else "FLAT",
+        "trade_status": "CLOSED" if state == "SELL" else "OPEN" if held else "NOT_OPEN",
         "symbol": snapshot["symbol"],
         "reason": reason,
         "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",

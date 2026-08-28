@@ -5,6 +5,58 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
+def cheap_eligibility_blockers(row: Dict[str, Any]) -> List[str]:
+    """Check only observable market and operational prerequisites."""
+    symbol = str(row.get("symbol") or row.get("code") or "").strip()
+    try:
+        price = float(row.get("price") or row.get("close") or row.get("f2") or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    try:
+        volume = float(row.get("volume") or row.get("f5") or 0)
+    except (TypeError, ValueError):
+        volume = 0.0
+    try:
+        amount = float(row.get("amount") or row.get("f6") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    blockers = []
+    if not symbol:
+        blockers.append("INVALID_SYMBOL")
+    if price <= 0:
+        blockers.append("INVALID_PRICE")
+    if volume <= 0 or amount <= 0:
+        blockers.append("INCOMPLETE_MARKET_DATA")
+    if row.get("halted") or row.get("is_suspended") or row.get("in_halted"):
+        blockers.append("HALTED")
+    if row.get("regulatory_hard_block") or row.get("risk_hard_block"):
+        blockers.append("REGULATORY_HARD_RISK")
+    if row.get("buyable") is False or row.get("sealed_limit_up"):
+        blockers.append("UNBUYABLE")
+    return list(dict.fromkeys(blockers))
+
+
+def candidate_universe(snapshots: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Return analyzable snapshots without measuring or ranking them."""
+    eligible = []
+    rejected = []
+    for snapshot in snapshots:
+        blockers = cheap_eligibility_blockers(snapshot)
+        if blockers:
+            rejected.append({"symbol": snapshot.get("symbol"), "blockers": blockers})
+        else:
+            eligible.append(snapshot)
+    return eligible, {
+        "input_count": len(snapshots),
+        "eligible_count": len(eligible),
+        "rejected_count": len(rejected),
+        "rejected": rejected,
+        "selection": False,
+        "ranking": False,
+        "alpha": False,
+    }
+
+
 def paper_pick_buyability_block_reason(row: Dict[str, Any], account: Dict[str, Any] | None = None) -> str:
     account = account or {}
     symbol = str(row.get("symbol") or row.get("code") or "").strip()

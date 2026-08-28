@@ -152,7 +152,7 @@ def canonical_future_prices(
     price_basis: str = PRICE_BASIS,
     require_volume: bool = False,
 ) -> list[Dict[str, Any]]:
-    """Normalize future OHLC bars without deriving any target from legacy data."""
+    """Normalize future OHLC bars without deriving targets from stored decisions."""
     if price_basis != PRICE_BASIS:
         raise ValueError(f"UNSUPPORTED_PRICE_BASIS:{price_basis}")
     normalized = []

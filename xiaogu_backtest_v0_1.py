@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from xiaogu_forward_bundle_io import load_snapshot as _load_snapshot
+from xiaogu_forward_runner import run_production_decision
 from xiaogu_forward_result_filler_v0_1 import (
     PRICE_BASIS,
     canonical_future_prices,
@@ -22,41 +23,20 @@ from xiaogu_horizon_evaluation import (
     HORIZONS,
     HISTORICAL_VALIDATION_HORIZONS,
     build_alpha_report,
-    evaluate_decision_buckets,
     evaluate_feature_groups,
     evaluate_replay,
     portfolio_metrics,
     target_quality_gate,
 )
-from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 HISTORICAL_SNAPSHOT_VERSION = "canonical_historical_snapshot_v1"
 HISTORICAL_TARGET_VERSION = "profit_window_5d_labels_v1"
 MODEL_VERSION = "profit_window_alpha_5d_v1"
 TARGET_QUALITY = ("CANONICAL", "PARTIAL", "CONFLICT", "INVALID")
-LEGACY_FIELDS = {
-    "legacy_final_score", "final_score", "formal_primary_score", "production_score",
-    "score", "structured_score", "structured_priority_score", "expected_edge_score",
-    "fund_flow_score", "theme_strength_score", "small_account_score",
-    "multi_agent_consensus_score", "source_health_score", "kline_language_score",
-    "rank", "formal_rank", "pool_rank", "scanner_rank", "candidate_rank",
-    "candidate_priority", "expected_profit_score", "t1_return", "t1_close_return",
-    "expected_t1_profit_score", "capital_bonus", "flow_bonus", "news_bonus",
-    "market_bonus", "sentiment_bonus", "fundamental_bonus", "risk_penalty",
-    "topic_heat_bonus", "sector_rotation_bonus", "evidence_contribution",
-    "candidate_evaluation_decision", "paper_pick_eligibility", "selection_outcome",
-    "candidate_evaluation_reason", "selection_outcome_reason", "selection_reason",
-}
-RAW_MARKET_FIELDS = {
-    "symbol", "code", "name", "stock_name", "sector", "industry", "sector_name",
-    "trade_date", "date", "source_time", "signal_time", "available_at", "source_timestamp",
-    "price", "close", "close_price", "open", "open_price", "high", "high_price",
-    "low", "low_price", "prev_close", "volume", "amount", "turnover", "turnover_rate",
-    "pct_chg", "signal_pct", "f2", "f3", "f5", "f6", "f7", "f8", "f12", "f14",
-    "f15", "f16", "f17", "f18", "f43", "f44", "f45", "f46", "f47", "f48", "f62",
-    "f100", "f168", "f184", "halted", "in_halted", "is_suspended", "regulatory_hard_block",
-    "risk_hard_block",
-}
+NON_INPUT_KEY_MARKERS = (
+    "rank", "score", "bonus", "penalty", "selection", "recommendation",
+    "priority", "outcome", "decision",
+)
 DEFAULT_HISTORICAL_ROOT = Path(__file__).resolve().parent / "data" / "historical_replay_snapshots"
 CONFIG_PATH = Path(__file__).resolve().parent / "rule_freeze_v0_1.json"
 CONFIG_HASH = hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest()
@@ -68,33 +48,22 @@ def load_snapshot(path: str | Path) -> Dict[str, Any]:
     return _load_snapshot(Path(path))
 
 
-def run_production_decision(snapshot: Dict[str, Any], portfolio_state: str = "WATCH") -> Dict[str, Any]:
-    source_time = str(snapshot.get("signal_time") or snapshot.get("source_time") or snapshot.get("as_of") or "")
-    try:
-        as_of = datetime.fromisoformat(source_time.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ValueError(f"INVALID_SIGNAL_TIME:{source_time}") from exc
-    if as_of.tzinfo is None:
-        as_of = as_of.replace(tzinfo=timezone.utc)
-    return evaluate_candidate_bundle(snapshot, portfolio_state=portfolio_state, as_of=as_of)
-
-
 def calculate_portfolio_metrics(returns: Iterable[float]) -> Dict[str, Any]:
     return portfolio_metrics(returns)
 
 
-def _strip_legacy(payload: Any) -> Any:
+def _strip_non_input_fields(payload: Any) -> Any:
     if isinstance(payload, dict):
         return {
-            key: _strip_legacy(value)
+            key: _strip_non_input_fields(value)
             for key, value in payload.items()
             if key not in {"future_prices", "future_bars", "outcomes", "labels"}
-            and key not in LEGACY_FIELDS
             and not str(key).lower().startswith(("future_", "actual_"))
             and not re.match(r"^t\d+[_-]", str(key), re.I)
+            and not any(marker in str(key).lower() for marker in NON_INPUT_KEY_MARKERS)
         }
     if isinstance(payload, list):
-        return [_strip_legacy(value) for value in payload]
+        return [_strip_non_input_fields(value) for value in payload]
     return payload
 
 
@@ -169,9 +138,9 @@ def _pick_snapshot(pick: Dict[str, Any], candidate: Dict[str, Any] | None) -> Di
     # Candidate facts are preferred; pick payload supplies the persisted decision
     # evidence when no exact candidate snapshot is available.
     source = {
-        **_compact_snapshot_source(_strip_legacy(raw_json)),
-        **_compact_snapshot_source(_strip_legacy(candidate_features)),
-        **_compact_snapshot_source(_strip_legacy(features)),
+        **_compact_snapshot_source(_strip_non_input_fields(raw_json)),
+        **_compact_snapshot_source(_strip_non_input_fields(candidate_features)),
+        **_compact_snapshot_source(_strip_non_input_fields(features)),
         "symbol": _first_value(candidate.get("symbol"), pick.get("symbol"), features.get("symbol")),
         "stock_name": _first_value(candidate.get("stock_name"), pick.get("stock_name")),
         "trade_date": _first_value(candidate.get("trade_date"), pick.get("trade_date")),
@@ -186,19 +155,18 @@ def _pick_snapshot(pick: Dict[str, Any], candidate: Dict[str, Any] | None) -> Di
         "sector": _first_value(candidate.get("sector"), candidate_features.get("sector"), features.get("sector")),
     }
     source.update({
-        key: _strip_legacy(value)
+        key: _strip_non_input_fields(value)
         for key, value in {
             "candidate_features": _compact_snapshot_source(candidate_features),
             "eligibility_snapshot": _json_row(candidate, "eligibility_snapshot") or _json_row(features, "eligibility_snapshot"),
             "factor_snapshot": _compact_snapshot_source(_json_row(candidate, "factor_snapshot")),
             "auxiliary_evidence_snapshot": _compact_snapshot_source(_json_row(candidate, "auxiliary_evidence_snapshot")),
-            "ranking_basis": _json_row(candidate, "ranking_basis") or _json_row(pick, "ranking_basis"),
             "source_layers": candidate.get("source_layers") or pick.get("source_layers") or [],
         }.items()
         if value not in (None, "", {}, [])
     })
     # Normalize persisted T-day evidence into names consumed by the current
-    # feature owner. These are raw measurements, never legacy scores/labels.
+    # feature owner. These are raw measurements, never decisions or labels.
     if source.get("main_net_inflow") in (None, "", "-"):
         source["main_net_inflow"] = _first_value(
             source.get("main_net_inflow"), source.get("net_inflow_main"),
@@ -1117,10 +1085,8 @@ def build_historical_5d_profit_window_dataset(
     invalid = [row for row in dataset if row["target_quality"] == "INVALID"]
     gate = target_quality_gate(dataset, min_coverage=0.95, horizons=HISTORICAL_VALIDATION_HORIZONS)
     report = build_alpha_report(canonical, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)
-    report["decision_buckets"] = evaluate_decision_buckets(canonical)
     diagnostic = [row for row in dataset if row["target_quality"] in {"CANONICAL", "PARTIAL"}]
     report["diagnostic_sample_count"] = len(diagnostic)
-    report["diagnostic_decision_buckets"] = evaluate_decision_buckets(diagnostic)
     report["diagnostic_feature_groups"] = evaluate_feature_groups(diagnostic)
     return {
         "dataset_name": "historical_5d_profit_window_dataset",
@@ -1149,7 +1115,7 @@ def canonical_historical_snapshot(
     """Create a PIT row from T-day facts, never from old score payloads."""
     if not isinstance(row, dict):
         raise TypeError("HISTORICAL_SNAPSHOT_MUST_BE_OBJECT")
-    clean = _strip_legacy(row)
+    clean = _strip_non_input_fields(row)
     clean.pop("_trade_date", None)
     clean.pop("_path", None)
     signal = signal_time or str(clean.get("signal_time") or clean.get("source_time") or "")
@@ -1259,7 +1225,7 @@ def _decision_record(snapshot: Dict[str, Any], decision: Dict[str, Any], entry: 
         "entry_contract": entry,
         "model_registry": {
             "model_version": MODEL_VERSION, "feature_version": "price_formation_measurements_v1",
-            "target_version": HISTORICAL_TARGET_VERSION, "data_version": snapshot.get("snapshot_version", "legacy_fixture"),
+            "target_version": HISTORICAL_TARGET_VERSION, "data_version": snapshot.get("snapshot_version", "historical_fixture"),
             "config_hash": CONFIG_HASH,
             "training_window": None, "test_window": trade_date,
         },
@@ -1455,7 +1421,7 @@ def replay_historical_root(root: str | Path = DEFAULT_HISTORICAL_ROOT, **kwargs:
     result["historical_input_audit"] = {
         "source_rows": len(source_rows), "accepted_rows": len(valid), "rejected_rows": len(rejected),
         "rejected_examples": rejected[:20],
-        "legacy_fields_ignored": sorted(LEGACY_FIELDS),
+        "non_input_field_filter": list(NON_INPUT_KEY_MARKERS),
         "future_price_load_errors": future_load_errors[:20],
         "future_price_load_error_count": len(future_load_errors),
     }

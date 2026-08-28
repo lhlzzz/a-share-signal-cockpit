@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI
-from xiaogu_horizon_evaluation import HORIZONS
 from xiaogu_utils import decision_record_id, has_decision_payload
 
 BASE = Path(__file__).resolve().parent
 LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"
+RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 app = FastAPI(title="Xiaogu")
 
 
@@ -27,7 +27,12 @@ def _decision_id(record: Dict[str, Any]) -> str:
 
 
 def _decision_records() -> List[Dict[str, Any]]:
-    return [record for record in _records() if has_decision_payload(record)]
+    return [
+        record for record in _records()
+        if has_decision_payload(record)
+        and str(record.get("decision") or record.get("new_state") or "").upper()
+        in RECORDABLE_DECISIONS
+    ]
 
 
 def _result_records() -> List[Dict[str, Any]]:
@@ -57,50 +62,27 @@ def system_health() -> Dict[str, Any]:
     return {"status": "ok", "paper_only": True, "ledger_available": LEDGER.exists()}
 
 
-@app.get("/dashboard")
-def dashboard() -> Dict[str, Any]:
+@app.get("/state")
+def current_state() -> Dict[str, Any]:
     records = _decision_records()
     latest = {}
     for record in records:
         latest[str(record.get("symbol") or "")] = record
-    today = __import__("datetime").date.today().isoformat()
     return {
-        "date": today,
-        "records": len(records),
         "market_state": "UNKNOWN",
-        "capital_convergence": [
-            _production_view((record.get("features_used") or {}).get("core_alpha", {}).get("capital_convergence"))
+        "positions": [
+            _production_view(record)
             for record in latest.values()
+            if record.get("decision") in {"BUY", "HOLD", "REDUCE"}
         ],
-        "repricing_candidates": [_production_view(record) for record in latest.values() if record.get("decision") in {"BUY", "READY", "WATCH"}],
-        "buy": [_production_view(record) for record in latest.values() if record.get("decision") == "BUY"],
-        "ready": [_production_view(record) for record in latest.values() if record.get("decision") == "READY"],
-        "watch": [_production_view(record) for record in latest.values() if record.get("decision") == "WATCH"],
-        "portfolio": [_production_view(record) for record in latest.values() if record.get("decision") in {"BUY", "HOLD", "REDUCE"}],
         "latest": _production_view(records[-1]) if records else None,
     }
 
 
-@app.get("/picks")
-def picks() -> List[Dict[str, Any]]:
-    return [_production_view(record) for record in _decision_records()]
-
-
-@app.get("/portfolio")
-def portfolio() -> List[Dict[str, Any]]:
-    latest = {}
-    for record in picks():
-        latest[str(record.get("symbol") or "")] = record
-    return [_production_view(record) for record in latest.values()]
-
-
-@app.get("/returns")
-def returns() -> List[Dict[str, Any]]:
-    latest = {}
-    for record in _records():
-        if record.get("record_type") == "RESULT":
-            latest[str(record.get("decision_id") or "")] = _production_view(record)
-    return list(latest.values())
+@app.get("/decision")
+def current_decision() -> Dict[str, Any]:
+    records = _decision_records()
+    return _production_view(records[-1]) if records else {"found": False}
 
 
 @app.get("/trades")
@@ -172,42 +154,3 @@ def patterns() -> Dict[str, Any]:
             "first_profit_day": review.get("profit_window_day"),
         })
     return {"success": successful, "failure": failed, "research_only": True}
-
-
-@app.get("/repricing-state")
-def repricing_state() -> List[Dict[str, Any]]:
-    return [
-        {
-            "date": record.get("date"),
-            "symbol": record.get("symbol"),
-            "state": record.get("decision"),
-            "repricing_readiness": (record.get("features_used") or {}).get("repricing_readiness"),
-            "repricing_risk": (record.get("features_used") or {}).get("repricing_risk"),
-            "future_buyer_map": (record.get("features_used") or {}).get("future_buyer_map"),
-            "core_alpha": (record.get("features_used") or {}).get("core_alpha"),
-        }
-        for record in portfolio()
-    ]
-
-
-@app.get("/alpha")
-def alpha() -> List[Dict[str, Any]]:
-    """Expose current five-day alpha without exposing retired targets."""
-    return [
-        {
-            "date": record.get("date"),
-            "symbol": record.get("symbol"),
-            "decision": record.get("decision"),
-            "core_alpha": (record.get("features_used") or {}).get("core_alpha", {}),
-        }
-        for record in portfolio()
-    ]
-
-
-@app.get("/research-context")
-def research_context() -> List[Dict[str, Any]]:
-    return [
-        record["features_used"].get("research_context", {})
-        for record in picks()
-        if isinstance(record.get("features_used"), dict)
-    ]

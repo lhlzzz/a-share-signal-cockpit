@@ -19,5 +19,6 @@ jobs:
           python - <<'PY'
           from fastapi.testclient import TestClient
           from xiaogu_api import app
-          assert TestClient(app).get("/demo/cockpit").status_code == 200
+          assert TestClient(app).get("/health").status_code == 200
+          assert TestClient(app).get("/state").status_code == 200
           PY

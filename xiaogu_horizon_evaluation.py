@@ -563,11 +563,16 @@ def _probability_separation(rows: Sequence[Dict[str, Any]], predictions: Sequenc
     maximum = max(predictions)
     mean = sum(predictions) / len(predictions)
     std = math.sqrt(sum((value - mean) ** 2 for value in predictions) / len(predictions))
-    rank = _rank_buckets(rows, predictions)
-    top10 = rank.get("buckets", {}).get("Top10%", {})
-    delta = top10.get("delta_vs_base_rate")
+    base_rate = sum(_label_value(row) for row in rows) / len(rows)
+    high_probability = [
+        _label_value(row)
+        for row, prediction in zip(rows, predictions)
+        if prediction >= median(predictions)
+    ]
+    high_rate = sum(high_probability) / len(high_probability) if high_probability else None
+    delta = high_rate - base_rate if high_rate is not None else None
     passed = bool(
-        rank.get("status") == "PASS"
+        len(set(predictions)) > 1
         and std >= MIN_PROBABILITY_STD
         and maximum - minimum >= MIN_PROBABILITY_RANGE
         and delta is not None
@@ -585,7 +590,7 @@ def _probability_separation(rows: Sequence[Dict[str, Any]], predictions: Sequenc
             "minimum_range": MIN_PROBABILITY_RANGE,
             "minimum_top10_delta": MIN_TOP_DECILE_DELTA,
         },
-        "top10_delta_vs_base_rate": delta,
+        "high_probability_delta_vs_base_rate": delta,
     }
 
 
@@ -754,33 +759,6 @@ def _percentile(values: Sequence[float], fraction: float) -> float | None:
     return values[lower] + (values[upper] - values[lower]) * (position - lower)
 
 
-def _rank_buckets(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -> Dict[str, Any]:
-    """Evaluate fixed OOS rank slices; ties are flagged as non-discriminative."""
-    if not rows or len(rows) != len(predictions):
-        return {"status": "BLOCKED", "base_rate": None, "buckets": {}}
-    ordered = sorted(zip(predictions, rows), key=lambda item: item[0], reverse=True)
-    base_rate = sum(_label_value(row) for row in rows) / len(rows)
-    buckets = {}
-    for fraction in (0.10, 0.20, 0.30):
-        selected = ordered[:max(1, math.ceil(len(ordered) * fraction))]
-        labels = [_label_value(row) for _, row in selected]
-        profits = [_outcome_profit(row) for _, row in selected if _outcome_profit(row) is not None]
-        maes = [_mae(row) for _, row in selected if _mae(row) is not None]
-        buckets[f"Top{int(fraction * 100)}%"] = {
-            "samples": len(selected),
-            "coverage": len(selected) / len(rows),
-            "profit_window_rate": sum(labels) / len(labels),
-            "mean_profit": sum(profits) / len(profits) if profits else None,
-            "mean_mae": sum(maes) / len(maes) if maes else None,
-            "delta_vs_base_rate": sum(labels) / len(labels) - base_rate,
-        }
-    return {
-        "status": "PASS" if len(set(predictions)) > 1 else "MODEL_NOT_DISCRIMINATIVE",
-        "base_rate": base_rate,
-        "buckets": buckets,
-    }
-
-
 def _split_rows(rows: Sequence[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]:
     ordered = sorted(rows, key=lambda row: str(row.get("signal_date") or row.get("trade_date") or ""))
     if len(ordered) < 3:
@@ -873,7 +851,6 @@ def _fit_set_report(
         "oos": oos_metrics,
         "monotonicity": _monotonicity(oos, predictions["oos"]),
         "probability_separation": _probability_separation(oos, predictions["oos"]),
-        "rank_buckets": _rank_buckets(oos, predictions["oos"]),
     }
 
 
@@ -1027,20 +1004,6 @@ def evaluate_replay(
     }
 
 
-def evaluate_decision_buckets(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    rows = list(rows)
-    buckets = {
-        "OLD BUY": lambda row: str(row.get("historical_original_decision") or "").upper() in {"BUY", "PAPER_PICK"},
-        "CURRENT BUY": lambda row: str(row.get("current_decision") or "").upper() == "BUY",
-        "WATCH": lambda row: str(row.get("current_decision") or "").upper() == "WATCH",
-        "READY": lambda row: str(row.get("current_decision") or "").upper() == "READY",
-    }
-    return {
-        name: evaluate_replay([row for row in rows if predicate(row)])["horizon_metrics"]["PROFIT_WINDOW_5D"]
-        for name, predicate in buckets.items()
-    }
-
-
 def evaluate_feature_groups(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     rows = list(rows)
 
@@ -1072,31 +1035,6 @@ def evaluate_feature_groups(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         "capital_convergence": grouped("capital_convergence", ("CONVERGENCE", "PARTIAL", "CONFLICT", "UNKNOWN")),
         "supply_absorption": grouped("supply_absorption_state", ("ABSORPTION", "BALANCED", "RELEASING", "UNKNOWN")),
         "repricing_state": grouped("repricing_state", ("ACCUMULATION", "IGNITION", "EXPANSION", "CLIMAX", "DISTRIBUTION", "UNKNOWN")),
-    }
-
-
-def evaluate_group(rows: Iterable[Dict[str, Any]], predicate, *, horizons: Iterable[int] = HORIZONS) -> Dict[str, Any]:
-    validate_horizons(horizons)
-    selected = [row for row in rows if predicate(row)]
-    return {"PROFIT_WINDOW_5D": evaluate_replay(selected)["horizon_metrics"]["PROFIT_WINDOW_5D"]}
-
-
-def evaluate_top_k(
-    rows: Iterable[Dict[str, Any]],
-    *,
-    score_key: str = "thesis_score",
-    ks: Iterable[int] = (1, 5, 10),
-    horizons: Iterable[int] = HORIZONS,
-) -> Dict[str, Any]:
-    validate_horizons(horizons)
-    ordered = sorted(
-        rows,
-        key=lambda row: float((row.get("decision", {}).get("core_alpha") or {}).get(score_key) or row.get(score_key) or 0.0),
-        reverse=True,
-    )
-    return {
-        f"Top{k}": evaluate_replay(ordered[:k], horizons=horizons)["horizon_metrics"]
-        for k in ks
     }
 
 
@@ -1154,11 +1092,9 @@ def build_alpha_report(
         "capital_convergence": feature_groups["capital_convergence"],
         "supply_absorption": feature_groups["supply_absorption"],
         "repricing_state": feature_groups["repricing_state"],
-        "decision_buckets": evaluate_decision_buckets(rows),
         "feature_groups": feature_groups,
         "feature_diagnostics": diagnose_features(rows),
         "ablation": ablation,
-        "ranking_evidence": full_alpha.get("rank_buckets", {}),
         "probability_separation": full_alpha.get("probability_separation", {}),
         "production_gates": {
             "data_quality": gate.get("status") == "PASS",

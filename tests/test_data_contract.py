@@ -1,5 +1,6 @@
 import pytest
 
+from xiaogu_forward_eligibility import candidate_universe
 from xiaogu_forward_features import FEATURE_GROUPS, build_feature_vector
 from xiaogu_forward_snapshot import attach_research_observations, canonical_snapshot
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
@@ -104,7 +105,27 @@ def test_scanner_fixture_only_emits_canonical_market_observations():
         assert forbidden not in snapshots[0]
 
 
-def test_production_recorder_uses_profit_window_freeze_and_pending_five_day_outcomes(tmp_path, monkeypatch):
+def test_candidate_universe_is_cheap_and_has_no_alpha_fields():
+    eligible, audit = candidate_universe([
+        {"symbol": "600001", "price": 10, "volume": 100, "amount": 1000},
+        {"symbol": "600002", "price": 10, "volume": 0, "amount": 1000, "score": 1},
+    ])
+    assert [row["symbol"] for row in eligible] == ["600001"]
+    assert audit["selection"] is False
+    assert audit["ranking"] is False
+    assert audit["alpha"] is False
+
+
+def test_recorder_accepts_trade_events_but_rejects_watch_memory(tmp_path, monkeypatch):
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    with pytest.raises(ValueError, match="RECORDER_ACCEPTS_PRODUCTION_EVENTS_ONLY"):
+        recorder.append_production_decision({"state": "WATCH"})
+    assert not list((tmp_path / "memory").glob("**/*.md"))
+
+
+def test_recorder_persists_buy_without_watch_memory(tmp_path, monkeypatch):
     import xiaogu_db
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
@@ -114,7 +135,7 @@ def test_production_recorder_uses_profit_window_freeze_and_pending_five_day_outc
     monkeypatch.setattr(xiaogu_db, "record_snapshot", lambda _snapshot: None)
     monkeypatch.setattr(xiaogu_db, "record_decision", lambda _decision: None)
     decision = {
-        "state": "WATCH", "reason": "THESIS_INCOMPLETE",
+        "state": "BUY", "reason": "REPRICING_READY",
         "canonical_snapshot": {
             "lineage_id": "lineage", "trade_date": "2026-08-26",
             "source_time": "2026-08-26T14:50:00+08:00", "symbol": "600001", "price": 10,
@@ -128,8 +149,8 @@ def test_production_recorder_uses_profit_window_freeze_and_pending_five_day_outc
     assert record["max_daily_bar_profit_opportunity_5d"] is None
     assert record["future_1d_return"] is None
     assert record["auto_order"] is False
-    assert record["memory_path"].endswith("WATCH/2026-08-26_600001.md")
-    assert (tmp_path / "memory" / "decisions" / "WATCH" / "2026-08-26_600001.md").exists()
+    assert record["memory_path"].endswith("BUY/2026-08-26_600001.md")
+    assert (tmp_path / "memory" / "decisions" / "BUY" / "2026-08-26_600001.md").exists()
 
 
 def test_post_trade_review_and_memory_are_written_for_complete_window(tmp_path, monkeypatch):
@@ -179,7 +200,7 @@ def test_runner_bundle_loader_reads_scanner_canonical_jsonl(tmp_path, monkeypatc
     assert bundle["canonical_snapshots"][0]["symbol"] == "600001"
 
 
-def test_api_exposes_latest_portfolio_and_repricing_state(tmp_path, monkeypatch):
+def test_api_exposes_current_state_and_trade_views(tmp_path, monkeypatch):
     import xiaogu_api
 
     ledger = tmp_path / "ledger.jsonl"
@@ -189,7 +210,9 @@ def test_api_exposes_latest_portfolio_and_repricing_state(tmp_path, monkeypatch)
         '{"record_type":"RESULT","decision_id":"2026-08-26__DECISION_600001","future_5d_return":0.1}',
     ]) + "\n", encoding="utf-8")
     monkeypatch.setattr(xiaogu_api, "LEDGER", ledger)
-    assert len(xiaogu_api.picks()) == 2
-    assert xiaogu_api.portfolio()[0]["decision"] == "BUY"
-    assert xiaogu_api.repricing_state()[0]["repricing_readiness"]["CAPITAL_READY"] is True
-    assert xiaogu_api.returns()[0]["future_5d_return"] == 0.1
+    assert xiaogu_api.current_state()["positions"][0]["decision"] == "BUY"
+    assert xiaogu_api.current_decision()["decision"] == "BUY"
+    assert xiaogu_api.trades()[0]["new_state"] == "BUY"
+    decision_id = xiaogu_api.trades()[0]["decision_id"]
+    assert xiaogu_api.trade(decision_id)["decision_id"] == decision_id
+    assert xiaogu_api.trade("missing-decision")["found"] is False

@@ -185,11 +185,11 @@ def test_gate_requires_day_by_day_ohlc_not_only_returns():
     assert gate["horizon_coverage"]["1"]["ohlc"] == 0.0
 
 
-def test_database_builder_never_uses_symbol_date_fallback_or_old_rank_snapshot():
+def test_database_builder_requires_explicit_linked_snapshot():
     result = build_historical_5d_profit_window_dataset({
         "picks": [{
             "id": 7, "trade_date": "2026-08-01", "symbol": "600001",
-            "decision": "BUY", "formal_rank_snapshot_id": "wrong-snapshot",
+            "decision": "BUY",
         }],
         "returns": [_return_row(pick_id=None, candidate_snapshot_id="different-snapshot")],
         "daily_candidates": [],
