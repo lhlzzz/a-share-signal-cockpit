@@ -120,49 +120,36 @@ def build_pricing_gap_context(snapshot: Dict[str, Any], features: Dict[str, Any]
 
 def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     raw = snapshot.get("raw", {})
-    demand = features["FUTURE_DEMAND"]
     capital = features["CAPITAL"]
-    buyers = raw.get("future_buyers")
-    if not isinstance(buyers, list):
-        # A buyer is a hypothesis only when a same-day measurable trigger
-        # exists. Missing evidence must not become a bullish default.
-        candidates = [
-            ("institutions", capital["institutional_flow"], "earnings/order visibility"),
-            ("mutual_funds", capital["institutional_flow"] * 0.80, "fundamental estimate revision"),
-            ("ETF/index", demand["evidence_strength"], "industry weight or benchmark attention"),
-            ("quant", features["MARKET"]["follow_through"], "breadth and liquidity confirmation"),
-            ("hot_money", capital["hot_money_flow"], "catalyst and leader identity"),
-            ("retail", features["REFLEXIVITY"]["attention_growth"], "attention broadening"),
-            ("industry_capital", demand["supply_constraint"], "capacity expansion or strategic demand"),
-        ]
-        buyers = [
-            {
-                "buyer": buyer,
-                "capacity": round(capacity, 8),
-                "trigger": trigger,
-                "evidence_status": (
-                    "OBSERVED" if buyer in {"institutions", "hot_money"} and capacity > 0
-                    else "EVIDENCE_BACKED" if capacity > 0 else "UNKNOWN"
-                ),
-            }
-            for buyer, capacity, trigger in candidates
-            if capacity > 0
-        ]
-    else:
-        buyers = [item for item in buyers if isinstance(item, dict)]
-        for item in buyers:
-            status = str(item.get("evidence_status") or item.get("status") or "UNKNOWN").upper()
-            if status == "INFERRED":
-                status = "EVIDENCE_BACKED"
-            item["evidence_status"] = status if status in {"OBSERVED", "EVIDENCE_BACKED", "UNKNOWN"} else "UNKNOWN"
+    # Future buyers are never inferred from current flow, demand, attention,
+    # breadth, or supply. Only an explicitly supplied same-day evidence row
+    # may enter this list.
+    buyers = []
+    for source in raw.get("future_buyers") or []:
+        if not isinstance(source, dict):
+            continue
+        item = dict(source)
+        status = str(item.get("evidence_status") or item.get("status") or "UNKNOWN").upper()
+        if status not in {"OBSERVED", "EVIDENCE_BACKED"}:
+            status = "UNKNOWN"
+        evidence = item.get("evidence")
+        if not evidence or not item.get("source") or not item.get("observed_at"):
+            status = "UNKNOWN"
+        item["evidence_status"] = status
+        item["capacity"] = _number(item.get("capacity")) if status != "UNKNOWN" else 0.0
+        buyers.append(item)
     current_buyer = raw.get("current_buyer")
     if not current_buyer:
         current_buyer = [
-            buyer for buyer, capacity in (
-                ("institutions", capital["institutional_flow"]),
-                ("hot_money", capital["hot_money_flow"]),
-            ) if capacity > 0.50
+            name for name, behavior in (
+                ("institution", capital.get("institution_behavior", {})),
+                ("main_force", capital.get("main_force_behavior", {})),
+                ("hot_money", capital.get("hot_money_behavior", {})),
+            )
+            if behavior.get("evidence_count", 0) > 0
         ] or ["unknown"]
+    elif isinstance(current_buyer, str):
+        current_buyer = [current_buyer]
     next_buyers = [
         item for item in buyers
         if _number(item.get("capacity")) > 0.50

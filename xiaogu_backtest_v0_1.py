@@ -1,10 +1,13 @@
 """Point-in-time historical replay and label validation for Xiaogu 3.0."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+import time
+from collections import defaultdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
@@ -57,6 +60,7 @@ RAW_MARKET_FIELDS = {
 DEFAULT_HISTORICAL_ROOT = Path(__file__).resolve().parent / "data" / "historical_replay_snapshots"
 CONFIG_PATH = Path(__file__).resolve().parent / "rule_freeze_v0_1.json"
 CONFIG_HASH = hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest()
+DEFAULT_FUTURE_BAR_CACHE = Path("/tmp/xiaogu-historical-future-bars.json")
 
 
 def load_snapshot(path: str | Path) -> Dict[str, Any]:
@@ -287,90 +291,123 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | None) -> Dict[str, Any]:
-    """Merge persisted return rows only when each horizon agrees exactly."""
-    targets: Dict[str, Any] = {}
+    """Build the 5D ground-truth contract from persisted source evidence.
+
+    A close return is an outcome field.  A daily high is a bar opportunity
+    proxy, never an execution fill.  Missing OHLC remains missing and prevents
+    a row from becoming a canonical training label.
+    """
+    cost_rate = 0.003
+    days: Dict[str, Dict[str, Any]] = {str(day): {} for day in range(1, 6)}
     conflicts: list[str] = []
+
+    def evidence_day(row: Dict[str, Any], day: int) -> Dict[str, Any]:
+        evidence = _json_row(row, "settlement_evidence")
+        values = evidence.get("days") or evidence.get("daily_outcomes") or evidence.get("future_bars")
+        if isinstance(values, dict):
+            value = values.get(str(day), values.get(day))
+            return _as_dict(value)
+        if isinstance(values, list) and len(values) >= day:
+            return _as_dict(values[day - 1])
+        return {}
+
+    def agreed(row_key: str, day: int, *fallbacks: Any) -> float | None:
+        values = [
+            row.get(row_key),
+            *fallbacks,
+        ]
+        numbers = [_number(value) for value in values if _number(value) is not None]
+        if numbers and max(numbers) - min(numbers) > 1e-8:
+            conflicts.append(f"T{day}_{row_key.upper()}_CONFLICT")
+        return numbers[0] if numbers else None
+
     for day in range(1, 6):
-        values = []
         for row in return_rows:
-            value = _first_value(row.get(f"t{day}_return"), row.get(f"t{day}_return_close"))
-            if value is None and day == 1:
-                evidence = _json_row(row, "settlement_evidence")
-                value = _first_value(
-                    row.get("t1_close_return"),
-                    _json_row(evidence, "t1_metrics").get("t1_close_return"),
+            source = evidence_day(row, day)
+            item = days[str(day)]
+            return_value = agreed(
+                f"t{day}_return", day,
+                row.get(f"t{day}_return_close"),
+                source.get("return"),
+                source.get("close_return"),
+            )
+            if return_value is not None and "return" in item and item["return"] != return_value:
+                conflicts.append(f"T{day}_RETURN_CONFLICT")
+            if return_value is not None:
+                item["return"] = return_value
+            for field, keys in {
+                "date": (f"future_{day}d_date", "date", "trade_date"),
+                "open": (f"future_{day}d_open", "open", "open_price"),
+                "high": (f"future_{day}d_high", "high", "high_price"),
+                "low": (f"future_{day}d_low", "low", "low_price"),
+                "close": (f"future_{day}d_close", "close", "close_price"),
+                "volume": (f"future_{day}d_volume", "volume"),
+                "source": ("source",),
+                "source_timestamp": ("source_timestamp",),
+                "price_basis": ("price_basis",),
+            }.items():
+                value = _first_value(*(row.get(key) for key in keys), *(source.get(key) for key in keys))
+                if value not in (None, "") and field not in item:
+                    item[field] = value
+
+        if entry_price and entry_price > 0:
+            high = _number(days[str(day)].get("high"))
+            low = _number(days[str(day)].get("low"))
+            close = _number(days[str(day)].get("close"))
+            if high is not None:
+                days[str(day)]["mfe"] = (high - entry_price) / entry_price
+                days[str(day)]["daily_bar_profit_opportunity"] = (
+                    days[str(day)]["mfe"] - cost_rate
                 )
-            if _number(value) is not None:
-                values.append(value)
-        if values and not _same_number(values):
-            conflicts.append(f"T{day}_RETURN_CONFLICT")
-        targets[f"t{day}_return"] = _number(values[0]) if values else None
-    high_returns = []
-    executable_returns = []
-    low_returns = []
-    for day in range(1, 6):
-        high_values = []
-        low_values = []
-        for row in return_rows:
-            evidence = _json_row(row, "settlement_evidence")
-            t1 = _json_row(evidence, "t1_metrics")
-            high = _first_value(row.get(f"t{day}_return_high"), row.get(f"t{day}_high_return"))
-            low = _first_value(row.get(f"t{day}_return_low"), row.get(f"t{day}_low_return"))
-            if day == 1:
-                high = _first_value(high, row.get("t1_mfe"), t1.get("t1_mfe"))
-                low = _first_value(low, row.get("t1_mae"), t1.get("t1_mae"))
-            if _number(high) is not None:
-                high_values.append(high)
-            if _number(low) is not None:
-                low_values.append(low)
-        if high_values and not _same_number(high_values):
-            conflicts.append(f"T{day}_MFE_CONFLICT")
-        if low_values and not _same_number(low_values):
-            conflicts.append(f"T{day}_MAE_CONFLICT")
-        high_returns.append(_number(high_values[0]) if high_values else None)
-        executable_returns.append(
-            _number(high_values[0]) if high_values else targets[f"t{day}_return"]
-        )
-        low_returns.append(_number(low_values[0]) if low_values else None)
-    gross_high = [value for value in high_returns if value is not None]
-    available = [targets[f"t{day}_return"] for day in range(1, 6) if targets[f"t{day}_return"] is not None]
-    execution_cost = 0.003
-    daily_realizable = [
-        (day, value - execution_cost)
-        for day, value in enumerate(executable_returns, 1)
-        if value is not None
+            if low is not None:
+                days[str(day)]["mae"] = (low - entry_price) / entry_price
+            if close is not None and "return" not in days[str(day)]:
+                days[str(day)]["return"] = (close - entry_price) / entry_price
+
+    complete_days = [
+        day for day in range(1, 6)
+        if all(days[str(day)].get(field) not in (None, "") for field in ("open", "high", "low", "close"))
     ]
+    opportunity_values = [
+        days[str(day)]["daily_bar_profit_opportunity"]
+        for day in complete_days
+        if "daily_bar_profit_opportunity" in days[str(day)]
+    ]
+    mae_values = [
+        days[str(day)]["mae"] for day in complete_days if "mae" in days[str(day)]
+    ]
+    complete_5d = len(complete_days) == 5
     profitable = [
-        (day, value) for day, value in daily_realizable
-        if value >= 0.02
-    ]
-    targets.update({
-        "t1_open": _number(_first_value(*(row.get("t1_open_price") for row in return_rows))),
-        "t1_high": _number(_first_value(*(row.get("t1_high_price") for row in return_rows))),
-        "t1_low": _number(_first_value(*(row.get("t1_low_price") for row in return_rows))),
-        "mfe_5d": max(gross_high) if gross_high else None,
-        "mae_5d": min(value for value in low_returns if value is not None) if any(value is not None for value in low_returns) else None,
-    })
-    first_profit = profitable[0][0] if profitable else None
-    targets.update({
-        "max_realizable_profit_5d": max((value for _, value in daily_realizable), default=None),
-        "profit_window_flag": first_profit is not None,
+        day for day in range(1, 6)
+        if days[str(day)].get("daily_bar_profit_opportunity", -1) >= 0.02
+    ] if complete_5d else []
+    first_profit = profitable[0] if profitable else None
+    status = "COMPLETE" if complete_5d else "PARTIAL" if any(days.values()) else "INVALID"
+    targets: Dict[str, Any] = {
+        "days": days,
+        "entry_price": _number(entry_price),
+        "profit_window_target": 0.02,
+        "execution_cost_rate": cost_rate,
+        "daily_bar_profit_opportunity": [
+            days[str(day)].get("daily_bar_profit_opportunity") for day in range(1, 6)
+        ],
+        "max_daily_bar_profit_opportunity_5d": max(opportunity_values, default=None),
+        "max_mae_5d": min(mae_values, default=None),
+        "mfe_5d": max((days[str(day)].get("mfe") for day in complete_days), default=None),
+        "profit_window": bool(first_profit) if complete_5d else None,
+        "profit_window_flag": bool(first_profit) if complete_5d else None,
         "first_profit_day": first_profit,
         "time_to_profit": first_profit,
-        "execution_cost_rate": execution_cost,
-    })
-    targets["complete_5d"] = all(
-        targets[f"t{day}_return"] is not None for day in range(1, 6)
-    )
-    if any(value is None for value in high_returns):
-        targets["missing_fields"] = [
-            f"T{day}_HIGH" for day, value in enumerate(high_returns, 1) if value is None
-        ]
-    if any(value is None for value in low_returns):
-        targets.setdefault("missing_fields", []).extend(
-            f"T{day}_LOW" for day, value in enumerate(low_returns, 1) if value is None
-        )
-    targets["conflicts"] = sorted(set(conflicts))
+        "data_status": status,
+        "realizability_level": "DAILY_BAR_APPROXIMATION",
+        "complete_5d": complete_5d,
+        "available_days": len(complete_days),
+        "missing_days": [day for day in range(1, 6) if day not in complete_days],
+        "conflicts": sorted(set(conflicts)),
+    }
+    for day in range(1, 6):
+        value = days[str(day)].get("return")
+        targets[f"t{day}_return"] = value
     return targets
 
 
@@ -388,6 +425,323 @@ def _quality(entry: Dict[str, Any], targets: Dict[str, Any], *, relation_conflic
     return "PARTIAL", sorted(set(issues))
 
 
+def _merge_missing_future_targets(
+    targets: Dict[str, Any],
+    future_bars: Sequence[Dict[str, Any]],
+    entry_price: float | None,
+) -> Dict[str, Any]:
+    """Fill only missing target fields from canonical future-price evidence."""
+    days = targets.setdefault("days", {str(day): {} for day in range(1, 6)})
+    seen_dates: set[str] = set()
+    bars = []
+    for bar in sorted(
+        future_bars,
+        key=lambda value: str(value.get("trade_date") or value.get("date") or ""),
+    ):
+        bar_date = str(bar.get("trade_date") or bar.get("date") or "")
+        if not bar_date or bar_date in seen_dates:
+            continue
+        if any(_number(bar.get(field)) is None for field in ("open", "high", "low", "close")):
+            continue
+        seen_dates.add(bar_date)
+        bars.append(bar)
+        if len(bars) == 5:
+            break
+
+    for day, bar in enumerate(bars, 1):
+        item = days[str(day)]
+        for target_key, source_key in (
+            ("date", "trade_date"),
+            ("open", "open"),
+            ("high", "high"),
+            ("low", "low"),
+            ("close", "close"),
+            ("volume", "volume"),
+            ("amount", "amount"),
+            ("source", "source"),
+            ("source_timestamp", "source_timestamp"),
+            ("price_basis", "price_basis"),
+        ):
+            if item.get(target_key) in (None, ""):
+                value = bar.get(source_key) if source_key in bar else bar.get("date")
+                if value not in (None, ""):
+                    item[target_key] = value
+        if item.get("date") in (None, ""):
+            item["date"] = bar.get("date")
+        if (
+            entry_price
+            and entry_price > 0
+            and item.get("return") not in (None, "")
+            and str(item.get("date") or "") == str(bar.get("trade_date") or bar.get("date") or "")
+        ):
+            external_return = (
+                _number(item.get("close")) - entry_price
+            ) / entry_price
+            if abs(float(item["return"]) - external_return) > 1e-8:
+                targets.setdefault("conflicts", []).append(
+                    f"T{day}_RETURN_EXTERNAL_CONFLICT"
+                )
+
+    cost_rate = float(targets.get("execution_cost_rate") or 0.003)
+    complete_days = []
+    for day in range(1, 6):
+        item = days[str(day)]
+        if not all(_number(item.get(field)) is not None for field in ("open", "high", "low", "close")):
+            continue
+        complete_days.append(day)
+        if entry_price and entry_price > 0:
+            high = _number(item["high"])
+            low = _number(item["low"])
+            close = _number(item["close"])
+            if "mfe" not in item:
+                item["mfe"] = (high - entry_price) / entry_price
+            if "mae" not in item:
+                item["mae"] = (low - entry_price) / entry_price
+            if "return" not in item:
+                item["return"] = (close - entry_price) / entry_price
+            if "daily_bar_profit_opportunity" not in item:
+                item["daily_bar_profit_opportunity"] = item["mfe"] - cost_rate
+
+    opportunities = [
+        days[str(day)]["daily_bar_profit_opportunity"]
+        for day in complete_days
+        if days[str(day)].get("daily_bar_profit_opportunity") is not None
+    ]
+    maes = [days[str(day)]["mae"] for day in complete_days if days[str(day)].get("mae") is not None]
+    mfes = [days[str(day)]["mfe"] for day in complete_days if days[str(day)].get("mfe") is not None]
+    complete = len(complete_days) == 5
+    profitable = [
+        day for day in complete_days
+        if days[str(day)].get("daily_bar_profit_opportunity", -1) >= float(targets.get("profit_window_target") or 0.02)
+    ] if complete else []
+    first_profit = profitable[0] if profitable else None
+    targets.update({
+        "max_daily_bar_profit_opportunity_5d": max(opportunities, default=None),
+        "max_mae_5d": min(maes, default=None),
+        "mfe_5d": max(mfes, default=None),
+        "profit_window": bool(first_profit) if complete else None,
+        "profit_window_flag": bool(first_profit) if complete else None,
+        "first_profit_day": first_profit,
+        "time_to_profit": first_profit,
+        "data_status": "COMPLETE" if complete else "PARTIAL" if complete_days else "INVALID",
+        "complete_5d": complete,
+        "available_days": len(complete_days),
+        "missing_days": [day for day in range(1, 6) if day not in complete_days],
+        "future_5d_ohlc_coverage": complete,
+        "future_5d_volume_coverage": complete and all(
+            days[str(day)].get("volume") not in (None, "") for day in range(1, 6)
+        ),
+    })
+    for day in range(1, 6):
+        targets[f"t{day}_return"] = days[str(day)].get("return")
+    return targets
+
+
+def _materialized_asset_rows(rows: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    return [
+        {**_as_dict(row.get("payload")), **row}
+        for row in rows or []
+        if isinstance(row, dict)
+    ]
+
+
+def _database_linked_decision_ranges(
+    assets: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, str]:
+    """Return one earliest T date per symbol for decisions linked to returns."""
+    picks = _materialized_asset_rows(assets.get("picks") or [])
+    candidates = _materialized_asset_rows(assets.get("daily_candidates") or [])
+    returns = _materialized_asset_rows(assets.get("returns") or [])
+    pick_ids = {row.get("pick_id") for row in returns if row.get("pick_id") is not None}
+    relations = {
+        _relation_key(row)
+        for row in returns
+        if _relation_key(row) is not None
+    }
+    ranges: Dict[str, str] = {}
+    linked_rows = [
+        row for row in picks
+        if row.get("id") in pick_ids or _relation_key(row) in relations
+    ] + [
+        row for row in candidates
+        if _relation_key(row) in relations
+    ]
+    for row in linked_rows:
+        relation = _relation_key(row)
+        symbol = str(row.get("symbol") or "").zfill(6)
+        trade_date = row.get("trade_date")
+        if trade_date is None:
+            continue
+        trade_date = str(trade_date).strip()
+        if not symbol or symbol == "000000" or not trade_date:
+            continue
+        ranges[symbol] = min(trade_date, ranges.get(symbol, trade_date))
+    return ranges
+
+
+def _cache_read(path: Path) -> Dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, ValueError):
+        return {"version": 1, "symbols": {}}
+    return value if isinstance(value, dict) and isinstance(value.get("symbols"), dict) else {
+        "version": 1,
+        "symbols": {},
+    }
+
+
+def _cache_write(path: Path, cache: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _bars_cover_five_days(
+    bars: Sequence[Dict[str, Any]],
+    trade_date: str,
+) -> bool:
+    dates = {
+        str(bar.get("date") or bar.get("trade_date") or "")
+        for bar in bars
+        if all(_number(bar.get(field)) is not None for field in ("open", "high", "low", "close"))
+    }
+    return len([value for value in dates if value > trade_date]) >= 5
+
+
+def supplement_database_future_prices(
+    assets: Dict[str, List[Dict[str, Any]]],
+    *,
+    cache_path: str | Path = DEFAULT_FUTURE_BAR_CACHE,
+    end_date: str | None = None,
+    max_retries: int = 1,
+    retry_delay: float = 0.25,
+    request_timeout: int = 10,
+    max_errors: int = 3,
+) -> Dict[str, Any]:
+    """Fetch only missing future OHLC for DB-linked decisions.
+
+    Database canonical bars are loaded first. External bars are a bounded
+    fallback for missing future evidence and are never used as T-day inputs.
+    """
+    from xiaogu_forward_result_filler_v0_1 import fetch_eastmoney_daily_bars
+
+    path = Path(cache_path)
+    cache = _cache_read(path)
+    existing = list(assets.get("canonical_future_prices") or [])
+    existing_by_symbol: Dict[str, list[Dict[str, Any]]] = defaultdict(list)
+    for bar in existing:
+        if isinstance(bar, dict):
+            existing_by_symbol[str(bar.get("symbol") or "").zfill(6)].append(bar)
+
+    ranges = _database_linked_decision_ranges(assets)
+    requested_end = str(end_date or date.today().isoformat())
+    fetched_bars: list[Dict[str, Any]] = []
+    errors = []
+    cache_hits = 0
+    fetched_symbols = 0
+    for symbol, earliest in sorted(ranges.items()):
+        if _bars_cover_five_days(existing_by_symbol.get(symbol, []), earliest):
+            continue
+        cached = cache["symbols"].get(symbol) or {}
+        cached_bars = cached.get("bars") if isinstance(cached, dict) else None
+        if (
+            isinstance(cached_bars, list)
+            and str(cached.get("start_date") or "") <= earliest
+            and str(cached.get("end_date") or "") >= requested_end
+            and _bars_cover_five_days(cached_bars, earliest)
+        ):
+            fetched_bars.extend(cached_bars)
+            cache_hits += 1
+            continue
+
+        last_error = None
+        bars: list[Dict[str, Any]] = []
+        for attempt in range(max(1, max_retries)):
+            try:
+                bars = fetch_eastmoney_daily_bars(
+                    symbol,
+                    start_date=earliest,
+                    end_date=requested_end,
+                    timeout=request_timeout,
+                )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}:{exc}"
+                if attempt + 1 < max(1, max_retries):
+                    time.sleep(retry_delay * (attempt + 1))
+        fetched_symbols += 1
+        if last_error:
+            errors.append({"symbol": symbol, "start_date": earliest, "error": last_error})
+            if len(errors) >= max(1, max_errors):
+                break
+            continue
+        normalized = canonical_future_prices(
+            bars,
+            symbol=symbol,
+            source_timestamp=datetime.now(timezone.utc).isoformat(),
+            price_basis=PRICE_BASIS,
+        )
+        cached_bars = normalized
+        cache["symbols"][symbol] = {
+            "start_date": earliest,
+            "end_date": requested_end,
+            "bars": normalized,
+            "source": "eastmoney_api_daily_kline",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        fetched_bars.extend(normalized)
+
+    existing_keys = {
+        (str(bar.get("symbol") or "").zfill(6), str(bar.get("date") or bar.get("trade_date") or ""))
+        for bar in existing
+        if bar.get("symbol") and (bar.get("date") or bar.get("trade_date"))
+    }
+    new_bars = [
+        bar for bar in fetched_bars
+        if (
+            str(bar.get("symbol") or "").zfill(6),
+            str(bar.get("date") or bar.get("trade_date") or ""),
+        ) not in existing_keys
+    ]
+    if fetched_bars:
+        deduped = {
+            (str(bar.get("symbol") or "").zfill(6), str(bar.get("date") or "")): bar
+            for bar in existing + new_bars
+            if bar.get("symbol") and bar.get("date")
+        }
+        assets["canonical_future_prices"] = list(deduped.values())
+        _cache_write(path, cache)
+        try:
+            from xiaogu_db import init_db, record_canonical_future_prices
+            init_db()
+            record_canonical_future_prices(new_bars)
+            persistence = {"status": "PASS", "rows": len(new_bars)}
+        except Exception as exc:
+            persistence = {"status": "FAILED", "error": f"{type(exc).__name__}:{exc}"}
+    else:
+        persistence = {"status": "SKIPPED", "rows": 0}
+        if cache.get("symbols"):
+            _cache_write(path, cache)
+    return {
+        "status": "PASS" if not errors else "PARTIAL",
+        "linked_symbols": len(ranges),
+        "fetched_symbols": fetched_symbols,
+        "cache_hits": cache_hits,
+        "fetched_rows": len(fetched_bars),
+        "new_rows": len(new_bars),
+        "errors": errors[:20],
+        "error_count": len(errors),
+        "cache_path": str(path),
+        "requested_end_date": requested_end,
+        "persistence": persistence,
+    }
+
+
 def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any] | None:
     if not decision:
         return None
@@ -397,12 +751,20 @@ def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any]
         "state": decision.get("state"),
         "reason": decision.get("reason"),
         "decision_owner": decision.get("decision_owner"),
+        "signal_time": decision.get("signal_time"),
+        "entry_price": decision.get("entry_price"),
+        "entry_price_source": decision.get("entry_price_source"),
+        "feature_vector": decision.get("feature_vector"),
+        "canonical_snapshot": decision.get("canonical_snapshot"),
         "core_alpha": {
             key: alpha.get(key)
             for key in (
                 "thesis_score", "profit_window_probability", "expected_net_profit_window",
                 "expected_time_to_profit", "expected_mae_5d", "repricing_state",
                 "accumulation_phase", "capital_convergence",
+                "profit_window_feature_values", "axes", "supply_absorption",
+                "future_buyer_capacity", "pricing_gap", "execution_feasibility",
+                "downside_risk", "alpha_version", "feature_version",
             )
         },
         "capital_convergence": convergence,
@@ -424,13 +786,18 @@ def build_historical_5d_profit_window_dataset(
     assets: Dict[str, List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
     """Build a read-only replay dataset from explicit database lineage."""
-    picks = list(assets.get("picks") or [])
-    candidates = list(assets.get("daily_candidates") or [])
-    returns = list(assets.get("returns") or [])
+    def materialize(row: Dict[str, Any]) -> Dict[str, Any]:
+        payload = _as_dict(row.get("payload"))
+        return {**payload, **row}
+
+    picks = [materialize(row) for row in assets.get("picks") or []]
+    candidates = [materialize(row) for row in assets.get("daily_candidates") or []]
+    returns = [materialize(row) for row in assets.get("returns") or []]
+    canonical_future = [materialize(row) for row in assets.get("canonical_future_prices") or []]
     production_runs = {
-        str(row.get("production_run_id")): row
-        for row in assets.get("production_runs") or []
-        if row.get("production_run_id")
+        str(row.get("id") or row.get("production_run_id")): row
+        for row in (materialize(row) for row in assets.get("production_runs") or [])
+        if row.get("id") is not None or row.get("production_run_id")
     }
     candidate_by_relation = {_relation_key(row): row for row in candidates if _relation_key(row)}
     returns_by_pick: Dict[Any, list[Dict[str, Any]]] = {}
@@ -441,6 +808,22 @@ def build_historical_5d_profit_window_dataset(
         key = _relation_key(row)
         if key:
             returns_by_relation.setdefault(key, []).append(row)
+    future_by_symbol: Dict[str, list[Dict[str, Any]]] = defaultdict(list)
+    for bar in canonical_future:
+        symbol = str(bar.get("symbol") or "").zfill(6)
+        if symbol:
+            future_by_symbol[symbol].append({
+                "trade_date": bar.get("date") or bar.get("trade_date"),
+                "open": bar.get("open"),
+                "high": bar.get("high"),
+                "low": bar.get("low"),
+                "close": bar.get("close"),
+                "volume": bar.get("volume"),
+                "amount": bar.get("amount"),
+                "source": bar.get("source") or "canonical_future_prices",
+                "source_timestamp": bar.get("source_timestamp") or "",
+                "price_basis": bar.get("price_basis") or PRICE_BASIS,
+            })
 
     source_decisions: list[tuple[Dict[str, Any] | None, Dict[str, Any], list[Dict[str, Any]]]] = []
     resolved_return_ids: set[Any] = set()
@@ -496,8 +879,11 @@ def build_historical_5d_profit_window_dataset(
                 "t5_return": None,
                 "mfe_5d": None,
                 "mae_5d": None,
-                "max_realizable_profit_5d": None,
+                "days": {str(day): {} for day in range(1, 6)},
+                "max_daily_bar_profit_opportunity_5d": None,
+                "profit_window": None,
                 "profit_window_flag": None,
+                "max_mae_5d": None,
                 "first_profit_day": None,
                 "time_to_profit": None,
                 "capital_convergence": None,
@@ -519,8 +905,17 @@ def build_historical_5d_profit_window_dataset(
             audit["unresolved_decisions"].append(decision_id)
             continue
         entry = _entry_audit(linked)
+        symbol = str((pick or candidate).get("symbol") or "").zfill(6)
+        trade_date = str((pick or candidate).get("trade_date") or "")
+        persisted_future = [
+            bar for bar in future_by_symbol.get(symbol, [])
+            if str(bar.get("trade_date") or "") > trade_date
+        ]
         run = production_runs.get(str(entry.get("production_run_id")), {})
+        run_payload = _as_dict(run.get("payload"))
         targets = _return_targets(linked, entry.get("entry_price"))
+        if persisted_future:
+            targets = _merge_missing_future_targets(targets, persisted_future, entry.get("entry_price"))
         relation_keys = {_relation_key(item) for item in linked if _relation_key(item)}
         quality, issues = _quality(entry, targets, relation_conflict=len(relation_keys) > 1)
         snapshot_source = _pick_snapshot(pick or {}, candidate)
@@ -549,12 +944,16 @@ def build_historical_5d_profit_window_dataset(
         compact_current = _compact_current_decision(current)
         dataset.append({
             "historical_decision_id": decision_id,
-            "symbol": str((pick or candidate).get("symbol") or "").zfill(6),
-            "signal_date": str((pick or candidate).get("trade_date") or ""),
+            "decision_id": decision_id,
+            "symbol": symbol,
+            "signal_date": trade_date,
+            "signal_time": entry.get("signal_time"),
             "historical_original_decision": (pick or candidate).get("decision") if pick else candidate.get("selection_outcome"),
             "current_decision": (current or {}).get("state"),
             "current_decision_payload": compact_current,
             "canonical_entry_price": entry.get("entry_price"),
+            "entry_price": entry.get("entry_price"),
+            "entry_price_source": entry.get("source"),
             **targets,
             "capital_convergence": alpha.get("capital_convergence"),
             "capital_convergence_level": _capital_convergence_level(alpha.get("capital_convergence")),
@@ -565,7 +964,11 @@ def build_historical_5d_profit_window_dataset(
             "entry_audit": entry,
             "historical_feature_version": (pick or candidate).get("data_version"),
             "historical_alpha_version": (pick or candidate).get("rule_version"),
-            "historical_decision_version": run.get("runner_version") or (pick or candidate).get("rule_version"),
+            "historical_decision_version": (
+                run.get("runner_version")
+                or run_payload.get("runner_version")
+                or (pick or candidate).get("rule_version")
+            ),
             "feature_version": "price_formation_measurements_v1",
             "alpha_version": MODEL_VERSION,
             "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
@@ -769,12 +1172,12 @@ def historical_replay(
         rows.append({
             "snapshot": snapshot, "decision": decision_summary, "decision_record": record,
             "entry_contract": entry, "future_bars": bars, "labels": outcomes,
-            "forward_window": {
-                "profit_window": outcomes.get("profit_window"),
-                "max_realizable_profit_5d": outcomes.get("max_realizable_profit_5d"),
-                "first_profit_day": outcomes.get("first_profit_day"),
-                "time_to_profit": outcomes.get("time_to_profit"),
-                "max_mae_5d": outcomes.get("max_mae_5d"),
+                "forward_window": {
+                    "profit_window": outcomes.get("profit_window"),
+                    "max_daily_bar_profit_opportunity_5d": outcomes.get("max_daily_bar_profit_opportunity_5d"),
+                    "first_profit_day": outcomes.get("first_profit_day"),
+                    "time_to_profit": outcomes.get("time_to_profit"),
+                    "max_mae_5d": outcomes.get("max_mae_5d"),
                 "net_profit_window": outcomes.get("net_profit_window"),
             },
         })
@@ -826,9 +1229,10 @@ def replay_database_history(
     """Build the database-only five-day replay without altering source rows."""
     from xiaogu_db import database_asset_report, fetch_historical_replay_assets
 
-    result = build_historical_5d_profit_window_dataset(
-        fetch_historical_replay_assets(start_date=start_date, end_date=end_date)
-    )
+    assets = fetch_historical_replay_assets(start_date=start_date, end_date=end_date)
+    supplementation = supplement_database_future_prices(assets, end_date=end_date)
+    result = build_historical_5d_profit_window_dataset(assets)
+    result["future_price_supplementation"] = supplementation
     result["database_asset_report"] = database_asset_report()
     if research_artifact_path is not None:
         result["research_artifact_path"] = str(research_artifact_path)
@@ -909,3 +1313,62 @@ def eastmoney_future_loader(snapshot: Dict[str, Any], *, end_date: str | None = 
     return eastmoney_future_bars(
         str(snapshot["symbol"]), entry_date=str(snapshot["trade_date"]), end_date=end_date,
     )
+
+
+def main() -> int:
+    """Run the database-first replay and emit research artifacts."""
+    parser = argparse.ArgumentParser(
+        description="Build the database-first five-day profit-window replay."
+    )
+    parser.add_argument("--start-date")
+    parser.add_argument("--end-date")
+    parser.add_argument(
+        "--dataset-path",
+        default=str(Path("data/research/historical_5d_profit_window_dataset.json")),
+    )
+    parser.add_argument(
+        "--report-path",
+        default=str(Path("data/research/historical_5d_profit_window_report.json")),
+    )
+    args = parser.parse_args()
+    try:
+        result = replay_database_history(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            research_artifact_path=args.dataset_path,
+        )
+    except Exception as exc:
+        print(json.dumps({
+            "status": "DATABASE_UNAVAILABLE",
+            "error": repr(exc),
+            "dataset_path": args.dataset_path,
+            "report_path": args.report_path,
+        }, ensure_ascii=False))
+        return 2
+
+    report = dict(result.get("alpha_report") or {})
+    report.update({
+        "dataset_name": "historical_5d_profit_window_dataset",
+        "read_only": True,
+        "database_asset_report": result.get("database_asset_report"),
+        "counts": result.get("counts"),
+        "audit": result.get("audit"),
+        "target_quality_gate": result.get("target_quality_gate"),
+        "core_alpha_status": result.get("core_alpha_status"),
+    })
+    report_path = Path(args.report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    print(json.dumps({
+        "status": "PASS",
+        "dataset_path": args.dataset_path,
+        "report_path": args.report_path,
+        "counts": result.get("counts"),
+        "target_quality_gate": result.get("target_quality_gate"),
+        "core_alpha_status": result.get("core_alpha_status"),
+    }, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

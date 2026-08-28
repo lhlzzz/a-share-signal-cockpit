@@ -18,7 +18,7 @@ def _bars(count=5):
 def test_five_day_profit_window_uses_daily_path_and_costs():
     outcomes = calculate_horizon_outcomes(10, _bars())
     assert outcomes["future_5d_return"] == pytest.approx(0.02)
-    assert outcomes["max_realizable_profit_5d"] == pytest.approx(0.047)
+    assert outcomes["max_daily_bar_profit_opportunity_5d"] == pytest.approx(0.047)
     assert outcomes["first_profit_day"] == 1
     assert outcomes["time_to_profit"] == 1
     assert outcomes["max_mae_5d"] == -0.1
@@ -28,8 +28,8 @@ def test_five_day_profit_window_uses_daily_path_and_costs():
 
 def test_missing_five_day_data_is_explicitly_insufficient():
     outcomes = calculate_horizon_outcomes(10, _bars(4))
-    assert outcomes["data_status"] == "DATA_INSUFFICIENT"
-    assert outcomes["max_realizable_profit_5d"] is None
+    assert outcomes["data_status"] == "PARTIAL"
+    assert outcomes["max_daily_bar_profit_opportunity_5d"] is None
     assert outcomes["profit_window"] is False
     assert outcomes["available_days"] == 4
     assert outcomes["partial_status"] == "PARTIAL"
@@ -57,9 +57,9 @@ def test_append_result_exposes_only_profit_window_target():
         },
     }, future_bars=_bars())
     assert result["profit_window"] is True
-    assert result["net_profit_window"] == result["max_realizable_profit_5d"]
+    assert result["net_profit_window"] == pytest.approx(0.017)
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in result)
-    assert result["future_1d_net_return"] == pytest.approx(0.047)
+    assert result["future_1d_net_return"] == pytest.approx(0.017)
 
 
 def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypatch):

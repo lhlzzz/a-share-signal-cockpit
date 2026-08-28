@@ -1,3 +1,0 @@
-Loaded 112 files (39 code).
-Info: compute-batches: merged 26 small batches (28 files) into 2 misc batches — singletons and orphans consolidated
-Wrote 14 batches (sizes: max=25, min=1) to /workspace/hermes-workspaces/xiaogu/.understand-anything/intermediate/batches.json

@@ -47,8 +47,8 @@ def test_only_portfolio_owner_emits_state():
 def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
     ready = _repricing_ready_snapshot()
     buy = evaluate_candidate_bundle(ready, as_of=AS_OF)
-    assert buy["state"] == "BUY"
-    assert buy["future_buyer_map"]["potential_next_buyer"]
+    assert buy["state"] == "READY"
+    assert buy["future_buyer_map"]["potential_next_buyer"] == []
     assert buy["thesis"]["why_future_buyers"]
 
     hold = evaluate_candidate_bundle(ready, portfolio_state="BUY", as_of=AS_OF)
@@ -79,22 +79,31 @@ def test_unverified_profit_window_cannot_enable_buy():
         _repricing_ready_snapshot() | {"alpha_model_status": "UNVERIFIED"}, as_of=AS_OF,
     )
     assert decision["state"] == "READY"
-    assert decision["core_alpha"]["expected_return_status"] == "UNVERIFIED"
-    assert "ALPHA_UNVERIFIED" in decision["repricing_risk"]["blockers"]
-    assert "expected_net_profit_window" in decision["core_alpha"]
+    assert decision["core_alpha"]["expected_return_status"] == "DATA_INSUFFICIENT"
+    assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
+    assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in decision["core_alpha"])
-    assert decision["core_alpha"]["capital_convergence"]["state"] == "CONVERGENT"
+    assert decision["core_alpha"]["capital_convergence"]["state"] == "PARTIAL"
 
 
 def test_capital_convergence_exposes_formal_levels_and_conflict():
     ready = _repricing_ready_snapshot()
     decision = evaluate_candidate_bundle(ready, as_of=AS_OF)
     convergence = decision["core_alpha"]["capital_convergence"]
-    assert convergence["status"] == "CONVERGENCE"
+    assert convergence["status"] == "PARTIAL"
     assert set(convergence["levels"]) == {"institution", "main_force", "hot_money"}
-    assert decision["core_alpha"]["capital_convergence_level"] in {"MEDIUM", "HIGH"}
+    assert decision["core_alpha"]["capital_convergence_level"] == "UNKNOWN"
     assert decision["core_alpha"]["real_pricing_gap"] == decision["core_alpha"]["pricing_gap"]
     assert decision["core_alpha"]["low_price"] is False
+
+    evidenced = ready | {
+        "lhb": [
+            {"EXPLAIN": "1家机构买入", "institution": True},
+        ],
+    }
+    evidenced_decision = evaluate_candidate_bundle(evidenced, as_of=AS_OF)
+    assert evidenced_decision["core_alpha"]["capital_convergence"]["status"] == "CONVERGENCE"
+    assert evidenced_decision["core_alpha"]["capital_convergence"]["independent_channel_count"] >= 2
 
     conflict = evaluate_candidate_bundle(
         ready | {"f62": -1_000, "pct_chg": -1}, as_of=AS_OF,

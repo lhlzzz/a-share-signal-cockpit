@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "9d098dc558a2d0504c629eb5aea11e958cdb08e6",
-    "indexed_at": "2026-08-27T16:28:36Z",
+    "commit": "12a3da598870b4e8c13154bb85dfc41ff39e8cff",
+    "indexed_at": "2026-08-28T06:35:34Z",
     "project": "workspace-hermes-workspaces-xiaogu",
-    "nodes": 2436,
-    "edges": 3337,
-    "original_size": 6094848,
-    "compressed_size": 796776,
+    "nodes": 909,
+    "edges": 1943,
+    "original_size": 4390912,
+    "compressed_size": 697124,
     "compression_level": 3
 }

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-# Production contract: paper-only five-day realizable profit-window states.
+# Production contract: paper-only five-day profit-window states.
 PRODUCTION_TRADE_MODE = 'PAPER_PROFIT_WINDOW_5D'
 PRODUCTION_TARGET = 'PROFIT_WINDOW_5D'
 PRODUCTION_RETURN_FIELD = 'expected_net_profit_window'

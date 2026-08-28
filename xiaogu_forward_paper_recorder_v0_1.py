@@ -43,7 +43,7 @@ PENDING_OUTCOME_FIELDS = tuple(
     )
 ) + (
     'profit_window_target', 'execution_cost_rate', 'daily_outcomes',
-    'max_realizable_profit_5d', 'first_profit_day', 'time_to_profit',
+    'max_daily_bar_profit_opportunity_5d', 'first_profit_day', 'time_to_profit',
     'max_mae_5d', 'net_profit_window', 'profit_window', 'data_status',
     'realizability_level', 'outcome_complete', 'available_days', 'partial_status',
 )
@@ -106,9 +106,9 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 - Previous state: {_markdown(record.get('previous_state'))}
 
 ## Capital Views
-- Institution: {_markdown((research.get('company') or {}).get('business_quality'))}
-- Main force: {_markdown((research.get('capital') or {}).get('main_force_flow'))}
-- Hot money: {_markdown((research.get('capital') or {}).get('hot_money_flow'))}
+- Institution: {_markdown((research.get('capital') or {}).get('institution_behavior'))}
+- Main force: {_markdown((research.get('capital') or {}).get('main_force_behavior'))}
+- Hot money: {_markdown((research.get('capital') or {}).get('hot_money_behavior'))}
 - Capital convergence: {_markdown(alpha.get('capital_convergence'))}
 
 ## Repricing Thesis
@@ -155,7 +155,7 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
 - Available days: `{result.get('available_days', 0)}`
 - Profit window: `{result.get('profit_window')}`
 - First profit day: `{result.get('first_profit_day') or 'NONE'}`
-- Max realizable profit 5D: `{result.get('max_realizable_profit_5d') or 'PENDING'}`
+- Max daily-bar profit opportunity 5D: `{result.get('max_daily_bar_profit_opportunity_5d') or 'PENDING'}`
 - Max MAE 5D: `{result.get('max_mae_5d') or 'PENDING'}`
 - Review: `{review}`
 - Capital/repricing states: `{_markdown([(item.get('day'), item.get('capital_state'), item.get('repricing_state')) for item in outcome])}`
@@ -253,6 +253,45 @@ def _snapshot_and_record(
         'production_run_id': production_run_id or None,
         'features_used': features,
         'source': source,
+        'decision_id': features.get('decision_id'),
+        'signal_time': features.get('signal_time') or asof_time,
+        'entry_time': features.get('entry_time') or asof_time,
+        'entry_price': features.get('entry_price') or (
+            features.get('canonical_snapshot', {}).get('price')
+            if isinstance(features.get('canonical_snapshot'), dict)
+            else None
+        ),
+        'entry_price_source': features.get('entry_price_source') or 'canonical_snapshot.price',
+        'capital_convergence': features.get('capital_convergence') or (
+            features.get('core_alpha') or {}
+        ).get('capital_convergence'),
+        'capital_behavior': (features.get('research_context') or {}).get('capital'),
+        'supply_absorption': features.get('supply_absorption') or (
+            features.get('core_alpha') or {}
+        ).get('supply_absorption'),
+        'repricing_state': features.get('repricing_state') or (
+            features.get('core_alpha') or {}
+        ).get('repricing_state'),
+        'profit_window_probability': features.get('profit_window_probability') or (
+            features.get('core_alpha') or {}
+        ).get('profit_window_probability'),
+        'expected_max_profit_5d': features.get('expected_max_profit_5d') or (
+            features.get('core_alpha') or {}
+        ).get('expected_max_profit_5d'),
+        'expected_mae_5d': features.get('expected_mae_5d') or (
+            features.get('core_alpha') or {}
+        ).get('expected_mae_5d'),
+        'expected_net_profit_window': features.get('expected_net_profit_window') or (
+            features.get('core_alpha') or {}
+        ).get('expected_net_profit_window'),
+        'model_version': features.get('model_version') or (
+            features.get('core_alpha') or {}
+        ).get('model_id'),
+        'model_status': (features.get('core_alpha') or {}).get('model_status'),
+        'feature_version': features.get('feature_version') or (
+            features.get('core_alpha') or {}
+        ).get('feature_version'),
+        'decision_version': features.get('decision_version'),
         'paper_only': True,
         'no_trade': True,
         'production_ready': False,
@@ -304,15 +343,25 @@ def _snapshot_and_record(
         'data_leakage_check': {'t_plus_fields_at_generation': False, 'status': 'PASS'},
         'production_trade_mode': PRODUCTION_TRADE_MODE,
         'production_target': 'PROFIT_WINDOW_5D',
-        'production_return_formula': 'max_realizable_profit_5d after execution costs',
+        'production_return_formula': 'max_daily_bar_profit_opportunity_5d at DAILY_BAR_APPROXIMATION',
         'previous_state': features.get('portfolio_state_before'),
         'new_state': features.get('state') or decision,
         'signal_time': features.get('signal_time') or canonical.get('source_time'),
+        'entry_time': features.get('entry_time') or features.get('signal_time') or canonical.get('source_time'),
         'entry_price': features.get('entry_price') or canonical.get('price'),
         'entry_price_source': features.get('entry_price_source') or 'canonical_snapshot.price',
         'decision_version': features.get('decision_version'),
         'alpha_version': features.get('alpha_version'),
         'feature_version': features.get('feature_version'),
+        'model_version': features.get('model_version') or (features.get('core_alpha') or {}).get('model_id'),
+        'capital_convergence': features.get('capital_convergence') or (features.get('core_alpha') or {}).get('capital_convergence'),
+        'capital_behavior': (features.get('research_context') or {}).get('capital'),
+        'supply_absorption': features.get('supply_absorption') or (features.get('core_alpha') or {}).get('supply_absorption'),
+        'repricing_state': features.get('repricing_state') or (features.get('core_alpha') or {}).get('repricing_state'),
+        'profit_window_probability': features.get('profit_window_probability') or (features.get('core_alpha') or {}).get('profit_window_probability'),
+        'expected_max_profit_5d': features.get('expected_max_profit_5d') or (features.get('core_alpha') or {}).get('expected_max_profit_5d'),
+        'expected_mae_5d': features.get('expected_mae_5d') or (features.get('core_alpha') or {}).get('expected_mae_5d'),
+        'expected_net_profit_window': features.get('expected_net_profit_window') or (features.get('core_alpha') or {}).get('expected_net_profit_window'),
         'thesis': features.get('thesis'),
         'holding_days': features.get('holding_days', 0),
         'renewal_count': features.get('renewal_count', 0),

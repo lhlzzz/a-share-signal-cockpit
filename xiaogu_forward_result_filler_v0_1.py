@@ -37,6 +37,7 @@ def fetch_eastmoney_daily_bars(
     *,
     start_date: str,
     end_date: str | None = None,
+    timeout: int = 30,
 ) -> list[Dict[str, Any]]:
     params = {
         "secid": _eastmoney_secid(symbol),
@@ -47,7 +48,7 @@ def fetch_eastmoney_daily_bars(
         "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": EASTMONEY_KLINE_FIELDS,
     }
-    payload = api_get(f"{EASTMONEY_KLINE_ENDPOINT}?{urlencode(params)}")
+    payload = api_get(f"{EASTMONEY_KLINE_ENDPOINT}?{urlencode(params)}", timeout=timeout)
     data = payload.get("data") or {}
     if payload.get("rc") not in (0, None) or not data.get("klines"):
         raise RuntimeError(f"EASTMONEY_KLINE_UNAVAILABLE:{symbol}:{payload.get('rc')}")
@@ -199,7 +200,7 @@ def calculate_horizon_outcomes(
     *,
     horizons: tuple[int, ...] = HORIZONS,
 ) -> Dict[str, Any]:
-    """Build T+1..T+5 execution-aware outcomes after the decision."""
+    """Build T+1..T+5 outcomes with an explicit daily-bar approximation level."""
     if tuple(horizons) != HORIZONS:
         raise ValueError(f"UNSUPPORTED_HORIZON:{tuple(horizons)}")
     bars = list(future_bars or [])[:5]
@@ -207,7 +208,8 @@ def calculate_horizon_outcomes(
         "profit_window_target": PROFIT_WINDOW_TARGET,
         "execution_cost_rate": DEFAULT_EXECUTION_COST_RATE,
         "daily_outcomes": [],
-        "max_realizable_profit_5d": None,
+        "days": {str(day): {} for day in EVALUATION_DAYS},
+        "max_daily_bar_profit_opportunity_5d": None,
         "first_profit_day": None,
         "time_to_profit": None,
         "max_mae_5d": None,
@@ -215,7 +217,7 @@ def calculate_horizon_outcomes(
         "profit_window": False,
         "future_5d_ohlc_coverage": False,
         "future_5d_volume_coverage": False,
-        "data_status": "DATA_INSUFFICIENT",
+        "data_status": "INVALID",
         "realizability_level": REALIZABILITY_LEVEL,
         "outcome_complete": False,
         "available_days": 0,
@@ -247,17 +249,33 @@ def calculate_horizon_outcomes(
     for day, bar in enumerate(bars, 1):
         high = float(bar["high"])
         low = float(bar["low"])
-        realizable = (high - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE
+        bar_opportunity = (high - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE
         daily.append({
             "day": day,
             "date": bar.get("trade_date") or bar.get("date"),
             "open": float(bar["open"]), "high": high, "low": low, "close": float(bar["close"]),
             "return": (float(bar["close"]) - entry_price) / entry_price,
-            "realizable_profit": realizable,
+            "net_return": (float(bar["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
+            "daily_bar_profit_opportunity": bar_opportunity,
             "mae": (low - entry_price) / entry_price,
             "capital_state": bar.get("capital_state", "UNKNOWN"),
             "repricing_state": bar.get("repricing_state", "UNKNOWN"),
         })
+        outcomes["days"][str(day)] = {
+            "date": bar.get("trade_date") or bar.get("date"),
+            "open": float(bar["open"]),
+            "high": high,
+            "low": low,
+            "close": float(bar["close"]),
+            "return": (float(bar["close"]) - entry_price) / entry_price,
+            "mfe": (high - entry_price) / entry_price,
+            "mae": (low - entry_price) / entry_price,
+            "net_return": (float(bar["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
+            "daily_bar_profit_opportunity": bar_opportunity,
+            "source": bar.get("source", "unknown"),
+            "source_timestamp": bar.get("source_timestamp", ""),
+            "price_basis": bar.get("price_basis", PRICE_BASIS),
+        }
         outcomes.update({
             f"future_{day}d_date": bar.get("trade_date") or bar.get("date"),
             f"future_{day}d_open": float(bar["open"]),
@@ -267,25 +285,25 @@ def calculate_horizon_outcomes(
             f"future_{day}d_return": (float(bar["close"]) - entry_price) / entry_price,
             f"future_{day}d_mfe": (high - entry_price) / entry_price,
             f"future_{day}d_mae": (low - entry_price) / entry_price,
-            f"future_{day}d_net_return": realizable,
+            f"future_{day}d_net_return": (float(bar["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
         })
     outcomes["available_days"] = len(daily)
-    outcomes["data_status"] = "PASS" if len(daily) >= 5 else "DATA_INSUFFICIENT"
+    outcomes["data_status"] = "COMPLETE" if len(daily) >= 5 else "PARTIAL"
     outcomes["partial_status"] = "PARTIAL" if len(daily) < 5 else "COMPLETE"
     outcomes["daily_outcomes"] = daily
     if len(daily) < 5:
         return outcomes
 
-    profitable = [item for item in daily if item["realizable_profit"] >= PROFIT_WINDOW_TARGET]
-    max_profit = max(item["realizable_profit"] for item in daily)
+    profitable = [item for item in daily if item["daily_bar_profit_opportunity"] >= PROFIT_WINDOW_TARGET]
+    max_profit = max(item["daily_bar_profit_opportunity"] for item in daily)
     min_mae = min(item["mae"] for item in daily)
     outcomes.update({
         "daily_outcomes": daily,
-        "max_realizable_profit_5d": max_profit,
+        "max_daily_bar_profit_opportunity_5d": max_profit,
         "first_profit_day": profitable[0]["day"] if profitable else None,
         "time_to_profit": profitable[0]["day"] if profitable else None,
         "max_mae_5d": min_mae,
-        "net_profit_window": max(0.0, max_profit),
+        "net_profit_window": max(0.0, max(item["net_return"] for item in daily)),
         "profit_window": bool(profitable),
         "future_5d_date": bars[-1].get("trade_date") or bars[-1].get("date"),
         "future_5d_open": float(bars[0]["open"]),
@@ -295,9 +313,10 @@ def calculate_horizon_outcomes(
         "future_5d_return": (float(bars[-1]["close"]) - entry_price) / entry_price,
         "future_5d_mfe": (max(float(bar["high"]) for bar in bars) - entry_price) / entry_price,
         "future_5d_mae": min_mae,
+        "future_5d_net_return": (float(bars[-1]["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
         "future_5d_ohlc_coverage": True,
         "future_5d_volume_coverage": all(bar.get("volume") not in (None, "") for bar in bars),
-        "data_status": "PASS",
+        "data_status": "COMPLETE",
         "outcome_complete": True,
     })
     return outcomes

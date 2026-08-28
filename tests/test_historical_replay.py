@@ -56,4 +56,4 @@ def test_historical_label_coverage_gate_requires_five_day_window():
         "future_bars": bars,
     }])
     assert replay["target_quality_gate"]["status"] == "PASS"
-    assert replay["alpha_report"]["core_alpha_status"] == "VALIDATED"
+    assert replay["alpha_report"]["core_alpha_status"] == "DATA_INSUFFICIENT"

@@ -125,7 +125,7 @@ def test_production_recorder_uses_profit_window_freeze_and_pending_five_day_outc
     assert record["rule_version"] == "repricing_production_v1"
     assert record["database_persistence"]["status"] == "PASS"
     assert record["future_5d_return"] is None
-    assert record["max_realizable_profit_5d"] is None
+    assert record["max_daily_bar_profit_opportunity_5d"] is None
     assert record["future_1d_return"] is None
     assert record["auto_order"] is False
     assert record["memory_path"].endswith("WATCH/2026-08-26_600001.md")

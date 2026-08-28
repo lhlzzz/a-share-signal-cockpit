@@ -26,8 +26,8 @@ def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[st
     blockers = []
     readiness = alpha["readiness"]
     blockers.extend(key for key, passed in readiness.items() if not passed)
-    if alpha["model_status"] not in {"CALIBRATED", "VALIDATED"}:
-        blockers.append("ALPHA_UNVERIFIED")
+    if alpha["model_status"] != "VALIDATED":
+        blockers.append("ALPHA_CALIBRATION_UNAVAILABLE")
     if alpha["repricing_completion"]["completed"]:
         blockers.append("REPRICING_COMPLETED")
     if alpha["contradiction"]["veto"]:
@@ -40,15 +40,18 @@ def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[st
         blockers.append("CAPITAL_CONVERGENCE_INCOMPLETE")
     if alpha["capital_convergence"]["status"] == "CONFLICT":
         blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
-    if features["SUPPLY"]["supply_absorption"] < 0.35:
+    if features["SUPPLY"]["supply_absorption_state"] != "ABSORPTION":
         blockers.append("SUPPLY_ABSORPTION_UNCONFIRMED")
     if features["PRICING_GAP"]["score"] < 0.35:
         blockers.append("PRICING_GAP_TOO_SMALL")
-    if not research["future_buyer_map"].get("potential_next_buyer"):
-        blockers.append("FUTURE_BUYER_MAP_MISSING")
+    if not research["future_buyer_map"].get("next_buyer"):
+        blockers.append("FUTURE_BUYER_EVIDENCE_MISSING")
     if alpha["profit_window_probability"] < 0.45:
         blockers.append("PROFIT_WINDOW_PROBABILITY_LOW")
-    if alpha["expected_net_profit_window"] <= 0:
+    expected_net_profit = alpha.get("expected_net_profit_window")
+    if expected_net_profit is None:
+        blockers.append("NET_PROFIT_WINDOW_UNAVAILABLE")
+    elif expected_net_profit <= 0:
         blockers.append("NET_PROFIT_WINDOW_NOT_POSITIVE")
     if alpha["execution_feasibility"] < 0.35:
         blockers.append("EXECUTION_NOT_FEASIBLE")
@@ -111,7 +114,14 @@ def evaluate_candidate_bundle(
     )
     hard_blockers = eligibility_blockers(snapshot, account=account, as_of=as_of)
     repricing_blockers = _blockers(alpha, features, research)
-    if minimum_required_return > 0 and alpha["expected_net_profit_window"] < minimum_required_return:
+    expected_net_profit = alpha.get("expected_net_profit_window")
+    if (
+        minimum_required_return > 0
+        and expected_net_profit is not None
+        and expected_net_profit < minimum_required_return
+    ):
+        repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
+    elif minimum_required_return > 0 and expected_net_profit is None:
         repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
     all_blockers = hard_blockers + repricing_blockers
     held = portfolio_state in HELD_STATES
@@ -121,7 +131,17 @@ def evaluate_candidate_bundle(
         if exit_reason != "THESIS_INTACT":
             state = "SELL" if exit_reason in {"BUSINESS_OR_INDUSTRY_THESIS_BROKEN", "RISK_EVENT", "REPRICING_COMPLETED", "PRICING_GAP_CLOSED", "VALUATION_EXCESS"} else "REDUCE"
             reason = exit_reason
-        elif alpha["downside_risk"] >= alpha["confidence"] or repricing_blockers:
+        elif alpha["downside_risk"] >= alpha["confidence"] or any(
+            blocker in repricing_blockers
+            for blocker in (
+                "CAPITAL_CONVERGENCE_CONFLICT",
+                "REFLEXIVITY_BREAK",
+                "BUYER_EXHAUSTION_OR_CLIMAX",
+                "TRADINGAGENTS_CONTRADICTION",
+                "SUPPLY_REVERSAL",
+                "CAPITAL_EXIT",
+            )
+        ):
             state, reason = "REDUCE", "REPRICING_RISK_OR_CONFIRMATION_DETERIORATED"
         elif (account or {}).get("holding_days", 0) >= MAX_HOLDING_DAYS:
             state, reason = "HOLD", "MAX_HOLDING_BOUNDARY_REVIEW"

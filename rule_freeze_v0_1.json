@@ -2,7 +2,7 @@
   "rule_version": "repricing_production_v1",
   "previous_rule_version": "historical_backtest_rule_v0_3",
   "frozen_at": "2026-08-27T00:00:00+08:00",
-  "change_reason": "Xiaogu production targets a realizable five-day profit window.",
+  "change_reason": "Xiaogu production targets a five-day profit window with explicit bar-approximation semantics.",
   "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
   "allowed_decisions": ["WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"],
   "scanner_contract": {
@@ -28,14 +28,16 @@
     ]
   },
   "evaluation": {
-    "horizons_days": [5],
+    "horizons_days": [1, 2, 3, 4, 5],
     "evaluation_window_days": [1, 2, 3, 4, 5],
     "max_holding_boundary": 5,
     "entry_timing_only_fields": ["short_term_overheat", "gap_risk"],
     "outcomes_enter_after_decision": true,
-    "realizable_profit_formula": "(daily_high - entry_price) / entry_price - execution_cost_rate",
+    "bar_opportunity_formula": "(daily_high - entry_price) / entry_price - canonical_cost_model",
     "profit_window_target": 0.02,
-    "outcome_metrics": ["max_realizable_profit_5d", "first_profit_day", "time_to_profit", "max_mae_5d", "net_profit_window"]
+    "outcome_metrics": ["max_daily_bar_profit_opportunity_5d", "first_profit_day", "time_to_profit", "max_mae_5d", "net_profit_window"],
+    "realizability_level": "DAILY_BAR_APPROXIMATION",
+    "canonical_cost_model": {"transaction_cost": 0.003, "slippage": 0.0, "spread": 0.0}
   },
   "excluded_future_fields": [
     "t*_return", "future_*_return", "future_prices", "outcomes", "labels",

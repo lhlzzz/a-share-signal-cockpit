@@ -36,6 +36,11 @@ def _clip(value: Any, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, _number(value)))
 
 
+def _mean(*values: Any) -> float:
+    numbers = [_clip(value) for value in values if value is not None]
+    return sum(numbers) / len(numbers) if numbers else 0.0
+
+
 def _ratio(numerator: Any, denominator: Any) -> float:
     denominator_value = _number(denominator)
     return _clip(_number(numerator) / denominator_value) if denominator_value > 0 else 0.0
@@ -69,7 +74,7 @@ def _market_stage(raw: Dict[str, Any], capital: Dict[str, Any], supply: Dict[str
         return "IGNITION"
     if market["breadth"] >= 0.60 and market["leader_strength"] >= 0.60:
         return "EXPANSION"
-    if capital["fund_flow_persistence"] >= 0.55 and supply["supply_absorption"] >= 0.45 and market["price_strength"] < 0.55:
+    if capital["fund_flow_persistence"] >= 0.55 and supply["supply_absorption_state"] == "ABSORPTION" and market["price_strength"] < 0.55:
         return "ACCUMULATION"
     return "UNKNOWN"
 
@@ -118,14 +123,16 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             else (0.75 if main_flow > 0 and pct_change <= 0 else 0.0)
         )
     )
-    if main_flow > 0 and pct_change > 0:
+    if not amount or not main_flow:
+        capital_price_impact_state = "UNKNOWN"
+    elif main_flow > 0 and pct_change > 0:
         capital_price_impact_state = "DEMAND_CONFIRMATION"
-    elif main_flow > 0 and pct_change == 0:
+    elif main_flow > 0 and pct_change <= 0:
         capital_price_impact_state = "SUPPLY_ABSORPTION"
-    elif main_flow > 0 and pct_change < 0:
-        capital_price_impact_state = "DISTRIBUTION_RISK"
     elif main_flow < 0 and pct_change > 0:
         capital_price_impact_state = "PRICE_SUPPORTED_DIVERGENCE"
+    elif main_flow < 0:
+        capital_price_impact_state = "DISTRIBUTION_RISK"
     else:
         capital_price_impact_state = "NEUTRAL"
 
@@ -191,6 +198,58 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     capital["capital_persistence"] = capital["fund_flow_persistence"]
     capital["capital_acceleration"] = capital["fund_flow_acceleration"]
+    lhb_rows = [row for row in raw.get("lhb") or [] if isinstance(row, dict)]
+    institution_evidence = sum(
+        (
+            "机构" in str(row.get("EXPLAIN") or "")
+            or row.get("institution") is True
+            or row.get("institution_type") is True
+        )
+        for row in lhb_rows
+    ) + sum(
+        bool(raw.get(key))
+        for key in (
+            "institution_position_change",
+            "institution_holding_change",
+            "institution_flow_evidence",
+            "institution_trade_evidence",
+        )
+    )
+    hot_money_evidence = sum(
+        bool(
+            row.get("hot_money") is True
+            or row.get("hot_money_type") is True
+            or row.get("游资") is True
+        )
+        and "机构" not in str(row.get("EXPLAIN") or "")
+        for row in lhb_rows
+    ) + sum(bool(raw.get(key)) for key in ("hot_money_evidence", "hot_money_trade_evidence"))
+    main_force_evidence = sum(
+        value is not None
+        for value in (main_flow if amount else None, turnover if turnover else None, capital["fund_flow_persistence"] if raw.get("fund_flow_persistence") is not None else None)
+    )
+    def behavior(direction: str, strength: float, persistence: float, acceleration: float, count: int) -> Dict[str, Any]:
+        return {
+            "direction": direction,
+            "strength": round(_clip(strength), 8),
+            "persistence": round(_clip(persistence), 8),
+            "acceleration": round(_clip(acceleration), 8),
+            "evidence_count": int(count),
+            "confidence": round(_clip(min(1.0, count / 2.0) * _mean(strength, persistence)), 8),
+            "evidence_status": "OBSERVED" if count else "UNKNOWN",
+        }
+    capital["institution_behavior"] = behavior(
+        "ACCUMULATING" if institution_evidence and capital["institutional_flow"] > 0 else "UNKNOWN",
+        capital["institutional_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], institution_evidence,
+    )
+    capital["main_force_behavior"] = behavior(
+        "ACCELERATING" if main_force_evidence and capital["fund_flow_acceleration"] >= 0.60 else "PRESENT" if main_force_evidence else "UNKNOWN",
+        capital["main_force_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], main_force_evidence,
+    )
+    capital["hot_money_behavior"] = behavior(
+        "PRESENT" if hot_money_evidence and capital["hot_money_flow"] > 0 else "UNKNOWN",
+        capital["hot_money_flow"], capital["fund_flow_persistence"], capital["fund_flow_acceleration"], hot_money_evidence,
+    )
     capital["accumulation_quality"] = _clip(
         0.30 * capital["fund_flow_persistence"]
         + 0.25 * capital["volume_accumulation"]
@@ -221,8 +280,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "pledge_pressure": _clip(_first(raw, "pledge_pressure", default=0.0)),
         "unlocking_pressure": _clip(_first(raw, "unlocking_pressure", "lockup_pressure", default=0.0)),
         "large_holder_supply": _clip(_first(raw, "large_holder_supply", default=0.0)),
-        "recent_distribution": _clip(_first(raw, "recent_distribution", default=negative_flow)),
-        "sell_pressure": _clip(_first(raw, "sell_pressure", default=max(negative_flow, capital_divergence))),
+        "recent_distribution": _clip(_first(raw, "recent_distribution", default=0.0)),
+        "sell_pressure": _clip(_first(raw, "sell_pressure", default=0.0)),
     }
     if not supply["shareholder_reduction"] and shareholder:
         supply["shareholder_reduction"] = _clip(sum(1 for row in shareholder if isinstance(row, dict) and _number(row.get("change_num")) < 0) / 3.0)
@@ -234,19 +293,88 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         + 0.10 * supply["unlocking_pressure"]
         + 0.10 * supply["sell_pressure"]
     )
-    supply["supply_absorption"] = _clip(
-        (0.55 * capital["accumulation"] + 0.25 * capital["price_volume_confirmation"] + 0.20 * capital["fund_flow"])
-        / max(supply["effective_supply"], 0.20)
+    supply["supply_evidence_count"] = sum(
+        raw.get(key) not in (None, "", "-")
+        for key in (
+            "overhead_supply",
+            "trapped_chip_ratio",
+            "shareholder_reduction",
+            "pledge_pressure",
+            "unlocking_pressure",
+            "large_holder_supply",
+            "recent_distribution",
+            "sell_pressure",
+        )
+    ) + sum(
+        isinstance(row, dict)
+        and any(row.get(key) not in (None, "", "-") for key in ("change_num", "change_ratio", "direction"))
+        for row in shareholder
+    )
+    absorption_components = {
+        "funds": (
+            capital["accumulation"] > 0
+            and capital["fund_flow_persistence"] > 0
+            and main_flow > 0
+        ),
+        "turnover": supply["turnover"] > 0,
+        "price_response": capital["price_volume_confirmation"] > 0,
+        "supply": supply["supply_evidence_count"] > 0,
+        "stability": close_position >= 0.45,
+        "continuation": capital["fund_flow_acceleration"] > 0,
+    }
+    supply["absorption_evidence_count"] = sum(absorption_components.values())
+    supply["absorption_confidence"] = round(
+        _clip(supply["absorption_evidence_count"] / len(absorption_components)), 8
+    )
+    supply_support = _mean(
+        capital["accumulation"],
+        capital["fund_flow_persistence"],
+        capital["fund_flow_acceleration"],
+        capital["price_volume_confirmation"],
+        supply["turnover_velocity"],
+        close_position,
+    )
+    supply_pressure = _mean(
+        supply["effective_supply"],
+        supply["sell_pressure"],
+        supply["overhead_supply"],
+        supply["recent_distribution"],
+    )
+    supply["supply_absorption"] = round(
+        _clip(supply_support - 0.60 * supply_pressure)
+        if (
+            amount > 0
+            and supply["absorption_evidence_count"] >= 4
+            and all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
+        )
+        else 0.0,
+        8,
     )
     supply["unlock_pressure"] = supply["unlocking_pressure"]
     supply["supply_pressure"] = supply["effective_supply"]
     supply["distribution_pressure"] = supply["sell_pressure"]
     supply["supply_absorption_state"] = (
-        "ABSORBING" if supply["supply_absorption"] >= 0.50
-        else "BALANCED" if supply["supply_absorption"] >= 0.25
-        else "RELEASING"
+        "UNKNOWN"
+        if (
+            amount <= 0
+            or supply["absorption_evidence_count"] < 4
+            or not all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
+        )
+        else "RELEASING" if supply_pressure > supply_support + 0.15
+        else "ABSORPTION" if supply["supply_absorption"] >= 0.35
+        else "BALANCED"
     )
     supply["score"] = supply["supply_absorption"]
+    if capital_price_impact_state != "UNKNOWN":
+        if main_flow > 0 and pct_change > 0 and supply["supply_absorption_state"] == "ABSORPTION":
+            capital_price_impact_state = "DEMAND_CONFIRMATION"
+        elif main_flow > 0 and supply["supply_absorption_state"] == "ABSORPTION":
+            capital_price_impact_state = "SUPPLY_ABSORPTION"
+        elif main_flow > 0 and pct_change < 0:
+            capital_price_impact_state = "DISTRIBUTION_RISK"
+        elif main_flow < 0 and pct_change > 0:
+            capital_price_impact_state = "PRICE_SUPPORTED_DIVERGENCE"
+        capital["capital_price_impact_state"] = capital_price_impact_state
 
     pricing_gap = {
         "fundamental_gap": _clip(_first(raw, "fundamental_gap", default=max(0.0, business["score"] - _clip(_first(raw, "valuation", "valuation_quality", default=0.0))))),
