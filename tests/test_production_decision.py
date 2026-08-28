@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
@@ -84,6 +85,33 @@ def test_unverified_profit_window_cannot_enable_buy():
     assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in decision["core_alpha"])
     assert decision["core_alpha"]["capital_convergence"]["state"] == "PARTIAL"
+
+
+def test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed(tmp_path, monkeypatch):
+    import xiaogu_core_alpha as alpha
+
+    calibration_path = tmp_path / "profit_window_calibration.json"
+    calibration_path.write_text(json.dumps({
+        "model_id": "test-calibration",
+        "target": "PROFIT_WINDOW_5D",
+        "status": "CALIBRATED",
+        "intercept": 0.0,
+        "coefficients": [0.0] * 11,
+        "feature_names": [
+            "capital_convergence", "capital_persistence", "capital_acceleration",
+            "supply_absorption", "pricing_gap", "repricing_state",
+            "future_buyer_evidence", "reflexivity", "market_state",
+            "execution_quality", "risk",
+        ],
+        "oos": {"passed": False},
+    }), encoding="utf-8")
+    monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
+
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    assert decision["core_alpha"]["profit_window_probability"] == 0.5
+    assert decision["core_alpha"]["profit_window_calibration"]["status"] == "CALIBRATED"
+    assert decision["state"] == "READY"
+    assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
 
 
 def test_capital_convergence_exposes_formal_levels_and_conflict():

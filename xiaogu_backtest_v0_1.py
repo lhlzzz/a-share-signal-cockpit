@@ -7,7 +7,7 @@ import json
 import re
 import time
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
@@ -61,6 +61,7 @@ DEFAULT_HISTORICAL_ROOT = Path(__file__).resolve().parent / "data" / "historical
 CONFIG_PATH = Path(__file__).resolve().parent / "rule_freeze_v0_1.json"
 CONFIG_HASH = hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest()
 DEFAULT_FUTURE_BAR_CACHE = Path("/tmp/xiaogu-historical-future-bars.json")
+DEFAULT_CALIBRATION_ARTIFACT = Path(__file__).resolve().parent / "data" / "research" / "profit_window_calibration.json"
 
 
 def load_snapshot(path: str | Path) -> Dict[str, Any]:
@@ -579,6 +580,37 @@ def _database_linked_decision_ranges(
     return ranges
 
 
+def _database_linked_decision_windows(
+    assets: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, tuple[str, str]]:
+    """Return the full decision date span required for each symbol."""
+    picks = _materialized_asset_rows(assets.get("picks") or [])
+    candidates = _materialized_asset_rows(assets.get("daily_candidates") or [])
+    returns = _materialized_asset_rows(assets.get("returns") or [])
+    pick_ids = {row.get("pick_id") for row in returns if row.get("pick_id") is not None}
+    relations = {
+        _relation_key(row)
+        for row in returns
+        if _relation_key(row) is not None
+    }
+    linked_rows = [
+        row for row in picks
+        if row.get("id") in pick_ids or _relation_key(row) in relations
+    ] + [
+        row for row in candidates
+        if _relation_key(row) in relations
+    ]
+    windows: Dict[str, tuple[str, str]] = {}
+    for row in linked_rows:
+        symbol = str(row.get("symbol") or "").zfill(6)
+        trade_date = str(row.get("trade_date") or "").strip()
+        if not symbol or symbol == "000000" or not trade_date:
+            continue
+        earliest, latest = windows.get(symbol, (trade_date, trade_date))
+        windows[symbol] = (min(earliest, trade_date), max(latest, trade_date))
+    return windows
+
+
 def _cache_read(path: Path) -> Dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -612,14 +644,28 @@ def _bars_cover_five_days(
     return len([value for value in dates if value > trade_date]) >= 5
 
 
+def _future_request_end(trade_date: str, requested_end: str) -> str:
+    """Bound a provider query to the first five post-signal sessions."""
+    try:
+        bounded = date.fromisoformat(str(trade_date)) + timedelta(days=14)
+        return min(str(requested_end), bounded.isoformat())
+    except ValueError:
+        return str(requested_end)
+
+
 def supplement_database_future_prices(
     assets: Dict[str, List[Dict[str, Any]]],
     *,
     cache_path: str | Path = DEFAULT_FUTURE_BAR_CACHE,
     end_date: str | None = None,
+    symbol_offset: int = 0,
+    max_symbols: int | None = None,
+    checkpoint_every: int = 25,
     max_retries: int = 1,
     retry_delay: float = 0.25,
     request_timeout: int = 10,
+    eastmoney_timeout: int | None = None,
+    baostock_timeout: int | None = None,
     max_errors: int = 3,
 ) -> Dict[str, Any]:
     """Fetch only missing future OHLC for DB-linked decisions.
@@ -627,7 +673,10 @@ def supplement_database_future_prices(
     Database canonical bars are loaded first. External bars are a bounded
     fallback for missing future evidence and are never used as T-day inputs.
     """
-    from xiaogu_forward_result_filler_v0_1 import fetch_eastmoney_daily_bars
+    from xiaogu_forward_result_filler_v0_1 import (
+        fetch_baostock_daily_bars,
+        fetch_eastmoney_daily_bars,
+    )
 
     path = Path(cache_path)
     cache = _cache_read(path)
@@ -638,42 +687,104 @@ def supplement_database_future_prices(
             existing_by_symbol[str(bar.get("symbol") or "").zfill(6)].append(bar)
 
     ranges = _database_linked_decision_ranges(assets)
+    windows = _database_linked_decision_windows(assets)
+    symbols = sorted(ranges)
+    selected_symbols = symbols[max(0, symbol_offset):]
+    if max_symbols is not None:
+        selected_symbols = selected_symbols[:max(0, max_symbols)]
     requested_end = str(end_date or date.today().isoformat())
+    eastmoney_timeout = request_timeout if eastmoney_timeout is None else eastmoney_timeout
+    baostock_timeout = request_timeout if baostock_timeout is None else baostock_timeout
     fetched_bars: list[Dict[str, Any]] = []
+    pending_persistence: list[Dict[str, Any]] = []
     errors = []
+    persistence_errors = []
     cache_hits = 0
     fetched_symbols = 0
-    for symbol, earliest in sorted(ranges.items()):
-        if _bars_cover_five_days(existing_by_symbol.get(symbol, []), earliest):
+    provider_counts: Dict[str, int] = defaultdict(int)
+    schema_ready = False
+    persisted_keys = {
+        (str(bar.get("symbol") or "").zfill(6), str(bar.get("date") or bar.get("trade_date") or ""))
+        for bar in existing
+        if bar.get("symbol") and (bar.get("date") or bar.get("trade_date"))
+    }
+
+    def checkpoint() -> None:
+        nonlocal pending_persistence, schema_ready
+        _cache_write(path, cache)
+        if not pending_persistence:
+            return
+        try:
+            from xiaogu_db import init_db, record_canonical_future_prices
+            if not schema_ready:
+                init_db()
+                schema_ready = True
+            record_canonical_future_prices(pending_persistence)
+            persisted_keys.update(
+                (str(bar.get("symbol") or "").zfill(6), str(bar.get("date") or ""))
+                for bar in pending_persistence
+            )
+            pending_persistence = []
+        except Exception as exc:
+            persistence_errors.append(f"{type(exc).__name__}:{exc}")
+
+    for processed, symbol in enumerate(selected_symbols, 1):
+        earliest = ranges[symbol]
+        latest = windows[symbol][1]
+        if (
+            _bars_cover_five_days(existing_by_symbol.get(symbol, []), earliest)
+            and _bars_cover_five_days(existing_by_symbol.get(symbol, []), latest)
+        ):
             continue
         cached = cache["symbols"].get(symbol) or {}
         cached_bars = cached.get("bars") if isinstance(cached, dict) else None
+        symbol_end = _future_request_end(windows[symbol][1], requested_end)
         if (
             isinstance(cached_bars, list)
             and str(cached.get("start_date") or "") <= earliest
-            and str(cached.get("end_date") or "") >= requested_end
+            and str(cached.get("end_date") or "") >= symbol_end
             and _bars_cover_five_days(cached_bars, earliest)
         ):
             fetched_bars.extend(cached_bars)
+            for bar in cached_bars:
+                key = (str(bar.get("symbol") or symbol).zfill(6), str(bar.get("date") or bar.get("trade_date") or ""))
+                if key not in persisted_keys:
+                    pending_persistence.append(bar)
             cache_hits += 1
+            if processed % max(1, checkpoint_every) == 0:
+                checkpoint()
             continue
 
         last_error = None
+        provider = ""
         bars: list[Dict[str, Any]] = []
-        for attempt in range(max(1, max_retries)):
-            try:
-                bars = fetch_eastmoney_daily_bars(
-                    symbol,
-                    start_date=earliest,
-                    end_date=requested_end,
-                    timeout=request_timeout,
-                )
-                last_error = None
+        for fetcher, fetcher_name in (
+            (fetch_eastmoney_daily_bars, "eastmoney_api_daily_kline"),
+            (fetch_baostock_daily_bars, "baostock_daily_kline"),
+        ):
+            for attempt in range(max(1, max_retries)):
+                try:
+                    bars = fetcher(
+                        symbol,
+                        start_date=earliest,
+                        end_date=symbol_end,
+                        timeout=(
+                            eastmoney_timeout
+                            if fetcher_name == "eastmoney_api_daily_kline"
+                            else baostock_timeout
+                        ),
+                    )
+                    if bars:
+                        last_error = None
+                        provider = fetcher_name
+                        break
+                    last_error = f"{fetcher_name}:EMPTY"
+                except Exception as exc:
+                    last_error = f"{fetcher_name}:{type(exc).__name__}:{exc}"
+                    if attempt + 1 < max(1, max_retries):
+                        time.sleep(retry_delay * (attempt + 1))
+            if provider:
                 break
-            except Exception as exc:
-                last_error = f"{type(exc).__name__}:{exc}"
-                if attempt + 1 < max(1, max_retries):
-                    time.sleep(retry_delay * (attempt + 1))
         fetched_symbols += 1
         if last_error:
             errors.append({"symbol": symbol, "start_date": earliest, "error": last_error})
@@ -681,20 +792,34 @@ def supplement_database_future_prices(
                 break
             continue
         normalized = canonical_future_prices(
-            bars,
+            [
+                {**bar, "source": bar.get("source") or provider}
+                for bar in bars
+                if isinstance(bar, dict)
+            ],
             symbol=symbol,
             source_timestamp=datetime.now(timezone.utc).isoformat(),
             price_basis=PRICE_BASIS,
         )
         cached_bars = normalized
+        provider_counts[provider] += 1
         cache["symbols"][symbol] = {
             "start_date": earliest,
-            "end_date": requested_end,
+            "end_date": symbol_end,
             "bars": normalized,
-            "source": "eastmoney_api_daily_kline",
+            "source": provider,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
         fetched_bars.extend(normalized)
+        for bar in normalized:
+            key = (str(bar.get("symbol") or symbol).zfill(6), str(bar.get("date") or ""))
+            if key not in persisted_keys:
+                pending_persistence.append(bar)
+        if processed % max(1, checkpoint_every) == 0:
+            checkpoint()
+
+    if fetched_bars or pending_persistence or cache.get("symbols"):
+        checkpoint()
 
     existing_keys = {
         (str(bar.get("symbol") or "").zfill(6), str(bar.get("date") or bar.get("trade_date") or ""))
@@ -715,14 +840,12 @@ def supplement_database_future_prices(
             if bar.get("symbol") and bar.get("date")
         }
         assets["canonical_future_prices"] = list(deduped.values())
-        _cache_write(path, cache)
-        try:
-            from xiaogu_db import init_db, record_canonical_future_prices
-            init_db()
-            record_canonical_future_prices(new_bars)
-            persistence = {"status": "PASS", "rows": len(new_bars)}
-        except Exception as exc:
-            persistence = {"status": "FAILED", "error": f"{type(exc).__name__}:{exc}"}
+        persistence = {
+            "status": "PASS" if not persistence_errors else "PARTIAL",
+            "rows": len(new_bars),
+            "errors": persistence_errors[:20],
+            "error_count": len(persistence_errors),
+        }
     else:
         persistence = {"status": "SKIPPED", "rows": 0}
         if cache.get("symbols"):
@@ -730,8 +853,12 @@ def supplement_database_future_prices(
     return {
         "status": "PASS" if not errors else "PARTIAL",
         "linked_symbols": len(ranges),
+        "selected_symbols": len(selected_symbols),
+        "symbol_offset": max(0, symbol_offset),
+        "max_symbols": max_symbols,
         "fetched_symbols": fetched_symbols,
         "cache_hits": cache_hits,
+        "provider_counts": dict(provider_counts),
         "fetched_rows": len(fetched_bars),
         "new_rows": len(new_bars),
         "errors": errors[:20],
@@ -854,6 +981,7 @@ def build_historical_5d_profit_window_dataset(
             linked_candidate_ids.add(candidate.get("id"))
 
     dataset = []
+    canonical_snapshots: list[Dict[str, Any]] = []
     audit = {
         "unresolved_returns": [row.get("id") for row in returns if row.get("id") not in resolved_return_ids],
         "unresolved_decisions": [],
@@ -934,6 +1062,7 @@ def build_historical_5d_profit_window_dataset(
                 source="database_historical_snapshot",
                 source_timestamp=str(snapshot_source.get("source_time") or ""),
             )
+            canonical_snapshots.append(snapshot)
             current = run_production_decision(snapshot)
         except Exception as exc:
             replay_error = f"{type(exc).__name__}:{exc}"
@@ -995,6 +1124,7 @@ def build_historical_5d_profit_window_dataset(
         "dataset_name": "historical_5d_profit_window_dataset",
         "read_only": True,
         "rows": dataset,
+        "canonical_historical_snapshots": canonical_snapshots,
         "database_asset_report": None,
         "audit": audit,
         "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid)},
@@ -1209,8 +1339,10 @@ def persist_historical_replay(result: Dict[str, Any]) -> Dict[str, Any]:
         return result
     artifact = Path(path)
     artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact_result = dict(result)
+    artifact_result.pop("canonical_historical_snapshots", None)
     artifact.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+        json.dumps(artifact_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
     result["database_persistence"] = {
         "status": "PASS",
@@ -1224,14 +1356,43 @@ def replay_database_history(
     *,
     start_date: str | None = None,
     end_date: str | None = None,
+    symbol_offset: int = 0,
+    max_symbols: int | None = None,
     research_artifact_path: str | Path | None = None,
 ) -> Dict[str, Any]:
     """Build the database-only five-day replay without altering source rows."""
-    from xiaogu_db import database_asset_report, fetch_historical_replay_assets
+    from xiaogu_db import (
+        database_asset_report,
+        fetch_historical_replay_assets,
+        record_canonical_historical_snapshots,
+    )
 
     assets = fetch_historical_replay_assets(start_date=start_date, end_date=end_date)
-    supplementation = supplement_database_future_prices(assets, end_date=end_date)
+    supplementation = supplement_database_future_prices(
+        assets,
+        end_date=end_date,
+        symbol_offset=symbol_offset,
+        max_symbols=max_symbols,
+    )
     result = build_historical_5d_profit_window_dataset(assets)
+    snapshot_rows = []
+    snapshot_errors = []
+    snapshot_rows = [
+        snapshot for snapshot in result.get("canonical_historical_snapshots") or []
+        if isinstance(snapshot, dict)
+    ]
+    try:
+        record_canonical_historical_snapshots(snapshot_rows)
+    except Exception as exc:
+        snapshot_errors.append({
+            "error": f"{type(exc).__name__}:{exc}",
+        })
+    result["canonical_historical_snapshot_persistence"] = {
+        "status": "PASS" if not snapshot_errors else "PARTIAL",
+        "attempted": len(snapshot_rows),
+        "errors": snapshot_errors[:20],
+        "error_count": len(snapshot_errors),
+    }
     result["future_price_supplementation"] = supplementation
     result["database_asset_report"] = database_asset_report()
     if research_artifact_path is not None:
@@ -1322,6 +1483,8 @@ def main() -> int:
     )
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
+    parser.add_argument("--symbol-offset", type=int, default=0)
+    parser.add_argument("--max-symbols", type=int)
     parser.add_argument(
         "--dataset-path",
         default=str(Path("data/research/historical_5d_profit_window_dataset.json")),
@@ -1335,6 +1498,8 @@ def main() -> int:
         result = replay_database_history(
             start_date=args.start_date,
             end_date=args.end_date,
+            symbol_offset=args.symbol_offset,
+            max_symbols=args.max_symbols,
             research_artifact_path=args.dataset_path,
         )
     except Exception as exc:
@@ -1359,10 +1524,16 @@ def main() -> int:
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    DEFAULT_CALIBRATION_ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_CALIBRATION_ARTIFACT.write_text(
+        json.dumps(report.get("calibration") or {}, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
     print(json.dumps({
         "status": "PASS",
         "dataset_path": args.dataset_path,
         "report_path": args.report_path,
+        "calibration_path": str(DEFAULT_CALIBRATION_ARTIFACT),
         "counts": result.get("counts"),
         "target_quality_gate": result.get("target_quality_gate"),
         "core_alpha_status": result.get("core_alpha_status"),

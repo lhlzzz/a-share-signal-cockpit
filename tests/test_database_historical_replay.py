@@ -240,5 +240,38 @@ def test_future_supplementation_uses_cache_and_only_linked_decisions(tmp_path, m
         end_date="2026-08-28",
     )
     assert result["fetched_symbols"] == 1
-    assert calls == [("600001", "2026-08-01", "2026-08-28")]
+    assert calls == [("600001", "2026-08-01", "2026-08-15")]
     assert len(assets["canonical_future_prices"]) == 5
+
+
+def test_future_supplementation_falls_back_to_baostock(tmp_path, monkeypatch):
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    calls = []
+
+    def eastmoney(*_args, **_kwargs):
+        raise RuntimeError("EASTMONEY_UNAVAILABLE")
+
+    def baostock(symbol, *, start_date, end_date, timeout):
+        calls.append((symbol, start_date, end_date, timeout))
+        return [{
+            "trade_date": f"2026-08-{day:02d}", "open": 10.0,
+            "high": 10.5, "low": 9.8, "close": 10.2,
+            "volume": 100.0, "amount": 1000.0,
+        } for day in range(2, 7)]
+
+    monkeypatch.setattr(filler, "fetch_eastmoney_daily_bars", eastmoney)
+    monkeypatch.setattr(filler, "fetch_baostock_daily_bars", baostock)
+    monkeypatch.setattr("xiaogu_db.init_db", lambda: None)
+    monkeypatch.setattr("xiaogu_db.record_canonical_future_prices", lambda bars: None)
+    assets = {
+        "picks": [{"id": 1, "symbol": "600001", "trade_date": "2026-08-01"}],
+        "returns": [{"pick_id": 1}], "daily_candidates": [],
+        "canonical_future_prices": [],
+    }
+    result = supplement_database_future_prices(
+        assets, cache_path=tmp_path / "future-bars.json", end_date="2026-08-28",
+    )
+    assert calls == [("600001", "2026-08-01", "2026-08-15", 10)]
+    assert result["provider_counts"] == {"baostock_daily_kline": 1}
+    assert all(bar["source"] == "baostock_daily_kline" for bar in assets["canonical_future_prices"])

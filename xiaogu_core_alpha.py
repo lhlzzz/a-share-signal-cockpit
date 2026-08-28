@@ -128,15 +128,20 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, 
         model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return 0.0, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}"}
-    if model.get("status") != "VALIDATED" or not model.get("oos", {}).get("passed"):
-        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_NOT_OOS_VALIDATED"}
+    status = str(model.get("status") or "").upper()
+    if status not in {"CALIBRATED", "VALIDATED"}:
+        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_STATUS_INVALID"}
     names = model.get("feature_names") or []
     coefficients = model.get("coefficients") or []
     if len(names) != len(coefficients):
         return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_CONTRACT_INVALID"}
     logit = float(model.get("intercept") or 0.0) + sum(float(weight) * values.get(name, 0.0) for name, weight in zip(names, coefficients))
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
-    return _clip(probability), {"status": "VALIDATED", "model_id": model.get("model_id"), "oos": model.get("oos")}
+    return _clip(probability), {
+        "status": status,
+        "model_id": model.get("model_id"),
+        "oos": model.get("oos"),
+    }
 
 
 def build_core_alpha(

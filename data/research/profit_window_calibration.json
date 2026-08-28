@@ -1,0 +1,191 @@
+{
+  "intercept": 0.17092789921677964,
+  "coefficients": [
+    0.15035535383384543,
+    0,
+    0,
+    0,
+    0.01852459698181978,
+    0,
+    0,
+    0.0950430421153757,
+    0.08275354580967026,
+    0,
+    0
+  ],
+  "feature_names": [
+    "capital_convergence",
+    "capital_persistence",
+    "capital_acceleration",
+    "supply_absorption",
+    "pricing_gap",
+    "repricing_state",
+    "future_buyer_evidence",
+    "reflexivity",
+    "market_state",
+    "execution_quality",
+    "risk"
+  ],
+  "model_id": "profit_window_logistic_5d_v1",
+  "target": "PROFIT_WINDOW_5D",
+  "status": "CALIBRATED",
+  "samples": 3380,
+  "train_samples": 2028,
+  "validation_samples": 676,
+  "oos_samples": 676,
+  "train": {
+    "samples": 2028,
+    "profit_window_rate": 0.5571992110453649,
+    "precision": 0.5571992110453649,
+    "recall": 1,
+    "roc_auc": 0.5323743027770661,
+    "pr_auc": 0.6044048994106981,
+    "brier_score": 0.2464547085099623,
+    "calibration_error": 0.0001561262653568818,
+    "calibration": [
+      {
+        "lower": 0.4,
+        "upper": 0.6,
+        "samples": 2028,
+        "predicted": 0.5573553373107217,
+        "actual": 0.5571992110453649
+      }
+    ],
+    "mean_profit": 0.044497732437213056,
+    "median_profit": 0.026303113059093403,
+    "mean_selected_profit": 0.044497732437213056,
+    "mean_mae": -0.07627898327006777,
+    "profit_factor": 17.31621224487174,
+    "max_drawdown": 0.1624252164774589,
+    "average_time_to_profit": 1.5920353982300885
+  },
+  "validation": {
+    "samples": 676,
+    "profit_window_rate": 0.39201183431952663,
+    "precision": 0.39201183431952663,
+    "recall": 1,
+    "roc_auc": 0.5844328145801772,
+    "pr_auc": 0.4995654195839586,
+    "brier_score": 0.2638987283166813,
+    "calibration_error": 0.16206963201914343,
+    "calibration": [
+      {
+        "lower": 0.4,
+        "upper": 0.6,
+        "samples": 676,
+        "predicted": 0.5540814663386701,
+        "actual": 0.39201183431952663
+      }
+    ],
+    "mean_profit": 0.026383878917866175,
+    "median_profit": 0.009644335391037878,
+    "mean_selected_profit": 0.026383878917866175,
+    "mean_mae": -0.0911130292369599,
+    "profit_factor": 5.1510592438142115,
+    "max_drawdown": 0.1624252164774731,
+    "average_time_to_profit": 1.8
+  },
+  "oos": {
+    "samples": 676,
+    "profit_window_rate": 0.643491124260355,
+    "precision": 0.643491124260355,
+    "recall": 1,
+    "roc_auc": 0.4294367339152001,
+    "pr_auc": 0.6174758765099847,
+    "brier_score": 0.23804952351688213,
+    "calibration_error": 0.08955757786701302,
+    "calibration": [
+      {
+        "lower": 0.4,
+        "upper": 0.6,
+        "samples": 676,
+        "predicted": 0.553933546393342,
+        "actual": 0.643491124260355
+      }
+    ],
+    "mean_profit": 0.04812254994613467,
+    "median_profit": 0.02982536750558001,
+    "mean_selected_profit": 0.04812254994613467,
+    "mean_mae": -0.04979038126625417,
+    "profit_factor": 26.221512020355355,
+    "max_drawdown": 0.06863964281082957,
+    "average_time_to_profit": 2.0206896551724136,
+    "passed": false
+  },
+  "monotonicity": {
+    "status": "FAIL",
+    "bins": [
+      {
+        "bin": "P1",
+        "samples": 135,
+        "predicted": 0.5463461383472711,
+        "profit_window_rate": 0.7925925925925926,
+        "mean_profit": 0.04826053879083866,
+        "mean_mae": -0.04039434749213529
+      },
+      {
+        "bin": "P2",
+        "samples": 135,
+        "predicted": 0.548770031873849,
+        "profit_window_rate": 0.5925925925925926,
+        "mean_profit": 0.041386572559522286,
+        "mean_mae": -0.03912184095080959
+      },
+      {
+        "bin": "P3",
+        "samples": 135,
+        "predicted": 0.5542038018288997,
+        "profit_window_rate": 0.6370370370370371,
+        "mean_profit": 0.044464317023300746,
+        "mean_mae": -0.046931584248424786
+      },
+      {
+        "bin": "P4",
+        "samples": 135,
+        "predicted": 0.5576767443098126,
+        "profit_window_rate": 0.6148148148148148,
+        "mean_profit": 0.04515705007289014,
+        "mean_mae": -0.04802838825758769
+      },
+      {
+        "bin": "P5",
+        "samples": 136,
+        "predicted": 0.5626067695097181,
+        "profit_window_rate": 0.5808823529411765,
+        "mean_profit": 0.061247052744871765,
+        "mean_mae": -0.07209760088441927
+      }
+    ]
+  },
+  "baseline_price_market_oos": {
+    "samples": 676,
+    "profit_window_rate": 0.643491124260355,
+    "precision": 0.643491124260355,
+    "recall": 1,
+    "roc_auc": 0.4247484141746554,
+    "pr_auc": 0.6133210386514462,
+    "brier_score": 0.23807310877680576,
+    "calibration_error": 0.0896106127091475,
+    "calibration": [
+      {
+        "lower": 0.4,
+        "upper": 0.6,
+        "samples": 676,
+        "predicted": 0.5538805115512075,
+        "actual": 0.643491124260355
+      }
+    ],
+    "mean_profit": 0.04812254994613467,
+    "median_profit": 0.02982536750558001,
+    "mean_selected_profit": 0.04812254994613467,
+    "mean_mae": -0.04979038126625417,
+    "profit_factor": 26.221512020355355,
+    "max_drawdown": 0.06863964281082957,
+    "average_time_to_profit": 2.0206896551724136
+  },
+  "cost_model": {
+    "transaction_cost": 0.003,
+    "slippage": 0,
+    "spread": 0
+  }
+}

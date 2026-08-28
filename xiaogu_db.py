@@ -56,6 +56,29 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any]) -> Non
 
 def record_canonical_historical_snapshot(snapshot: Dict[str, Any]) -> None:
     """Persist one immutable PIT historical snapshot when PostgreSQL is enabled."""
+    record_canonical_historical_snapshots([snapshot])
+
+
+def record_canonical_historical_snapshots(snapshots: Iterable[Dict[str, Any]]) -> None:
+    """Persist immutable PIT snapshots in one idempotent transaction."""
+    rows = [
+        {
+            "lineage_id": snapshot["lineage_id"],
+            "symbol": snapshot["symbol"],
+            "trade_date": snapshot["trade_date"],
+            "signal_time": snapshot["signal_time"],
+            "source": snapshot["source"],
+            "source_timestamp": snapshot["source_timestamp"],
+            "snapshot_version": snapshot["snapshot_version"],
+            "point_in_time": snapshot["point_in_time"],
+            "available_at": snapshot["available_at"],
+            "price_basis": snapshot["price_basis"],
+            "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
+        }
+        for snapshot in snapshots
+    ]
+    if not rows:
+        return
     with get_db() as db:
         db.execute(
             text(
@@ -71,19 +94,7 @@ def record_canonical_historical_snapshot(snapshot: Dict[str, Any]) -> None:
                 ON CONFLICT (lineage_id) DO NOTHING
                 """
             ),
-            {
-                "lineage_id": snapshot["lineage_id"],
-                "symbol": snapshot["symbol"],
-                "trade_date": snapshot["trade_date"],
-                "signal_time": snapshot["signal_time"],
-                "source": snapshot["source"],
-                "source_timestamp": snapshot["source_timestamp"],
-                "snapshot_version": snapshot["snapshot_version"],
-                "point_in_time": snapshot["point_in_time"],
-                "available_at": snapshot["available_at"],
-                "price_basis": snapshot["price_basis"],
-                "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
-            },
+            rows,
         )
 
 

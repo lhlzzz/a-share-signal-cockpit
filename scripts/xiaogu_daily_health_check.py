@@ -61,10 +61,12 @@ def check_price_formation_features():
 
 def check_horizon_outcomes():
     from xiaogu_horizon_evaluation import HORIZONS
+
     ok, detail = _contains("filler", "fill_pending_results", "--pending", "calculate_horizon_outcomes")
     if not ok:
         return ok, detail
-    return tuple(HORIZONS) == (5,), "ok" if tuple(HORIZONS) == (5,) else "unexpected horizon set"
+    expected = (1, 2, 3, 4, 5)
+    return tuple(HORIZONS) == expected, "ok" if tuple(HORIZONS) == expected else "unexpected horizon set"
 
 
 def check_scheduler_outcome_job():
@@ -84,7 +86,8 @@ def check_rule_freeze():
         rule.get("rule_version") == "repricing_production_v1"
         and rule.get("production_owner") == "xiaogu_portfolio_decision.evaluate_candidate_bundle"
         and decisions == required
-        and rule.get("evaluation", {}).get("horizons_days") == [5]
+        and rule.get("evaluation", {}).get("horizons_days") == [1, 2, 3, 4, 5]
+        and rule.get("evaluation", {}).get("evaluation_window_days") == [1, 2, 3, 4, 5]
         and rule.get("evaluation", {}).get("max_holding_boundary") == 5
         and rule.get("alpha_contract", {}).get("target") == "PROFIT_WINDOW_5D"
         and rule.get("paper_only") is True

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
+import signal
 from typing import Any, Dict
 from urllib.parse import urlencode
 
@@ -25,6 +27,25 @@ DEFAULT_EXECUTION_COST_RATE = 0.003
 PROFIT_WINDOW_TARGET = 0.02
 EVALUATION_DAYS = (1, 2, 3, 4, 5)
 REALIZABILITY_LEVEL = "DAILY_BAR_APPROXIMATION"
+
+
+@contextmanager
+def _deadline(seconds: int):
+    """Bound providers that do not expose a request-timeout argument."""
+    if seconds <= 0:
+        yield
+        return
+
+    def _raise_timeout(_signum, _frame):
+        raise TimeoutError(f"HISTORICAL_PROVIDER_TIMEOUT:{seconds}s")
+
+    previous = signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _eastmoney_secid(symbol: str) -> str:
@@ -69,6 +90,58 @@ def fetch_eastmoney_daily_bars(
             "source": "eastmoney_api_daily_kline",
         })
     return bars
+
+
+def fetch_baostock_daily_bars(
+    symbol: str,
+    *,
+    start_date: str,
+    end_date: str | None = None,
+    timeout: int = 10,
+) -> list[Dict[str, Any]]:
+    """Fetch unadjusted historical OHLCV from the installed Baostock client.
+
+    This is a historical-label fallback only. It is never used for T-day
+    feature collection or current production scanning.
+    """
+    import baostock as bs
+
+    code = str(symbol).strip().zfill(6)
+    market = "sh" if code.startswith(("5", "6", "9")) else "sz"
+    with _deadline(timeout):
+        login = bs.login()
+        if str(login.error_code) != "0":
+            raise RuntimeError(f"BAOSTOCK_LOGIN_FAILED:{login.error_code}:{login.error_msg}")
+        try:
+            result = bs.query_history_k_data_plus(
+                f"{market}.{code}",
+                "date,open,high,low,close,volume,amount",
+                start_date=start_date,
+                end_date=end_date or date.today().isoformat(),
+                frequency="d",
+                adjustflag="3",
+            )
+            if str(result.error_code) != "0":
+                raise RuntimeError(f"BAOSTOCK_QUERY_FAILED:{code}:{result.error_code}:{result.error_msg}")
+            rows = list(result.data)
+        finally:
+            bs.logout()
+
+    return [
+        {
+            "trade_date": row[0],
+            "open": float(row[1]),
+            "high": float(row[2]),
+            "low": float(row[3]),
+            "close": float(row[4]),
+            "volume": float(row[5]) if row[5] not in (None, "") else None,
+            "amount": float(row[6]) if row[6] not in (None, "") else None,
+            "price_basis": PRICE_BASIS,
+            "source": "baostock_daily_kline",
+        }
+        for row in rows
+        if len(row) >= 7 and all(row[index] not in (None, "") for index in range(5))
+    ]
 
 
 def canonical_future_prices(

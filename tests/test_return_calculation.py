@@ -46,6 +46,43 @@ def test_eastmoney_loader_counts_only_five_future_trading_days(monkeypatch):
     assert calculate_horizon_returns(10, {5: 11}) == {"future_5d_return": 0.1}
 
 
+def test_baostock_loader_normalizes_unadjusted_ohlcv(monkeypatch):
+    import sys
+    import types
+
+    class Login:
+        error_code = "0"
+        error_msg = "success"
+
+    class Result:
+        error_code = "0"
+        error_msg = "success"
+        data = [["2026-08-17", "10", "10.5", "9.8", "10.2", "100", "1000"]]
+
+    fake = types.SimpleNamespace(
+        login=lambda: Login(),
+        query_history_k_data_plus=lambda *args, **kwargs: Result(),
+        logout=lambda: None,
+    )
+    monkeypatch.setitem(sys.modules, "baostock", fake)
+    from xiaogu_forward_result_filler_v0_1 import fetch_baostock_daily_bars
+
+    bars = fetch_baostock_daily_bars(
+        "600001", start_date="2026-08-17", end_date="2026-08-17", timeout=1,
+    )
+    assert bars == [{
+        "trade_date": "2026-08-17",
+        "open": 10.0,
+        "high": 10.5,
+        "low": 9.8,
+        "close": 10.2,
+        "volume": 100.0,
+        "amount": 1000.0,
+        "price_basis": "UNADJUSTED",
+        "source": "baostock_daily_kline",
+    }]
+
+
 def test_append_result_exposes_only_profit_window_target():
     result = append_result({
         "date": "2026-08-26", "symbol": "600001", "rule_version": "repricing_production_v1",
