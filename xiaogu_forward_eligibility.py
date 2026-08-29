@@ -33,6 +33,12 @@ def cheap_eligibility_blockers(row: Dict[str, Any]) -> List[str]:
         blockers.append("REGULATORY_HARD_RISK")
     if row.get("buyable") is False or row.get("sealed_limit_up"):
         blockers.append("UNBUYABLE")
+    try:
+        liquidity = row.get("liquidity_score")
+        if liquidity is not None and float(liquidity) <= 0:
+            blockers.append("SEVERE_LIQUIDITY_ISSUE")
+    except (TypeError, ValueError):
+        blockers.append("SEVERE_LIQUIDITY_ISSUE")
     return list(dict.fromkeys(blockers))
 
 
@@ -88,7 +94,8 @@ def eligibility_blockers(
     max_staleness_minutes: int = 120,
     as_of: datetime | None = None,
 ) -> List[str]:
-    blockers = [paper_pick_buyability_block_reason(snapshot, account)]
+    blockers = list(cheap_eligibility_blockers(snapshot))
+    blockers.append(paper_pick_buyability_block_reason(snapshot, account))
     source_time = str(snapshot.get("source_time") or "")
     if not source_time:
         blockers.append("MISSING_DATA")
@@ -105,4 +112,4 @@ def eligibility_blockers(
                 blockers.append("STALE_DATA")
         except ValueError:
             blockers.append("STALE_DATA")
-    return [reason for reason in blockers if reason]
+    return list(dict.fromkeys(reason for reason in blockers if reason))

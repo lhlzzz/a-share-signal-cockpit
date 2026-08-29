@@ -76,7 +76,6 @@ SINGLE_FAMILY_ABLATION_FEATURES = {
 }
 
 REPRICING_ENCODING = {
-    "UNKNOWN": 0.0,
     "ACCUMULATION": 0.2,
     "IGNITION": 0.4,
     "EXPANSION": 0.6,
@@ -84,7 +83,6 @@ REPRICING_ENCODING = {
     "DISTRIBUTION": 1.0,
 }
 MARKET_ENCODING = {
-    "UNKNOWN": 0.0,
     "WEAK": 0.25,
     "SIDEWAYS": 0.5,
     "NEUTRAL": 0.5,
@@ -335,13 +333,20 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         if numeric is not None:
             return max(0.0, min(1.0, numeric))
     if name == "repricing_state":
-        return REPRICING_ENCODING.get(str(row.get(name) or alpha.get(name) or "UNKNOWN").upper(), 0.0)
+        raw = row.get(name) if row.get(name) not in (None, "", "UNKNOWN") else alpha.get(name)
+        if raw in (None, "", "UNKNOWN"):
+            return None
+        return REPRICING_ENCODING.get(str(raw).upper())
     if name == "market_state":
         raw = row.get(name) or alpha.get(name) or row.get("market_regime")
         if isinstance(raw, dict):
             raw = raw.get("regime") or raw.get("state") or raw.get("score")
         numeric = _number(raw)
-        return max(0.0, min(1.0, numeric)) if numeric is not None else MARKET_ENCODING.get(str(raw or "UNKNOWN").upper(), 0.0)
+        if numeric is not None:
+            return max(0.0, min(1.0, numeric))
+        if raw in (None, "", "UNKNOWN"):
+            return None
+        return MARKET_ENCODING.get(str(raw).upper())
     if name in {"repricing_probability", "repricing_evidence_score"}:
         direct = row.get("repricing_evidence_score", alpha.get("repricing_evidence_score"))
         numeric = _number(direct)
@@ -356,17 +361,21 @@ def _extra_feature_value(row: Dict[str, Any], name: str) -> float:
     vector = _feature_payload(row)
     market = vector.get("MARKET") or {}
     if name == "price_strength":
-        return max(0.0, min(1.0, _number(row.get(name), market.get("price_strength")) or 0.0))
+        numeric = _number(row.get(name) if row.get(name) is not None else market.get("price_strength"))
+        return None if numeric is None else max(0.0, min(1.0, numeric))
     if name == "market_score":
         axes = alpha.get("axes") if isinstance(alpha.get("axes"), dict) else {}
-        return max(0.0, min(1.0, _number(row.get(name), market.get("score", axes.get("MARKET"))) or 0.0))
+        numeric = _number(row.get(name) if row.get(name) is not None else market.get("score", axes.get("MARKET")))
+        return None if numeric is None else max(0.0, min(1.0, numeric))
     if name == "turnover":
         vector = _feature_payload(row)
         if isinstance(vector, dict):
             supply = vector.get("SUPPLY") or {}
-            return max(0.0, min(1.0, _number(supply.get("turnover_velocity") or supply.get("turnover"), 0.0) or 0.0))
-        return max(0.0, min(1.0, _number(row.get(name), 0.0) or 0.0))
-    return 0.0
+            numeric = _number(supply.get("turnover_velocity") if supply.get("turnover_velocity") is not None else supply.get("turnover"))
+            return None if numeric is None else max(0.0, min(1.0, numeric))
+        numeric = _number(row.get(name))
+        return None if numeric is None else max(0.0, min(1.0, numeric))
+    return None
 
 
 def _raw_feature_value(row: Dict[str, Any], name: str) -> float | None:

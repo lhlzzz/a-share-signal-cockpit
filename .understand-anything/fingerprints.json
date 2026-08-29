@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "e75ce6611c8a07cc80a45068123999f520159c43",
-  "generatedAt": "2026-08-29T11:19:07.620Z",
+  "gitCommitHash": "ccc7fd28b1068f20596706347d31ea9b65869c93",
+  "generatedAt": "2026-08-29T15:35:47.064Z",
   "files": {
     ".codebase-memory/.gitattributes": {
       "filePath": ".codebase-memory/.gitattributes",
@@ -143,6 +143,16 @@
       "totalLines": 4,
       "hasStructuralAnalysis": true
     },
+    ".understand-anything/fingerprints.json": {
+      "filePath": ".understand-anything/fingerprints.json",
+      "contentHash": "252aeddd117b435dd4114114295acbc54bb4cc9efaf39d78386286ffdbbbc9c5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 5325,
+      "hasStructuralAnalysis": true
+    },
     ".understand-anything/knowledge-graph.json": {
       "filePath": ".understand-anything/knowledge-graph.json",
       "contentHash": "72b9d75af3dd7a7d0c3b6812c3ef7e75c31bca0d8cb414ce555c1145da89eb7b",
@@ -203,6 +213,16 @@
       "totalLines": 456,
       "hasStructuralAnalysis": true
     },
+    "data/research/profit_window_calibration.pre_repair.json": {
+      "filePath": "data/research/profit_window_calibration.pre_repair.json",
+      "contentHash": "9492636f9a4ae08d78ac2a90d6d769055f39c6d539cb2cfbe468cbe21496225b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 509,
+      "hasStructuralAnalysis": true
+    },
     "docs/plans/2026-08-26-final-repricing-rebuild.md": {
       "filePath": "docs/plans/2026-08-26-final-repricing-rebuild.md",
       "contentHash": "2a94ac16d1c247c85db631f55a78321f88e4edb760db7322d4e93c012f9dc238",
@@ -211,6 +231,26 @@
       "imports": [],
       "exports": [],
       "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "docs/plans/2026-08-29-final-truth-alpha-closure.md": {
+      "filePath": "docs/plans/2026-08-29-final-truth-alpha-closure.md",
+      "contentHash": "3570de4ead9346df2155ee55a6b9414652ca6fc82a035dedc2052c27bf89e715",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
+    },
+    "docs/plans/2026-08-29-production-truth-lock.md": {
+      "filePath": "docs/plans/2026-08-29-production-truth-lock.md",
+      "contentHash": "fd2aa153bac6f5e41d191eba4bf02b714e3af7671a7cd9afa1281a2304d72f51",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 58,
       "hasStructuralAnalysis": true
     },
     "integrations/contradiction_adapter.py": {
@@ -298,7 +338,7 @@
     },
     "scrapy_scanner/runner_v2.py": {
       "filePath": "scrapy_scanner/runner_v2.py",
-      "contentHash": "a2976cc58b2926b60e60d130998f146beeefc00ac2d9b60d3231d3ccacd16493",
+      "contentHash": "0cd23cfbdcafde2e666d9a8033e9b72511a7469a7c5586da440ce5455689666b",
       "functions": [
         {
           "name": "fnum",
@@ -442,13 +482,43 @@
           "lineCount": 8
         },
         {
+          "name": "_market_name",
+          "params": [
+            "row"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_trade_status",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_filter_rows_to_symbols",
+          "params": [
+            "rows",
+            "codes"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
           "name": "detect_capital_candidates",
           "params": [
-            "stocks"
+            "stocks",
+            "industry_rows",
+            "market"
           ],
           "returnType": "tuple[list[Dict[str, Any]], Dict[str, Any]]",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 63
         },
         {
           "name": "build_canonical_snapshots",
@@ -456,11 +526,12 @@
             "results",
             "source_time",
             "lineage_id",
-            "symbols"
+            "symbols",
+            "market"
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 72
+          "lineCount": 89
         },
         {
           "name": "_write_jsonl",
@@ -499,7 +570,7 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 109
+          "lineCount": 114
         }
       ],
       "classes": [],
@@ -617,6 +688,9 @@
         "fetch_news",
         "_by_symbol",
         "_quote_number",
+        "_market_name",
+        "_trade_status",
+        "_filter_rows_to_symbols",
         "detect_capital_candidates",
         "build_canonical_snapshots",
         "_write_jsonl",
@@ -624,7 +698,7 @@
         "_collect",
         "main"
       ],
-      "totalLines": 553,
+      "totalLines": 625,
       "hasStructuralAnalysis": true
     },
     "scripts/agentmemory_daily.sh": {
@@ -825,7 +899,7 @@
     },
     "tests/test_data_contract.py": {
       "filePath": "tests/test_data_contract.py",
-      "contentHash": "ef4710f5472b9a6c6d302206d30778f65f4c511d75e3e96230533ba50931e3a5",
+      "contentHash": "5047e906e6bd1ad5947dbbee453e8c481657dc105769376a3de6dad29315a65d",
       "functions": [
         {
           "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
@@ -843,13 +917,13 @@
           "name": "test_eastmoney_quote_fields_feed_existing_measurements",
           "params": [],
           "exported": true,
-          "lineCount": 8
+          "lineCount": 9
         },
         {
           "name": "test_eastmoney_capital_flow_reaches_core_alpha",
           "params": [],
           "exported": true,
-          "lineCount": 8
+          "lineCount": 9
         },
         {
           "name": "test_capital_price_impact_distinguishes_flow_and_price_response",
@@ -1016,6 +1090,24 @@
           "params": [],
           "exported": true,
           "lineCount": 11
+        },
+        {
+          "name": "test_unknown_capital_roles_are_not_hard_buy_blockers",
+          "params": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_level_1_blocks_severe_liquidity_without_scoring",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_scanner_attaches_level0_market_inputs_without_deep_research",
+          "params": [],
+          "exported": true,
+          "lineCount": 13
         }
       ],
       "classes": [],
@@ -1093,9 +1185,12 @@
         "test_scan_lineage_is_shared_and_snapshot_id_is_unique",
         "test_record_snapshot_conflicts_on_snapshot_id_not_lineage",
         "test_record_snapshot_rejects_payload_identity_conflict",
-        "test_supply_state_exposes_evidence_and_confidence"
+        "test_supply_state_exposes_evidence_and_confidence",
+        "test_unknown_capital_roles_are_not_hard_buy_blockers",
+        "test_level_1_blocks_severe_liquidity_without_scoring",
+        "test_scanner_attaches_level0_market_inputs_without_deep_research"
       ],
-      "totalLines": 542,
+      "totalLines": 586,
       "hasStructuralAnalysis": true
     },
     "tests/test_database_historical_replay.py": {
@@ -1360,7 +1455,7 @@
     },
     "tests/test_production_decision.py": {
       "filePath": "tests/test_production_decision.py",
-      "contentHash": "08bb98303c9021deb868349eab35bfecaf27e84a4f7dd12d1479aaedb05abb4d",
+      "contentHash": "db2c50ebda71eab58ca439b5d5b33ebb48c02eda251fa0c5f99cf095093cc30f",
       "functions": [
         {
           "name": "_repricing_ready_snapshot",
@@ -1484,6 +1579,12 @@
           ],
           "exported": true,
           "lineCount": 34
+        },
+        {
+          "name": "test_missing_evidence_does_not_invent_main_force_accumulation",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
         }
       ],
       "classes": [],
@@ -1526,9 +1627,10 @@
         "test_position_state_is_not_previous_action",
         "test_reduce_is_action_not_position_state",
         "test_collapsed_and_unvalidated_families_have_no_production_alpha_permission",
-        "test_probability_collapse_and_full_coverage_stay_fail_closed"
+        "test_probability_collapse_and_full_coverage_stay_fail_closed",
+        "test_missing_evidence_does_not_invent_main_force_accumulation"
       ],
-      "totalLines": 341,
+      "totalLines": 353,
       "hasStructuralAnalysis": true
     },
     "tests/test_return_calculation.py": {
@@ -2322,7 +2424,7 @@
     },
     "xiaogu_core_alpha.py": {
       "filePath": "xiaogu_core_alpha.py",
-      "contentHash": "955b09e9e49d57f1c1179c1788bf8dc55ceecbd4ec68a17d2020f7b453ae55ed",
+      "contentHash": "fb902aa995626e83da7fb6b50e27aecb7fbcfe035385ecd2b1972cd848f1b45c",
       "functions": [
         {
           "name": "_clip",
@@ -2346,7 +2448,7 @@
         {
           "name": "_mean",
           "params": [],
-          "returnType": "float",
+          "returnType": "float | None",
           "exported": true,
           "lineCount": 3
         },
@@ -2385,7 +2487,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 81
+          "lineCount": 79
         },
         {
           "name": "_repricing_state",
@@ -2420,7 +2522,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 217
+          "lineCount": 218
         }
       ],
       "classes": [],
@@ -2463,7 +2565,7 @@
         "_calibrated_probability",
         "build_core_alpha"
       ],
-      "totalLines": 502,
+      "totalLines": 501,
       "hasStructuralAnalysis": true
     },
     "xiaogu_db.py": {
@@ -2949,7 +3051,7 @@
     },
     "xiaogu_forward_eligibility.py": {
       "filePath": "xiaogu_forward_eligibility.py",
-      "contentHash": "c0e7ef889aaed22a9a14a8766641e864e9e41c18d66c0c1d8f0f03d8b52f9743",
+      "contentHash": "ee79b7d3063b141b8d7122ca3be7be02e2385a3190c3429d3460eff03873568c",
       "functions": [
         {
           "name": "cheap_eligibility_blockers",
@@ -2958,7 +3060,7 @@
           ],
           "returnType": "List[str]",
           "exported": true,
-          "lineCount": 29
+          "lineCount": 35
         },
         {
           "name": "candidate_universe",
@@ -2989,7 +3091,7 @@
           ],
           "returnType": "List[str]",
           "exported": true,
-          "lineCount": 25
+          "lineCount": 26
         }
       ],
       "classes": [],
@@ -3016,12 +3118,12 @@
         "paper_pick_buyability_block_reason",
         "eligibility_blockers"
       ],
-      "totalLines": 109,
+      "totalLines": 116,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_features.py": {
       "filePath": "xiaogu_forward_features.py",
-      "contentHash": "f2f5210261af99d72dfc560c41da6f9060431795c11c24904c866466af922f73",
+      "contentHash": "f3c7da98e1b3cb4d585b70041c4a7fe4b1afbfd5a244c6611fde094088f90151",
       "functions": [
         {
           "name": "_event_id",
@@ -3196,7 +3298,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 613
+          "lineCount": 616
         }
       ],
       "classes": [],
@@ -3248,7 +3350,7 @@
         "_market_stage",
         "build_feature_vector"
       ],
-      "totalLines": 787,
+      "totalLines": 790,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_paper_recorder_v0_1.py": {
@@ -4236,7 +4338,7 @@
     },
     "xiaogu_horizon_evaluation.py": {
       "filePath": "xiaogu_horizon_evaluation.py",
-      "contentHash": "fc4679ed071b9978148c7f7db15edc82f1b65264280669c018c63b0fdd917ad5",
+      "contentHash": "493a2d2ead035624a1d256da3ecca3800cda0dd29f975ce8202e49019f96f5cc",
       "functions": [
         {
           "name": "validate_horizons",
@@ -4400,7 +4502,7 @@
           ],
           "returnType": "float",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 53
         },
         {
           "name": "_extra_feature_value",
@@ -4410,7 +4512,7 @@
           ],
           "returnType": "float",
           "exported": true,
-          "lineCount": 16
+          "lineCount": 20
         },
         {
           "name": "_raw_feature_value",
@@ -4828,12 +4930,12 @@
         "evaluate_feature_groups",
         "build_alpha_report"
       ],
-      "totalLines": 1250,
+      "totalLines": 1259,
       "hasStructuralAnalysis": true
     },
     "xiaogu_portfolio_decision.py": {
       "filePath": "xiaogu_portfolio_decision.py",
-      "contentHash": "529aeede1cf3af19127df70854d6b3498d743eabea01b2b471d49398c1d36c54",
+      "contentHash": "4603ab2de7a58749228410d5a5d4337c58cd1c9118e344d93df805854a4bbc50",
       "functions": [
         {
           "name": "_decision_id",
@@ -4949,16 +5051,16 @@
     },
     "xiaogu_research_context.py": {
       "filePath": "xiaogu_research_context.py",
-      "contentHash": "b1f09570ed33ca8084422d55b11eb45636ed0eaea02d6e05a5d6de2a1923b911",
+      "contentHash": "af05494248d893412205f7b4e18665142698a9d01944fe70d62a7e93544c97fc",
       "functions": [
         {
           "name": "_number",
           "params": [
             "value"
           ],
-          "returnType": "float",
+          "returnType": "float | None",
           "exported": true,
-          "lineCount": 5
+          "lineCount": 7
         },
         {
           "name": "_context",
@@ -5000,7 +5102,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 47
         },
         {
           "name": "build_supply_context",
@@ -5030,7 +5132,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 64
+          "lineCount": 67
         },
         {
           "name": "build_contradiction_context",
@@ -5077,7 +5179,7 @@
         "build_contradiction_context",
         "build_integrated_research_context"
       ],
-      "totalLines": 246,
+      "totalLines": 252,
       "hasStructuralAnalysis": true
     },
     "xiaogu_scheduler.py": {

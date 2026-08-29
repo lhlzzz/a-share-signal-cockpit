@@ -338,3 +338,15 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
     assert decision["core_alpha"]["model_status"] == "MODEL_NOT_DISCRIMINATIVE"
     assert decision["state"] != "BUY"
+
+
+def test_missing_evidence_does_not_invent_main_force_accumulation():
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    capital = decision["feature_vector"]["CAPITAL"]
+    assert capital["capital_flow_state"] == "CAPITAL_FLOW_POSITIVE"
+    assert capital["capital_price_impact_state"] == "DEMAND_RESPONSE_OBSERVATION"
+    assert capital["main_force_behavior"]["direction"] == "UNKNOWN"
+    assert "MAIN_FORCE_ACCUMULATING" not in str(capital["main_force_behavior"]["direction"])
+    assert "CAPITAL_CONVERGENCE_INCOMPLETE" not in decision["repricing_risk"]["blockers"]
+    assert "FUTURE_BUYER_EVIDENCE_MISSING" not in decision["repricing_risk"]["blockers"]
+    assert decision["state"] != "BUY"

@@ -27,22 +27,21 @@ def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -
 
 def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[str, Any]) -> list[str]:
     blockers = []
-    readiness = alpha["readiness"]
-    # Research unknowns remain observable context. Only operational, risk,
-    # model-validation, and explicit negative evidence can block BUY here.
-    blockers.extend(
-        key for key in ("EXECUTION_FEASIBLE", "RISK_READY", "MARKET_READY")
-        if not readiness.get(key, False)
-    )
+    del features, research
+    # Missing capital/supply/pricing-gap/future-buyer evidence is a model
+    # input, not a BUY hard gate. Only operational failure, unvalidated
+    # alpha, and confirmed negative evidence can block here.
     if alpha["model_status"] != "VALIDATED":
         blockers.append("ALPHA_CALIBRATION_UNAVAILABLE")
     if alpha["repricing_completion"]["completed"]:
         blockers.append("REPRICING_COMPLETED")
     if alpha["contradiction"]["veto"]:
         blockers.append("TRADINGAGENTS_CONTRADICTION")
-    if (alpha["reflexivity_break"] or 0.0) >= 0.70:
+    if alpha.get("reflexivity_break") is not None and alpha["reflexivity_break"] >= 0.70:
         blockers.append("REFLEXIVITY_BREAK")
-    if alpha.get("repricing_state") == "CLIMAX" or (alpha.get("crowding_risk") or 0.0) >= 0.85 or alpha.get("buyer_exhaustion"):
+    if alpha.get("repricing_state") == "CLIMAX" or (
+        alpha.get("crowding_risk") is not None and alpha["crowding_risk"] >= 0.85
+    ) or alpha.get("buyer_exhaustion") is True:
         blockers.append("BUYER_EXHAUSTION_OR_CLIMAX")
     if alpha["capital_convergence"]["status"] == "CONFLICT":
         blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
@@ -53,7 +52,8 @@ def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[st
         blockers.append("NET_PROFIT_WINDOW_UNAVAILABLE")
     elif expected_net_profit <= 0:
         blockers.append("NET_PROFIT_WINDOW_NOT_POSITIVE")
-    if alpha["execution_feasibility"] is None or alpha["execution_feasibility"] < 0.35:
+    execution_feasibility = alpha.get("execution_feasibility")
+    if execution_feasibility is not None and execution_feasibility < 0.35:
         blockers.append("EXECUTION_NOT_FEASIBLE")
     return list(dict.fromkeys(blockers))
 
@@ -170,7 +170,7 @@ def evaluate_candidate_bundle(
         state, reason = "WATCH", "HARD_CONSTRAINT:" + ";".join(hard_blockers)
     elif not repricing_blockers:
         state, reason = "BUY", "REPRICING_READINESS_CONFIRMED"
-    elif alpha["thesis_score"] >= 0.45 and alpha.get("repricing_evidence_score", alpha.get("repricing_readiness_score", 0)) >= 0.35:
+    elif (alpha.get("thesis_score") or 0.0) >= 0.45 and (alpha.get("repricing_evidence_score") or alpha.get("repricing_readiness_score") or 0.0) >= 0.35:
         state, reason = "READY", "THESIS_VALID_BUT_CONFIRMATION_PENDING:" + ";".join(repricing_blockers)
     else:
         state, reason = "WATCH", "REPRICING_THESIS_INCOMPLETE:" + ";".join(repricing_blockers)

@@ -20,9 +20,9 @@
       "APScheduler",
       "SQLAlchemy"
     ],
-    "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Canonical → Eligibility → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian.",
-    "analyzedAt": "2026-08-29T19:18:16+08:00",
-    "gitCommitHash": "e75ce6611c8a07cc80a45068123999f520159c43"
+    "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Level0 Light Capture → Level1 Cheap Eligibility → Level2 Deep-Fetch Trigger → Level3 Deep Candidate Fetch → Canonical → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian. UNKNOWN is missing evidence, not a hard BUY block. BUY stays blocked until Alpha is OOS-validated.",
+    "analyzedAt": "2026-08-29T23:39:18+08:00",
+    "gitCommitHash": "ccc7fd28b1068f20596706347d31ea9b65869c93"
   },
   "nodes": [
     {

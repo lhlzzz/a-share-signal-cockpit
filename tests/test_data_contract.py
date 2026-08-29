@@ -39,7 +39,8 @@ def test_eastmoney_quote_fields_feed_existing_measurements():
         "f12": "600001", "f2": 10, "f3": 4, "f5": 100, "f6": 1_000,
         "f7": 3, "f8": 2, "f15": 10.5, "f16": 9.5, "f17": 9.8, "f62": 400,
     }))
-    assert vector["capital"]["accumulation"] == 0.4
+    assert vector["capital"]["capital_flow_ratio"] == 0.4
+    assert vector["capital"]["accumulation"] is None
     assert vector["position"]["relative_strength"] == 0.4
     assert vector["execution"]["short_term_overheat"] == 0.4
 
@@ -50,15 +51,17 @@ def test_eastmoney_capital_flow_reaches_core_alpha():
         "f7": 3, "f15": 10.5, "f16": 9.5, "f17": 9.8, "f62": 400,
         "source_time": "2026-08-26T14:50:00+08:00",
     })
-    assert decision["research_context"]["capital"]["accumulation"] == 0.4
+    assert decision["research_context"]["capital"]["capital_flow_ratio"] == 0.4
+    assert decision["research_context"]["capital"]["accumulation"] is None
     assert decision["core_alpha"]["axes"]["CAPITAL"] > 0
 
 
 @pytest.mark.parametrize(("flow", "change", "expected"), [
-    (400, 3, "DEMAND_CONFIRMATION"),
-    (400, 0, "SUPPLY_ABSORPTION"),
-    (400, -3, "DISTRIBUTION_RISK"),
-    (-400, 3, "PRICE_SUPPORTED_DIVERGENCE"),
+    (400, 3, "DEMAND_RESPONSE_OBSERVATION"),
+    (400, 0, "CAPITAL_PRICE_DIVERGENCE"),
+    (400, -3, "CAPITAL_PRICE_DIVERGENCE"),
+    (-400, 3, "CAPITAL_PRICE_DIVERGENCE"),
+    (-400, -3, "DISTRIBUTION_RISK"),
 ])
 def test_capital_price_impact_distinguishes_flow_and_price_response(flow, change, expected):
     vector = build_feature_vector(canonical_snapshot({
@@ -539,3 +542,44 @@ def test_supply_state_exposes_evidence_and_confidence():
     assert "evidence" in supply
     assert "evidence_count" in supply
     assert "confidence" in supply
+
+def test_unknown_capital_roles_are_not_hard_buy_blockers():
+    decision = evaluate_candidate_bundle({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00",
+    })
+    blockers = decision["repricing_risk"]["blockers"]
+    assert "CAPITAL_CONVERGENCE_INCOMPLETE" not in blockers
+    assert "SUPPLY_ABSORPTION_UNCONFIRMED" not in blockers
+    assert "FUTURE_BUYER_EVIDENCE_MISSING" not in blockers
+    assert "PRICING_GAP_TOO_SMALL" not in blockers
+    assert decision["core_alpha"]["capital_convergence"]["status"] == "UNKNOWN"
+    assert decision["feature_vector"]["SUPPLY"]["supply_absorption_state"] == "UNKNOWN"
+    assert decision["future_buyer_map"]["future_buyer_capacity"] is None
+    assert decision["state"] != "BUY"
+    assert decision["buy_status"] == "BUY_BLOCKED"
+
+
+def test_level_1_blocks_severe_liquidity_without_scoring():
+    eligible, audit = candidate_universe([
+        {"symbol": "600001", "price": 10, "volume": 100, "amount": 1000, "liquidity_score": 0},
+        {"symbol": "600002", "price": 10, "volume": 100, "amount": 1000},
+    ])
+    assert [row["symbol"] for row in eligible] == ["600002"]
+    assert audit["rejected"][0]["blockers"] == ["SEVERE_LIQUIDITY_ISSUE"]
+    assert audit["selection"] is False
+
+
+def test_scanner_attaches_level0_market_inputs_without_deep_research():
+    snapshots = build_canonical_snapshots({
+        "stock_all_a": [{"f12": "600001", "f14": "示例公司", "f2": 10, "f3": 1, "f5": 100, "f6": 1_000, "f13": 1, "f100": "示例行业"}],
+        "stock_capital_flow": [], "earnings_preview": [], "stock_reports": [],
+        "lhb": [], "announcements": [], "flow_industry": [], "industry_reports": [],
+    }, "2026-08-26 14:50:00", symbols=[], market={"breadth_up_pct": 61.2, "up_count": 3, "down_count": 1, "flat_count": 0})
+    raw = snapshots[0]["raw"]
+    assert raw["trade_status"] == "TRADING"
+    assert raw["market"] == "SH"
+    assert raw["industry"] == "示例行业"
+    assert raw["market_breadth"] == 61.2
+    assert "up_count" in raw["market_regime_inputs"]
+    assert "L3_DEEP_CANDIDATE_FETCH" not in snapshots[0]["source_layers"]

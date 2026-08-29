@@ -4,11 +4,13 @@ from __future__ import annotations
 from typing import Any, Dict
 
 
-def _number(value: Any) -> float:
+def _number(value: Any) -> float | None:
+    if value in (None, "", "-"):
+        return None
     try:
         return float(value)
     except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 def _context(kind: str, values: Dict[str, Any], lineage_id: str, provider: str) -> Dict[str, Any]:
@@ -91,6 +93,7 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         "lhb_quality": capital["lhb_quality"],
         "seat_behavior": raw.get("seat_behavior", "unknown"),
         "accumulation": capital["accumulation"],
+        "capital_flow_ratio": capital.get("capital_flow_ratio"),
         "distribution": capital["distribution_risk"],
         "capital_price_impact": capital["capital_price_impact"],
         "capital_divergence": capital["capital_price_divergence"],
@@ -129,7 +132,7 @@ def build_pricing_gap_context(snapshot: Dict[str, Any], features: Dict[str, Any]
         "as_of": features.get("available_at", ""),
         **features["PRICING_GAP"],
         "price": snapshot.get("price"),
-        "attention": features["REFLEXIVITY"].get("attention_growth", 0.0),
+        "attention": features["REFLEXIVITY"].get("attention_growth"),
     }, features["lineage_id"], "XiaoguFeatureEngine")
 
 
@@ -151,7 +154,7 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         if not evidence or not item.get("source") or not item.get("observed_at"):
             status = "UNKNOWN"
         item["evidence_status"] = status
-        item["capacity"] = _number(item.get("capacity")) if status != "UNKNOWN" else 0.0
+        item["capacity"] = _number(item.get("capacity")) if status != "UNKNOWN" else None
         buyers.append(item)
     current_buyer = raw.get("current_buyer")
     if not current_buyer:
@@ -167,7 +170,7 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         current_buyer = [current_buyer]
     next_buyers = [
         item for item in buyers
-        if _number(item.get("capacity")) > 0.50
+        if item.get("capacity") is not None and float(item.get("capacity") or 0) > 0.50
         and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
     ]
     observed_buyers = [item for item in buyers if item.get("evidence_status") == "OBSERVED"]
@@ -178,7 +181,8 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         )
         for category in ("institutions", "mutual_funds", "ETF/index", "quant", "hot_money", "retail", "industry_capital")
     }
-    observed_capacity = max((_number(item.get("capacity")) for item in observed_buyers), default=0.0)
+    observed_values = [item.get("capacity") for item in observed_buyers if item.get("capacity") is not None]
+    observed_capacity = max(observed_values) if observed_values else None
     return _context("FutureBuyerMap", {
         "as_of": features.get("available_at", ""),
         "buyer_categories": ["institutions", "mutual_funds", "ETF/index", "quant", "hot_money", "retail", "industry_capital"],
@@ -190,10 +194,12 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         "buyer_capacity": observed_capacity,
         "observed_buyer_capacity": observed_capacity,
         # UNKNOWN buyers remain visible to research but cannot add alpha.
-        "future_buyer_capacity": max(
-            (_number(item.get("capacity")) for item in buyers
-             if item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}),
-            default=0.0,
+        "future_buyer_capacity": (
+            max(values) if (values := [
+                item.get("capacity") for item in buyers
+                if item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
+                and item.get("capacity") is not None
+            ]) else None
         ),
         "buyer_trigger": [item.get("trigger", "") for item in buyers if isinstance(item, dict)],
     }, features["lineage_id"], "XiaoguFeatureEngine")

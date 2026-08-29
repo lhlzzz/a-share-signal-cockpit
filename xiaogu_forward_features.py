@@ -224,11 +224,11 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     if amount is None or main_flow is None or pct_change is None:
         capital_price_impact_state = "UNKNOWN"
     elif main_flow > 0 and pct_change > 0:
-        capital_price_impact_state = "DEMAND_CONFIRMATION"
+        capital_price_impact_state = "DEMAND_RESPONSE_OBSERVATION"
     elif main_flow > 0 and pct_change <= 0:
-        capital_price_impact_state = "SUPPLY_ABSORPTION"
+        capital_price_impact_state = "CAPITAL_PRICE_DIVERGENCE"
     elif main_flow < 0 and pct_change > 0:
-        capital_price_impact_state = "PRICE_SUPPORTED_DIVERGENCE"
+        capital_price_impact_state = "CAPITAL_PRICE_DIVERGENCE"
     elif main_flow < 0:
         capital_price_impact_state = "DISTRIBUTION_RISK"
     else:
@@ -276,18 +276,17 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "lhb_quality": _optional_clip(_first(raw, "lhb_quality")),
         "seat_behavior": _optional_clip(_first(raw, "seat_behavior_score")),
         "order_pressure": _optional_clip(_first(raw, "order_pressure", "order_book_pressure")),
-        "volume_accumulation": _optional_clip(_first(raw, "volume_accumulation", "capital_accumulation", default=positive_flow)),
+        "capital_flow_ratio": positive_flow,
+        "volume_accumulation": _optional_clip(_first(raw, "volume_accumulation")),
         "price_volume_confirmation": _optional_clip(_first(raw, "price_volume_confirmation", default=price_response)),
         "capital_price_divergence": capital_divergence,
         "capital_price_impact": price_impact,
         "capital_price_impact_state": capital_price_impact_state,
         "distribution_risk": negative_flow,
     }
-    capital["accumulation"] = _optional_clip(
-        _first(raw, "capital_accumulation", default=positive_flow)
-        if raw.get("capital_accumulation") not in (None, "")
-        else positive_flow
-    )
+    # Flow/amount is a ratio, not accumulation. Accumulation needs identity
+    # evidence plus persistence that has actually been observed.
+    capital["accumulation"] = _optional_clip(_first(raw, "capital_accumulation"))
     capital["main_force_flow"] = _observed_mean((
         (0.35, capital["accumulation"]),
         (0.25, capital["fund_flow_persistence"]),
@@ -454,10 +453,17 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 
     if not main_force_direct:
         main_force_direction = "UNKNOWN"
-    elif main_flow_value < 0:
+    elif main_flow is not None and main_flow < 0:
         main_force_direction = "MAIN_FORCE_DISTRIBUTING"
-    else:
+    elif (
+        capital["fund_flow_persistence"] is not None
+        and capital["fund_flow_persistence"] >= 0.55
+        and main_flow is not None
+        and main_flow > 0
+    ):
         main_force_direction = "MAIN_FORCE_LIKELY_ACCUMULATING"
+    else:
+        main_force_direction = "MAIN_FORCE_PRESENT"
 
     def behavior(direction: str, strength: float, persistence: float, acceleration: float, evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
         observed = [item for item in evidence if item.get("observed") and item.get("evidence_family") in DIRECT_EVIDENCE_FAMILIES]
@@ -466,7 +472,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         freshness = 1.0 if available_at else 0.5
         return {
             "direction": direction,
-            "strength": round(_clip(strength if count else 0.0), 8),
+            "strength": None if not count or strength is None else round(_clip(strength), 8),
             "persistence": None if persistence is None or not count else round(_clip(persistence), 8),
             "acceleration": None if acceleration is None or not count else round(_clip(acceleration), 8),
             "evidence": evidence,
@@ -485,7 +491,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         capital["fund_flow_acceleration"], institution_direct,
     )
     capital["main_force_behavior"] = behavior(
-        main_force_direction, capital["accumulation"] if main_force_direct else 0.0,
+        main_force_direction, capital["accumulation"] if main_force_direct else None,
         capital["fund_flow_persistence"], capital["fund_flow_acceleration"],
         main_force_direct,
     )
@@ -511,15 +517,17 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     ))
     if (capital["distribution_risk"] or 0.0) >= 0.70:
         capital["accumulation_phase"] = "DISTRIBUTION"
+    elif capital["accumulation"] is None:
+        capital["accumulation_phase"] = "UNOBSERVED"
     elif (
-        (capital["accumulation"] or 0.0) >= 0.60
+        capital["accumulation"] >= 0.60
         and capital["fund_flow_acceleration"] is not None
         and capital["fund_flow_acceleration"] >= 0.60
     ):
         capital["accumulation_phase"] = "IGNITION"
     elif (capital["accumulation_quality"] or 0.0) >= 0.45:
         capital["accumulation_phase"] = "ACCUMULATION"
-    elif (capital["accumulation"] or 0.0) > 0:
+    elif capital["accumulation"] > 0:
         capital["accumulation_phase"] = "ORDINARY_TRADING"
     else:
         capital["accumulation_phase"] = "UNOBSERVED"
@@ -568,11 +576,13 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     absorption_components = {
         "funds": (
-            (capital["accumulation"] or 0.0) > 0
+            (capital["capital_flow_ratio"] or 0.0) > 0
             and capital["fund_flow_persistence"] is not None
             and capital["fund_flow_persistence"] > 0
-            and main_flow_value > 0
-            and amount_value > 0
+            and main_flow is not None
+            and main_flow > 0
+            and amount is not None
+            and amount > 0
         ),
         "turnover": turnover is not None and turnover >= 1.0,
         "price_response": (capital["price_volume_confirmation"] or 0.0) > 0 and amount_value > 0,
@@ -594,7 +604,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         _clip(supply["absorption_evidence_count"] / len(absorption_components)), 8
     )
     supply_support = _observed_mean((
-        (1.0, capital["accumulation"]),
+        (1.0, capital["accumulation"] if capital["accumulation"] is not None else capital["capital_flow_ratio"]),
         (1.0, capital["fund_flow_persistence"]),
         (1.0, capital["fund_flow_acceleration"]),
         (1.0, capital["price_volume_confirmation"]),
@@ -630,16 +640,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     supply["evidence_count"] = int(supply["absorption_evidence_count"])
     supply["confidence"] = supply["absorption_confidence"]
     supply["score"] = supply["supply_absorption"]
-    if capital_price_impact_state != "UNKNOWN":
-        if main_flow_value > 0 and pct_change_value > 0 and supply["supply_absorption_state"] == "ABSORPTION":
-            capital_price_impact_state = "DEMAND_CONFIRMATION"
-        elif main_flow_value > 0 and supply["supply_absorption_state"] == "ABSORPTION":
-            capital_price_impact_state = "SUPPLY_ABSORPTION"
-        elif main_flow_value > 0 and pct_change_value < 0:
-            capital_price_impact_state = "DISTRIBUTION_RISK"
-        elif main_flow_value < 0 and pct_change_value > 0:
-            capital_price_impact_state = "PRICE_SUPPORTED_DIVERGENCE"
-        capital["capital_price_impact_state"] = capital_price_impact_state
+    # Keep capital/price as an observation. True SUPPLY_ABSORPTION lives on the
+    # supply engine, not on this two-variable pair.
+    capital["capital_price_impact_state"] = capital_price_impact_state
 
     pricing_gap = {
         "fundamental_gap": _optional_clip(_first(raw, "fundamental_gap")),

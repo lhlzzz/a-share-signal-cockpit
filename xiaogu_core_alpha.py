@@ -32,9 +32,9 @@ def _round_or_none(value: Any, digits: int = 8) -> float | None:
         return None
 
 
-def _mean(*values: Any) -> float:
+def _mean(*values: Any) -> float | None:
     numbers = [_clip(value) for value in values if value is not None]
-    return sum(numbers) / len(numbers) if numbers else 0.0
+    return sum(numbers) / len(numbers) if numbers else None
 
 
 def _research_score(payload: Dict[str, Any], *keys: str) -> float:
@@ -57,7 +57,7 @@ def _first_buyer_capacity(
         and item.get("source")
         and item.get("observed_at")
     ]
-    return max(eligible, default=0.0)
+    return max(eligible) if eligible else None
 
 
 def _direct_evidence_items(behavior: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -76,16 +76,16 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     channels = {
         name: _clip(behavior.get("strength"))
-        if behavior.get("evidence_status") == "OBSERVED" and _direct_evidence_items(behavior)
-        else 0.0
+        if behavior.get("evidence_status") == "OBSERVED" and _direct_evidence_items(behavior) and behavior.get("strength") is not None
+        else None
         for name, behavior in behaviors.items()
     }
     levels = {
-        key: "HIGH" if value >= 0.70 else "MEDIUM" if value >= 0.40 else "LOW" if value > 0 else "UNKNOWN"
+        key: "HIGH" if (value or 0) >= 0.70 else "MEDIUM" if (value or 0) >= 0.40 else "LOW" if (value or 0) > 0 else "UNKNOWN"
         for key, value in channels.items()
     }
-    confirmed = sum(value >= 0.50 for value in channels.values())
-    observed = sum(value > 0 for value in channels.values())
+    confirmed = sum((value or 0) >= 0.50 for value in channels.values())
+    observed = sum((value or 0) > 0 for value in channels.values())
     evidence_items = [item for behavior in behaviors.values() for item in _direct_evidence_items(behavior)]
     independent_sources = {str(item.get("source_id") or item.get("source") or "") for item in evidence_items if item.get("source_id") or item.get("source")}
     independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
@@ -96,12 +96,9 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     independent_mechanisms = {str(item.get("mechanism") or item.get("evidence_family") or "") for item in evidence_items if item.get("mechanism") or item.get("evidence_family")}
     independent_channel_count = len(independent_origins)
-    score = _mean(*[value for value in channels.values() if value > 0])
-    distribution = _clip(capital.get("distribution_risk"))
-    conflict = distribution >= 0.70 or capital.get("capital_price_impact_state") in {
-        "DISTRIBUTION_RISK",
-        "PRICE_SUPPORTED_DIVERGENCE",
-    }
+    score = _mean(*[value for value in channels.values() if value is not None and value > 0]) or 0.0
+    distribution = None if capital.get("distribution_risk") is None else _clip(capital.get("distribution_risk"))
+    conflict = (distribution or 0.0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK"
     bullish_directions = {
         "INSTITUTION_BUYING", "INSTITUTION_ACCUMULATING",
         "MAIN_FORCE_LIKELY_ACCUMULATING",
@@ -109,7 +106,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     directional = [
         name for name, behavior in behaviors.items()
-        if channels[name] >= 0.50 and str(behavior.get("direction") or "") in bullish_directions
+        if (channels[name] or 0) >= 0.50 and str(behavior.get("direction") or "") in bullish_directions
     ]
     aligned = len(directional) >= 2
     status = (
@@ -123,14 +120,15 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         1.0 if item.get("available_at") else 0.5
         for item in evidence_items
     ])
+    quality_score = _mean(*qualities)
     confidence = _clip(
-        (independent_channel_count / 3.0) * _mean(*qualities) * freshness
+        (independent_channel_count / 3.0) * (quality_score or 0.0) * (freshness or 0.0)
     ) if evidence_items else 0.0
     return {
         "score": round(score, 8),
-        "institution": round(channels["institution"], 8),
-        "main_force": round(channels["main_force"], 8),
-        "hot_money": round(channels["hot_money"], 8),
+        "institution": _round_or_none(channels["institution"]),
+        "main_force": _round_or_none(channels["main_force"]),
+        "hot_money": _round_or_none(channels["hot_money"]),
         "levels": levels,
         "institution_level": levels["institution"],
         "main_force_level": levels["main_force"],
@@ -303,14 +301,14 @@ def build_core_alpha(
     raw = features["snapshot"].get("raw") if isinstance(features.get("snapshot"), dict) else {}
     convergence = _capital_convergence(capital_measure)
     buyer_capacity = _first_buyer_capacity(raw, future_buyer_map)
-    buyer_observed = buyer_capacity > 0
+    buyer_observed = buyer_capacity is not None and buyer_capacity > 0
 
     # Diagnostic axes remain measurements. Production probability uses only the
     # calibrated artifact below, never a second handmade average of these axes.
     axes = {
         "BUSINESS": business["score"],
         "FUTURE_DEMAND": demand["score"],
-        "CAPITAL": capital_measure["accumulation"],
+        "CAPITAL": capital_measure["accumulation"] if capital_measure.get("accumulation") is not None else capital_measure.get("capital_flow_ratio"),
         "SUPPLY": supply["supply_absorption"],
         "PRICING_GAP": gap["real_pricing_gap"],
         "REFLEXIVITY": reflexivity["score"],
@@ -335,7 +333,7 @@ def build_core_alpha(
         else _clip(execution["execution_feasibility"] * (1.0 - (execution["short_term_overheat"] or 0.0) * 0.35))
     )
     probability_features = {
-        "capital_convergence": convergence["score"],
+        "capital_convergence": None if convergence["status"] == "UNKNOWN" else convergence["score"],
         "capital_persistence": capital_measure["fund_flow_persistence"],
         "capital_acceleration": capital_measure["fund_flow_acceleration"],
         "supply_absorption": supply["supply_absorption"],
@@ -356,7 +354,8 @@ def build_core_alpha(
         calibration["validation_status"] = "MODEL_NOT_DISCRIMINATIVE"
         calibration["reason"] = "PROBABILITY_COLLAPSE"
     repricing_evidence_score = _mean(
-        capital_measure["accumulation"],
+        capital_measure.get("accumulation"),
+        capital_measure.get("capital_flow_ratio"),
         supply["supply_absorption"],
         gap["real_pricing_gap"],
         probability_features["repricing_state"],
@@ -378,8 +377,8 @@ def build_core_alpha(
         "FUTURE_BUYERS_READY": buyer_observed and buyer_capacity >= 0.35,
         "REFLEXIVITY_READY": (reflexivity["score"] or 0.0) >= 0.35 and (reflexivity["break"] or 0.0) < 0.70,
         "EXECUTION_FEASIBLE": execution_feasibility is not None and execution_feasibility >= 0.35,
-        "RISK_READY": (risk["score"] or 0.0) >= 0.50,
-        "MARKET_READY": (market["score"] or 0.0) >= 0.35,
+        "RISK_READY": risk["score"] is None or risk["score"] >= 0.50,
+        "MARKET_READY": market["score"] is None or market["score"] >= 0.35,
         "COMPLETION_CLEAR": not completion["completed"],
         "PROFIT_WINDOW_READY": (
             model_status == "VALIDATED"
@@ -436,7 +435,7 @@ def build_core_alpha(
         "readiness": readiness,
         "repricing_readiness": readiness,
         "REPRICING_READINESS": readiness,
-        "repricing_readiness_score": round(_mean(*([axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["real_pricing_gap"], axes["REFLEXIVITY"]] + ([buyer_capacity] if buyer_observed else []))), 8),
+        "repricing_readiness_score": _round_or_none(_mean(*([axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["real_pricing_gap"], axes["REFLEXIVITY"]] + ([buyer_capacity] if buyer_observed else [])))),
         "repricing_state_evidence": repricing,
         "business_quality": _round_or_none(axes["BUSINESS"]),
         "future_demand": _round_or_none(axes["FUTURE_DEMAND"]),
@@ -456,7 +455,7 @@ def build_core_alpha(
         "pricing_gap": _round_or_none(gap["score"]),
         "real_pricing_gap": _round_or_none(gap["real_pricing_gap"]),
         "low_price": bool(gap["low_price"]),
-        "future_buyer_capacity": round(buyer_capacity, 8),
+        "future_buyer_capacity": _round_or_none(buyer_capacity),
         "future_buyer_evidence": (future_buyer_map or {}).get("buyer_evidence", {}),
         "reflexivity": _round_or_none(reflexivity["score"]),
         "reflexivity_strength": _round_or_none(reflexivity["score"]),
@@ -465,7 +464,7 @@ def build_core_alpha(
         "buyer_exhaustion": reflexivity.get("buyer_exhaustion"),
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
-        "repricing_evidence_score": round(repricing_evidence_score, 8),
+        "repricing_evidence_score": _round_or_none(repricing_evidence_score),
         "profit_window_probability": _round_or_none(profit_window_probability),
         "profit_window_calibration": calibration,
         "profit_window_feature_values": probability_features,
@@ -482,9 +481,9 @@ def build_core_alpha(
             "market_impact": execution["market_impact"],
             "cost_rate": DEFAULT_COST_RATE,
         },
-        "thesis_score": round(thesis_score, 8),
+        "thesis_score": _round_or_none(thesis_score),
         "downside_risk": _round_or_none(risk["downside"]),
-        "confidence": round(_mean(thesis_score, demand["evidence_strength"], execution_feasibility, convergence["score"]), 8),
+        "confidence": _round_or_none(_mean(thesis_score, demand["evidence_strength"], execution_feasibility, convergence["score"])),
         "market_stage": market["stage"],
         "reflexivity_break": _round_or_none(reflexivity["break"]),
         "repricing_completion": completion,
