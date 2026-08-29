@@ -11,6 +11,8 @@ from itertools import combinations
 from statistics import median
 from typing import Any, Dict, Iterable, Mapping, Sequence
 
+from xiaogu_core_alpha import CANONICAL_COST_MODEL
+
 HORIZONS = (1, 2, 3, 4, 5)
 HISTORICAL_VALIDATION_HORIZONS = HORIZONS
 MIN_TARGET_COVERAGE = 0.95
@@ -55,28 +57,22 @@ FEATURE_FAMILIES = {
     "REFLEXIVITY": ("reflexivity",),
 }
 CUMULATIVE_ABLATION_FEATURES = {
-    "BASELINE": PRICE_MARKET_FEATURES,
-    "+ CAPITAL": PRICE_MARKET_FEATURES + CAPITAL_BEHAVIOR_FEATURES,
-    "+ CAPITAL CONVERGENCE": PRICE_MARKET_FEATURES + CAPITAL_FEATURES,
-    "+ SUPPLY": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption",),
-    "+ PRICING GAP": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption", "pricing_gap"),
-    "+ FUTURE BUYER": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption", "pricing_gap", "future_buyer_evidence"),
-    "+ REPRICING STATE": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption", "pricing_gap", "future_buyer_evidence", "repricing_state"),
-    "+ REFLEXIVITY": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption", "pricing_gap", "future_buyer_evidence", "repricing_state", "reflexivity"),
-    "FULL CORE ALPHA": PRICE_MARKET_FEATURES + CORE_ALPHA_FEATURES,
+    "BASELINE": (),
+    "PRICE": ("price_strength",),
+    "PRICE + VOLUME": ("price_strength", "turnover"),
+    "PRICE + CAPITAL": ("price_strength",) + CAPITAL_FEATURES,
+    "PRICE + SUPPLY": ("price_strength", "supply_absorption"),
+    "PRICE + PRICING GAP": ("price_strength", "pricing_gap"),
+    "PRICE + REPRICING": ("price_strength", "repricing_state"),
+    "PRICE + FUTURE BUYER": ("price_strength", "future_buyer_evidence"),
+    "FULL": PRICE_MARKET_FEATURES + CORE_ALPHA_FEATURES,
 }
 SINGLE_FAMILY_ABLATION_FEATURES = {
-    "CAPITAL only": CAPITAL_FEATURES,
-    "SUPPLY only": ("supply_absorption",),
-    "PRICING_GAP only": ("pricing_gap",),
-    "FUTURE_BUYER only": ("future_buyer_evidence",),
-    "REPRICING only": ("repricing_state",),
-    "REFLEXIVITY only": ("reflexivity",),
-    "CAPITAL + SUPPLY": CAPITAL_FEATURES + ("supply_absorption",),
-    "CAPITAL + PRICING_GAP": CAPITAL_FEATURES + ("pricing_gap",),
-    "CAPITAL + SUPPLY + PRICING_GAP": CAPITAL_FEATURES + ("supply_absorption", "pricing_gap"),
-    "CAPITAL + SUPPLY + FUTURE_BUYER": CAPITAL_FEATURES + ("supply_absorption", "future_buyer_evidence"),
-    "CAPITAL + SUPPLY + PRICING_GAP + REPRICING": CAPITAL_FEATURES + ("supply_absorption", "pricing_gap", "repricing_state"),
+    "CAPITAL ONLY": CAPITAL_FEATURES,
+    "SUPPLY ONLY": ("supply_absorption",),
+    "PRICING GAP ONLY": ("pricing_gap",),
+    "REPRICING ONLY": ("repricing_state",),
+    "FUTURE BUYER ONLY": ("future_buyer_evidence",),
 }
 
 REPRICING_ENCODING = {
@@ -173,7 +169,7 @@ def evaluate_5d(entry_price: float, prices: Dict[int, Any]) -> Dict[str, Any]:
     path = [prices.get(day) for day in HORIZONS]
     if any(value is None for value in path):
         return {"horizon_days": 5, "data_status": "PARTIAL", "profit_window": None}
-    net_values = [(float(value) - entry_price) / entry_price - 0.003 for value in path]
+    net_values = [(float(value) - entry_price) / entry_price - CANONICAL_COST_MODEL["transaction_cost"] for value in path]
     first = next((index for index, value in enumerate(net_values, 1) if value >= PROFIT_WINDOW_TARGET), None)
     return {
         "horizon_days": 5,
@@ -314,6 +310,8 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         values = row.get("profit_window_feature_values")
     if isinstance(values, dict) and name in values:
         value = values[name]
+        if value is None:
+            return None
         if isinstance(value, dict):
             value = value.get("score") or value.get("value")
         numeric = _number(value)
@@ -350,7 +348,7 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         if numeric is not None:
             return max(0.0, min(1.0, numeric))
         return _feature_value(row, "repricing_state")
-    return 0.0
+    return None
 
 
 def _extra_feature_value(row: Dict[str, Any], name: str) -> float:
@@ -371,12 +369,34 @@ def _extra_feature_value(row: Dict[str, Any], name: str) -> float:
     return 0.0
 
 
-def _feature_vector(row: Dict[str, Any], names: Sequence[str]) -> list[float]:
-    return [
-        _extra_feature_value(row, name) if name in {"price_strength", "market_score", "turnover"}
-        else _feature_value(row, name)
-        for name in names
-    ]
+def _raw_feature_value(row: Dict[str, Any], name: str) -> float | None:
+    if name in {"price_strength", "market_score", "turnover"}:
+        return _extra_feature_value(row, name)
+    return _feature_value(row, name)
+
+
+def _imputer_for(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[str, float]:
+    imputer: Dict[str, float] = {}
+    for name in names:
+        observed = [value for row in rows if (value := _raw_feature_value(row, name)) is not None]
+        if observed:
+            imputer[name] = float(median(observed))
+    return imputer
+
+
+def _feature_vector(
+    row: Dict[str, Any],
+    names: Sequence[str],
+    imputer: Mapping[str, float] | None = None,
+) -> list[float]:
+    filled = imputer or {}
+    values = []
+    for name in names:
+        value = _raw_feature_value(row, name)
+        if value is None:
+            value = filled.get(name)
+        values.append(0.0 if value is None else float(value))
+    return values
 
 
 def _feature_value_present(row: Dict[str, Any], name: str) -> tuple[float, bool]:
@@ -499,11 +519,17 @@ def diagnose_features(
     labels = [_label_value(row) for row in rows]
     report = {}
     for name in feature_names:
-        values = [_feature_vector(row, (name,))[0] for row in rows]
-        observed = [_feature_observed(row, name, value) for row, value in zip(rows, values)]
-        positive = [value for value, label in zip(values, labels) if label == 1]
-        negative = [value for value, label in zip(values, labels) if label == 0]
+        raw_values = [_raw_feature_value(row, name) for row in rows]
+        observed_flags = [
+            value is not None and _feature_observed(row, name, value)
+            for row, value in zip(rows, raw_values)
+        ]
+        values = [value for value in raw_values if value is not None]
+        observed = observed_flags
+        positive = [value for value, label in zip(raw_values, labels) if label == 1 and value is not None]
+        negative = [value for value, label in zip(raw_values, labels) if label == 0 and value is not None]
         report[name] = {
+            "count": len(raw_values),
             "mean": (sum(values) / len(values)) if values else None,
             "std": (
                 math.sqrt(sum((value - (sum(values) / len(values))) ** 2 for value in values) / len(values))
@@ -517,26 +543,29 @@ def diagnose_features(
             "p75": _percentile(values, 0.75),
             "p90": _percentile(values, 0.90),
             "max": max(values) if values else None,
-            "missing_rate": 1.0 - (sum(observed) / len(observed) if observed else 0.0),
-            "zero_rate": sum(value == 0.0 for value in values) / len(values) if values else None,
+            "missing_rate": 1.0 - (sum(observed_flags) / len(observed_flags) if observed_flags else 0.0),
+            "zero_rate": sum(value == 0.0 for value in raw_values if value is not None) / len(raw_values) if raw_values else None,
             "variance": (
                 sum((value - (sum(values) / len(values))) ** 2 for value in values) / len(values)
                 if values else None
             ),
             "boundary_rate": (
-                sum(value in {0.0, 1.0} for value in values) / len(values)
-                if values else None
+                sum(value in {0.0, 1.0} for value in raw_values if value is not None) / len(raw_values)
+                if raw_values else None
             ),
             "unique_count": len(set(round(value, 12) for value in values)),
             "positive_mean": sum(positive) / len(positive) if positive else None,
             "negative_mean": sum(negative) / len(negative) if negative else None,
-            "label_correlation": _correlation(values, [label or 0 for label in labels]),
+            "label_correlation": _correlation(
+                [value for value, label in zip(raw_values, labels) if value is not None],
+                [label or 0 for value, label in zip(raw_values, labels) if value is not None],
+            ),
         }
         std = report[name]["std"]
         missing_rate = report[name]["missing_rate"] or 0.0
         unique_count = report[name]["unique_count"]
         collapsed = (
-            unique_count <= 1
+            unique_count <= 2
             or (std is not None and std < 1e-12)
             or missing_rate >= 0.95
         )
@@ -544,8 +573,8 @@ def diagnose_features(
     collinearity = []
     for left, right in combinations(feature_names, 2):
         correlation = _correlation(
-            [_feature_vector(row, (left,))[0] for row in rows],
-            [_feature_vector(row, (right,))[0] for row in rows],
+            [_raw_feature_value(row, left) or 0.0 for row in rows],
+            [_raw_feature_value(row, right) or 0.0 for row in rows],
         )
         if correlation is not None and abs(correlation) >= 0.95:
             collinearity.append({"left": left, "right": right, "correlation": correlation})
@@ -557,7 +586,7 @@ def diagnose_features(
             "missing": sum(label is None for label in labels),
         },
         "features": report,
-        "constant_features": [name for name, item in report.items() if item["unique_count"] <= 1],
+        "constant_features": [name for name, item in report.items() if item["unique_count"] <= 2],
         "high_missing_features": [name for name, item in report.items() if (item["missing_rate"] or 0.0) >= 0.95],
         "high_collinearity_pairs": collinearity,
     }
@@ -634,7 +663,8 @@ def _sigmoid(value: float) -> float:
 def _fit_logistic(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[str, Any] | None:
     if not rows or len({_label_value(row) for row in rows}) < 2:
         return None
-    x = [_feature_vector(row, names) for row in rows]
+    imputer = _imputer_for(rows, names)
+    x = [_feature_vector(row, names, imputer) for row in rows]
     y = [float(_label_value(row)) for row in rows]
     rate = sum(y) / len(y)
     intercept = math.log(max(1e-6, min(1.0 - 1e-6, rate)) / max(1e-6, 1.0 - rate))
@@ -651,14 +681,22 @@ def _fit_logistic(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[
         intercept -= 0.18 * gradient_b * scale
         for index in range(len(weights)):
             weights[index] -= 0.18 * (gradient_w[index] * scale + 0.01 * weights[index])
-    return {"intercept": intercept, "coefficients": weights, "feature_names": list(names)}
+    return {
+        "intercept": intercept,
+        "coefficients": weights,
+        "feature_names": list(names),
+        "imputer": imputer,
+    }
 
 
 def _predict(model: Mapping[str, Any], rows: Sequence[Dict[str, Any]]) -> list[float]:
     names = list(model.get("feature_names") or [])
     return [
         _sigmoid(float(model.get("intercept") or 0.0) + sum(
-            float(weight) * value for weight, value in zip(model.get("coefficients") or [], _feature_vector(row, names))
+            float(weight) * value for weight, value in zip(
+                model.get("coefficients") or [],
+                _feature_vector(row, names, model.get("imputer") if isinstance(model.get("imputer"), dict) else None),
+            )
         ))
         for row in rows
     ]
@@ -795,12 +833,6 @@ def _random_predictions(rows: Sequence[Dict[str, Any]], seed: int = 5) -> list[f
 
 def _baseline_features(name: str) -> tuple[str, ...]:
     return {
-        "PRICE / MARKET": PRICE_MARKET_FEATURES,
-        "PRICE + VOLUME": PRICE_MARKET_FEATURES + ("turnover",),
-        "PRICE + CAPITAL": PRICE_MARKET_FEATURES + CAPITAL_FEATURES,
-        "PRICE + CAPITAL + SUPPLY": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption",),
-        "PRICE + CAPITAL + SUPPLY + REPRICING": PRICE_MARKET_FEATURES + CAPITAL_FEATURES + ("supply_absorption", "repricing_state"),
-        "FULL CORE ALPHA": CORE_ALPHA_FEATURES,
         **CUMULATIVE_ABLATION_FEATURES,
         **SINGLE_FAMILY_ABLATION_FEATURES,
     }.get(name, ())
@@ -808,7 +840,7 @@ def _baseline_features(name: str) -> tuple[str, ...]:
 
 def _fit_baseline(rows: Sequence[Dict[str, Any]], name: str) -> Dict[str, Any] | None:
     names = _baseline_features(name)
-    return _fit_logistic(rows, names) if names else None
+    return _fit_logistic(rows, names)
 
 
 def _baseline_predictions(model: Mapping[str, Any], rows: Sequence[Dict[str, Any]]) -> list[float]:
@@ -901,9 +933,42 @@ def _ablation_report(
         "same_rows": True,
         "same_time_split": True,
         "same_target": "PROFIT_WINDOW_5D",
-        "same_cost_model": {"transaction_cost": 0.003, "slippage": 0.0, "spread": 0.0},
+        "same_cost_model": dict(CANONICAL_COST_MODEL),
         "cumulative": {name: results[name] for name in CUMULATIVE_ABLATION_FEATURES},
         "single_family": {name: results[name] for name in SINGLE_FAMILY_ABLATION_FEATURES},
+    }
+
+
+def _selectivity(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -> Dict[str, Any]:
+    if not rows or not predictions:
+        return {"status": "DATA_INSUFFICIENT"}
+    ordered = sorted(zip(predictions, rows), key=lambda item: item[0], reverse=True)
+    base_rate = sum(int(_label_value(row) or 0) for row in rows) / len(rows)
+
+    def band(fraction: float | None) -> Dict[str, Any]:
+        selected = ordered if fraction is None else ordered[: max(1, int(len(ordered) * fraction))]
+        labels = [int(_label_value(row) or 0) for _, row in selected]
+        profits = [_outcome_profit(row) for _, row in selected if _outcome_profit(row) is not None]
+        maes = [_mae(row) for _, row in selected if _mae(row) is not None]
+        portfolio = portfolio_metrics(profits)
+        rate = sum(labels) / len(labels) if labels else None
+        return {
+            "samples": len(selected),
+            "profit_window_rate": rate,
+            "mean_net_profit": sum(profits) / len(profits) if profits else None,
+            "mae": sum(maes) / len(maes) if maes else None,
+            "profit_factor": portfolio.get("profit_factor"),
+        }
+
+    top10 = band(0.10)
+    selective = bool(top10.get("profit_window_rate") is not None and top10["profit_window_rate"] >= base_rate)
+    return {
+        "status": "PASS" if selective else "MODEL_NOT_SELECTIVE",
+        "base_rate": base_rate,
+        "top10": top10,
+        "top20": band(0.20),
+        "top30": band(0.30),
+        "all": band(None),
     }
 
 
@@ -931,7 +996,13 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
             "oos_samples": len(oos),
             "feature_names": list(CORE_ALPHA_FEATURES),
         }
-    model = _fit_logistic(train, CORE_ALPHA_FEATURES)
+    feature_audit = diagnose_features(complete, feature_names=CORE_ALPHA_FEATURES)
+    collapsed = [
+        name for name, item in (feature_audit.get("features") or {}).items()
+        if item.get("status") == "FEATURE_COLLAPSED"
+    ]
+    usable = [name for name in CORE_ALPHA_FEATURES if name not in collapsed]
+    model = _fit_logistic(train, usable)
     if model is None:
         return {
             "status": "EXPERIMENTAL",
@@ -941,6 +1012,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
             "validation_samples": len(validation),
             "oos_samples": len(oos),
             "feature_names": list(CORE_ALPHA_FEATURES),
+            "collapsed_features": collapsed,
         }
     train_predictions = _predict(model, train)
     validation_predictions = _predict(model, validation)
@@ -950,7 +1022,8 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
     oos_metrics = _prediction_metrics(oos, oos_predictions)
     monotonicity = _monotonicity(oos, oos_predictions)
     probability_separation = _probability_separation(oos, oos_predictions)
-    baseline_model = _fit_baseline(train, "PRICE / MARKET")
+    selectivity = _selectivity(oos, oos_predictions)
+    baseline_model = _fit_baseline(train, "PRICE")
     baseline_metrics = _prediction_metrics(oos, _baseline_predictions(baseline_model, oos)) if baseline_model else {}
     baseline_delta = {
         "roc_auc": oos_metrics.get("roc_auc") - baseline_metrics.get("roc_auc")
@@ -967,6 +1040,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         and oos_metrics["calibration_error"] <= 0.15
         and monotonicity["status"] == "PASS"
         and probability_separation["status"] == "PASS"
+        and selectivity["status"] == "PASS"
         and baseline_delta["pr_auc"] is not None
         and baseline_delta["pr_auc"] > 0.0
     )
@@ -985,9 +1059,12 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         "oos": {**oos_metrics, "passed": passed},
         "monotonicity": monotonicity,
         "probability_separation": probability_separation,
+        "selectivity": selectivity,
         "baseline_price_market_oos": baseline_metrics,
         "baseline_delta": baseline_delta,
-        "cost_model": {"transaction_cost": 0.003, "slippage": 0.0, "spread": 0.0},
+        "cost_model": dict(CANONICAL_COST_MODEL),
+        "collapsed_features": collapsed,
+        "feature_information_audit": feature_audit,
     }
     return result
 
@@ -1081,9 +1158,9 @@ def build_alpha_report(
         }
     ablation = _ablation_report(train, validation, oos)
     feature_groups = evaluate_feature_groups(rows)
-    full_alpha = ablation["cumulative"]["FULL CORE ALPHA"]
+    full_alpha = ablation["cumulative"]["FULL"]
     full_oos = full_alpha.get("oos") or {}
-    baseline_oos = ablation["cumulative"]["BASELINE"].get("oos") or {}
+    baseline_oos = ablation["cumulative"]["PRICE"].get("oos") or {}
     full_passed = bool(
         full_alpha.get("status") == "FITTED"
         and full_alpha.get("monotonicity", {}).get("status") == "PASS"
@@ -1098,6 +1175,45 @@ def build_alpha_report(
         else "VALIDATED" if calibration.get("status") == "VALIDATED" and full_passed
         else "EXPERIMENTAL"
     )
+    collapsed = set(calibration.get("collapsed_features") or [])
+    def _family_increment(model_name: str) -> bool:
+        current = ((ablation["cumulative"].get(model_name) or {}).get("oos") or {}).get("pr_auc")
+        price = baseline_oos.get("pr_auc")
+        return current is not None and price is not None and current > price
+
+    family_features = {
+        "PRICE": ("price_strength",),
+        "CAPITAL": CAPITAL_FEATURES,
+        "SUPPLY": ("supply_absorption",),
+        "PRICING_GAP": ("pricing_gap",),
+        "REPRICING": ("repricing_state",),
+        "FUTURE_BUYER": ("future_buyer_evidence",),
+        "REFLEXIVITY": ("reflexivity",),
+    }
+    family_models = {
+        "PRICE": "PRICE",
+        "CAPITAL": "PRICE + CAPITAL",
+        "SUPPLY": "PRICE + SUPPLY",
+        "PRICING_GAP": "PRICE + PRICING GAP",
+        "REPRICING": "PRICE + REPRICING",
+        "FUTURE_BUYER": "PRICE + FUTURE BUYER",
+        "REFLEXIVITY": "FULL",
+    }
+    production_alpha_permissions = {
+        family: (
+            "PRODUCTION"
+            if validation_status == "VALIDATED" and (
+                not any(name in collapsed for name in names)
+                and _family_increment(family_models[family])
+            )
+            else "RESEARCH_ONLY"
+        )
+        for family, names in family_features.items()
+    }
+    family_oos_increment = {
+        family: _family_increment(family_models[family])
+        for family in family_features
+    }
     return {
         "data_status": "READY" if gate.get("status") == "PASS" else "BLOCKED",
         "status": validation_status,
@@ -1122,11 +1238,12 @@ def build_alpha_report(
             "probability_separation": calibration.get("probability_separation", {}).get("status") == "PASS",
             "full_alpha_baseline_increment": full_passed,
             "capital_supply_repricing_increment": any(
-                result.get("probability_separation", {}).get("status") == "PASS"
-                and ((result.get("baseline_delta") or {}).get("pr_auc") or 0.0) > 0.0
-                for result in ablation["single_family"].values()
+                family_oos_increment[name]
+                for name in ("CAPITAL", "SUPPLY", "REPRICING")
             ),
         },
+        "production_alpha_permissions": production_alpha_permissions,
+        "family_oos_increment": family_oos_increment,
         "calibration": calibration,
         "core_alpha_status": validation_status,
     }

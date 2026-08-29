@@ -19,6 +19,8 @@ from xiaogu_forward_result_filler_v0_1 import (
     calculate_horizon_outcomes,
     historical_entry_contract,
 )
+from xiaogu_forward_snapshot import build_scan_lineage_id, build_snapshot_id
+from xiaogu_core_alpha import CANONICAL_COST_MODEL
 from xiaogu_horizon_evaluation import (
     HORIZONS,
     HISTORICAL_VALIDATION_HORIZONS,
@@ -32,7 +34,7 @@ from xiaogu_horizon_evaluation import (
 HISTORICAL_SNAPSHOT_VERSION = "canonical_historical_snapshot_v1"
 HISTORICAL_TARGET_VERSION = "profit_window_5d_labels_v1"
 MODEL_VERSION = "profit_window_alpha_5d_v1"
-TARGET_QUALITY = ("CANONICAL", "PARTIAL", "CONFLICT", "INVALID")
+TARGET_QUALITY = ("CANONICAL", "PARTIAL", "CONFLICT", "INVALID", "UNRESOLVED")
 NON_INPUT_KEY_MARKERS = (
     "rank", "score", "bonus", "penalty", "selection", "recommendation",
     "priority", "outcome", "decision",
@@ -269,7 +271,7 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
     proxy, never an execution fill.  Missing OHLC remains missing and prevents
     a row from becoming a canonical training label.
     """
-    cost_rate = 0.003
+    cost_rate = CANONICAL_COST_MODEL["transaction_cost"]
     days: Dict[str, Dict[str, Any]] = {str(day): {} for day in range(1, 6)}
     conflicts: list[str] = []
 
@@ -1047,6 +1049,7 @@ def build_historical_5d_profit_window_dataset(
                 signal_time=str(snapshot_source.get("source_time") or ""),
                 source="database_historical_snapshot",
                 source_timestamp=str(snapshot_source.get("source_time") or ""),
+                lineage_id=str((pick or {}).get("production_run_id") or candidate.get("production_run_id") or ""),
             )
             canonical_snapshots.append(snapshot)
             current = run_production_decision(snapshot, mode="REPLAY", persisted=True)
@@ -1128,6 +1131,7 @@ def canonical_historical_snapshot(
     source: str = "historical_replay_input",
     source_timestamp: str = "",
     snapshot_version: str = HISTORICAL_SNAPSHOT_VERSION,
+    lineage_id: str = "",
 ) -> Dict[str, Any]:
     """Create a PIT row from T-day facts, never from old score payloads."""
     if not isinstance(row, dict):
@@ -1177,9 +1181,25 @@ def canonical_historical_snapshot(
     }
     if not snapshot["symbol"] or snapshot.get("price") in (None, ""):
         raise ValueError("HISTORICAL_SNAPSHOT_SYMBOL_AND_PRICE_REQUIRED")
-    snapshot["lineage_id"] = hashlib.sha256(
-        json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    snapshot["lineage_id"] = str(
+        lineage_id
+        or clean.get("lineage_id")
+        or clean.get("production_run_id")
+        or build_scan_lineage_id(
+            source=snapshot["source"],
+            source_time=snapshot["signal_time"],
+            producer="canonical_historical_snapshot",
+            trade_date=snapshot["trade_date"],
+        )
+    )
+    snapshot["snapshot_id"] = str(clean.get("snapshot_id") or "") or build_snapshot_id(
+        lineage_id=snapshot["lineage_id"],
+        symbol=snapshot["symbol"],
+        trade_date=snapshot["trade_date"],
+        source=snapshot["source"],
+        source_time=snapshot["signal_time"],
+        producer="canonical_historical_snapshot",
+    )
     return snapshot
 
 
@@ -1349,6 +1369,7 @@ def replay_database_history(
     from xiaogu_db import (
         database_asset_report,
         fetch_historical_replay_assets,
+        migrate_historical_snapshot_identity,
         record_canonical_historical_snapshots,
     )
 
@@ -1367,6 +1388,7 @@ def replay_database_history(
         if isinstance(snapshot, dict)
     ]
     try:
+        result["historical_snapshot_identity_migration"] = migrate_historical_snapshot_identity()
         record_canonical_historical_snapshots(snapshot_rows)
     except Exception as exc:
         snapshot_errors.append({
@@ -1512,6 +1534,8 @@ def main() -> int:
     DEFAULT_CALIBRATION_ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     calibration = dict(report.get("calibration") or {})
     calibration["production_gates"] = report.get("production_gates") or {}
+    calibration["production_alpha_permissions"] = report.get("production_alpha_permissions") or {}
+    calibration["family_oos_increment"] = report.get("family_oos_increment") or {}
     DEFAULT_CALIBRATION_ARTIFACT.write_text(
         json.dumps(calibration, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",

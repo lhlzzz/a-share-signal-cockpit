@@ -114,10 +114,12 @@ def check_schema_fail_closed():
     db_text = open(os.path.join(WORKSPACE_ROOT, "xiaogu_db.py"), encoding="utf-8").read()
     if "except Exception:\n            continue" in db_text or "except Exception:\n        pass" in db_text:
         return False, "schema migration still swallows exceptions"
-    if "ON CONFLICT (lineage_id) DO NOTHING" in db_text.split("def record_canonical")[0]:
+    if "ON CONFLICT (lineage_id) DO NOTHING" in db_text:
         return False, "production snapshots still conflict on lineage_id"
-    if "ON CONFLICT (snapshot_id) DO NOTHING" not in db_text:
-        return False, "missing snapshot_id conflict target"
+    if "payload->>'snapshot_id', lineage_id)" in db_text or "snapshot_id = COALESCE(NULLIF(snapshot_id, ''), payload->>'snapshot_id', lineage_id)" in db_text:
+        return False, "schema still forges snapshot_id from lineage_id"
+    if "SNAPSHOT_IDENTITY_CONFLICT" not in db_text:
+        return False, "missing snapshot payload identity conflict"
     return True, "ok"
 
 
@@ -127,6 +129,7 @@ def check_production_schema_audit():
     ensure_production_schema()
     audit = audit_production_schema()
     snapshots = audit["tables"]["snapshots"]
+    historical = audit["tables"]["canonical_historical_snapshots"]
     required = (
         snapshots["columns"]["snapshot_id"] == "EXISTS"
         and snapshots["columns"]["lineage_id"] == "EXISTS"
@@ -135,9 +138,13 @@ def check_production_schema_audit():
         and audit["tables"]["picks"]["columns"]["decision_id"] == "EXISTS"
         and audit["tables"]["returns"]["columns"]["decision_id"] == "EXISTS"
         and snapshots["unique"]["snapshot_id"] == "EXISTS"
+        and snapshots["primary_key"]["status"] == "EXISTS"
+        and historical["columns"]["snapshot_id"] == "EXISTS"
+        and historical["unique"]["snapshot_id"] == "EXISTS"
+        and historical["primary_key"]["status"] == "EXISTS"
     )
     fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
-    required = required and fk in {"EXISTS", "HISTORICAL_CONFLICT"}
+    required = required and fk in {"EXISTS", "CONFLICT"}
     return required, "ok" if required else json.dumps(audit, ensure_ascii=False, default=str)
 
 

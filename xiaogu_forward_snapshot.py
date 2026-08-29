@@ -226,6 +226,28 @@ def build_scan_lineage_id(
     )
 
 
+def build_snapshot_id(
+    *,
+    lineage_id: str,
+    symbol: str,
+    trade_date: str,
+    source: str,
+    source_time: str,
+    producer: str = "",
+) -> str:
+    """Identity of one symbol snapshot inside a scan lineage."""
+    return _sha256(
+        {
+            "lineage_id": lineage_id,
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "source": source,
+            "source_time": source_time,
+            "producer": producer,
+        }
+    )
+
+
 def _serialized_canonical(row: Mapping[str, Any]) -> bool:
     return all(row.get(field) not in (None, "") for field in ("symbol", "trade_date", "source", "source_time", "as_of", "raw", "lineage_id"))
 
@@ -314,15 +336,13 @@ def _build_payload(
         producer=payload["producer"],
         trade_date=payload["trade_date"],
     )
-    payload["snapshot_id"] = _sha256(
-        {
-            "lineage_id": payload["lineage_id"],
-            "symbol": payload["symbol"],
-            "trade_date": payload["trade_date"],
-            "source": payload["source"],
-            "source_time": payload["source_time"],
-            "producer": payload["producer"],
-        }
+    payload["snapshot_id"] = build_snapshot_id(
+        lineage_id=payload["lineage_id"],
+        symbol=payload["symbol"],
+        trade_date=payload["trade_date"],
+        source=payload["source"],
+        source_time=payload["source_time"],
+        producer=payload["producer"],
     )
     payload["trusted_snapshot"] = True
     return payload

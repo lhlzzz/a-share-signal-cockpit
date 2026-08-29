@@ -1,6 +1,7 @@
 """PostgreSQL persistence for production runs, snapshots, decisions, and outcomes."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from contextlib import contextmanager
@@ -25,6 +26,7 @@ def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
     with engine.begin() as connection:
         connection.execute(text(open(sql_path, encoding="utf-8").read()))
     ensure_production_schema()
+    migrate_historical_snapshot_identity()
 
 
 def _exec_schema(statement: str) -> None:
@@ -156,23 +158,54 @@ def _count_returns_decision_fk_conflicts() -> int:
         )
 
 
+def _count_unresolved_snapshot_ids(table_name: str) -> int:
+    columns = _table_columns(table_name)
+    if "snapshot_id" not in columns:
+        return -1
+    with engine.connect() as db:
+        return int(
+            db.execute(
+                text(
+                    f'SELECT count(*) FROM "{table_name}" '
+                    "WHERE snapshot_id IS NULL OR BTRIM(CAST(snapshot_id AS text)) = ''"
+                )
+            ).scalar_one()
+        )
+
+
 def audit_production_schema() -> Dict[str, Any]:
     """Inspect required production identity objects. Never rewrite historical values."""
     required_columns = {
         "snapshots": ("snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time"),
         "picks": ("decision_id",),
         "returns": ("decision_id",),
-        "canonical_historical_snapshots": ("lineage_id", "symbol", "trade_date"),
+        "canonical_historical_snapshots": (
+            "snapshot_id", "lineage_id", "symbol", "trade_date", "signal_time",
+            "source", "source_timestamp", "snapshot_version", "point_in_time",
+            "available_at", "price_basis", "payload", "created_at",
+        ),
         "canonical_future_prices": ("symbol", "date", "source", "price_basis"),
     }
     required_unique = {
         "snapshots": ("snapshot_id",),
         "picks": ("decision_id",),
+        "canonical_historical_snapshots": ("snapshot_id",),
     }
     required_indexes = {
         "snapshots": ("idx_snapshots_trade_date", "idx_snapshots_lineage_id"),
         "picks": ("idx_picks_decision_id",),
         "returns": ("idx_returns_decision_id",),
+        "canonical_historical_snapshots": (
+            "idx_canonical_historical_snapshots_lineage_id",
+            "idx_canonical_historical_snapshots_date",
+        ),
+    }
+    required_primary_key = {
+        "snapshots": ("snapshot_id",),
+        "canonical_historical_snapshots": ("snapshot_id",),
+        "picks": ("id",),
+        "returns": ("id",),
+        "canonical_future_prices": ("symbol", "date"),
     }
     tables = {}
     ok = True
@@ -181,6 +214,7 @@ def audit_production_schema() -> Dict[str, Any]:
         unique_cols = set(_constraint_columns(table_name, "UNIQUE")) | set(
             _constraint_columns(table_name, "PRIMARY KEY")
         ) | _unique_index_columns(table_name)
+        primary_key = tuple(_constraint_columns(table_name, "PRIMARY KEY"))
         with engine.connect() as db:
             index_names = {
                 str(row[0])
@@ -198,6 +232,15 @@ def audit_production_schema() -> Dict[str, Any]:
         column_audit = {column: _exists_label(column in present_columns) for column in columns}
         unique_audit = {column: _exists_label(column in unique_cols) for column in required_unique.get(table_name, ())}
         index_audit = {name: _exists_label(name in index_names) for name in required_indexes.get(table_name, ())}
+        expected_pk = required_primary_key.get(table_name)
+        if expected_pk is None:
+            pk_status = "EXISTS" if primary_key else "MISSING"
+        elif primary_key == expected_pk:
+            pk_status = "EXISTS"
+        elif primary_key:
+            pk_status = "CONFLICT"
+        else:
+            pk_status = "MISSING"
         fk_audit = {
             f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}": "EXISTS"
             for item in _foreign_keys(table_name)
@@ -210,20 +253,23 @@ def audit_production_schema() -> Dict[str, Any]:
             "columns": column_audit,
             "indexes": index_audit,
             "unique": unique_audit,
+            "primary_key": {"columns": list(primary_key), "status": pk_status},
             "foreign_keys": fk_audit,
         }
         ok = ok and all(value == "EXISTS" for value in column_audit.values())
         ok = ok and all(value == "EXISTS" for value in unique_audit.values())
         ok = ok and all(value == "EXISTS" for value in index_audit.values())
+        ok = ok and pk_status == "EXISTS"
         if table_name == "returns":
-            ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
+            ok = ok and fk_audit.get("decision_id->picks.decision_id") in {"EXISTS", "CONFLICT"}
     anomalies = {
         "picks_missing_decision_id": _count_unbound_decision_ids("picks"),
         "returns_missing_decision_id": _count_unbound_decision_ids("returns"),
         "returns_decision_fk_conflicts": _count_returns_decision_fk_conflicts(),
+        "historical_snapshots_missing_snapshot_id": _count_unresolved_snapshot_ids("canonical_historical_snapshots"),
     }
     if anomalies["returns_decision_fk_conflicts"] > 0:
-        tables["returns"]["foreign_keys"]["decision_id->picks.decision_id"] = "HISTORICAL_CONFLICT"
+        tables["returns"]["foreign_keys"]["decision_id->picks.decision_id"] = "CONFLICT"
     return {
         "ok": ok,
         "tables": tables,
@@ -238,6 +284,7 @@ def ensure_production_schema() -> None:
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT",
+        "ALTER TABLE canonical_historical_snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
@@ -247,46 +294,23 @@ def ensure_production_schema() -> None:
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_lineage_id ON canonical_historical_snapshots (lineage_id)",
+        "CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_date ON canonical_historical_snapshots (trade_date, symbol)",
     ]
     for statement in statements:
         _exec_schema(statement)
-    _exec_schema(
-        """
-        UPDATE snapshots
-        SET snapshot_id = COALESCE(NULLIF(snapshot_id, ''), payload->>'snapshot_id', lineage_id)
-        WHERE snapshot_id IS NULL OR snapshot_id = ''
-        """
-    )
-    _exec_schema(
-        """
-        UPDATE snapshots
-        SET source = COALESCE(NULLIF(source, ''), payload->>'source')
-        WHERE source IS NULL OR source = ''
-        """
-    )
-    _exec_schema(
-        """
-        UPDATE snapshots
-        SET source_time = COALESCE(NULLIF(source_time, ''), payload->>'source_time')
-        WHERE source_time IS NULL OR source_time = ''
-        """
-    )
-    _exec_schema(
-        """
-        UPDATE snapshots
-        SET symbol = COALESCE(NULLIF(symbol, ''), payload->>'symbol')
-        WHERE symbol IS NULL OR symbol = ''
-        """
-    )
-    _exec_schema("ALTER TABLE snapshots ALTER COLUMN snapshot_id SET NOT NULL")
-    primary_key = _constraint_columns("snapshots", "PRIMARY KEY")
-    if primary_key == ["lineage_id"]:
-        _exec_schema("ALTER TABLE snapshots DROP CONSTRAINT snapshots_pkey")
-        _exec_schema("ALTER TABLE snapshots ADD PRIMARY KEY (snapshot_id)")
-    elif primary_key != ["snapshot_id"]:
-        _exec_schema("ALTER TABLE snapshots ADD PRIMARY KEY (snapshot_id)")
+    _ensure_snapshot_primary_key("snapshots")
     try:
         _exec_schema("CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)")
+    except SQLAlchemyError as exc:
+        if not _schema_error_already_exists(exc):
+            raise
+    try:
+        _exec_schema(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_snapshot_id "
+            "ON canonical_historical_snapshots (snapshot_id)"
+        )
     except SQLAlchemyError as exc:
         if not _schema_error_already_exists(exc):
             raise
@@ -307,6 +331,142 @@ def ensure_production_schema() -> None:
         if conflicts > 0:
             return
         raise
+
+
+def _ensure_snapshot_primary_key(table_name: str) -> None:
+    """Switch PK to snapshot_id only when every row already has a real snapshot_id."""
+    columns = _table_columns(table_name)
+    if "snapshot_id" not in columns:
+        raise RuntimeError(f"SCHEMA_SNAPSHOT_ID_MISSING:{table_name}")
+    unresolved = _count_unresolved_snapshot_ids(table_name)
+    primary_key = _constraint_columns(table_name, "PRIMARY KEY")
+    if unresolved:
+        if primary_key == ["snapshot_id"]:
+            raise RuntimeError(f"SCHEMA_UNRESOLVED_SNAPSHOT_IDENTITY:{table_name}")
+        return
+    if primary_key == ["snapshot_id"]:
+        return
+    if primary_key == ["lineage_id"]:
+        _exec_schema(f'ALTER TABLE "{table_name}" DROP CONSTRAINT {table_name}_pkey')
+    _exec_schema(f'ALTER TABLE "{table_name}" ALTER COLUMN snapshot_id SET NOT NULL')
+    if primary_key != ["snapshot_id"]:
+        _exec_schema(f'ALTER TABLE "{table_name}" ADD PRIMARY KEY (snapshot_id)')
+
+
+def snapshot_payload_identity(payload: Any) -> str:
+    """Stable identity of one snapshot payload, excluding write-time metadata."""
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        payload = {}
+    cleaned = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"created_at", "updated_at"}
+    }
+    return hashlib.sha256(
+        json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _recover_historical_snapshot_id(row: Dict[str, Any]) -> str:
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        payload = {}
+    existing = str(payload.get("snapshot_id") or row.get("snapshot_id") or "").strip()
+    if existing:
+        return existing
+    symbol = str(row.get("symbol") or payload.get("symbol") or "").strip()
+    trade_date = str(row.get("trade_date") or payload.get("trade_date") or "").strip()
+    source = str(row.get("source") or payload.get("source") or "").strip()
+    source_time = str(
+        row.get("signal_time")
+        or row.get("source_timestamp")
+        or payload.get("source_time")
+        or payload.get("signal_time")
+        or ""
+    ).strip()
+    if not all((symbol, trade_date, source, source_time)):
+        return ""
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "source": source,
+                "source_time": source_time,
+                "lineage_id": str(row.get("lineage_id") or ""),
+                "payload_identity": snapshot_payload_identity(payload),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def migrate_historical_snapshot_identity() -> Dict[str, Any]:
+    """Recover snapshot_id from payload identity. Never copy lineage_id. Never rewrite payload."""
+    ensure_production_schema()
+    columns = _table_columns("canonical_historical_snapshots")
+    if "snapshot_id" not in columns:
+        raise RuntimeError("SCHEMA_SNAPSHOT_ID_MISSING:canonical_historical_snapshots")
+    recovered = unresolved = conflicts = 0
+    with get_db() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    """
+                    SELECT lineage_id, snapshot_id, symbol, trade_date, signal_time,
+                           source, source_timestamp, payload
+                    FROM canonical_historical_snapshots
+                    """
+                )
+            ).mappings()
+        ]
+        seen: Dict[str, str] = {}
+        for row in rows:
+            current = str(row.get("snapshot_id") or "").strip()
+            recovered_id = _recover_historical_snapshot_id(row)
+            identity = snapshot_payload_identity(row.get("payload"))
+            if not recovered_id:
+                unresolved += 1
+                continue
+            previous_identity = seen.get(recovered_id)
+            if previous_identity and previous_identity != identity:
+                conflicts += 1
+                continue
+            seen[recovered_id] = identity
+            if current == recovered_id:
+                recovered += 1
+                continue
+            if current and current != recovered_id:
+                conflicts += 1
+                continue
+            db.execute(
+                text(
+                    """
+                    UPDATE canonical_historical_snapshots
+                    SET snapshot_id = :snapshot_id
+                    WHERE lineage_id = :lineage_id
+                      AND (snapshot_id IS NULL OR BTRIM(CAST(snapshot_id AS text)) = '')
+                    """
+                ),
+                {"snapshot_id": recovered_id, "lineage_id": row["lineage_id"]},
+            )
+            recovered += 1
+    if conflicts:
+        raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
+    _ensure_snapshot_primary_key("canonical_historical_snapshots")
+    return {
+        "recovered": recovered,
+        "unresolved": unresolved,
+        "conflicts": conflicts,
+        "primary_key": _constraint_columns("canonical_historical_snapshots", "PRIMARY KEY"),
+    }
 
 
 def verify_persisted_snapshot(
@@ -418,6 +578,8 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
     lineage_id = str(snapshot.get("lineage_id") or "")
     if not snapshot_id or not lineage_id:
         raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
+    if snapshot_id == lineage_id:
+        raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
     columns = _table_columns("snapshots")
     fields = ["lineage_id", "trade_date", "payload"]
     params = {
@@ -437,6 +599,14 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
         for field in fields
     )
     with get_db() as db:
+        existing = db.execute(
+            text("SELECT payload FROM snapshots WHERE snapshot_id = :snapshot_id"),
+            {"snapshot_id": snapshot_id},
+        ).mappings().first()
+        if existing:
+            if snapshot_payload_identity(existing.get("payload")) != snapshot_payload_identity(snapshot):
+                raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
+            return
         db.execute(
             text(
                 f"INSERT INTO snapshots ({', '.join(fields)}) VALUES ({placeholders}) "
@@ -508,41 +678,62 @@ def record_canonical_historical_snapshot(snapshot: Dict[str, Any]) -> None:
 
 def record_canonical_historical_snapshots(snapshots: Iterable[Dict[str, Any]]) -> None:
     """Persist immutable PIT snapshots in one idempotent transaction."""
-    rows = [
-        {
-            "lineage_id": snapshot["lineage_id"],
-            "symbol": snapshot["symbol"],
-            "trade_date": snapshot["trade_date"],
-            "signal_time": snapshot["signal_time"],
-            "source": snapshot["source"],
-            "source_timestamp": snapshot["source_timestamp"],
-            "snapshot_version": snapshot["snapshot_version"],
-            "point_in_time": snapshot["point_in_time"],
-            "available_at": snapshot["available_at"],
-            "price_basis": snapshot["price_basis"],
-            "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
-        }
-        for snapshot in snapshots
-    ]
+    ensure_production_schema()
+    rows = []
+    for snapshot in snapshots:
+        snapshot_id = str(snapshot.get("snapshot_id") or "")
+        lineage_id = str(snapshot.get("lineage_id") or "")
+        if not snapshot_id or not lineage_id:
+            raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
+        if snapshot_id == lineage_id:
+            raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
+        rows.append(
+            {
+                "snapshot_id": snapshot_id,
+                "lineage_id": lineage_id,
+                "symbol": snapshot["symbol"],
+                "trade_date": snapshot["trade_date"],
+                "signal_time": snapshot["signal_time"],
+                "source": snapshot["source"],
+                "source_timestamp": snapshot["source_timestamp"],
+                "snapshot_version": snapshot["snapshot_version"],
+                "point_in_time": snapshot["point_in_time"],
+                "available_at": snapshot["available_at"],
+                "price_basis": snapshot["price_basis"],
+                "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
+            }
+        )
     if not rows:
         return
     with get_db() as db:
-        db.execute(
-            text(
-                """
-                INSERT INTO canonical_historical_snapshots
-                    (lineage_id, symbol, trade_date, signal_time, source,
-                     source_timestamp, snapshot_version, point_in_time,
-                     available_at, price_basis, payload)
-                VALUES (:lineage_id, :symbol, :trade_date, CAST(:signal_time AS timestamptz),
-                        :source, CAST(:source_timestamp AS timestamptz), :snapshot_version,
-                        :point_in_time, CAST(:available_at AS timestamptz), :price_basis,
-                        CAST(:payload AS jsonb))
-                ON CONFLICT (lineage_id) DO NOTHING
-                """
-            ),
-            rows,
-        )
+        for row in rows:
+            existing = db.execute(
+                text("SELECT payload FROM canonical_historical_snapshots WHERE snapshot_id = :snapshot_id"),
+                {"snapshot_id": row["snapshot_id"]},
+            ).mappings().first()
+            if existing:
+                stored = existing.get("payload")
+                if isinstance(stored, str):
+                    stored = json.loads(stored)
+                if snapshot_payload_identity(stored) != snapshot_payload_identity(json.loads(row["payload"])):
+                    raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
+                continue
+            db.execute(
+                text(
+                    """
+                    INSERT INTO canonical_historical_snapshots
+                        (snapshot_id, lineage_id, symbol, trade_date, signal_time, source,
+                         source_timestamp, snapshot_version, point_in_time,
+                         available_at, price_basis, payload)
+                    VALUES (:snapshot_id, :lineage_id, :symbol, :trade_date, CAST(:signal_time AS timestamptz),
+                            :source, CAST(:source_timestamp AS timestamptz), :snapshot_version,
+                            :point_in_time, CAST(:available_at AS timestamptz), :price_basis,
+                            CAST(:payload AS jsonb))
+                    ON CONFLICT (snapshot_id) DO NOTHING
+                    """
+                ),
+                row,
+            )
 
 
 def record_canonical_future_prices(bars: Iterable[Dict[str, Any]]) -> None:
@@ -722,11 +913,24 @@ def fetch_trade_records() -> List[Dict[str, Any]]:
     with engine.connect() as db:
         decisions = [dict(row) for row in db.execute(text("SELECT * FROM picks ORDER BY id ASC")).mappings()]
         outcomes = [dict(row) for row in db.execute(text("SELECT * FROM returns ORDER BY id ASC")).mappings()]
-    return [{"decision": decision, "outcomes": [
-        outcome for outcome in outcomes
-        if outcome.get("symbol") == decision.get("symbol")
-        and outcome.get("trade_date") == decision.get("trade_date")
-    ]} for decision in decisions]
+    def _decision_key(row: Dict[str, Any]) -> str:
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            payload = {}
+        return str(row.get("decision_id") or payload.get("decision_id") or "")
+
+    return [
+        {
+            "decision": decision,
+            "outcomes": [
+                outcome for outcome in outcomes
+                if _decision_key(outcome) and _decision_key(outcome) == _decision_key(decision)
+            ],
+        }
+        for decision in decisions
+    ]
 
 
 def database_asset_report() -> Dict[str, Any]:

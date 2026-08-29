@@ -80,7 +80,8 @@ def test_unverified_profit_window_cannot_enable_buy():
         _repricing_ready_snapshot() | {"alpha_model_status": "UNVERIFIED"}, as_of=AS_OF,
     )
     assert decision["state"] == "READY"
-    assert decision["core_alpha"]["expected_return_status"] == "EXPERIMENTAL"
+    assert decision["core_alpha"]["expected_return_status"] in {"EXPERIMENTAL", "DATA_INSUFFICIENT"}
+    assert decision["core_alpha"]["model_status"] != "VALIDATED"
     assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
     assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in decision["core_alpha"])

@@ -23,6 +23,15 @@ def _clip(value: Any) -> float:
         return 0.0
 
 
+def _round_or_none(value: Any, digits: int = 8) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
+
+
 def _mean(*values: Any) -> float:
     numbers = [_clip(value) for value in values if value is not None]
     return sum(numbers) / len(numbers) if numbers else 0.0
@@ -153,14 +162,20 @@ def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Di
     elif market.get("attention", 0) >= 0.85 and market.get("price_strength", 0) >= 0.80:
         evidence.extend(["attention_extreme", "price_strength"])
         state = "CLIMAX"
-    elif convergence["status"] == "CONVERGENCE" and capital.get("fund_flow_acceleration", 0) >= 0.60 and market.get("price_strength", 0) >= 0.50:
+    elif (
+        convergence["status"] == "CONVERGENCE"
+        and capital.get("fund_flow_acceleration") is not None
+        and capital.get("fund_flow_acceleration") >= 0.60
+        and market.get("price_strength", 0) >= 0.50
+    ):
         evidence.extend(["capital_acceleration", "price_response", "capital_convergence"])
         state = "IGNITION"
     elif convergence["status"] == "CONVERGENCE" and market.get("sector_breadth", 0) >= 0.60 and market.get("leader_strength", 0) >= 0.60:
         evidence.extend(["capital_convergence", "breadth_expansion", "leader_strength"])
         state = "EXPANSION"
     elif (
-        capital.get("fund_flow_persistence", 0) >= 0.55
+        capital.get("fund_flow_persistence") is not None
+        and capital.get("fund_flow_persistence") >= 0.55
         and supply.get("supply_absorption_state") == "ABSORPTION"
         and market.get("price_strength", 0) < 0.55
     ):
@@ -176,20 +191,43 @@ def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Di
     }
 
 
-def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, Any]]:
+def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dict[str, Any]]:
     if not CALIBRATION_PATH.exists():
-        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_ARTIFACT_MISSING"}
+        return None, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_ARTIFACT_MISSING"}
     try:
         model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}"}
+        return None, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}"}
     artifact_status = str(model.get("status") or "").upper()
+    default_permissions = {
+        "PRICE": "RESEARCH_ONLY",
+        "CAPITAL": "RESEARCH_ONLY",
+        "SUPPLY": "RESEARCH_ONLY",
+        "PRICING_GAP": "RESEARCH_ONLY",
+        "REPRICING": "RESEARCH_ONLY",
+        "FUTURE_BUYER": "RESEARCH_ONLY",
+        "REFLEXIVITY": "RESEARCH_ONLY",
+    }
     if artifact_status not in {"CALIBRATED", "EXPERIMENTAL", "VALIDATED"}:
-        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_STATUS_INVALID"}
+        return None, {
+            "status": "DATA_INSUFFICIENT",
+            "reason": "CALIBRATION_STATUS_INVALID" if artifact_status not in {"DATA_INSUFFICIENT"} else str(model.get("reason") or "DATA_INSUFFICIENT"),
+            "validation_status": "DATA_INSUFFICIENT",
+            "oos": model.get("oos") if isinstance(model.get("oos"), dict) else {},
+            "production_gates": model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {},
+            "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
+            "collapsed_features": model.get("collapsed_features") or [],
+        }
     names = model.get("feature_names") or []
     coefficients = model.get("coefficients") or []
     if len(names) != len(coefficients):
-        return 0.0, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_CONTRACT_INVALID"}
+        return None, {
+            "status": "DATA_INSUFFICIENT",
+            "reason": "CALIBRATION_CONTRACT_INVALID",
+            "validation_status": "DATA_INSUFFICIENT",
+            "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
+            "collapsed_features": model.get("collapsed_features") or [],
+        }
     oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
     production_gates = model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {}
     required_gates = (
@@ -207,7 +245,23 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, 
         validation_status = "CALIBRATED_ONLY"
     else:
         validation_status = "EXPERIMENTAL"
-    logit = float(model.get("intercept") or 0.0) + sum(float(weight) * values.get(name, 0.0) for name, weight in zip(names, coefficients))
+    imputer = model.get("imputer") if isinstance(model.get("imputer"), dict) else {}
+    logit = float(model.get("intercept") or 0.0)
+    for name, weight in zip(names, coefficients):
+        value = values.get(name)
+        if value is None:
+            value = imputer.get(name)
+        if value is None:
+            if float(weight) == 0.0:
+                continue
+            return None, {
+                "status": "DATA_INSUFFICIENT",
+                "reason": f"FEATURE_MISSING:{name}",
+                "validation_status": "DATA_INSUFFICIENT",
+                "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
+                "collapsed_features": model.get("collapsed_features") or [],
+            }
+        logit += float(weight) * float(value)
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
     return _clip(probability), {
         "status": artifact_status,
@@ -266,7 +320,7 @@ def build_core_alpha(
     repricing_state = repricing["state"]
     completion = {
         "price_expanded": market["price_strength"] >= 0.80,
-        "valuation_expanded": gap["price_reflection"] >= 0.80,
+        "valuation_expanded": gap.get("price_reflection") is not None and gap["price_reflection"] >= 0.80,
         "attention_extreme": market["attention"] >= 0.85,
         "institutional_saturated": _clip(capital_measure["institutional_flow"]) >= 0.90,
         "hot_money_crowded": capital_measure["hot_money_flow"] >= 0.90,
@@ -276,23 +330,24 @@ def build_core_alpha(
         or repricing_state == "CLIMAX"
     )
 
-    execution_feasibility = _clip(execution["execution_feasibility"] * (1.0 - execution["short_term_overheat"] * 0.35))
+    execution_feasibility = (
+        None if execution.get("execution_feasibility") is None
+        else _clip(execution["execution_feasibility"] * (1.0 - execution["short_term_overheat"] * 0.35))
+    )
     probability_features = {
         "capital_convergence": convergence["score"],
         "capital_persistence": capital_measure["fund_flow_persistence"],
         "capital_acceleration": capital_measure["fund_flow_acceleration"],
         "supply_absorption": supply["supply_absorption"],
         "pricing_gap": gap["real_pricing_gap"],
-        "repricing_state": {"ACCUMULATION": 0.35, "IGNITION": 0.65, "EXPANSION": 0.55}.get(repricing_state, 0.0),
+        "repricing_state": None if repricing_state == "UNKNOWN" else {"ACCUMULATION": 0.35, "IGNITION": 0.65, "EXPANSION": 0.55, "CLIMAX": 0.80, "DISTRIBUTION": 0.10}.get(repricing_state),
         "future_buyer_evidence": buyer_capacity if buyer_observed else None,
         "reflexivity": reflexivity["score"],
         "market_state": market["score"],
         "execution_quality": execution_feasibility,
         "risk": risk["downside"],
     }
-    profit_window_probability, calibration = _calibrated_probability(
-        {key: (0.0 if value is None else value) for key, value in probability_features.items()}
-    )
+    profit_window_probability, calibration = _calibrated_probability(probability_features)
     oos = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
     probability_std = oos.get("probability_std")
     if calibration.get("validation_status") == "VALIDATED" and (
@@ -319,15 +374,16 @@ def build_core_alpha(
         "FUTURE_DEMAND_READY": axes["FUTURE_DEMAND"] >= 0.50,
         "CAPITAL_CONVERGENCE_READY": convergence["status"] == "CONVERGENCE",
         "SUPPLY_ABSORPTION_READY": supply["supply_absorption_state"] == "ABSORPTION",
-        "PRICING_GAP_READY": gap["score"] >= 0.35,
+        "PRICING_GAP_READY": gap.get("score") is not None and gap["score"] >= 0.35,
         "FUTURE_BUYERS_READY": buyer_observed and buyer_capacity >= 0.35,
         "REFLEXIVITY_READY": reflexivity["score"] >= 0.35 and reflexivity["break"] < 0.70,
-        "EXECUTION_FEASIBLE": execution_feasibility >= 0.35,
+        "EXECUTION_FEASIBLE": execution_feasibility is not None and execution_feasibility >= 0.35,
         "RISK_READY": risk["score"] >= 0.50,
         "MARKET_READY": market["score"] >= 0.35,
         "COMPLETION_CLEAR": not completion["completed"],
         "PROFIT_WINDOW_READY": (
             model_status == "VALIDATED"
+            and profit_window_probability is not None
             and profit_window_probability >= 0.45
             and expected_net_profit_window is not None
             and expected_net_profit_window > 0
@@ -395,10 +451,10 @@ def build_core_alpha(
         ),
         "capital_price_impact": round(capital_measure["capital_price_impact"], 8),
         "capital_price_impact_state": capital_measure["capital_price_impact_state"],
-        "supply_absorption": round(supply["supply_absorption"], 8),
+        "supply_absorption": _round_or_none(supply["supply_absorption"]),
         "supply_pressure": round(supply["supply_pressure"], 8),
-        "pricing_gap": round(gap["score"], 8),
-        "real_pricing_gap": round(gap["real_pricing_gap"], 8),
+        "pricing_gap": _round_or_none(gap["score"]),
+        "real_pricing_gap": _round_or_none(gap["real_pricing_gap"]),
         "low_price": bool(gap["low_price"]),
         "future_buyer_capacity": round(buyer_capacity, 8),
         "future_buyer_evidence": (future_buyer_map or {}).get("buyer_evidence", {}),
@@ -410,7 +466,7 @@ def build_core_alpha(
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
         "repricing_evidence_score": round(repricing_evidence_score, 8),
-        "profit_window_probability": round(profit_window_probability, 8),
+        "profit_window_probability": _round_or_none(profit_window_probability),
         "profit_window_calibration": calibration,
         "profit_window_feature_values": probability_features,
         "production_alpha_permissions": calibration.get("production_alpha_permissions") or {},
@@ -420,7 +476,7 @@ def build_core_alpha(
         "expected_mae_5d": expected_mae_5d,
         "expected_net_profit_window": expected_net_profit_window,
         "profit_window_target": DEFAULT_PROFIT_TARGET,
-        "execution_feasibility": round(execution_feasibility, 8),
+        "execution_feasibility": _round_or_none(execution_feasibility),
         "execution_constraints": {
             **CANONICAL_COST_MODEL,
             "market_impact": execution["market_impact"],

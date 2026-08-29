@@ -448,6 +448,32 @@ def test_record_snapshot_conflicts_on_snapshot_id_not_lineage():
             )
 
 
+def test_record_snapshot_rejects_payload_identity_conflict():
+    from xiaogu_db import engine, ensure_production_schema, record_snapshot
+    from sqlalchemy import text
+
+    first, = build_canonical_snapshots({
+        "stock_all_a": [
+            {"f12": "600009", "f14": "Z", "f2": 10, "f3": 1, "f6": 1_000, "f5": 100},
+        ],
+        "stock_capital_flow": [], "earnings_preview": [], "stock_reports": [],
+        "lhb": [], "announcements": [], "flow_industry": [], "industry_reports": [],
+    }, "2026-08-26 14:50:00")
+    ensure_production_schema()
+    with engine.begin() as db:
+        db.execute(text("DELETE FROM snapshots WHERE snapshot_id = :sid"), {"sid": first["snapshot_id"]})
+    try:
+        record_snapshot(first)
+        conflicted = dict(first)
+        conflicted["price"] = 99
+        import pytest
+        with pytest.raises(ValueError, match="SNAPSHOT_IDENTITY_CONFLICT"):
+            record_snapshot(conflicted)
+    finally:
+        with engine.begin() as db:
+            db.execute(text("DELETE FROM snapshots WHERE snapshot_id = :sid"), {"sid": first["snapshot_id"]})
+
+
 def test_supply_state_exposes_evidence_and_confidence():
     vector = build_feature_vector(canonical_snapshot({
         "symbol": "600001", "price": 10, "high": 10.5, "low": 9.5,

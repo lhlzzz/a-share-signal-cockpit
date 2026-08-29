@@ -74,6 +74,24 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _optional_number(value: Any) -> float | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(str(value).replace(",", "").replace("%", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_present(payload: Dict[str, Any], *keys: str) -> bool:
+    return any(payload.get(key) not in (None, "", "-") for key in keys)
+
+
+def _optional_clip(value: Any, low: float = 0.0, high: float = 1.0) -> float | None:
+    number = _optional_number(value)
+    return None if number is None else max(low, min(high, number))
+
+
 def _first(payload: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         if payload.get(key) not in (None, "", "-"):
@@ -88,6 +106,17 @@ def _clip(value: Any, low: float = 0.0, high: float = 1.0) -> float:
 def _mean(*values: Any) -> float:
     numbers = [_clip(value) for value in values if value is not None]
     return sum(numbers) / len(numbers) if numbers else 0.0
+
+
+def _observed_mean(weights_and_values: Iterable[tuple[float, Any]]) -> float | None:
+    items = [(weight, _optional_number(value)) for weight, value in weights_and_values]
+    present = [(weight, value) for weight, value in items if value is not None]
+    if not present:
+        return None
+    total_weight = sum(weight for weight, _ in present)
+    if total_weight <= 0:
+        return None
+    return _clip(sum(weight * value for weight, value in present) / total_weight)
 
 
 def _ratio(numerator: Any, denominator: Any) -> float:
@@ -119,11 +148,20 @@ def _market_stage(raw: Dict[str, Any], capital: Dict[str, Any], supply: Dict[str
         return "CLIMAX"
     if capital["capital_price_divergence"] >= 0.70 and market["price_strength"] >= 0.55:
         return "DISTRIBUTION"
-    if capital["fund_flow_acceleration"] >= 0.65 and market["price_strength"] >= 0.50:
+    if (
+        capital.get("fund_flow_acceleration") is not None
+        and capital["fund_flow_acceleration"] >= 0.65
+        and market["price_strength"] >= 0.50
+    ):
         return "IGNITION"
     if market["breadth"] >= 0.60 and market["leader_strength"] >= 0.60:
         return "EXPANSION"
-    if capital["fund_flow_persistence"] >= 0.55 and supply["supply_absorption_state"] == "ABSORPTION" and market["price_strength"] < 0.55:
+    if (
+        capital.get("fund_flow_persistence") is not None
+        and capital["fund_flow_persistence"] >= 0.55
+        and supply["supply_absorption_state"] == "ABSORPTION"
+        and market["price_strength"] < 0.55
+    ):
         return "ACCUMULATION"
     return "UNKNOWN"
 
@@ -155,8 +193,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     sector_breadth = _clip(_first(raw, "sector_breadth", "sector_strength", default=_number(_first(industry_flow, "f3", default=0.0)) / 10.0))
     # A flow amount without traded amount has no comparable denominator and
     # must remain unobserved rather than becoming a saturated signal.
-    positive_flow = _clip(max(main_flow, 0.0) / amount) if amount > 0 else 0.0
-    negative_flow = _clip(max(-main_flow, 0.0) / amount) if amount > 0 else 0.0
+    flow_comparable = amount > 0 and abs(main_flow) <= amount * 5.0
+    positive_flow = _clip(max(main_flow, 0.0) / amount) if flow_comparable else 0.0
+    negative_flow = _clip(max(-main_flow, 0.0) / amount) if flow_comparable else 0.0
     price_impact = _clip(abs(pct_change) / max(abs(main_flow_pct) * 2.0, 1.0)) if main_flow or main_flow_pct else 0.0
     price_response = _clip(max(pct_change, 0.0) / 10.0)
     capital_divergence = _clip(
@@ -219,8 +258,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 
     capital = {
         "fund_flow": positive_flow,
-        "fund_flow_acceleration": _clip(_first(raw, "fund_flow_acceleration", "capital_acceleration", default=0.0)),
-        "fund_flow_persistence": _clip(_first(raw, "fund_flow_persistence", "capital_persistence", default=0.0)),
+        "fund_flow_acceleration": _optional_clip(_first(raw, "fund_flow_acceleration", "capital_acceleration")),
+        "fund_flow_persistence": _optional_clip(_first(raw, "fund_flow_persistence", "capital_persistence")),
         "fund_flow_percentile": _clip(_first(raw, "fund_flow_percentile", default=amount_pctile if main_flow > 0 else 0.0)),
         "institutional_flow": _clip(_first(raw, "institutional_flow", "institution_confirmation", default=0.0)),
         "hot_money_flow": _clip(_first(raw, "hot_money_flow", "hot_money_confirmation", default=0.0)),
@@ -239,12 +278,12 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         if raw.get("capital_accumulation") not in (None, "")
         else positive_flow
     )
-    capital["main_force_flow"] = _clip(
-        0.35 * capital["accumulation"]
-        + 0.25 * capital["fund_flow_persistence"]
-        + 0.20 * capital["volume_accumulation"]
-        + 0.20 * capital["price_volume_confirmation"]
-    )
+    capital["main_force_flow"] = _observed_mean((
+        (0.35, capital["accumulation"]),
+        (0.25, capital["fund_flow_persistence"]),
+        (0.20, capital["volume_accumulation"]),
+        (0.20, capital["price_volume_confirmation"]),
+    )) or 0.0
     capital["capital_persistence"] = capital["fund_flow_persistence"]
     capital["capital_acceleration"] = capital["fund_flow_acceleration"]
     available_at = str(snap.get("as_of") or snap.get("source_time") or "")
@@ -370,7 +409,11 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         institution_direction = "UNKNOWN"
     elif institution_direction_hint == "SELL":
         institution_direction = "INSTITUTION_DISTRIBUTING"
-    elif institution_direction_hint == "BUY" and capital["fund_flow_persistence"] >= 0.55:
+    elif (
+        institution_direction_hint == "BUY"
+        and capital["fund_flow_persistence"] is not None
+        and capital["fund_flow_persistence"] >= 0.55
+    ):
         institution_direction = "INSTITUTION_ACCUMULATING"
     elif institution_direction_hint == "BUY":
         institution_direction = "INSTITUTION_BUYING"
@@ -388,7 +431,11 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         hot_money_direction = "UNKNOWN"
     elif hot_money_direction_hint == "SELL" or capital["hot_money_flow"] < 0:
         hot_money_direction = "HOT_MONEY_EXITING"
-    elif capital["fund_flow_acceleration"] >= 0.60 and hot_money_direction_hint == "BUY":
+    elif (
+        capital["fund_flow_acceleration"] is not None
+        and capital["fund_flow_acceleration"] >= 0.60
+        and hot_money_direction_hint == "BUY"
+    ):
         hot_money_direction = "HOT_MONEY_ACCELERATING"
     elif hot_money_direction_hint == "BUY" or capital["hot_money_flow"] > 0:
         hot_money_direction = "HOT_MONEY_BUYING"
@@ -410,8 +457,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "direction": direction,
             "strength": round(_clip(strength if count else 0.0), 8),
-            "persistence": round(_clip(persistence if count else 0.0), 8),
-            "acceleration": round(_clip(acceleration if count else 0.0), 8),
+            "persistence": None if persistence is None or not count else round(_clip(persistence), 8),
+            "acceleration": None if acceleration is None or not count else round(_clip(acceleration), 8),
             "evidence": evidence,
             "evidence_count": int(count),
             "evidence_family": next((item.get("evidence_family") for item in observed), "UNKNOWN"),
@@ -445,16 +492,20 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     capital["price_volume_evidence"] = price_volume_evidence
     capital["flow_persistence_evidence"] = persistence_evidence
     capital["industry_capital_evidence"] = industry_capital_evidence
-    capital["accumulation_quality"] = _clip(
-        0.30 * capital["fund_flow_persistence"]
-        + 0.25 * capital["volume_accumulation"]
-        + 0.20 * capital["institutional_flow"]
-        + 0.15 * capital["price_volume_confirmation"]
-        + 0.10 * capital["fund_flow"]
-    )
+    capital["accumulation_quality"] = _observed_mean((
+        (0.30, capital["fund_flow_persistence"]),
+        (0.25, capital["volume_accumulation"]),
+        (0.20, capital["institutional_flow"]),
+        (0.15, capital["price_volume_confirmation"]),
+        (0.10, capital["fund_flow"]),
+    )) or 0.0
     if capital["distribution_risk"] >= 0.70:
         capital["accumulation_phase"] = "DISTRIBUTION"
-    elif capital["accumulation"] >= 0.60 and capital["fund_flow_acceleration"] >= 0.60:
+    elif (
+        capital["accumulation"] >= 0.60
+        and capital["fund_flow_acceleration"] is not None
+        and capital["fund_flow_acceleration"] >= 0.60
+    ):
         capital["accumulation_phase"] = "IGNITION"
     elif capital["accumulation_quality"] >= 0.45:
         capital["accumulation_phase"] = "ACCUMULATION"
@@ -508,6 +559,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     absorption_components = {
         "funds": (
             capital["accumulation"] > 0
+            and capital["fund_flow_persistence"] is not None
             and capital["fund_flow_persistence"] > 0
             and main_flow > 0
             and amount > 0
@@ -516,7 +568,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "price_response": capital["price_volume_confirmation"] > 0 and amount > 0,
         "supply": supply["supply_evidence_count"] > 0,
         "stability": close_position >= 0.45,
-        "continuation": capital["fund_flow_acceleration"] > 0,
+        "continuation": capital["fund_flow_acceleration"] is not None and capital["fund_flow_acceleration"] > 0,
     }
     supply["SUPPLY_OBSERVED"] = bool(absorption_components["supply"])
     supply["DEMAND_OBSERVED"] = bool(absorption_components["funds"])
@@ -556,19 +608,18 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         and supply["PRICE_RESPONSE_OBSERVED"]
     )
     supply["supply_absorption"] = round(
-        _clip(supply_support - 0.60 * supply_pressure) if minimum_evidence else 0.0,
-        8,
-    )
+        _clip(supply_support - 0.60 * supply_pressure), 8
+    ) if minimum_evidence else None
     supply["supply_absorption_state"] = (
         "UNKNOWN" if not minimum_evidence
         else "RELEASING" if supply_pressure > supply_support + 0.15
-        else "ABSORPTION" if supply["supply_absorption"] >= 0.35
+        else "ABSORPTION" if (supply["supply_absorption"] or 0.0) >= 0.35
         else "BALANCED"
     )
     supply["evidence"] = [name for name, present in absorption_components.items() if present]
     supply["evidence_count"] = int(supply["absorption_evidence_count"])
     supply["confidence"] = supply["absorption_confidence"]
-    supply["score"] = supply["supply_absorption"]
+    supply["score"] = supply["supply_absorption"] if supply["supply_absorption"] is not None else 0.0
     if capital_price_impact_state != "UNKNOWN":
         if main_flow > 0 and pct_change > 0 and supply["supply_absorption_state"] == "ABSORPTION":
             capital_price_impact_state = "DEMAND_CONFIRMATION"
@@ -581,25 +632,25 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         capital["capital_price_impact_state"] = capital_price_impact_state
 
     pricing_gap = {
-        "fundamental_gap": _clip(_first(raw, "fundamental_gap", default=max(0.0, business["score"] - _clip(_first(raw, "valuation", "valuation_quality", default=0.0))))),
-        "industry_gap": _clip(_first(raw, "industry_gap", default=future_demand["score"] * 0.5)),
-        "capital_gap": _clip(_first(raw, "capital_gap", default=capital["accumulation"] * (1.0 - price_response))),
-        "earnings_gap": _clip(_first(raw, "earnings_gap", default=business["growth"] * (1.0 - price_response))),
-        "demand_gap": _clip(_first(raw, "demand_gap", default=future_demand["demand_strength"] * (1.0 - price_response))),
-        "attention_gap": _clip(_first(raw, "attention_gap", default=max(0.0, future_demand["score"] - attention))),
+        "fundamental_gap": _optional_clip(_first(raw, "fundamental_gap")),
+        "industry_gap": _optional_clip(_first(raw, "industry_gap")),
+        "capital_gap": _optional_clip(_first(raw, "capital_gap")),
+        "earnings_gap": _optional_clip(_first(raw, "earnings_gap")),
+        "demand_gap": _optional_clip(_first(raw, "demand_gap")),
+        "attention_gap": _optional_clip(_first(raw, "attention_gap")),
         "institutional_positioning": _clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"])),
         "institutional_gap": _clip(1.0 - _clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"]))),
-        "price_reflection": _clip(_first(raw, "price_reflection", default=price_response)),
+        "price_reflection": _optional_clip(_first(raw, "price_reflection")),
     }
-    pricing_gap["score"] = _clip(
-        0.20 * pricing_gap["fundamental_gap"]
-        + 0.15 * pricing_gap["industry_gap"]
-        + 0.15 * pricing_gap["earnings_gap"]
-        + 0.15 * pricing_gap["demand_gap"]
-        + 0.15 * pricing_gap["capital_gap"]
-        + 0.10 * pricing_gap["attention_gap"]
-        + 0.10 * pricing_gap["institutional_gap"]
-    )
+    pricing_gap["score"] = _observed_mean((
+        (0.20, pricing_gap["fundamental_gap"]),
+        (0.15, pricing_gap["industry_gap"]),
+        (0.15, pricing_gap["earnings_gap"]),
+        (0.15, pricing_gap["demand_gap"]),
+        (0.15, pricing_gap["capital_gap"]),
+        (0.10, pricing_gap["attention_gap"]),
+        (0.10, pricing_gap["institutional_gap"] if _source_present(raw, "institutional_positioning") else None),
+    ))
     # Low price and a prior drawdown are not a pricing gap.
     pricing_gap["low_price"] = False
     pricing_gap["drawdown_is_not_gap"] = True
@@ -629,7 +680,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "crowding": _clip(_first(raw, "crowding_risk", "crowding", default=max(market["attention"] - 0.75, 0.0))),
         "buyer_exhaustion": bool(raw.get("buyer_exhaustion")),
     }
-    reflexivity["score"] = _clip(sum(reflexivity[key] for key in ("price_strength", "sector_breadth", "leader_strength", "attention_growth", "capital_acceleration")) / 5.0)
+    reflexivity["score"] = _mean(
+        *(reflexivity[key] for key in ("price_strength", "sector_breadth", "leader_strength", "attention_growth", "capital_acceleration"))
+    )
     reflexivity["break"] = _clip(
         _first(raw, "reflexivity_break", default=0.0)
         if raw.get("reflexivity_break") not in (None, "")
@@ -642,16 +695,23 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "halted": bool(raw.get("halted") or raw.get("is_suspended")),
         "regulatory_hard_risk": bool(raw.get("regulatory_hard_block") or raw.get("risk_hard_block")),
         "liquidity": _clip(_first(raw, "liquidity_score", default=1.0 if amount > 0 else 0.0)),
-        "downside": _clip(_first(raw, "downside_risk", default=0.0)),
+        "downside": _optional_clip(_first(raw, "downside_risk")),
         "event_risk": _clip(_first(raw, "event_risk", "risk_notice_penalty", default=0.0)),
         "thesis_invalidated": bool(raw.get("thesis_invalidated")),
     }
-    risk["score"] = _clip(1.0 - (0.35 * risk["downside"] + 0.25 * risk["event_risk"] + 0.20 * float(risk["regulatory_hard_risk"]) + 0.20 * float(risk["halted"])))
+    risk["score"] = _clip(
+        1.0 - (
+            (0.35 * risk["downside"] if risk["downside"] is not None else 0.0)
+            + 0.25 * risk["event_risk"]
+            + 0.20 * float(risk["regulatory_hard_risk"])
+            + 0.20 * float(risk["halted"])
+        )
+    )
 
     execution = {
         "entry_price": price,
         "buyable": raw.get("buyable"),
-        "execution_quality": _clip(_first(raw, "execution_quality", default=1.0 if price > 0 and amount > 0 else 0.0)),
+        "execution_quality": _optional_clip(_first(raw, "execution_quality")),
         "short_term_overheat": _clip(_first(raw, "short_term_overheat", default=max(price_response, market["attention"]))),
         "gap_risk": _clip(_first(raw, "gap_risk", "next_day_risk", default=0.0)),
         "close_position": close_position,
@@ -660,7 +720,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "market_impact": _clip(_first(raw, "market_impact", "market_impact_rate", default=0.0), high=0.02) / 0.02,
     }
     execution["cost_rate"] = _clip(_first(raw, "execution_cost_rate", default=0.003), high=0.02)
-    execution["execution_feasibility"] = _clip(
+    execution["execution_feasibility"] = None if execution["execution_quality"] is None else _clip(
         execution["execution_quality"]
         * (1.0 - execution["gap_risk"])
         * (1.0 - 0.50 * execution["slippage"] - 0.25 * execution["spread"] - 0.25 * execution["market_impact"])

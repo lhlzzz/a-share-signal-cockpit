@@ -5,13 +5,12 @@ Tier: structural
 
 | ID | Task | Status | Evidence | Chain | Notes |
 |---|---|---|---|---|---|
-| T1 | Schema fail-closed | verified | ALTER raises; audit ok | D1,V1 | no except-continue |
-| T2 | Snapshot identity | verified | shared lineage unique id | D1,V1,C:c83558f | ON CONFLICT snapshot_id |
-| T3 | Persistence/clock/selection | verified | stale/unpersisted tests | D1,V1 | unique trusted snapshot |
-| T4 | Decision-outcome isolation | verified | same-symbol isolation | D1,V1 | fetch by decision_id |
-| T5 | Evidence and supply states | verified | supply evidence fields | D1,V1 | inflow != main force |
-| T6 | Feature audit and OOS permissions | verified | RESEARCH_ONLY, collapse | D1,V1 | BUY blocked EXPERIMENTAL |
-| T7 | Docs, health, tests, git | verified | pytest 75, health 16/16 | D1,V1,C:c83558f | understand hash=c83558f |
+| T1 | Schema identity | verified | snapshot_id PK live | D2,D3 | no lineage fallback |
+| T2 | Persistence identity | verified | conflict test added | D3 | payload hash conflict |
+| T3 | Decision linkage | verified | fetch by decision_id | D3 | UNRESOLVED stays |
+| T4 | Missing evidence collapse | verified | missing stays None | D3,D4 | None != 0 |
+| T5 | Ground truth + OOS | verified | 0 CANONICAL labels | D3 | PRE_REPAIR preserved |
+| T6 | Docs, health, tests, git | in_progress | pytest 76 health 16/16 | D3,D4 | commit+push remaining |
 
 ## Decision Log
 
@@ -19,16 +18,16 @@ Tier: structural
 |---|---|---|---|---|
 | D1 | pivot | plan | New closure task after production-truth-lock | user package |
 | D2 | unplanned | xiaogu_db.py | Drop lineage_id PK because scanner is 1 lineage to N snapshots | live schema + runner_v2 |
+| D3 | pivot | plan | Re-open closure for historical snapshot_id PK and missing-as-zero | user 7c5b163 package |
+| D4 | unplanned | xiaogu_core_alpha.py | Missing model must emit None probability, not 0.0 | spec 35 |
 
 ## Verification Records
 
 | ID | Evidence |
 |---|---|
-| V1 | pytest 75 passed, compileall 0, health 16/16, schema audit ok=true |
 
 ## Reconciliation History
 
 | Sweep | Result |
 |---|---|
-| S1 | T1-T6 verified; T7 remaining understand/index/commit/push |
-| S2 | T7 verified: c83558f production lock, 4dca7cd understand record |
+| R1 | T1-T5 verified; T6 open for understand/git |

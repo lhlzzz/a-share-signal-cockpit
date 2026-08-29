@@ -44,18 +44,18 @@ def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[st
         blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
     if features["SUPPLY"]["supply_absorption_state"] != "ABSORPTION":
         blockers.append("SUPPLY_ABSORPTION_UNCONFIRMED")
-    if features["PRICING_GAP"]["score"] < 0.35:
+    if features["PRICING_GAP"]["score"] is None or features["PRICING_GAP"]["score"] < 0.35:
         blockers.append("PRICING_GAP_TOO_SMALL")
     if not research["future_buyer_map"].get("next_buyer"):
         blockers.append("FUTURE_BUYER_EVIDENCE_MISSING")
-    if alpha["profit_window_probability"] < 0.45:
+    if alpha["profit_window_probability"] is None or alpha["profit_window_probability"] < 0.45:
         blockers.append("PROFIT_WINDOW_PROBABILITY_LOW")
     expected_net_profit = alpha.get("expected_net_profit_window")
     if expected_net_profit is None:
         blockers.append("NET_PROFIT_WINDOW_UNAVAILABLE")
     elif expected_net_profit <= 0:
         blockers.append("NET_PROFIT_WINDOW_NOT_POSITIVE")
-    if alpha["execution_feasibility"] < 0.35:
+    if alpha["execution_feasibility"] is None or alpha["execution_feasibility"] < 0.35:
         blockers.append("EXECUTION_NOT_FEASIBLE")
     return list(dict.fromkeys(blockers))
 
@@ -80,7 +80,7 @@ def _exit_reason(
         return "SUPPLY_REVERSAL"
     if completion["completed"]:
         return "REPRICING_COMPLETED"
-    if features["PRICING_GAP"]["score"] <= 0.10:
+    if features["PRICING_GAP"]["score"] is not None and features["PRICING_GAP"]["score"] <= 0.10:
         return "PRICING_GAP_CLOSED"
     if features["BUSINESS"]["valuation"] >= 0.90:
         return "VALUATION_EXCESS"
