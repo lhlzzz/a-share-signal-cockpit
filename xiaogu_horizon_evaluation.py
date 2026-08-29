@@ -39,7 +39,7 @@ PRODUCTION_FEATURES = CORE_ALPHA_FEATURES + (
     "capital_price_impact",
     "real_pricing_gap",
     "future_buyer_capacity",
-    "repricing_probability",
+    "repricing_evidence_score",
 )
 
 PRICE_MARKET_FEATURES = ("price_strength", "market_score")
@@ -344,7 +344,11 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
             raw = raw.get("regime") or raw.get("state") or raw.get("score")
         numeric = _number(raw)
         return max(0.0, min(1.0, numeric)) if numeric is not None else MARKET_ENCODING.get(str(raw or "UNKNOWN").upper(), 0.0)
-    if name == "repricing_probability":
+    if name in {"repricing_probability", "repricing_evidence_score"}:
+        direct = row.get("repricing_evidence_score", alpha.get("repricing_evidence_score"))
+        numeric = _number(direct)
+        if numeric is not None:
+            return max(0.0, min(1.0, numeric))
         return _feature_value(row, "repricing_state")
     return 0.0
 
@@ -461,7 +465,7 @@ def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
         return _feature_observed(row, "future_buyer_evidence", value)
     if name == "repricing_state":
         return str(alpha.get("repricing_state") or "UNKNOWN").upper() != "UNKNOWN"
-    if name == "repricing_probability":
+    if name in {"repricing_probability", "repricing_evidence_score"}:
         return _feature_observed(row, "repricing_state", value)
     if name == "reflexivity":
         market = (vector.get("MARKET") or {}) if isinstance(vector, dict) else {}

@@ -1,6 +1,8 @@
 """Price-formation measurements derived from one canonical snapshot."""
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Dict, Iterable
 
 from xiaogu_forward_snapshot import CanonicalSnapshot, canonical_snapshot
@@ -23,19 +25,43 @@ DIRECT_EVIDENCE_FAMILIES = (
 )
 
 
+def _event_id(source_id: str, payload: Any, index: int = 0) -> str:
+    return hashlib.sha256(
+        json.dumps({"source": source_id, "payload": payload, "index": index}, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
+
+
 def _evidence(
     *,
     observed: bool,
     source: str,
     available_at: str,
     evidence_family: str,
+    source_id: str = "",
+    event_id: str = "",
+    mechanism: str = "",
+    observed_at: str = "",
+    lineage_id: str = "",
+    interpretation: str = "",
     **extra: Any,
 ) -> Dict[str, Any]:
+    source_id = str(source_id or source or "")
+    event_id = str(event_id or source_id)
+    mechanism = str(mechanism or evidence_family)
+    observed_at = str(observed_at or available_at or "")
+    identity = f"{source_id}|{event_id}|{mechanism}"
     return {
         "observed": bool(observed),
         "source": source,
-        "available_at": available_at,
+        "source_id": source_id,
+        "event_id": event_id,
+        "mechanism": mechanism,
+        "evidence_id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16],
         "evidence_family": evidence_family,
+        "observed_at": observed_at,
+        "available_at": available_at,
+        "lineage_id": lineage_id,
+        "interpretation": interpretation,
         **extra,
     }
 
@@ -239,7 +265,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             or row.get("hot_money_type") is True
             or row.get("游资") is True
             or "游资" in str(row.get("EXPLAIN") or "")
-        ) and not _institution_row(row)
+        )
 
     def _lhb_direction(rows: list[Dict[str, Any]]) -> str:
         text = " ".join(str(row.get("EXPLAIN") or "") for row in rows)
@@ -250,62 +276,93 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             return "BUY"
         return ""
 
+    lineage_id = str(snap.get("lineage_id") or "")
     institution_rows = [row for row in lhb_rows if _institution_row(row)]
     hot_money_rows = [row for row in lhb_rows if _hot_money_row(row)]
-    institution_direct = [
-        _evidence(
-            observed=True, source="lhb", available_at=available_at,
-            evidence_family="DIRECT_INSTITUTION", detail="lhb_institution",
-        )
-        for _row in institution_rows
-    ]
+    institution_direct = []
+    hot_money_direct = []
+    for index, row in enumerate(lhb_rows):
+        event_id = _event_id("lhb", row, index)
+        if _institution_row(row):
+            institution_direct.append(_evidence(
+                observed=True, source="lhb", available_at=available_at,
+                evidence_family="DIRECT_INSTITUTION", detail="lhb_institution",
+                source_id="lhb", event_id=event_id, mechanism="lhb_event",
+                observed_at=available_at, lineage_id=lineage_id,
+                interpretation="INSTITUTION",
+            ))
+        if _hot_money_row(row):
+            hot_money_direct.append(_evidence(
+                observed=True, source="lhb", available_at=available_at,
+                evidence_family="DIRECT_HOT_MONEY", detail="lhb_hot_money",
+                source_id="lhb", event_id=event_id, mechanism="lhb_event",
+                observed_at=available_at, lineage_id=lineage_id,
+                interpretation="HOT_MONEY",
+            ))
     for key in ("institution_position_change", "institution_holding_change", "institution_flow_evidence", "institution_trade_evidence"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
             institution_direct.append(_evidence(
                 observed=True, source=key, available_at=available_at,
                 evidence_family="DIRECT_INSTITUTION", detail=key,
+                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="institution_identity",
+                observed_at=available_at, lineage_id=lineage_id, interpretation="INSTITUTION",
             ))
-    hot_money_direct = [
-        _evidence(
-            observed=True, source="lhb", available_at=available_at,
-            evidence_family="DIRECT_HOT_MONEY", detail="lhb_hot_money",
-        )
-        for _row in hot_money_rows
-    ]
     for key in ("hot_money_evidence", "hot_money_trade_evidence"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
             hot_money_direct.append(_evidence(
                 observed=True, source=key, available_at=available_at,
                 evidence_family="DIRECT_HOT_MONEY", detail=key,
+                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="hot_money_identity",
+                observed_at=available_at, lineage_id=lineage_id, interpretation="HOT_MONEY",
             ))
-    main_force_direct = []
+    capital_flow_observation = []
     if amount > 0 and main_flow:
-        main_force_direct.append(_evidence(
+        capital_flow_observation.append(_evidence(
             observed=True, source=flow_source, available_at=available_at,
-            evidence_family="DIRECT_MAIN_FORCE", detail="main_net_inflow",
+            evidence_family="DIRECT_CAPITAL_FLOW", detail="main_net_inflow",
+            source_id=flow_source, event_id=_event_id(flow_source, {"main_net_inflow": main_flow}),
+            mechanism="capital_flow", observed_at=available_at, lineage_id=lineage_id,
+            interpretation="CAPITAL_FLOW_POSITIVE" if main_flow > 0 else "CAPITAL_FLOW_NEGATIVE",
         ))
+    main_force_direct = []
+    for key in ("main_force_identity", "direct_main_force", "large_order_structure", "main_force_seat", "主力席位"):
+        if raw.get(key) not in (None, "", False, 0, 0.0):
+            main_force_direct.append(_evidence(
+                observed=True, source=key, available_at=available_at,
+                evidence_family="DIRECT_MAIN_FORCE", detail=key,
+                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="main_force_identity",
+                observed_at=available_at, lineage_id=lineage_id, interpretation="MAIN_FORCE",
+            ))
     price_volume_evidence = []
     if turnover:
         price_volume_evidence.append(_evidence(
             observed=True, source="quote_turnover", available_at=available_at,
             evidence_family="PRICE_VOLUME", detail="turnover",
+            source_id="quote_turnover", event_id=_event_id("quote_turnover", turnover),
+            mechanism="price_volume", observed_at=available_at, lineage_id=lineage_id,
         ))
     if snap.get("volume"):
         price_volume_evidence.append(_evidence(
             observed=True, source="quote_volume", available_at=available_at,
             evidence_family="PRICE_VOLUME", detail="volume",
+            source_id="quote_volume", event_id=_event_id("quote_volume", snap.get("volume")),
+            mechanism="price_volume", observed_at=available_at, lineage_id=lineage_id,
         ))
     persistence_evidence = []
     if raw.get("fund_flow_persistence") not in (None, ""):
         persistence_evidence.append(_evidence(
             observed=True, source="fund_flow_persistence", available_at=available_at,
             evidence_family="FLOW_PERSISTENCE", detail="fund_flow_persistence",
+            source_id="fund_flow_persistence", event_id=_event_id("fund_flow_persistence", raw.get("fund_flow_persistence")),
+            mechanism="flow_persistence", observed_at=available_at, lineage_id=lineage_id,
         ))
     industry_capital_evidence = []
     if industry_source:
         industry_capital_evidence.append(_evidence(
             observed=True, source=industry_source, available_at=available_at,
             evidence_family="INDUSTRY_CAPITAL", detail="industry_flow",
+            source_id=industry_source, event_id=_event_id(industry_source, industry_flow),
+            mechanism="industry_capital", observed_at=available_at, lineage_id=lineage_id,
         ))
 
     institution_direction_hint = _lhb_direction(institution_rows)
@@ -340,12 +397,10 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 
     if not main_force_direct:
         main_force_direction = "UNKNOWN"
-    elif capital["fund_flow_acceleration"] >= 0.60 and main_flow > 0:
-        main_force_direction = "ACCELERATING"
     elif main_flow < 0:
-        main_force_direction = "DISTRIBUTING"
+        main_force_direction = "MAIN_FORCE_DISTRIBUTING"
     else:
-        main_force_direction = "PRESENT"
+        main_force_direction = "MAIN_FORCE_LIKELY_ACCUMULATING"
 
     def behavior(direction: str, strength: float, persistence: float, acceleration: float, evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
         observed = [item for item in evidence if item.get("observed") and item.get("evidence_family") in DIRECT_EVIDENCE_FAMILIES]
@@ -364,6 +419,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             "available_at": available_at,
             "confidence": round(_clip(min(1.0, count / 2.0) * source_trust * freshness), 8),
             "evidence_status": "OBSERVED" if count else "UNKNOWN",
+            "observation": [item for item in evidence if item.get("observed")],
+            "interpretation": direction,
         }
 
     capital["institution_behavior"] = behavior(
@@ -373,7 +430,13 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     capital["main_force_behavior"] = behavior(
         main_force_direction, capital["accumulation"] if main_force_direct else 0.0,
         capital["fund_flow_persistence"], capital["fund_flow_acceleration"],
-        main_force_direct + price_volume_evidence + persistence_evidence,
+        main_force_direct,
+    )
+    capital["capital_flow_observation"] = capital_flow_observation
+    capital["capital_flow_state"] = (
+        "CAPITAL_FLOW_POSITIVE" if main_flow > 0 and amount > 0
+        else "CAPITAL_FLOW_NEGATIVE" if main_flow < 0 and amount > 0
+        else "UNKNOWN"
     )
     capital["hot_money_behavior"] = behavior(
         hot_money_direction, capital["hot_money_flow"], capital["fund_flow_persistence"],
@@ -457,7 +520,12 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
     supply["SUPPLY_OBSERVED"] = bool(absorption_components["supply"])
     supply["DEMAND_OBSERVED"] = bool(absorption_components["funds"])
-    supply["ABSORPTION_OBSERVED"] = bool(absorption_components["funds"] and absorption_components["turnover"])
+    supply["ABSORPTION_OBSERVED"] = bool(
+        absorption_components["funds"]
+        and absorption_components["turnover"]
+        and absorption_components["price_response"]
+        and absorption_components["supply"]
+    )
     supply["PRICE_RESPONSE_OBSERVED"] = bool(absorption_components["price_response"])
     supply["absorption_evidence_count"] = sum(absorption_components.values())
     supply["absorption_confidence"] = round(

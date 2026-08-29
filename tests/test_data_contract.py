@@ -155,10 +155,15 @@ def test_recorder_persists_buy_without_watch_memory(tmp_path, monkeypatch):
 
 
 def test_post_trade_review_and_memory_are_written_for_complete_window(tmp_path, monkeypatch):
+    import xiaogu_db
     import xiaogu_forward_paper_recorder_v0_1 as recorder
     from xiaogu_forward_result_filler_v0_1 import append_result
 
     monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "ledger.jsonl")
+    monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
+    monkeypatch.setattr(xiaogu_db, "record_snapshot", lambda _snapshot: None)
+    monkeypatch.setattr(xiaogu_db, "record_decision", lambda _decision: None)
     decision = {
         "state": "BUY", "reason": "READY", "decision_id": "decision-1",
         "canonical_snapshot": {
@@ -258,7 +263,8 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
         }]
 
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", fake_positions)
-    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {"status": "OUTCOME_NOT_BOUND"})
+    monkeypatch.setattr("xiaogu_db.fetch_persisted_canonical_snapshots", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
         runner,
         "load_latest_snapshot_bundle",
@@ -268,7 +274,8 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
         })]},
     )
     monkeypatch.setattr(runner, "run_production_decision", lambda *args, **kwargs: {
-        "state": "SELL", "reason": "MAX_HOLDING_BOUNDARY_CLOSED",
+        "state": "SELL", "action": "SELL", "position_state": "FLAT",
+        "reason": "MAX_HOLDING_BOUNDARY_CLOSED", "trade_status": "CLOSED",
         "canonical_snapshot": {"trade_date": "2026-08-26", "symbol": "600001", "source_time": "2026-08-26T14:50:00+08:00"},
     })
     monkeypatch.setattr(runner, "_write_ledger_record", lambda decision: Path("/tmp/unused"))
@@ -276,3 +283,80 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
     reviewed = runner.daily_position_review("2026-08-26")
     assert reviewed[0]["state"] == "SELL"
 
+
+
+
+def test_production_clock_rejects_stale_snapshot(monkeypatch):
+    from xiaogu_forward_runner import run_production_decision
+
+    monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
+    snapshot = canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    with pytest.raises(ValueError, match="STALE_DATA"):
+        run_production_decision(snapshot, mode="PRODUCTION", trade_date="2026-08-26")
+
+
+def test_persisted_flag_is_not_enough_without_db_row():
+    from xiaogu_forward_runner import run_production_decision
+
+    snapshot = canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    with pytest.raises(ValueError, match="NO_PRODUCTION_SNAPSHOT"):
+        run_production_decision(snapshot, mode="PRODUCTION", persisted=True, trade_date="2026-08-26")
+
+
+def test_recorder_db_failure_does_not_write_jsonl(tmp_path, monkeypatch):
+    import xiaogu_db
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "ledger.jsonl")
+    monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
+    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    monkeypatch.setattr(xiaogu_db, "record_snapshot", lambda _snapshot: (_ for _ in ()).throw(RuntimeError("db down")))
+    decision = {
+        "state": "BUY", "reason": "REPRICING_READY",
+        "canonical_snapshot": {
+            "lineage_id": "lineage", "trade_date": "2026-08-26",
+            "source_time": "2026-08-26T14:50:00+08:00", "symbol": "600001", "price": 10,
+        },
+    }
+    with pytest.raises(RuntimeError, match="db down"):
+        recorder.append_production_decision(decision)
+    assert not (tmp_path / "ledger.jsonl").exists()
+
+
+def test_same_symbol_outcomes_are_bound_to_decision_id():
+    import json
+    from sqlalchemy import text
+    from xiaogu_db import engine, ensure_production_schema, fetch_position_outcome
+
+    ensure_production_schema()
+    with engine.begin() as db:
+        db.execute(text("DELETE FROM returns WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+        db.execute(
+            text("INSERT INTO returns (trade_date, symbol, decision_id, payload) VALUES ('2026-08-01', '600001', 'test-trade-a', CAST(:payload AS jsonb))"),
+            {"payload": json.dumps({"profit_window": True, "decision_id": "test-trade-a", "max_profit": 0.08})},
+        )
+        db.execute(
+            text("INSERT INTO returns (trade_date, symbol, decision_id, payload) VALUES ('2026-08-08', '600001', 'test-trade-b', CAST(:payload AS jsonb))"),
+            {"payload": json.dumps({"profit_window": False, "decision_id": "test-trade-b", "max_profit": -0.04})},
+        )
+    try:
+        trade_a = fetch_position_outcome("600001", "test-trade-a")
+        trade_b = fetch_position_outcome("600001", "test-trade-b")
+        missing = fetch_position_outcome("600001", "")
+        unknown = fetch_position_outcome("600001", "test-trade-missing")
+        assert trade_a["status"] == "BOUND"
+        assert trade_a["decision_id"] == "test-trade-a"
+        assert trade_a.get("profit_window") is True
+        assert trade_b["decision_id"] == "test-trade-b"
+        assert trade_b.get("profit_window") is False
+        assert missing["status"] == "OUTCOME_NOT_BOUND"
+        assert unknown["status"] == "OUTCOME_NOT_BOUND"
+    finally:
+        with engine.begin() as db:
+            db.execute(text("DELETE FROM returns WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))

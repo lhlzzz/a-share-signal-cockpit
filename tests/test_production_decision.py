@@ -84,7 +84,7 @@ def test_unverified_profit_window_cannot_enable_buy():
     assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
     assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in decision["core_alpha"])
-    assert decision["core_alpha"]["capital_convergence"]["state"] == "PARTIAL"
+    assert decision["core_alpha"]["capital_convergence"]["state"] == "UNKNOWN"
 
 
 def test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed(tmp_path, monkeypatch):
@@ -144,15 +144,23 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
     ready = _repricing_ready_snapshot()
     decision = evaluate_candidate_bundle(ready, as_of=AS_OF)
     convergence = decision["core_alpha"]["capital_convergence"]
-    assert convergence["status"] == "PARTIAL"
+    assert convergence["status"] == "UNKNOWN"
     assert set(convergence["levels"]) == {"institution", "main_force", "hot_money"}
     assert decision["core_alpha"]["capital_convergence_level"] == "UNKNOWN"
     assert decision["core_alpha"]["real_pricing_gap"] == decision["core_alpha"]["pricing_gap"]
     assert decision["core_alpha"]["low_price"] is False
 
+    one_event = evaluate_candidate_bundle(
+        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True}]},
+        as_of=AS_OF,
+    )
+    assert one_event["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
+    assert one_event["core_alpha"]["capital_convergence"]["independent_channel_count"] == 1
+
     evidenced = ready | {
         "lhb": [
-            {"EXPLAIN": "1家机构买入", "institution": True},
+            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100},
+            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80},
         ],
     }
     evidenced_decision = evaluate_candidate_bundle(evidenced, as_of=AS_OF)
@@ -208,6 +216,28 @@ def test_five_day_boundary_closes_even_after_profit_window_hit():
     assert decision["trade_status"] == "CLOSED"
 
 
+def test_same_lhb_event_is_one_independent_origin():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot() | {
+            "lhb": [
+                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100},
+            ],
+        },
+        as_of=AS_OF,
+    )
+    convergence = decision["core_alpha"]["capital_convergence"]
+    assert convergence["independent_channel_count"] == 1
+    assert convergence["status"] == "PARTIAL"
+
+
+def test_inflow_is_capital_flow_not_main_force():
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    capital = decision["feature_vector"]["CAPITAL"]
+    assert capital["capital_flow_state"] == "CAPITAL_FLOW_POSITIVE"
+    assert capital["main_force_behavior"]["direction"] == "UNKNOWN"
+    assert capital["main_force_behavior"]["evidence_status"] == "UNKNOWN"
+
+
 def test_duplicate_evidence_family_does_not_inflate_independent_channels():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
@@ -236,3 +266,29 @@ def test_five_day_boundary_uses_sell_action_and_closed_trade():
     assert decision["trade_status"] == "CLOSED"
     assert decision["state"] == "SELL"
 
+
+
+def test_position_state_is_not_previous_action():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot(),
+        portfolio_state="BUY",
+        position_state="LONG",
+        previous_action="BUY",
+        as_of=AS_OF,
+    )
+    assert decision["position_state"] == "LONG"
+    assert decision["action"] == "HOLD"
+    assert decision["state"] == "HOLD"
+    assert decision["previous_action"] == "BUY"
+
+
+def test_reduce_is_action_not_position_state():
+    decision = evaluate_candidate_bundle(
+        _repricing_ready_snapshot() | {"f62": -1_000, "pct_chg": 1},
+        position_state="LONG",
+        previous_action="HOLD",
+        as_of=AS_OF,
+    )
+    assert decision["action"] == "REDUCE"
+    assert decision["position_state"] == "LONG"
+    assert decision["state"] == "REDUCE"

@@ -112,6 +112,9 @@ def _json_row(row: Dict[str, Any], key: str) -> Dict[str, Any]:
 def _historical_decision_id(*, pick: Dict[str, Any] | None = None, candidate: Dict[str, Any] | None = None) -> str:
     pick = pick or {}
     candidate = candidate or {}
+    for row in (pick, candidate):
+        if row.get("decision_id"):
+            return str(row["decision_id"])
     if pick.get("id") is not None:
         return f"pick:{pick['id']}"
     if candidate.get("id") is not None:
@@ -859,7 +862,7 @@ def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any]
                 "expected_time_to_profit", "expected_mae_5d", "repricing_state",
                 "accumulation_phase", "capital_convergence",
                 "profit_window_feature_values", "axes", "supply_absorption",
-                "capital_price_impact", "real_pricing_gap", "repricing_probability",
+                "capital_price_impact", "real_pricing_gap", "repricing_evidence_score",
                 "future_buyer_capacity", "future_buyer_evidence", "pricing_gap", "execution_feasibility",
                 "downside_risk", "alpha_version", "feature_version",
             )
@@ -898,8 +901,12 @@ def build_historical_5d_profit_window_dataset(
     }
     candidate_by_relation = {_relation_key(row): row for row in candidates if _relation_key(row)}
     returns_by_pick: Dict[Any, list[Dict[str, Any]]] = {}
+    returns_by_decision_id: Dict[str, list[Dict[str, Any]]] = {}
     returns_by_relation: Dict[tuple[Any, ...], list[Dict[str, Any]]] = {}
     for row in returns:
+        decision_id = str(row.get("decision_id") or (row.get("payload") or {}).get("decision_id") or "")
+        if decision_id:
+            returns_by_decision_id.setdefault(decision_id, []).append(row)
         if row.get("pick_id") is not None:
             returns_by_pick.setdefault(row["pick_id"], []).append(row)
         key = _relation_key(row)
@@ -925,7 +932,11 @@ def build_historical_5d_profit_window_dataset(
     source_decisions: list[tuple[Dict[str, Any] | None, Dict[str, Any], list[Dict[str, Any]]]] = []
     resolved_return_ids: set[Any] = set()
     for pick in picks:
-        linked = returns_by_pick.get(pick.get("id"), [])
+        pick_decision_id = str(pick.get("decision_id") or (pick.get("payload") or {}).get("decision_id") or "")
+        linked = returns_by_decision_id.get(pick_decision_id, []) if pick_decision_id else []
+        decision_bound = bool(linked)
+        if not linked:
+            linked = returns_by_pick.get(pick.get("id"), [])
         if not linked:
             audit_relation = _relation_key(pick)
             if audit_relation is None:
@@ -935,6 +946,7 @@ def build_historical_5d_profit_window_dataset(
         if not linked:
             source_decisions.append((pick, {}, []))
             continue
+        pick["_decision_id_bound"] = decision_bound
         resolved_return_ids.update(row.get("id") for row in linked)
         relation_keys = {_relation_key(row) for row in linked if _relation_key(row)}
         candidate_matches = [candidate_by_relation[key] for key in relation_keys if key in candidate_by_relation]
@@ -1016,6 +1028,10 @@ def build_historical_5d_profit_window_dataset(
             targets = _merge_missing_future_targets(targets, persisted_future, entry.get("entry_price"))
         relation_keys = {_relation_key(item) for item in linked if _relation_key(item)}
         quality, issues = _quality(entry, targets, relation_conflict=len(relation_keys) > 1)
+        if not (pick or {}).get("_decision_id_bound") and not str((pick or {}).get("decision_id") or (candidate or {}).get("decision_id") or ""):
+            issues.append("MISSING_DECISION_ID")
+            if quality == "CANONICAL":
+                quality = "UNRESOLVED"
         snapshot_source = _pick_snapshot(pick or {}, candidate)
         if not snapshot_source.get("source_time"):
             snapshot_source["source_time"] = f"{snapshot_source.get('trade_date')}T15:00:00+08:00"
@@ -1083,6 +1099,7 @@ def build_historical_5d_profit_window_dataset(
     partial = [row for row in dataset if row["target_quality"] == "PARTIAL"]
     conflict = [row for row in dataset if row["target_quality"] == "CONFLICT"]
     invalid = [row for row in dataset if row["target_quality"] == "INVALID"]
+    unresolved = [row for row in dataset if row["target_quality"] == "UNRESOLVED"]
     gate = target_quality_gate(dataset, min_coverage=0.95, horizons=HISTORICAL_VALIDATION_HORIZONS)
     report = build_alpha_report(canonical, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)
     diagnostic = [row for row in dataset if row["target_quality"] in {"CANONICAL", "PARTIAL"}]
@@ -1095,7 +1112,7 @@ def build_historical_5d_profit_window_dataset(
         "canonical_historical_snapshots": canonical_snapshots,
         "database_asset_report": None,
         "audit": audit,
-        "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid)},
+        "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid), "unresolved": len(unresolved)},
         "target_quality_gate": gate,
         "alpha_report": report,
         "core_alpha_status": "VALIDATED" if gate.get("status") == "PASS" else ("DATA_INSUFFICIENT" if len(canonical) < 1 or gate.get("status") != "PASS" else "EXPERIMENTAL"),

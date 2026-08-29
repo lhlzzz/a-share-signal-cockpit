@@ -95,6 +95,21 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         "capital_price_impact": capital["capital_price_impact"],
         "capital_divergence": capital["capital_price_divergence"],
         "lhb_events": lhb_rows,
+        "institution_behavior": capital.get("institution_behavior") or {},
+        "main_force_behavior": capital.get("main_force_behavior") or {},
+        "hot_money_behavior": capital.get("hot_money_behavior") or {},
+        "capital_flow_observation": capital.get("capital_flow_observation") or [],
+        "capital_flow_state": capital.get("capital_flow_state") or "UNKNOWN",
+        "observation": {
+            "main_net_inflow": capital.get("fund_flow"),
+            "lhb": lhb_rows,
+            "capital_flow": capital.get("capital_flow_observation") or [],
+        },
+        "interpretation": {
+            "institution": (capital.get("institution_behavior") or {}).get("direction") or "UNKNOWN",
+            "main_force": (capital.get("main_force_behavior") or {}).get("direction") or "UNKNOWN",
+            "hot_money": (capital.get("hot_money_behavior") or {}).get("direction") or "UNKNOWN",
+        },
     }, features["lineage_id"], "UZI")
 
 

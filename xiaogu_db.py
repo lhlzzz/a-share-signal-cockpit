@@ -23,34 +23,224 @@ def get_db():
 def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
     with engine.begin() as connection:
         connection.execute(text(open(sql_path, encoding="utf-8").read()))
+    ensure_production_schema()
+
+
+def ensure_production_schema() -> None:
+    """ADD-only production columns and indexes. Never drop or rewrite historical values."""
+    statements = [
+        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
+        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT",
+        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
+        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
+        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
+    ]
+    for statement in statements:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(statement))
+        except Exception:
+            continue
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
+                "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
+            ))
+    except Exception:
+        pass
+
+
+def verify_persisted_snapshot(
+    snapshot_id: str = "",
+    lineage_id: str = "",
+    trade_date: str = "",
+    source: str = "",
+    source_time: str = "",
+) -> bool:
+    """Prove the canonical snapshot exists in PostgreSQL. Local files are not persistence."""
+    if not lineage_id and not snapshot_id:
+        return False
+    try:
+        ensure_production_schema()
+        columns = _table_columns("snapshots")
+        if not columns:
+            return False
+        clauses = []
+        params: Dict[str, Any] = {}
+        if "lineage_id" in columns and lineage_id:
+            clauses.append("lineage_id = :lineage_id")
+            params["lineage_id"] = lineage_id
+        if "snapshot_id" in columns and snapshot_id:
+            clauses.append("(snapshot_id = :snapshot_id OR payload->>'snapshot_id' = :snapshot_id)")
+            params["snapshot_id"] = snapshot_id
+        if "trade_date" in columns and trade_date:
+            clauses.append("trade_date = CAST(:trade_date AS date)")
+            params["trade_date"] = trade_date
+        if not clauses:
+            return False
+        with engine.connect() as db:
+            row = db.execute(
+                text(f"SELECT payload, lineage_id FROM snapshots WHERE {' AND '.join(clauses)} LIMIT 1"),
+                params,
+            ).mappings().first()
+        if not row:
+            return False
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            payload = {}
+        if snapshot_id and str(payload.get("snapshot_id") or row.get("snapshot_id") or "") not in {snapshot_id, ""}:
+            if str(payload.get("snapshot_id") or "") != snapshot_id:
+                return False
+        if source and str(payload.get("source") or "") not in {source, ""}:
+            if str(payload.get("source") or "") != source:
+                return False
+        if source_time and str(payload.get("source_time") or "") not in {source_time, ""}:
+            stored = str(payload.get("source_time") or "")
+            if stored and stored != source_time:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]:
+    """Load DB-verified canonical snapshots for one T-day."""
+    try:
+        ensure_production_schema()
+        from xiaogu_forward_snapshot import CanonicalSnapshot, validate_and_build_canonical_snapshot
+        with engine.connect() as db:
+            rows = [
+                dict(row)
+                for row in db.execute(
+                    text(
+                        """
+                        SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time
+                        FROM snapshots
+                        WHERE trade_date = CAST(:trade_date AS date)
+                        ORDER BY source_time DESC NULLS LAST, created_at DESC
+                        """
+                    ),
+                    {"trade_date": trade_date},
+                ).mappings()
+            ]
+        snapshots = []
+        for row in rows:
+            payload = row.get("payload")
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            if not isinstance(payload, dict):
+                continue
+            payload.setdefault("lineage_id", row.get("lineage_id"))
+            payload.setdefault("trade_date", str(row.get("trade_date") or trade_date))
+            payload.setdefault("snapshot_id", row.get("snapshot_id") or payload.get("snapshot_id"))
+            payload.setdefault("source", row.get("source") or payload.get("source"))
+            payload.setdefault("source_time", row.get("source_time") or payload.get("source_time"))
+            try:
+                snapshots.append(validate_and_build_canonical_snapshot(payload, target_trade_date=trade_date))
+            except (TypeError, ValueError):
+                continue
+        return snapshots
+    except Exception:
+        return []
 
 
 def record_snapshot(snapshot: Dict[str, Any]) -> None:
+    ensure_production_schema()
+    columns = _table_columns("snapshots")
+    fields = ["lineage_id", "trade_date", "payload"]
+    params = {
+        "lineage_id": snapshot["lineage_id"],
+        "trade_date": snapshot["trade_date"],
+        "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
+    }
+    if "snapshot_id" in columns:
+        fields.append("snapshot_id")
+        params["snapshot_id"] = snapshot.get("snapshot_id")
+    if "source" in columns:
+        fields.append("source")
+        params["source"] = snapshot.get("source")
+    if "source_time" in columns:
+        fields.append("source_time")
+        params["source_time"] = snapshot.get("source_time")
+    placeholders = ", ".join(
+        ":payload" if field == "payload" else f":{field}" if field != "payload" else ":payload"
+        for field in fields
+    )
+    placeholders = ", ".join(
+        "CAST(:payload AS jsonb)" if field == "payload" else f":{field}"
+        for field in fields
+    )
     with get_db() as db:
         db.execute(
-            text("INSERT INTO snapshots (lineage_id, trade_date, payload) VALUES (:lineage_id, :trade_date, CAST(:payload AS jsonb)) ON CONFLICT (lineage_id) DO NOTHING"),
-            {"lineage_id": snapshot["lineage_id"], "trade_date": snapshot["trade_date"], "payload": json.dumps(snapshot, ensure_ascii=False, default=str)},
+            text(
+                f"INSERT INTO snapshots ({', '.join(fields)}) VALUES ({placeholders}) "
+                "ON CONFLICT (lineage_id) DO NOTHING"
+            ),
+            params,
         )
 
 
 def record_decision(decision: Dict[str, Any]) -> None:
+    ensure_production_schema()
+    columns = _table_columns("picks")
+    fields = ["trade_date", "symbol", "state", "payload"]
+    canonical = decision.get("canonical_snapshot") or {}
+    params = {
+        "trade_date": canonical.get("trade_date") or decision.get("date") or decision.get("trade_date"),
+        "symbol": decision.get("symbol") or canonical.get("symbol"),
+        "state": decision.get("action") or decision["state"],
+        "payload": json.dumps(decision, ensure_ascii=False, default=str),
+        "decision_id": decision.get("decision_id"),
+    }
+    if "decision_id" in columns:
+        fields.append("decision_id")
+    if "decision" in columns and "decision" not in fields:
+        fields.append("decision")
+        params["decision"] = params["state"]
+    if "state" not in columns and "state" in fields:
+        fields.remove("state")
+    if "payload" not in columns and "payload" in fields:
+        fields.remove("payload")
     with get_db() as db:
         db.execute(
-            text("INSERT INTO picks (trade_date, symbol, state, payload) VALUES (:trade_date, :symbol, :state, CAST(:payload AS jsonb))"),
-            {
-                "trade_date": decision["canonical_snapshot"]["trade_date"],
-                "symbol": decision["symbol"],
-                "state": decision["state"],
-                "payload": json.dumps(decision, ensure_ascii=False, default=str),
-            },
+            text(
+                f"INSERT INTO picks ({', '.join(fields)}) VALUES ("
+                + ", ".join("CAST(:payload AS jsonb)" if field == "payload" else f":{field}" for field in fields)
+                + ")"
+            ),
+            params,
         )
 
 
-def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any]) -> None:
+def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
+    ensure_production_schema()
+    columns = _table_columns("returns")
+    fields = ["trade_date", "symbol", "payload"]
+    params = {
+        "trade_date": trade_date,
+        "symbol": symbol,
+        "payload": json.dumps(payload, ensure_ascii=False, default=str),
+        "decision_id": decision_id or payload.get("decision_id") or payload.get("id") or "",
+    }
+    if "decision_id" in columns:
+        fields.append("decision_id")
     with get_db() as db:
         db.execute(
-            text("INSERT INTO returns (trade_date, symbol, payload) VALUES (:trade_date, :symbol, CAST(:payload AS jsonb))"),
-            {"trade_date": trade_date, "symbol": symbol, "payload": json.dumps(payload, ensure_ascii=False, default=str)},
+            text(
+                f"INSERT INTO returns ({', '.join(fields)}) VALUES ("
+                + ", ".join("CAST(:payload AS jsonb)" if field == "payload" else f":{field}" for field in fields)
+                + ")"
+            ),
+            params,
         )
 
 
@@ -171,7 +361,12 @@ def _table_columns(table_name: str) -> set[str]:
 def fetch_open_positions() -> List[Dict[str, Any]]:
     """Latest DB decision per symbol that still has a LONG position."""
     columns = _table_columns("picks")
-    select_state = "state" if "state" in columns else "decision AS state"
+    if "state" in columns and "decision" in columns:
+        select_state = "COALESCE(state, decision) AS state"
+    elif "state" in columns:
+        select_state = "state"
+    else:
+        select_state = "decision AS state"
     select_payload = ", payload" if "payload" in columns else ""
     with engine.connect() as db:
         rows = [
@@ -202,49 +397,62 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
             "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
             "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
             "state": action,
+            "action": payload.get("action") or action,
+            "previous_action": payload.get("action") or action,
+            "position_state": payload.get("position_state") or "LONG",
             "decision": payload.get("action") or action,
-            "decision_id": payload.get("decision_id") or row.get("id"),
+            "decision_id": payload.get("decision_id") or row.get("decision_id") or row.get("id"),
         })
     return positions
 
 
 def fetch_position_outcome(symbol: str, decision_id: str = "") -> Dict[str, Any]:
-    """Read the latest 5D outcome for an open position from PostgreSQL."""
-    del decision_id
+    """Read the 5D outcome bound to one decision_id. Symbol-only lookup is forbidden."""
+    if not decision_id:
+        return {"status": "OUTCOME_NOT_BOUND", "symbol": symbol}
     columns = _table_columns("returns")
     with engine.connect() as db:
-        if "payload" in columns:
+        if "decision_id" in columns:
             row = db.execute(
                 text(
                     """
-                    SELECT payload
+                    SELECT *
                     FROM returns
-                    WHERE symbol = :symbol
+                    WHERE decision_id = :decision_id
                     ORDER BY id DESC
                     LIMIT 1
                     """
                 ),
-                {"symbol": symbol},
+                {"decision_id": decision_id},
             ).mappings().first()
-            if not row:
-                return {}
-            payload = row.get("payload")
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-            return payload if isinstance(payload, dict) else {}
-        row = db.execute(
-            text(
-                """
-                SELECT *
-                FROM returns
-                WHERE symbol = :symbol
-                ORDER BY id DESC
-                LIMIT 1
-                """
-            ),
-            {"symbol": symbol},
-        ).mappings().first()
-    return dict(row) if row else {}
+        elif "payload" in columns:
+            row = db.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM returns
+                    WHERE payload->>'decision_id' = :decision_id
+                       OR payload->>'id' = :decision_id
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"decision_id": decision_id},
+            ).mappings().first()
+        else:
+            return {"status": "OUTCOME_NOT_BOUND", "symbol": symbol, "decision_id": decision_id}
+    if not row:
+        return {"status": "OUTCOME_NOT_BOUND", "symbol": symbol, "decision_id": decision_id}
+    payload = row.get("payload") if "payload" in (row or {}) else None
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    result = dict(row)
+    if isinstance(payload, dict):
+        result = {**payload, **{key: value for key, value in result.items() if key != "payload"}}
+        result["payload"] = payload
+    result["status"] = "BOUND"
+    result["decision_id"] = decision_id
+    return result
 
 def fetch_returns() -> List[Dict[str, Any]]:
     with engine.connect() as db:
@@ -366,12 +574,12 @@ def fetch_historical_replay_assets(
     """
     scalar_columns = {
         "picks": {
-            "id", "trade_date", "symbol", "decision", "rule_version", "stock_name",
+            "id", "trade_date", "symbol", "decision", "decision_id", "rule_version", "stock_name",
             "production_run_id", "data_version", "created_at", "updated_at",
             "blockers", "source_layers",
         },
         "returns": {
-            "id", "pick_id", "trade_date", "symbol", "t1_return", "t2_return",
+            "id", "pick_id", "decision_id", "trade_date", "symbol", "t1_return", "t2_return",
             "t3_return", "t5_return", "t1_return_close", "t1_return_high",
             "t1_open_return", "t1_high_return", "t1_low_return", "t1_close_return",
             "t1_mfe", "t1_mae", "entry_price", "entry_price_source", "entry_price_basis",

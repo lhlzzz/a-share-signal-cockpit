@@ -20,7 +20,7 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --mode PRODUCTION
 python3 xiaogu_scheduler.py
 ```
 
-`--snapshot-json` is development / replay / debug only. Production reads persisted trusted canonical snapshots.
+`--snapshot-json` is blocked in PRODUCTION. Production reads DB-verified trusted canonical snapshots and uses the actual production decision clock, not `source_time`. Replay may use a historical clock. `persisted` means PostgreSQL verification, not a local file flag. JSONL is audit only.
 
 ## Architecture
 
@@ -32,11 +32,13 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 
 - Scanner: `scrapy_scanner/runner_v2.py` captures raw market reality only.
 - Canonical: `xiaogu_forward_snapshot.validate_and_build_canonical_snapshot()` is the only trusted-snapshot builder.
+- Eligibility: `xiaogu_forward_eligibility.py` checks operational constraints only. It does not score, rank, or form a capital thesis.
 - Features: `xiaogu_forward_features.py` measures BUSINESS, FUTURE_DEMAND, CAPITAL, SUPPLY, PRICING_GAP, REFLEXIVITY, MARKET, RISK, and EXECUTION.
 - Research: Serenity, Buffett, UZI, and Contradiction supply context only.
 - Alpha owner: `xiaogu_core_alpha.build_core_alpha()`.
 - Decision owner: `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
+- Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit. Obsidian is memory only.
 - Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.
 - Position state lives in PostgreSQL. JSONL is an audit artifact. Obsidian is memory only.
 

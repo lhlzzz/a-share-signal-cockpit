@@ -88,6 +88,8 @@ Memory
 
 Sole alpha target: `PROFIT_WINDOW_5D`. Maximum holding: 5 trading days.
 
+Scanner = capture. Cheap Eligibility = operational constraints. Feature = measurement. Research = evidence/context. Alpha = model. Decision = state/action. Recorder = production event. DB = truth. Outcome = T+1..T+5. Obsidian = memory.
+
 ---
 
 ## Engineering Principles
@@ -112,7 +114,7 @@ Feature engine accepts only `CanonicalSnapshot`. Feature is measurement. Alpha i
 
 Research context (Serenity, Buffett, UZI, Contradiction) may supply evidence, risk, and contradiction. It may not emit BUY, SELL, RANK, or PICK.
 
-Production Decision accepts trusted snapshots only. Runner modes are PRODUCTION, REPLAY, DRY_RUN, RESEARCH. PRODUCTION reads persisted trusted snapshots with source lineage. `--snapshot-json` cannot enter paper production.
+Production Decision accepts trusted snapshots only. Runner modes are PRODUCTION, REPLAY, DRY_RUN, RESEARCH. PRODUCTION reads DB-verified trusted snapshots, uses `datetime.now(timezone.utc)` or an explicit current clock, and computes age as `decision_clock - source_time`. `--snapshot-json` cannot enter paper production. `persisted` means PostgreSQL verification, not a local file flag.
 
 Position state is `FLAT` or `LONG`. Action is `BUY`, `HOLD`, `REDUCE`, or `SELL`. T+5 is SELL / CLOSED. A still-valid thesis requires a new trade, not renewal.
 
@@ -148,7 +150,7 @@ BUY requires a validated alpha plus data, capital, supply, repricing, risk, exec
 ### Daily Cycle
 
 1. Scanner captures Eastmoney snapshots
-2. Runner evaluates persisted canonical snapshots
+2. Runner evaluates DB-verified canonical snapshots
 3. Recorder writes BUY/HOLD/REDUCE/SELL
 4. Filler backfills T+1..T+5 outcomes
 5. Position review reads PostgreSQL state

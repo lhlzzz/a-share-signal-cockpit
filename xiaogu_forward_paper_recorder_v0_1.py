@@ -119,7 +119,7 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 - Pricing gap: {_markdown(alpha.get('pricing_gap'))}
 - Future buyer capacity: {_markdown(alpha.get('future_buyer_capacity'))}
 - Repricing state: {_markdown(alpha.get('repricing_state'))}
-- Repricing probability: {_markdown(alpha.get('repricing_probability'))}
+- Repricing evidence score: {_markdown(alpha.get('repricing_evidence_score'))}
 - Thesis: {_markdown(thesis)}
 
 ## 5D Risk Contract
@@ -396,13 +396,14 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
         production_run_id=str(decision.get('production_run_id') or ''),
         source='xiaogu_forward_runner',
     )
+    from xiaogu_db import record_decision, record_snapshot
     try:
-        from xiaogu_db import record_decision, record_snapshot
         record_snapshot(canonical)
         record_decision(decision)
         record['database_persistence'] = {'status': 'PASS'}
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
+        raise
     memory_error = None
     memory_path = None
     for _attempt in range(2):
@@ -415,6 +416,15 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     record['memory_path'] = memory_path
     if memory_error:
         record['memory_error'] = memory_error
+        retry_path = BASE / 'logs' / 'obsidian_retry_queue.jsonl'
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
+        append_jsonl(retry_path, {
+            'record_type': 'MEMORY_RETRY',
+            'decision_id': record.get('id') or decision.get('decision_id'),
+            'symbol': record.get('symbol'),
+            'date': record.get('date'),
+            'error': memory_error,
+        })
     dump_json(snap, snapshot)
     append_jsonl(FORWARD_LEDGER, record)
     return snap, record

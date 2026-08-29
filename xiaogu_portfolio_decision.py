@@ -94,10 +94,20 @@ def evaluate_candidate_bundle(
     account: Dict[str, Any] | None = None,
     minimum_required_return: float = 0.0,
     as_of: datetime | None = None,
+    position_state: str | None = None,
+    previous_action: str | None = None,
 ) -> Dict[str, Any]:
     """Evaluate one T-day snapshot; this is the only function allowed to emit states."""
+    if portfolio_state in POSITION_STATES and position_state is None:
+        position_state = portfolio_state
+        portfolio_state = previous_action or "WATCH"
     if portfolio_state not in PORTFOLIO_STATES:
         raise ValueError(f"INVALID_PORTFOLIO_STATE:{portfolio_state}")
+    previous_action = previous_action or (portfolio_state if portfolio_state in TRADE_ACTIONS else None)
+    if position_state is None:
+        position_state = "LONG" if portfolio_state in HELD_ACTIONS else "FLAT"
+    if position_state not in POSITION_STATES:
+        raise ValueError(f"INVALID_POSITION_STATE:{position_state}")
     snapshot = (
         canonical
         if isinstance(canonical, CanonicalSnapshot)
@@ -131,7 +141,7 @@ def evaluate_candidate_bundle(
     elif minimum_required_return > 0 and expected_net_profit is None:
         repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
     all_blockers = hard_blockers + repricing_blockers
-    held = portfolio_state in HELD_ACTIONS
+    held = position_state == "LONG"
 
     if held:
         if int((account or {}).get("holding_days", 0) or 0) >= MAX_HOLDING_DAYS:
@@ -159,7 +169,7 @@ def evaluate_candidate_bundle(
         state, reason = "WATCH", "HARD_CONSTRAINT:" + ";".join(hard_blockers)
     elif not repricing_blockers:
         state, reason = "BUY", "REPRICING_READINESS_CONFIRMED"
-    elif alpha["thesis_score"] >= 0.45 and alpha["repricing_probability"] >= 0.35:
+    elif alpha["thesis_score"] >= 0.45 and alpha.get("repricing_evidence_score", alpha.get("repricing_readiness_score", 0)) >= 0.35:
         state, reason = "READY", "THESIS_VALID_BUT_CONFIRMATION_PENDING:" + ";".join(repricing_blockers)
     else:
         state, reason = "WATCH", "REPRICING_THESIS_INCOMPLETE:" + ";".join(repricing_blockers)
@@ -169,6 +179,8 @@ def evaluate_candidate_bundle(
         "state": state,
         "action": state if state in TRADE_ACTIONS else None,
         "position_state": "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG",
+        "previous_action": previous_action,
+        "holding_days": int((account or {}).get("holding_days", 0) or 0),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
         "symbol": snapshot["symbol"],
         "reason": reason,
@@ -203,7 +215,8 @@ def evaluate_candidate_bundle(
         "pricing_gap": alpha.get("pricing_gap"),
         "future_buyer_capacity": alpha.get("future_buyer_capacity"),
         "repricing_state": alpha.get("repricing_state"),
-        "repricing_probability": alpha.get("repricing_probability"),
+        "repricing_evidence_score": alpha.get("repricing_evidence_score"),
+        "repricing_readiness_score": alpha.get("repricing_readiness_score"),
         "profit_window_probability": alpha.get("profit_window_probability"),
         "expected_max_profit_5d": alpha.get("expected_max_profit_5d"),
         "expected_mae_5d": alpha.get("expected_mae_5d"),

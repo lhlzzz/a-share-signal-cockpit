@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Mapping
 
 FUTURE_FIELD_PATTERNS = (
@@ -19,6 +19,8 @@ FUTURE_FIELD_PATTERNS = (
 REGISTERED_PRODUCTION_SOURCES = frozenset({"eastmoney_api_scan_v2"})
 SCHEMA_VERSION = "canonical_snapshot_trusted_v1"
 SOURCE_VERSION = "canonical_snapshot_v2"
+MAX_STALENESS = timedelta(minutes=120)
+STALE_DATA = "STALE_DATA"
 REQUIRED_CANONICAL_FIELDS = (
     "symbol",
     "trade_date",
@@ -120,6 +122,59 @@ def _assert_time_order(
             decision_ts = decision_ts.replace(tzinfo=timezone.utc)
         if as_of_ts > decision_ts:
             raise ValueError("FUTURE_LEAKAGE:as_of>decision_time")
+
+
+def snapshot_age(source_time: str | datetime | None, decision_time: str | datetime | None) -> timedelta | None:
+    """Return decision_clock - source_time. Production must not substitute as_of for the clock."""
+    source_ts = source_time if isinstance(source_time, datetime) else _parse_timestamp(source_time)
+    decision_ts = decision_time if isinstance(decision_time, datetime) else _parse_timestamp(decision_time)
+    if source_ts is None or decision_ts is None:
+        return None
+    if source_ts.tzinfo is None:
+        source_ts = source_ts.replace(tzinfo=timezone.utc)
+    if decision_ts.tzinfo is None:
+        decision_ts = decision_ts.replace(tzinfo=timezone.utc)
+    return decision_ts.astimezone(timezone.utc) - source_ts.astimezone(timezone.utc)
+
+
+def production_decision_clock(decision_time: str | datetime | None = None) -> datetime:
+    """Return the actual production clock. Replay may pass a historical decision time."""
+    if decision_time is None:
+        return datetime.now(timezone.utc)
+    parsed = decision_time if isinstance(decision_time, datetime) else _parse_timestamp(decision_time)
+    if parsed is None:
+        raise ValueError("INVALID_DECISION_CLOCK")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def select_canonical_snapshot(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    symbol: str,
+    trade_date: str,
+) -> CanonicalSnapshot | None:
+    """Pick the unique trusted snapshot for one symbol and trade date."""
+    wanted = str(symbol or "").zfill(6)[-6:]
+    matched: list[CanonicalSnapshot] = []
+    for row in rows:
+        if not isinstance(row, CanonicalSnapshot) or row.get("trusted_snapshot") is not True:
+            continue
+        if str(row.get("symbol") or "").zfill(6)[-6:] != wanted:
+            continue
+        if str(row.get("trade_date") or "") != str(trade_date):
+            continue
+        matched.append(row)
+    if not matched:
+        return None
+
+    def _key(snapshot: CanonicalSnapshot) -> tuple[datetime, str]:
+        parsed = _parse_timestamp(snapshot.get("source_time"))
+        stamp = parsed or datetime.min.replace(tzinfo=timezone.utc)
+        return (stamp, str(snapshot.get("production_run_id") or snapshot.get("lineage_id") or ""))
+
+    return max(matched, key=_key)
 
 
 def _sha256(payload: Any) -> str:
@@ -291,8 +346,9 @@ def assert_production_provenance(
     decision_time: str | datetime | None = None,
     persisted: bool = False,
     registered_sources: Iterable[str] = REGISTERED_PRODUCTION_SOURCES,
+    max_staleness: timedelta = MAX_STALENESS,
 ) -> CanonicalSnapshot:
-    """Block production unless the snapshot is trusted, sourced, and persisted."""
+    """Block production unless the snapshot is trusted, sourced, persisted, and fresh."""
     if not isinstance(snapshot, CanonicalSnapshot) or snapshot.get("trusted_snapshot") is not True:
         raise ValueError("NO_PRODUCTION_SNAPSHOT")
     if not persisted:
@@ -300,14 +356,25 @@ def assert_production_provenance(
     _validate_required(snapshot, strict=True)
     if snapshot.get("source") not in set(registered_sources):
         raise ValueError("NO_PRODUCTION_SNAPSHOT:unregistered_source")
+    clock = production_decision_clock(decision_time)
     _assert_time_order(
         str(snapshot.get("source_time") or ""),
         str(snapshot.get("as_of") or ""),
-        decision_time,
+        clock,
     )
+    age = snapshot_age(str(snapshot.get("source_time") or ""), clock)
+    if age is None:
+        raise ValueError("STALE_DATA")
+    if age > max_staleness:
+        raise ValueError("STALE_DATA")
     if trade_date and str(snapshot.get("trade_date") or "") != str(trade_date):
         raise ValueError("NO_PRODUCTION_SNAPSHOT:trade_date_mismatch")
+    snapshot["decision_clock"] = clock.isoformat()
+    snapshot["source_age_seconds"] = age.total_seconds()
     return snapshot
+
+
+validate_production_provenance = assert_production_provenance
 
 
 def canonical_snapshot(

@@ -78,9 +78,15 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     confirmed = sum(value >= 0.50 for value in channels.values())
     observed = sum(value > 0 for value in channels.values())
     evidence_items = [item for behavior in behaviors.values() for item in _direct_evidence_items(behavior)]
-    independent_sources = {str(item.get("source") or "") for item in evidence_items if item.get("source")}
+    independent_sources = {str(item.get("source_id") or item.get("source") or "") for item in evidence_items if item.get("source_id") or item.get("source")}
     independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
-    independent_channel_count = min(len(independent_sources), len(independent_families))
+    independent_origins = {
+        (str(item.get("source_id") or item.get("source") or ""), str(item.get("event_id") or ""))
+        for item in evidence_items
+        if item.get("source_id") or item.get("source")
+    }
+    independent_mechanisms = {str(item.get("mechanism") or item.get("evidence_family") or "") for item in evidence_items if item.get("mechanism") or item.get("evidence_family")}
+    independent_channel_count = len(independent_origins)
     score = _mean(*[value for value in channels.values() if value > 0])
     distribution = _clip(capital.get("distribution_risk"))
     conflict = distribution >= 0.70 or capital.get("capital_price_impact_state") in {
@@ -88,8 +94,9 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "PRICE_SUPPORTED_DIVERGENCE",
     }
     bullish_directions = {
-        "INSTITUTION_BUYING", "INSTITUTION_ACCUMULATING", "ACCELERATING", "PRESENT",
-        "HOT_MONEY_BUYING", "HOT_MONEY_ACCELERATING", "HOT_MONEY_PRESENT",
+        "INSTITUTION_BUYING", "INSTITUTION_ACCUMULATING",
+        "MAIN_FORCE_LIKELY_ACCUMULATING",
+        "HOT_MONEY_BUYING", "HOT_MONEY_ACCELERATING",
     }
     directional = [
         name for name, behavior in behaviors.items()
@@ -97,8 +104,8 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     ]
     aligned = len(directional) >= 2
     status = (
-        "UNKNOWN" if observed == 0
-        else "CONFLICT" if conflict
+        "CONFLICT" if conflict
+        else "UNKNOWN" if observed == 0
         else "CONVERGENCE" if confirmed >= 2 and independent_channel_count >= 2 and aligned
         else "PARTIAL"
     )
@@ -123,6 +130,9 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "observed_channels": observed,
         "evidence_count": len(evidence_items),
         "independent_channel_count": independent_channel_count,
+        "independent_evidence_count": independent_channel_count,
+        "independent_origins": sorted(f"{source}|{event}" for source, event in independent_origins),
+        "independent_mechanisms": sorted(independent_mechanisms),
         "independent_sources": sorted(independent_sources),
         "independent_families": sorted(independent_families),
         "confidence": round(confidence, 8),
@@ -191,11 +201,12 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, 
         "capital_supply_repricing_increment",
     )
     gates_pass = all(production_gates.get(name) is True for name in required_gates)
-    validation_status = (
-        "VALIDATED"
-        if artifact_status == "VALIDATED" and oos.get("passed") is True and gates_pass
-        else "EXPERIMENTAL"
-    )
+    if artifact_status == "VALIDATED" and oos.get("passed") is True and gates_pass:
+        validation_status = "VALIDATED"
+    elif artifact_status == "CALIBRATED":
+        validation_status = "CALIBRATED_ONLY"
+    else:
+        validation_status = "EXPERIMENTAL"
     logit = float(model.get("intercept") or 0.0) + sum(float(weight) * values.get(name, 0.0) for name, weight in zip(names, coefficients))
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
     return _clip(probability), {
@@ -279,8 +290,11 @@ def build_core_alpha(
     ):
         calibration["validation_status"] = "MODEL_NOT_DISCRIMINATIVE"
         calibration["reason"] = "PROBABILITY_COLLAPSE"
-    repricing_probability = _mean(
-        convergence["score"], supply["supply_absorption"], gap["real_pricing_gap"], probability_features["repricing_state"]
+    repricing_evidence_score = _mean(
+        capital_measure["accumulation"],
+        supply["supply_absorption"],
+        gap["real_pricing_gap"],
+        probability_features["repricing_state"],
     )
     # No conditional expected-profit model exists. Do not copy OOS averages
     # onto each candidate; keep these fields unset so BUY stays fail-closed.
@@ -385,7 +399,7 @@ def build_core_alpha(
         "buyer_exhaustion": reflexivity.get("buyer_exhaustion", False),
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
-        "repricing_probability": round(repricing_probability, 8),
+        "repricing_evidence_score": round(repricing_evidence_score, 8),
         "profit_window_probability": round(profit_window_probability, 8),
         "profit_window_calibration": calibration,
         "profit_window_feature_values": probability_features,

@@ -497,12 +497,18 @@ def build_post_trade_review(record: Dict[str, Any], outcomes: Dict[str, Any]) ->
 
 
 def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    from xiaogu_db import record_returns
     try:
-        from xiaogu_db import record_returns
-        record_returns(str(result["date"]), str(result["symbol"]), result)
+        record_returns(
+            str(result["date"]),
+            str(result["symbol"]),
+            result,
+            decision_id=str(result.get("decision_id") or result.get("id") or ""),
+        )
         result["database_persistence"] = {"status": "PASS"}
     except Exception as exc:
         result["database_persistence"] = {"status": "FAILED", "error": repr(exc)}
+        raise
     try:
         from xiaogu_forward_paper_recorder_v0_1 import update_trade_memory
         result["memory_path"] = update_trade_memory(result)

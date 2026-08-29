@@ -10,7 +10,12 @@ from typing import Any, Dict
 
 from xiaogu_forward_bundle_io import load_latest_snapshot_bundle
 from xiaogu_forward_eligibility import candidate_universe
-from xiaogu_forward_snapshot import assert_production_provenance, validate_and_build_canonical_snapshot
+from xiaogu_forward_snapshot import (
+    assert_production_provenance,
+    production_decision_clock,
+    select_canonical_snapshot,
+    validate_and_build_canonical_snapshot,
+)
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 BASE = Path(__file__).resolve().parent
@@ -18,6 +23,18 @@ RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 
 
 PRODUCTION_MODES = ("PRODUCTION", "REPLAY", "DRY_RUN", "RESEARCH")
+
+
+def _parse_clock(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def run_production_decision(
@@ -28,6 +45,9 @@ def run_production_decision(
     mode: str = "PRODUCTION",
     persisted: bool = False,
     trade_date: str = "",
+    decision_clock: datetime | None = None,
+    position_state: str | None = None,
+    previous_action: str | None = None,
 ) -> Dict[str, Any]:
     mode = str(mode or "PRODUCTION").upper()
     if mode not in PRODUCTION_MODES:
@@ -39,24 +59,36 @@ def run_production_decision(
         source_time=str(snapshot.get("source_time") or snapshot.get("as_of") or ""),
         target_trade_date=trade_date,
     )
-    source_time = str(trusted.get("source_time") or trusted.get("as_of") or "")
-    as_of = None
-    if source_time:
-        try:
-            as_of = datetime.fromisoformat(source_time.replace("Z", "+00:00"))
-            if as_of.tzinfo is None:
-                as_of = as_of.replace(tzinfo=timezone.utc)
-        except ValueError:
-            as_of = None
     if mode == "PRODUCTION":
+        from xiaogu_db import verify_persisted_snapshot
+        db_verified = verify_persisted_snapshot(
+            snapshot_id=str(trusted.get("snapshot_id") or ""),
+            lineage_id=str(trusted.get("lineage_id") or ""),
+            trade_date=trade_date or str(trusted.get("trade_date") or ""),
+            source=str(trusted.get("source") or ""),
+            source_time=str(trusted.get("source_time") or ""),
+        )
+        clock = production_decision_clock(decision_clock)
         assert_production_provenance(
             trusted,
             trade_date=trade_date or str(trusted.get("trade_date") or ""),
-            decision_time=as_of,
-            persisted=persisted,
+            decision_time=clock,
+            persisted=bool(db_verified),
         )
+    elif mode == "REPLAY":
+        clock = production_decision_clock(
+            decision_clock
+            or _parse_clock(str(trusted.get("source_time") or trusted.get("as_of") or ""))
+        )
+    else:
+        clock = decision_clock or _parse_clock(str(trusted.get("source_time") or trusted.get("as_of") or ""))
     return evaluate_candidate_bundle(
-        trusted, portfolio_state=portfolio_state, account=account, as_of=as_of,
+        trusted,
+        portfolio_state=portfolio_state,
+        account=account,
+        as_of=clock,
+        position_state=position_state,
+        previous_action=previous_action,
     )
 
 
@@ -68,17 +100,19 @@ def _write_ledger_record(decision: Dict[str, Any]) -> Path:
 
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     """Re-evaluate active positions through the sole Decision Owner."""
-    from xiaogu_db import fetch_open_positions, fetch_position_outcome
+    from xiaogu_db import fetch_open_positions, fetch_persisted_canonical_snapshots, fetch_position_outcome
 
     positions = fetch_open_positions()
-    bundle = load_latest_snapshot_bundle(trade_date)
-    snapshots = {str(row.get("symbol")).zfill(6): row for row in bundle.get("canonical_snapshots") or []}
+    db_rows = fetch_persisted_canonical_snapshots(trade_date)
+    bundle_rows = load_latest_snapshot_bundle(trade_date).get("canonical_snapshots") or []
+    rows = list(db_rows or []) + list(bundle_rows)
     reviewed = []
     for prior in positions:
         symbol = str(prior.get("symbol") or "").zfill(6)
-        if symbol not in snapshots:
-            continue
         if str(prior.get("trade_date") or prior.get("date") or "") >= str(trade_date):
+            continue
+        snapshot = select_canonical_snapshot(rows, symbol=symbol, trade_date=trade_date)
+        if snapshot is None:
             continue
         prior_id = str(prior.get("decision_id") or prior.get("id") or "")
         result = fetch_position_outcome(symbol, prior_id)
@@ -91,21 +125,31 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             )
         except (TypeError, ValueError):
             holding_days = 0
-        previous_action = str(prior.get("action") or prior.get("state") or prior.get("decision") or "HOLD")
+        previous_action = str(prior.get("action") or prior.get("previous_action") or prior.get("decision") or "HOLD")
+        position_state = str(prior.get("position_state") or ("LONG" if previous_action in RECORDABLE_ACTIONS and previous_action != "SELL" else "FLAT"))
         account = {
-            "profit_window_hit": result.get("profit_window") is True,
+            "decision_id": prior_id,
+            "position_state": position_state,
+            "previous_action": previous_action,
             "holding_days": holding_days,
+            "profit_window_hit": result.get("status") != "OUTCOME_NOT_BOUND" and result.get("profit_window") is True,
+            "max_profit": result.get("max_daily_bar_profit_opportunity_5d") or result.get("max_profit"),
+            "mae": result.get("max_mae_5d") or result.get("mae_5d"),
+            "mfe": result.get("mfe_5d"),
         }
         decision = run_production_decision(
-            snapshots[symbol],
-            portfolio_state=previous_action,
+            snapshot,
+            portfolio_state=previous_action if previous_action in {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"} else "HOLD",
             account=account,
             mode="PRODUCTION",
-            persisted=True,
             trade_date=trade_date,
+            position_state=position_state,
+            previous_action=previous_action,
         )
         decision["holding_days"] = holding_days
-        if decision["state"] != previous_action or holding_days >= 5:
+        decision["prior_decision_id"] = prior_id
+        new_action = decision.get("action") or decision.get("state")
+        if new_action != previous_action or holding_days >= 5 or decision.get("trade_status") == "CLOSED":
             _write_ledger_record(decision)
             reviewed.append(decision)
     return reviewed
@@ -125,22 +169,29 @@ def main() -> None:
     if args.position_review:
         print(json.dumps({"date": args.date, "reviewed": daily_position_review(args.date)}, ensure_ascii=False, default=str))
         return
-    persisted = False
     if args.snapshot_json:
         if mode == "PRODUCTION":
             print(json.dumps({"state": "WATCH", "reason": "NO_PRODUCTION_SNAPSHOT", "date": args.date}))
             return
         payload = json.loads(Path(args.snapshot_json).read_text(encoding="utf-8"))
         rows = payload.get("canonical_snapshots") or [payload]
+    elif mode == "PRODUCTION":
+        from xiaogu_db import fetch_persisted_canonical_snapshots
+        rows = fetch_persisted_canonical_snapshots(args.date)
+        if not rows:
+            print(json.dumps({"state": "WATCH", "reason": "NO_PRODUCTION_SNAPSHOT", "date": args.date}))
+            return
     else:
         payload = load_latest_snapshot_bundle(args.date)
         rows = payload.get("canonical_snapshots") or []
-        persisted = bool(rows)
     if not rows:
         print(json.dumps({"state": "WATCH", "reason": "SNAPSHOT_NOT_FOUND", "date": args.date}))
         return
     if args.symbol:
-        rows = [row for row in rows if str(row.get("symbol") or "").zfill(6) == args.symbol.zfill(6)]
+        selected = select_canonical_snapshot(rows, symbol=args.symbol, trade_date=args.date)
+        rows = [selected] if selected is not None else [
+            row for row in rows if str(row.get("symbol") or "").zfill(6) == args.symbol.zfill(6)
+        ]
     rows, universe = candidate_universe(rows)
     decisions = []
     recorded = 0
@@ -151,7 +202,6 @@ def main() -> None:
             row,
             portfolio_state=args.portfolio_state,
             mode=mode,
-            persisted=persisted,
             trade_date=args.date,
         )
         if mode == "PRODUCTION" and not args.dry_run and decision["state"] in RECORDABLE_ACTIONS:
