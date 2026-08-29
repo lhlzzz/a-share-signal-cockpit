@@ -13,7 +13,7 @@ Tier: structural
 | T6 | Supply, repricing, alpha gates | verified | missing-value, OOS fail-closed, and alpha gate tests | D4 | current artifact remains DATA_INSUFFICIENT |
 | T7 | Recorder ownership | verified | DB-first test passes | D3 | Obsidian is audit memory only |
 | T8 | Historical dataset and scanner layering | verified | historical builder tests plus Level 0-3 scanner tests | D3 | canonical historical set remains UNRESOLVED where decision_id is absent |
-| T9 | Validation, indexes, git | in_progress | 78 tests, compileall, health 16/16, graph refresh | D3 | commit and push pending |
+| T9 | Validation, indexes, git | verified | 78 tests, compileall, health 16/16, graph refresh, pushed main | D3 | HEAD matches origin/main |
 
 ## Decision Log
 
@@ -41,3 +41,4 @@ Tier: structural
 | R1 | T1-T5 verified; T6 open for understand/git |
 | R2 | T1-T6 verified; BUY remains BLOCKED |
 | R3 | T1-T8 verified; T9 open only for commit/push and final HEAD check |
+| R4 | T1-T9 verified; BUY remains BLOCKED because calibration is DATA_INSUFFICIENT |
