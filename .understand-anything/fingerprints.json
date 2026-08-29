@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "983f54d626421e57f4a745241a88832bd5cc83f4",
-  "generatedAt": "2026-08-29T04:15:37.370Z",
+  "gitCommitHash": "e75ce6611c8a07cc80a45068123999f520159c43",
+  "generatedAt": "2026-08-29T11:19:07.620Z",
   "files": {
     ".codebase-memory/.gitattributes": {
       "filePath": ".codebase-memory/.gitattributes",
@@ -95,12 +95,12 @@
     },
     ".plan-enforcer/ledger.md": {
       "filePath": ".plan-enforcer/ledger.md",
-      "contentHash": "57a237603d95c6f453f70348e7c8a18f3079e43e37bbc2a5d8f981ff84efdd86",
+      "contentHash": "f994651426fc1685925683fb73d3f033d0008e111f96041381ca2f2d479170aa",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 35,
+      "totalLines": 45,
       "hasStructuralAnalysis": true
     },
     ".plan-enforcer/statusline-state.json": {
@@ -145,7 +145,7 @@
     },
     ".understand-anything/knowledge-graph.json": {
       "filePath": ".understand-anything/knowledge-graph.json",
-      "contentHash": "13bda1344656fac15abe57a2e57914fff91debcac62d7edb36d7551d9ffc7f42",
+      "contentHash": "72b9d75af3dd7a7d0c3b6812c3ef7e75c31bca0d8cb414ce555c1145da89eb7b",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -155,7 +155,7 @@
     },
     ".understand-anything/meta.json": {
       "filePath": ".understand-anything/meta.json",
-      "contentHash": "75056bf742bbf897b307b6e82bfd98f5d7a231e6a73acf52d5f1a6a15c7aea4b",
+      "contentHash": "f8fb0d2c23dd68e77f8d746f364d6c8509e6c76f057d13235761af8cafdf9827",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -165,12 +165,12 @@
     },
     "AGENTS.md": {
       "filePath": "AGENTS.md",
-      "contentHash": "2ab04cc69fb92f20375e24dfc7dea41402dc3b5a1a364989aa5a92d9bbf52022",
+      "contentHash": "ab775d2a763fd9451f2412b7be7ec5b8b169090c0477b69ed6beadb3d137f204",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 173,
+      "totalLines": 175,
       "hasStructuralAnalysis": true
     },
     "CLAUDE.md": {
@@ -181,16 +181,6 @@
       "imports": [],
       "exports": [],
       "totalLines": 68,
-      "hasStructuralAnalysis": true
-    },
-    "README.md": {
-      "filePath": "README.md",
-      "contentHash": "92ae663f3a7182f1aeeb99a4665cc5da2731dc64a17b3a380d7d79d503a26ff0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 64,
       "hasStructuralAnalysis": true
     },
     "daily_pipeline.sh": {
@@ -205,12 +195,12 @@
     },
     "data/research/profit_window_calibration.json": {
       "filePath": "data/research/profit_window_calibration.json",
-      "contentHash": "298855440878eca8ea3d50339958bc1a03357863d5d2cc48b5bde1e426df12bf",
+      "contentHash": "906a082a019f39103d058e2ab2b1c8959de21106cd8fb95ad5a49658fe766c9f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 263,
+      "totalLines": 456,
       "hasStructuralAnalysis": true
     },
     "docs/plans/2026-08-26-final-repricing-rebuild.md": {
@@ -266,6 +256,16 @@
       "totalLines": 5,
       "hasStructuralAnalysis": false
     },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "adc1d2cba5e09acf77e166ae58be73c3a7b486e481d6033c597e3d73afbdef22",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 66,
+      "hasStructuralAnalysis": true
+    },
     "requirements.txt": {
       "filePath": "requirements.txt",
       "contentHash": "2e2353f030ed6316bc4f62cc21ca7d4bdd13dca1fe3dd309c0ae16ebada559a0",
@@ -278,12 +278,12 @@
     },
     "rule_freeze_v0_1.json": {
       "filePath": "rule_freeze_v0_1.json",
-      "contentHash": "063767a03a23ef43c8c3dd4a63337050c1c8a26faad829956c274c3c62c53f8b",
+      "contentHash": "6c9695a1b57fade671a65d9e00051d048707e5680c47522f7796cdbd37067982",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 123,
+      "totalLines": 134,
       "hasStructuralAnalysis": true
     },
     "scrapy_scanner/__init__.py": {
@@ -298,7 +298,7 @@
     },
     "scrapy_scanner/runner_v2.py": {
       "filePath": "scrapy_scanner/runner_v2.py",
-      "contentHash": "c04ba600543351e00b3f762a8f625916ce3df25508b135812a2b7922f7afe3e5",
+      "contentHash": "a2976cc58b2926b60e60d130998f146beeefc00ac2d9b60d3231d3ccacd16493",
       "functions": [
         {
           "name": "fnum",
@@ -433,14 +433,34 @@
           "lineCount": 7
         },
         {
+          "name": "_quote_number",
+          "params": [
+            "row"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "detect_capital_candidates",
+          "params": [
+            "stocks"
+          ],
+          "returnType": "tuple[list[Dict[str, Any]], Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
           "name": "build_canonical_snapshots",
           "params": [
             "results",
-            "source_time"
+            "source_time",
+            "lineage_id",
+            "symbols"
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 72
         },
         {
           "name": "_write_jsonl",
@@ -479,7 +499,7 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 83
+          "lineCount": 109
         }
       ],
       "classes": [],
@@ -512,6 +532,12 @@
           "source": "time",
           "specifiers": [
             "time"
+          ]
+        },
+        {
+          "source": "uuid",
+          "specifiers": [
+            "uuid"
           ]
         },
         {
@@ -565,7 +591,14 @@
           "source": "xiaogu_forward_snapshot",
           "specifiers": [
             "attach_research_observations",
+            "build_scan_lineage_id",
             "canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_eligibility",
+          "specifiers": [
+            "cheap_eligibility_blockers"
           ]
         }
       ],
@@ -583,13 +616,15 @@
         "fetch_announcements",
         "fetch_news",
         "_by_symbol",
+        "_quote_number",
+        "detect_capital_candidates",
         "build_canonical_snapshots",
         "_write_jsonl",
         "build_market_snapshot",
         "_collect",
         "main"
       ],
-      "totalLines": 433,
+      "totalLines": 553,
       "hasStructuralAnalysis": true
     },
     "scripts/agentmemory_daily.sh": {
@@ -604,7 +639,7 @@
     },
     "scripts/xiaogu_daily_health_check.py": {
       "filePath": "scripts/xiaogu_daily_health_check.py",
-      "contentHash": "6e3686d8f23cc60950af680cf9333f246b0d83c1214439193afb636eb488ef13",
+      "contentHash": "66564a7b5a3463e1aec32a3afcd21ee7c410ac6704c9d7102646468bcfaf6407",
       "functions": [
         {
           "name": "_text",
@@ -680,6 +715,18 @@
           "lineCount": 11
         },
         {
+          "name": "check_schema_fail_closed",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "check_production_schema_audit",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
           "name": "main",
           "params": [],
           "returnType": "None",
@@ -732,19 +779,21 @@
         "check_pipeline_chain",
         "check_rule_freeze",
         "check_ledger_readable",
+        "check_schema_fail_closed",
+        "check_production_schema_audit",
         "main"
       ],
-      "totalLines": 149,
+      "totalLines": 190,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_db_init.sql": {
       "filePath": "scripts/xiaogu_db_init.sql",
-      "contentHash": "77c5474347d0a2fd9d08ec1812fd52d2554c27a52a54bb49abc8f7de07b43518",
+      "contentHash": "f5a4a08a34c3a4ddc4e1ee3589c0af7a7bdb0f7913ed5cbaf3144f632d36dec5",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 97,
+      "totalLines": 110,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_ensure_database.py": {
@@ -776,7 +825,7 @@
     },
     "tests/test_data_contract.py": {
       "filePath": "tests/test_data_contract.py",
-      "contentHash": "79770ebfe79c5d27961826073b5c6ffa29a4a35ea3399ad281451fe2306bc5b6",
+      "contentHash": "ef4710f5472b9a6c6d302206d30778f65f4c511d75e3e96230533ba50931e3a5",
       "functions": [
         {
           "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
@@ -823,6 +872,18 @@
           "params": [],
           "exported": true,
           "lineCount": 10
+        },
+        {
+          "name": "test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates",
+          "params": [],
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "test_missing_measurements_remain_unknown_instead_of_zero_fill",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
         },
         {
           "name": "test_candidate_universe_is_cheap_and_has_no_alpha_fields",
@@ -893,7 +954,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 34
+          "lineCount": 37
         },
         {
           "name": "test_production_clock_rejects_stale_snapshot",
@@ -922,7 +983,39 @@
           "name": "test_same_symbol_outcomes_are_bound_to_decision_id",
           "params": [],
           "exported": true,
-          "lineCount": 31
+          "lineCount": 41
+        },
+        {
+          "name": "test_schema_migration_failure_is_fail_closed",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_scan_lineage_is_shared_and_snapshot_id_is_unique",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_record_snapshot_conflicts_on_snapshot_id_not_lineage",
+          "params": [],
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "test_record_snapshot_rejects_payload_identity_conflict",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_supply_state_exposes_evidence_and_confidence",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
         }
       ],
       "classes": [],
@@ -968,7 +1061,8 @@
         {
           "source": "scrapy_scanner.runner_v2",
           "specifiers": [
-            "build_canonical_snapshots"
+            "build_canonical_snapshots",
+            "detect_capital_candidates"
           ]
         }
       ],
@@ -980,6 +1074,8 @@
         "test_capital_price_impact_distinguishes_flow_and_price_response",
         "test_same_day_research_observations_feed_existing_contexts",
         "test_scanner_fixture_only_emits_canonical_market_observations",
+        "test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates",
+        "test_missing_measurements_remain_unknown_instead_of_zero_fill",
         "test_candidate_universe_is_cheap_and_has_no_alpha_fields",
         "test_recorder_accepts_trade_events_but_rejects_watch_memory",
         "test_recorder_persists_buy_without_watch_memory",
@@ -992,9 +1088,14 @@
         "test_production_clock_rejects_stale_snapshot",
         "test_persisted_flag_is_not_enough_without_db_row",
         "test_recorder_db_failure_does_not_write_jsonl",
-        "test_same_symbol_outcomes_are_bound_to_decision_id"
+        "test_same_symbol_outcomes_are_bound_to_decision_id",
+        "test_schema_migration_failure_is_fail_closed",
+        "test_scan_lineage_is_shared_and_snapshot_id_is_unique",
+        "test_record_snapshot_conflicts_on_snapshot_id_not_lineage",
+        "test_record_snapshot_rejects_payload_identity_conflict",
+        "test_supply_state_exposes_evidence_and_confidence"
       ],
-      "totalLines": 363,
+      "totalLines": 542,
       "hasStructuralAnalysis": true
     },
     "tests/test_database_historical_replay.py": {
@@ -1259,7 +1360,7 @@
     },
     "tests/test_production_decision.py": {
       "filePath": "tests/test_production_decision.py",
-      "contentHash": "6fa82443e64dd29933f53a873f03e3adeca7a8442639151b1a582972f7d092fd",
+      "contentHash": "08bb98303c9021deb868349eab35bfecaf27e84a4f7dd12d1479aaedb05abb4d",
       "functions": [
         {
           "name": "_repricing_ready_snapshot",
@@ -1283,7 +1384,7 @@
           "name": "test_unverified_profit_window_cannot_enable_buy",
           "params": [],
           "exported": true,
-          "lineCount": 10
+          "lineCount": 11
         },
         {
           "name": "test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed",
@@ -1368,6 +1469,21 @@
           "params": [],
           "exported": true,
           "lineCount": 10
+        },
+        {
+          "name": "test_collapsed_and_unvalidated_families_have_no_production_alpha_permission",
+          "params": [],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_probability_collapse_and_full_coverage_stay_fail_closed",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 34
         }
       ],
       "classes": [],
@@ -1408,9 +1524,11 @@
         "test_duplicate_evidence_family_does_not_inflate_independent_channels",
         "test_five_day_boundary_uses_sell_action_and_closed_trade",
         "test_position_state_is_not_previous_action",
-        "test_reduce_is_action_not_position_state"
+        "test_reduce_is_action_not_position_state",
+        "test_collapsed_and_unvalidated_families_have_no_production_alpha_permission",
+        "test_probability_collapse_and_full_coverage_stay_fail_closed"
       ],
-      "totalLines": 295,
+      "totalLines": 341,
       "hasStructuralAnalysis": true
     },
     "tests/test_return_calculation.py": {
@@ -1669,7 +1787,7 @@
     },
     "xiaogu_backtest_v0_1.py": {
       "filePath": "xiaogu_backtest_v0_1.py",
-      "contentHash": "c5b6e57f74497075dd223a7e743a66337cffdc214dcf94ebdbcadc7095bc932f",
+      "contentHash": "b1f9708ebd9ebcda29c074285c64c0c3d44edcba24f0176ef1feedbcef08b29e",
       "functions": [
         {
           "name": "load_snapshot",
@@ -1933,7 +2051,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 236
+          "lineCount": 237
         },
         {
           "name": "canonical_historical_snapshot",
@@ -1943,11 +2061,12 @@
             "signal_time",
             "source",
             "source_timestamp",
-            "snapshot_version"
+            "snapshot_version",
+            "lineage_id"
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 61
+          "lineCount": 78
         },
         {
           "name": "_source_rows",
@@ -2018,7 +2137,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 48
         },
         {
           "name": "replay_historical_root",
@@ -2044,7 +2163,7 @@
           "params": [],
           "returnType": "int",
           "exported": true,
-          "lineCount": 65
+          "lineCount": 67
         }
       ],
       "classes": [],
@@ -2133,6 +2252,19 @@
           ]
         },
         {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "build_scan_lineage_id",
+            "build_snapshot_id"
+          ]
+        },
+        {
+          "source": "xiaogu_core_alpha",
+          "specifiers": [
+            "CANONICAL_COST_MODEL"
+          ]
+        },
+        {
           "source": "xiaogu_horizon_evaluation",
           "specifiers": [
             "HORIZONS",
@@ -2185,12 +2317,12 @@
         "eastmoney_future_loader",
         "main"
       ],
-      "totalLines": 1533,
+      "totalLines": 1557,
       "hasStructuralAnalysis": true
     },
     "xiaogu_core_alpha.py": {
       "filePath": "xiaogu_core_alpha.py",
-      "contentHash": "049dc34d4b1aae7c8d8e527578d1f7ba3376c2fc624a6d9d9cf7ac77044e6c43",
+      "contentHash": "955b09e9e49d57f1c1179c1788bf8dc55ceecbd4ec68a17d2020f7b453ae55ed",
       "functions": [
         {
           "name": "_clip",
@@ -2200,6 +2332,16 @@
           "returnType": "float",
           "exported": true,
           "lineCount": 5
+        },
+        {
+          "name": "_round_or_none",
+          "params": [
+            "value",
+            "digits"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 7
         },
         {
           "name": "_mean",
@@ -2255,16 +2397,16 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 32
+          "lineCount": 38
         },
         {
           "name": "_calibrated_probability",
           "params": [
             "values"
           ],
-          "returnType": "tuple[float, Dict[str, Any]]",
+          "returnType": "tuple[float | None, Dict[str, Any]]",
           "exported": true,
-          "lineCount": 40
+          "lineCount": 89
         },
         {
           "name": "build_core_alpha",
@@ -2278,7 +2420,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 213
+          "lineCount": 217
         }
       ],
       "classes": [],
@@ -2311,6 +2453,7 @@
       ],
       "exports": [
         "_clip",
+        "_round_or_none",
         "_mean",
         "_research_score",
         "_first_buyer_capacity",
@@ -2320,12 +2463,12 @@
         "_calibrated_probability",
         "build_core_alpha"
       ],
-      "totalLines": 434,
+      "totalLines": 502,
       "hasStructuralAnalysis": true
     },
     "xiaogu_db.py": {
       "filePath": "xiaogu_db.py",
-      "contentHash": "e8f498eb8a6de108f3cb13ad30d28587a8c219c8ee76ab2dd6ffeec27daac352",
+      "contentHash": "5077a9b7f05cfcdbe16db2a66fb0dc966551665c06b4e00a462fe995e6888e11",
       "functions": [
         {
           "name": "get_db",
@@ -2340,14 +2483,135 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 4
+          "lineCount": 5
+        },
+        {
+          "name": "_exec_schema",
+          "params": [
+            "statement"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_schema_error_already_exists",
+          "params": [
+            "exc"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_constraint_columns",
+          "params": [
+            "table_name",
+            "constraint_type"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_unique_index_columns",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "set[str]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_foreign_keys",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "list[dict[str, str]]",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "_exists_label",
+          "params": [
+            "present"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_count_unbound_decision_ids",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_count_returns_decision_fk_conflicts",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_count_unresolved_snapshot_ids",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "audit_production_schema",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 105
         },
         {
           "name": "ensure_production_schema",
           "params": [],
           "returnType": "None",
           "exported": true,
-          "lineCount": 29
+          "lineCount": 52
+        },
+        {
+          "name": "_ensure_snapshot_primary_key",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "snapshot_payload_identity",
+          "params": [
+            "payload"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_recover_historical_snapshot_id",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "migrate_historical_snapshot_identity",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 60
         },
         {
           "name": "verify_persisted_snapshot",
@@ -2356,11 +2620,13 @@
             "lineage_id",
             "trade_date",
             "source",
-            "source_time"
+            "source_time",
+            "symbol",
+            "payload_hash"
           ],
           "returnType": "bool",
           "exported": true,
-          "lineCount": 53
+          "lineCount": 67
         },
         {
           "name": "fetch_persisted_canonical_snapshots",
@@ -2369,7 +2635,7 @@
           ],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 39
+          "lineCount": 40
         },
         {
           "name": "record_snapshot",
@@ -2378,7 +2644,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 34
+          "lineCount": 61
         },
         {
           "name": "record_decision",
@@ -2387,7 +2653,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 30
+          "lineCount": 32
         },
         {
           "name": "record_returns",
@@ -2399,7 +2665,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 21
+          "lineCount": 24
         },
         {
           "name": "record_canonical_historical_snapshot",
@@ -2417,7 +2683,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 37
+          "lineCount": 58
         },
         {
           "name": "record_canonical_future_prices",
@@ -2469,13 +2735,13 @@
           "params": [],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 47
         },
         {
           "name": "fetch_position_outcome",
           "params": [
-            "symbol",
-            "decision_id"
+            "decision_id",
+            "symbol"
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
@@ -2493,7 +2759,7 @@
           "params": [],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 10
+          "lineCount": 23
         },
         {
           "name": "database_asset_report",
@@ -2515,6 +2781,12 @@
       ],
       "classes": [],
       "imports": [
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
         {
           "source": "json",
           "specifiers": [
@@ -2548,12 +2820,32 @@
             "create_engine",
             "text"
           ]
+        },
+        {
+          "source": "sqlalchemy.exc",
+          "specifiers": [
+            "SQLAlchemyError"
+          ]
         }
       ],
       "exports": [
         "get_db",
         "init_db",
+        "_exec_schema",
+        "_schema_error_already_exists",
+        "_constraint_columns",
+        "_unique_index_columns",
+        "_foreign_keys",
+        "_exists_label",
+        "_count_unbound_decision_ids",
+        "_count_returns_decision_fk_conflicts",
+        "_count_unresolved_snapshot_ids",
+        "audit_production_schema",
         "ensure_production_schema",
+        "_ensure_snapshot_primary_key",
+        "snapshot_payload_identity",
+        "_recover_historical_snapshot_id",
+        "migrate_historical_snapshot_identity",
         "verify_persisted_snapshot",
         "fetch_persisted_canonical_snapshots",
         "record_snapshot",
@@ -2573,7 +2865,7 @@
         "database_asset_report",
         "fetch_historical_replay_assets"
       ],
-      "totalLines": 734,
+      "totalLines": 1229,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_bundle_io.py": {
@@ -2657,7 +2949,7 @@
     },
     "xiaogu_forward_eligibility.py": {
       "filePath": "xiaogu_forward_eligibility.py",
-      "contentHash": "7cbac97b3b77b0d9d0008750cf2072172eb52a9a63dda32e24600341d7839704",
+      "contentHash": "c0e7ef889aaed22a9a14a8766641e864e9e41c18d66c0c1d8f0f03d8b52f9743",
       "functions": [
         {
           "name": "cheap_eligibility_blockers",
@@ -2729,7 +3021,7 @@
     },
     "xiaogu_forward_features.py": {
       "filePath": "xiaogu_forward_features.py",
-      "contentHash": "6c98d78080f8fa68bdd37018e758f6734f26abbd545659fc4370006f67280093",
+      "contentHash": "f2f5210261af99d72dfc560c41da6f9060431795c11c24904c866466af922f73",
       "functions": [
         {
           "name": "_event_id",
@@ -2771,6 +3063,45 @@
           "lineCount": 5
         },
         {
+          "name": "_optional_number",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_source_present",
+          "params": [
+            "payload"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_optional_clip",
+          "params": [
+            "value",
+            "low",
+            "high"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_optional_rate",
+          "params": [
+            "value",
+            "high"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
           "name": "_first",
           "params": [
             "payload",
@@ -2797,6 +3128,15 @@
           "returnType": "float",
           "exported": true,
           "lineCount": 3
+        },
+        {
+          "name": "_observed_mean",
+          "params": [
+            "weights_and_values"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 9
         },
         {
           "name": "_ratio",
@@ -2847,7 +3187,7 @@
           ],
           "returnType": "str",
           "exported": true,
-          "lineCount": 15
+          "lineCount": 24
         },
         {
           "name": "build_feature_vector",
@@ -2856,7 +3196,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 576
+          "lineCount": 613
         }
       ],
       "classes": [],
@@ -2893,9 +3233,14 @@
         "_event_id",
         "_evidence",
         "_number",
+        "_optional_number",
+        "_source_present",
+        "_optional_clip",
+        "_optional_rate",
         "_first",
         "_clip",
         "_mean",
+        "_observed_mean",
         "_ratio",
         "_signed_strength",
         "_percentile",
@@ -2903,7 +3248,7 @@
         "_market_stage",
         "build_feature_vector"
       ],
-      "totalLines": 707,
+      "totalLines": 787,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_paper_recorder_v0_1.py": {
@@ -3419,7 +3764,7 @@
     },
     "xiaogu_forward_runner.py": {
       "filePath": "xiaogu_forward_runner.py",
-      "contentHash": "6f56c20b5e2089cbbfca3b764458701d7d1a9d9187ee8bba9c4f2429ce3e8136",
+      "contentHash": "f469fdedde019bc9e290592743ea94ad29854773c30e3a79c620e90c4187bd25",
       "functions": [
         {
           "name": "_parse_clock",
@@ -3445,7 +3790,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 53
+          "lineCount": 55
         },
         {
           "name": "_write_ledger_record",
@@ -3463,14 +3808,14 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 55
+          "lineCount": 54
         },
         {
           "name": "main",
           "params": [],
           "returnType": "None",
           "exported": true,
-          "lineCount": 61
+          "lineCount": 66
         }
       ],
       "classes": [],
@@ -3526,6 +3871,7 @@
             "assert_production_provenance",
             "production_decision_clock",
             "select_canonical_snapshot",
+            "select_unique_canonical_snapshots",
             "validate_and_build_canonical_snapshot"
           ]
         },
@@ -3543,12 +3889,12 @@
         "daily_position_review",
         "main"
       ],
-      "totalLines": 223,
+      "totalLines": 230,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_snapshot.py": {
       "filePath": "xiaogu_forward_snapshot.py",
-      "contentHash": "7b9a5da4af78b547672ec5491defbb0fcbf84eb169d77bc51f8ccbe66c2f26bf",
+      "contentHash": "c3651de8158beb15f7d0328ebcb48e425a466db070eae2f19e1deab5fa89f5ee",
       "functions": [
         {
           "name": "_number",
@@ -3648,6 +3994,16 @@
           "lineCount": 26
         },
         {
+          "name": "select_unique_canonical_snapshots",
+          "params": [
+            "rows",
+            "trade_date"
+          ],
+          "returnType": "list[CanonicalSnapshot]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
           "name": "_sha256",
           "params": [
             "payload"
@@ -3655,6 +4011,42 @@
           "returnType": "str",
           "exported": true,
           "lineCount": 4
+        },
+        {
+          "name": "snapshot_payload_hash",
+          "params": [
+            "payload"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "build_scan_lineage_id",
+          "params": [
+            "source",
+            "source_time",
+            "producer",
+            "trade_date",
+            "scan_nonce"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "build_snapshot_id",
+          "params": [
+            "lineage_id",
+            "symbol",
+            "trade_date",
+            "source",
+            "source_time",
+            "producer"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 20
         },
         {
           "name": "_serialized_canonical",
@@ -3692,11 +4084,12 @@
             "trade_date",
             "source",
             "source_time",
-            "producer"
+            "producer",
+            "lineage_id"
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 56
+          "lineCount": 66
         },
         {
           "name": "_validate_required",
@@ -3719,11 +4112,12 @@
             "source_timestamp",
             "producer",
             "decision_time",
-            "target_trade_date"
+            "target_trade_date",
+            "lineage_id"
           ],
           "returnType": "CanonicalSnapshot",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 51
         },
         {
           "name": "assert_production_provenance",
@@ -3737,7 +4131,7 @@
           ],
           "returnType": "CanonicalSnapshot",
           "exported": true,
-          "lineCount": 33
+          "lineCount": 34
         },
         {
           "name": "canonical_snapshot",
@@ -3748,11 +4142,12 @@
             "source_time",
             "timestamp",
             "source_timestamp",
-            "producer"
+            "producer",
+            "lineage_id"
           ],
           "returnType": "CanonicalSnapshot",
           "exported": true,
-          "lineCount": 19
+          "lineCount": 21
         }
       ],
       "classes": [
@@ -3823,7 +4218,11 @@
         "snapshot_age",
         "production_decision_clock",
         "select_canonical_snapshot",
+        "select_unique_canonical_snapshots",
         "_sha256",
+        "snapshot_payload_hash",
+        "build_scan_lineage_id",
+        "build_snapshot_id",
         "_serialized_canonical",
         "attach_research_observations",
         "_build_payload",
@@ -3832,12 +4231,12 @@
         "assert_production_provenance",
         "canonical_snapshot"
       ],
-      "totalLines": 402,
+      "totalLines": 498,
       "hasStructuralAnalysis": true
     },
     "xiaogu_horizon_evaluation.py": {
       "filePath": "xiaogu_horizon_evaluation.py",
-      "contentHash": "11d499bb857679bf72044ce00da6b916f6094c19206187df61e2e5887bc8fc25",
+      "contentHash": "fc4679ed071b9978148c7f7db15edc82f1b65264280669c018c63b0fdd917ad5",
       "functions": [
         {
           "name": "validate_horizons",
@@ -4001,7 +4400,7 @@
           ],
           "returnType": "float",
           "exported": true,
-          "lineCount": 44
+          "lineCount": 46
         },
         {
           "name": "_extra_feature_value",
@@ -4014,14 +4413,35 @@
           "lineCount": 16
         },
         {
+          "name": "_raw_feature_value",
+          "params": [
+            "row",
+            "name"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_imputer_for",
+          "params": [
+            "rows",
+            "names"
+          ],
+          "returnType": "Dict[str, float]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
           "name": "_feature_vector",
           "params": [
             "row",
-            "names"
+            "names",
+            "imputer"
           ],
           "returnType": "list[float]",
           "exported": true,
-          "lineCount": 6
+          "lineCount": 13
         },
         {
           "name": "_feature_value_present",
@@ -4061,7 +4481,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 57
+          "lineCount": 81
         },
         {
           "name": "_correlation",
@@ -4118,7 +4538,7 @@
           ],
           "returnType": "Dict[str, Any] | None",
           "exported": true,
-          "lineCount": 21
+          "lineCount": 27
         },
         {
           "name": "_predict",
@@ -4128,7 +4548,7 @@
           ],
           "returnType": "list[float]",
           "exported": true,
-          "lineCount": 8
+          "lineCount": 11
         },
         {
           "name": "_roc_auc",
@@ -4207,7 +4627,7 @@
           ],
           "returnType": "tuple[str, ...]",
           "exported": true,
-          "lineCount": 11
+          "lineCount": 5
         },
         {
           "name": "_fit_baseline",
@@ -4263,13 +4683,23 @@
           "lineCount": 32
         },
         {
+          "name": "_selectivity",
+          "params": [
+            "rows",
+            "predictions"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
           "name": "calibrate_profit_window_probability",
           "params": [
             "rows"
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 83
+          "lineCount": 95
         },
         {
           "name": "evaluate_replay",
@@ -4300,7 +4730,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 73
+          "lineCount": 113
         }
       ],
       "classes": [],
@@ -4338,6 +4768,12 @@
             "Mapping",
             "Sequence"
           ]
+        },
+        {
+          "source": "xiaogu_core_alpha",
+          "specifiers": [
+            "CANONICAL_COST_MODEL"
+          ]
         }
       ],
       "exports": [
@@ -4359,6 +4795,8 @@
         "_feature_payload",
         "_feature_value",
         "_extra_feature_value",
+        "_raw_feature_value",
+        "_imputer_for",
         "_feature_vector",
         "_feature_value_present",
         "_snapshot_raw",
@@ -4384,17 +4822,18 @@
         "_monotonicity",
         "_fit_set_report",
         "_ablation_report",
+        "_selectivity",
         "calibrate_profit_window_probability",
         "evaluate_replay",
         "evaluate_feature_groups",
         "build_alpha_report"
       ],
-      "totalLines": 1118,
+      "totalLines": 1250,
       "hasStructuralAnalysis": true
     },
     "xiaogu_portfolio_decision.py": {
       "filePath": "xiaogu_portfolio_decision.py",
-      "contentHash": "ffdc40988afbd2c1b0c336609f5d53e926f2b580a8159fd07b77f75685e504bc",
+      "contentHash": "529aeede1cf3af19127df70854d6b3498d743eabea01b2b471d49398c1d36c54",
       "functions": [
         {
           "name": "_decision_id",
@@ -4405,7 +4844,7 @@
           ],
           "returnType": "str",
           "exported": true,
-          "lineCount": 4
+          "lineCount": 5
         },
         {
           "name": "_blockers",
@@ -4416,7 +4855,7 @@
           ],
           "returnType": "list[str]",
           "exported": true,
-          "lineCount": 34
+          "lineCount": 31
         },
         {
           "name": "_exit_reason",
@@ -4443,7 +4882,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 154
+          "lineCount": 158
         }
       ],
       "classes": [],
@@ -4505,7 +4944,7 @@
         "_exit_reason",
         "evaluate_candidate_bundle"
       ],
-      "totalLines": 244,
+      "totalLines": 246,
       "hasStructuralAnalysis": true
     },
     "xiaogu_research_context.py": {
