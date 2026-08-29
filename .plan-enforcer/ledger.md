@@ -13,7 +13,7 @@ Tier: structural
 | T6 | Supply, repricing naming, alpha gates | verified | BUY stay blocked | D1,V1 | evidence_score not probability |
 | T7 | Recorder ownership | verified | DB fail no JSONL | D1,V1 | Obsidian retry queue |
 | T8 | Historical dataset and docs | verified | UNRESOLVED unbound | D1,V1 | README/AGENTS clock+DB |
-| T9 | Validation, indexes, git | in_progress |  | D1 | compile/pytest/health/understand/push |
+| T9 | Validation, indexes, git | verified | pytest 69, health 14/14 | D1,V1,C:19489f2 | understand hash=19489f2 |
 
 ## Decision Log
 
@@ -32,3 +32,4 @@ Tier: structural
 | Sweep | Result |
 |---|---|
 | S1 | T1-T8 verified from existing owners; T9 remaining git/understand |
+| S2 | T9 verified: compile 0, pytest 69, health 14/14, understand 19489f2 |

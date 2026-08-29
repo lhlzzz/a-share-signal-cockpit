@@ -20,9 +20,9 @@
       "APScheduler",
       "SQLAlchemy"
     ],
-    "description": "Capital-Behavior-Driven 5D Repricing Production System，面向 A 股研究与纸面交易。",
-    "analyzedAt": "2026-08-28T00:00:00+08:00",
-    "gitCommitHash": "0dbdc0debfdde45e25ec5078828e8a6a0869c073+working-tree"
+    "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Canonical → Eligibility → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian.",
+    "analyzedAt": "2026-08-29T12:15:24+08:00",
+    "gitCommitHash": "19489f28fc4f9e1414691800d6a554175ce0ff43"
   },
   "nodes": [
     {
@@ -238,10 +238,10 @@
       "type": "file",
       "name": "AGENTS.md",
       "filePath": "AGENTS.md",
-      "summary": "当前文件：AGENTS.md；状态：modified。",
+      "summary": "项目宪法。Scanner=capture，Eligibility=constraints，Alpha=model，Decision=state/action，DB=truth。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "docs"
       ],
       "complexity": "moderate"
@@ -347,10 +347,10 @@
       "type": "file",
       "name": "README.md",
       "filePath": "README.md",
-      "summary": "当前文件：README.md；状态：modified。",
+      "summary": "与源码一致的生产链说明：DB-verified snapshot、真实 production clock、fail-closed BUY。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "docs"
       ],
       "complexity": "moderate"
@@ -978,11 +978,11 @@
       "type": "file",
       "name": "xiaogu_db_init.sql",
       "filePath": "scripts/xiaogu_db_init.sql",
-      "summary": "当前文件：scripts/xiaogu_db_init.sql；状态：tracked。",
+      "summary": "ADD-only 生产 schema：picks/returns.decision_id 与 snapshot provenance 列。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "data"
+        "production",
+        "code"
       ],
       "complexity": "moderate"
     },
@@ -2314,13 +2314,13 @@
       "type": "file",
       "name": "xiaogu_backtest_v0_1.py",
       "filePath": "xiaogu_backtest_v0_1.py",
-      "summary": "当前文件：xiaogu_backtest_v0_1.py；状态：modified。 函数 38。",
+      "summary": "历史 5D profit-window 数据集。无 decision_id 的旧样本标记 UNRESOLVED，不进 canonical 训练。 符号 48。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_backtest_v0_1.py:load_snapshot",
@@ -2330,9 +2330,7 @@
       "summary": "函数 load_snapshot，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2348,9 +2346,7 @@
       "summary": "函数 calculate_portfolio_metrics，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2366,9 +2362,7 @@
       "summary": "函数 _strip_non_input_fields，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2384,9 +2378,7 @@
       "summary": "函数 _compact_snapshot_source，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2402,9 +2394,7 @@
       "summary": "函数 _as_dict，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2420,9 +2410,7 @@
       "summary": "函数 _first_value，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2438,9 +2426,7 @@
       "summary": "函数 _number，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2456,9 +2442,7 @@
       "summary": "函数 _same_number，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2474,9 +2458,7 @@
       "summary": "函数 _json_row，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2492,9 +2474,7 @@
       "summary": "函数 _historical_decision_id，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2510,9 +2490,7 @@
       "summary": "函数 _relation_key，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2528,9 +2506,7 @@
       "summary": "函数 _pick_snapshot，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2546,9 +2522,7 @@
       "summary": "函数 _entry_audit，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2564,11 +2538,9 @@
       "summary": "函数 _return_targets，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         262,
         380
@@ -2582,9 +2554,7 @@
       "summary": "函数 _quality，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2600,11 +2570,9 @@
       "summary": "函数 _merge_missing_future_targets，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         397,
         506
@@ -2618,9 +2586,7 @@
       "summary": "函数 _materialized_asset_rows，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2636,9 +2602,7 @@
       "summary": "函数 _database_linked_decision_ranges，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2654,9 +2618,7 @@
       "summary": "函数 _database_linked_decision_windows，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2672,9 +2634,7 @@
       "summary": "函数 _cache_read，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2690,9 +2650,7 @@
       "summary": "函数 _cache_write，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2708,9 +2666,7 @@
       "summary": "函数 _bars_cover_five_days，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2726,9 +2682,7 @@
       "summary": "函数 _future_request_end，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2744,11 +2698,9 @@
       "summary": "函数 supplement_database_future_prices，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         624,
         837
@@ -2762,9 +2714,7 @@
       "summary": "函数 _compact_current_decision，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2780,9 +2730,7 @@
       "summary": "函数 _capital_convergence_level，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2798,11 +2746,9 @@
       "summary": "函数 build_historical_5d_profit_window_dataset，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         882,
         1103
@@ -2816,9 +2762,7 @@
       "summary": "函数 canonical_historical_snapshot，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2834,9 +2778,7 @@
       "summary": "函数 _source_rows，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2852,9 +2794,7 @@
       "summary": "函数 build_canonical_historical_snapshots，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2870,9 +2810,7 @@
       "summary": "函数 _replay_entry，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2888,9 +2826,7 @@
       "summary": "函数 _decision_record，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2906,9 +2842,7 @@
       "summary": "函数 historical_replay，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2924,9 +2858,7 @@
       "summary": "函数 persist_historical_replay，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2942,9 +2874,7 @@
       "summary": "函数 replay_database_history，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2960,9 +2890,7 @@
       "summary": "函数 replay_historical_root，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2978,9 +2906,7 @@
       "summary": "函数 eastmoney_future_loader，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -2996,9 +2922,7 @@
       "summary": "函数 main，位于 xiaogu_backtest_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3011,10 +2935,10 @@
       "type": "file",
       "name": "xiaogu_core_alpha.py",
       "filePath": "xiaogu_core_alpha.py",
-      "summary": "当前文件：xiaogu_core_alpha.py；状态：tracked。 函数 8。",
+      "summary": "唯一 Alpha。独立证据 origin 计数，repricing_evidence_score 不是概率；BUY 需 VALIDATED。 符号 16。",
       "tags": [
         "xiaogu",
-        "status:tracked",
+        "production",
         "code"
       ],
       "complexity": "moderate"
@@ -3027,9 +2951,7 @@
       "summary": "函数 _clip，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3045,9 +2967,7 @@
       "summary": "函数 _mean，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3063,9 +2983,7 @@
       "summary": "函数 _research_score，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3081,9 +2999,7 @@
       "summary": "函数 _first_buyer_capacity，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3099,9 +3015,7 @@
       "summary": "函数 _capital_convergence，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3117,9 +3031,7 @@
       "summary": "函数 _repricing_state，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3135,9 +3047,7 @@
       "summary": "函数 _calibrated_probability，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3153,11 +3063,9 @@
       "summary": "函数 build_core_alpha，位于 xiaogu_core_alpha.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         165,
         365
@@ -3168,13 +3076,13 @@
       "type": "file",
       "name": "xiaogu_db.py",
       "filePath": "xiaogu_db.py",
-      "summary": "当前文件：xiaogu_db.py；状态：modified。 函数 15。",
+      "summary": "PostgreSQL 生产真相。persisted 必须 DB 验证；returns 按 decision_id 绑定；schema 只 ADD。 符号 22。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_db.py:get_db",
@@ -3184,9 +3092,7 @@
       "summary": "函数 get_db，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3202,9 +3108,7 @@
       "summary": "函数 init_db，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3220,9 +3124,7 @@
       "summary": "函数 record_snapshot，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3238,9 +3140,7 @@
       "summary": "函数 record_decision，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3256,9 +3156,7 @@
       "summary": "函数 record_returns，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3274,9 +3172,7 @@
       "summary": "函数 record_canonical_historical_snapshot，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3292,9 +3188,7 @@
       "summary": "函数 record_canonical_historical_snapshots，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3310,9 +3204,7 @@
       "summary": "函数 record_canonical_future_prices，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3328,9 +3220,7 @@
       "summary": "函数 insert_scan_session，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3346,9 +3236,7 @@
       "summary": "函数 upsert_scan_market_data，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3364,9 +3252,7 @@
       "summary": "函数 fetch_picks，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3382,9 +3268,7 @@
       "summary": "函数 fetch_returns，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3400,9 +3284,7 @@
       "summary": "函数 fetch_trade_records，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3418,11 +3300,9 @@
       "summary": "函数 database_asset_report，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         169,
         257
@@ -3436,11 +3316,9 @@
       "summary": "函数 fetch_historical_replay_assets，位于 xiaogu_db.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         260,
         428
@@ -3621,13 +3499,13 @@
       "type": "file",
       "name": "xiaogu_forward_features.py",
       "filePath": "xiaogu_forward_features.py",
-      "summary": "当前文件：xiaogu_forward_features.py；状态：modified。 函数 10。",
+      "summary": "测量层。资金行为走 Observation→Evidence→Interpretation；inflow 不是主力身份。 符号 14。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_forward_features.py:_number",
@@ -3637,9 +3515,7 @@
       "summary": "函数 _number，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3655,9 +3531,7 @@
       "summary": "函数 _first，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3673,9 +3547,7 @@
       "summary": "函数 _clip，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3691,9 +3563,7 @@
       "summary": "函数 _mean，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3709,9 +3579,7 @@
       "summary": "函数 _ratio，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3727,9 +3595,7 @@
       "summary": "函数 _signed_strength，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3745,9 +3611,7 @@
       "summary": "函数 _percentile，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3763,9 +3627,7 @@
       "summary": "函数 _raw，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3781,9 +3643,7 @@
       "summary": "函数 _market_stage，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3799,11 +3659,9 @@
       "summary": "函数 build_feature_vector，位于 xiaogu_forward_features.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         82,
         503
@@ -3814,13 +3672,13 @@
       "type": "file",
       "name": "xiaogu_forward_paper_recorder_v0_1.py",
       "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
-      "summary": "当前文件：xiaogu_forward_paper_recorder_v0_1.py；状态：modified。 函数 13。",
+      "summary": "先写 PostgreSQL，再写 JSONL 审计。DB 失败不得假装成功；Obsidian 失败进 retry queue。 符号 21。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_forward_paper_recorder_v0_1.py:dump_json",
@@ -3830,9 +3688,7 @@
       "summary": "函数 dump_json，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3848,9 +3704,7 @@
       "summary": "函数 memory_root，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3866,9 +3720,7 @@
       "summary": "函数 _memory_symbol，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3884,9 +3736,7 @@
       "summary": "函数 _memory_note_path，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3902,9 +3752,7 @@
       "summary": "函数 _markdown，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3920,9 +3768,7 @@
       "summary": "函数 write_trade_memory，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3938,9 +3784,7 @@
       "summary": "函数 update_trade_memory，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3956,9 +3800,7 @@
       "summary": "函数 read_features_arg，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3974,9 +3816,7 @@
       "summary": "函数 snapshot_path_for，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -3992,9 +3832,7 @@
       "summary": "函数 validate_generation，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4010,11 +3848,9 @@
       "summary": "函数 _snapshot_and_record，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         231,
         378
@@ -4028,9 +3864,7 @@
       "summary": "函数 append_production_decision，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4046,9 +3880,7 @@
       "summary": "函数 main，位于 xiaogu_forward_paper_recorder_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4061,13 +3893,13 @@
       "type": "file",
       "name": "xiaogu_forward_result_filler_v0_1.py",
       "filePath": "xiaogu_forward_result_filler_v0_1.py",
-      "summary": "当前文件：xiaogu_forward_result_filler_v0_1.py；状态：modified。 函数 19。",
+      "summary": "T+1..T+5 日线近似结果回填，outcome 绑定 decision_id。 符号 29。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_forward_result_filler_v0_1.py:_deadline",
@@ -4077,9 +3909,7 @@
       "summary": "函数 _deadline，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4095,9 +3925,7 @@
       "summary": "函数 _eastmoney_secid，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4113,9 +3941,7 @@
       "summary": "函数 fetch_eastmoney_daily_bars，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4131,9 +3957,7 @@
       "summary": "函数 fetch_baostock_daily_bars，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4149,9 +3973,7 @@
       "summary": "函数 canonical_future_prices，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4167,9 +3989,7 @@
       "summary": "函数 _parse_timestamp，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4185,9 +4005,7 @@
       "summary": "函数 historical_entry_contract，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4203,9 +4021,7 @@
       "summary": "函数 entry_contract_from_record，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4221,9 +4037,7 @@
       "summary": "函数 eastmoney_future_close_prices，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4239,9 +4053,7 @@
       "summary": "函数 calculate_horizon_returns，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4257,11 +4069,9 @@
       "summary": "函数 calculate_horizon_outcomes，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         270,
         395
@@ -4275,9 +4085,7 @@
       "summary": "函数 eastmoney_future_bars，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4293,9 +4101,7 @@
       "summary": "函数 _entry_price，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4311,9 +4117,7 @@
       "summary": "函数 append_result，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4329,9 +4133,7 @@
       "summary": "函数 build_post_trade_review，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4347,9 +4149,7 @@
       "summary": "函数 _persist_and_append_result，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4365,9 +4165,7 @@
       "summary": "函数 _has_new_outcome，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4383,9 +4181,7 @@
       "summary": "函数 fill_pending_results，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4401,9 +4197,7 @@
       "summary": "函数 main，位于 xiaogu_forward_result_filler_v0_1.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4416,10 +4210,10 @@
       "type": "file",
       "name": "xiaogu_forward_runner.py",
       "filePath": "xiaogu_forward_runner.py",
-      "summary": "当前文件：xiaogu_forward_runner.py；状态：modified。 函数 4。",
+      "summary": "唯一生产入口。PRODUCTION 用真实 decision clock 和 DB-verified canonical snapshot，再调用 evaluate_candidate_bundle。 符号 8。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
       "complexity": "moderate"
@@ -4432,9 +4226,7 @@
       "summary": "函数 run_production_decision，位于 xiaogu_forward_runner.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4450,9 +4242,7 @@
       "summary": "函数 _write_ledger_record，位于 xiaogu_forward_runner.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4468,9 +4258,7 @@
       "summary": "函数 daily_position_review，位于 xiaogu_forward_runner.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4486,9 +4274,7 @@
       "summary": "函数 main，位于 xiaogu_forward_runner.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4501,10 +4287,10 @@
       "type": "file",
       "name": "xiaogu_forward_snapshot.py",
       "filePath": "xiaogu_forward_snapshot.py",
-      "summary": "当前文件：xiaogu_forward_snapshot.py；状态：tracked。 函数 7。",
+      "summary": "唯一 trusted canonical 构建器。生产时钟、staleness、snapshot 选择和 provenance gate 都在这里。 符号 30。",
       "tags": [
         "xiaogu",
-        "status:tracked",
+        "production",
         "code"
       ],
       "complexity": "moderate"
@@ -4517,9 +4303,7 @@
       "summary": "函数 _number，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4535,9 +4319,7 @@
       "summary": "函数 _first，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4553,9 +4335,7 @@
       "summary": "函数 _normalize_timestamp，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4571,9 +4351,7 @@
       "summary": "函数 _future_fields，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4589,9 +4367,7 @@
       "summary": "函数 _assert_visible，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4607,9 +4383,7 @@
       "summary": "函数 attach_research_observations，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4625,9 +4399,7 @@
       "summary": "函数 canonical_snapshot，位于 xiaogu_forward_snapshot.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4640,13 +4412,13 @@
       "type": "file",
       "name": "xiaogu_horizon_evaluation.py",
       "filePath": "xiaogu_horizon_evaluation.py",
-      "summary": "当前文件：xiaogu_horizon_evaluation.py；状态：modified。 函数 47。",
+      "summary": "唯一评估 owner。Train/Val/OOS、ablation、probability collapse 与生产门禁。 符号 66。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_horizon_evaluation.py:validate_horizons",
@@ -4656,9 +4428,7 @@
       "summary": "函数 validate_horizons，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4674,9 +4444,7 @@
       "summary": "函数 _number，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4692,9 +4460,7 @@
       "summary": "函数 _label，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4710,9 +4476,7 @@
       "summary": "函数 _day_return，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4728,9 +4492,7 @@
       "summary": "函数 _day_ohlc_present，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4746,9 +4508,7 @@
       "summary": "函数 _canonical_entry_present，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4764,9 +4524,7 @@
       "summary": "函数 _outcome_profit，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4782,9 +4540,7 @@
       "summary": "函数 _mfe，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4800,9 +4556,7 @@
       "summary": "函数 _mae，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4818,9 +4572,7 @@
       "summary": "函数 _time_to_profit，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4836,9 +4588,7 @@
       "summary": "函数 evaluate_5d，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4854,9 +4604,7 @@
       "summary": "函数 portfolio_metrics，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4872,9 +4620,7 @@
       "summary": "函数 target_quality_gate，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4890,9 +4636,7 @@
       "summary": "函数 bootstrap_confidence_interval，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4908,9 +4652,7 @@
       "summary": "函数 _alpha_payload，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4926,9 +4668,7 @@
       "summary": "函数 _feature_payload，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4944,9 +4684,7 @@
       "summary": "函数 _feature_value，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4962,9 +4700,7 @@
       "summary": "函数 _extra_feature_value，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4980,9 +4716,7 @@
       "summary": "函数 _feature_vector，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -4998,9 +4732,7 @@
       "summary": "函数 _feature_value_present，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5016,9 +4748,7 @@
       "summary": "函数 _snapshot_raw，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5034,9 +4764,7 @@
       "summary": "函数 _feature_observed，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5052,9 +4780,7 @@
       "summary": "函数 diagnose_features，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5070,9 +4796,7 @@
       "summary": "函数 _correlation，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5088,9 +4812,7 @@
       "summary": "函数 _probability_separation，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5106,9 +4828,7 @@
       "summary": "函数 _label_value，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5124,9 +4844,7 @@
       "summary": "函数 _complete_training_rows，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5142,9 +4860,7 @@
       "summary": "函数 _sigmoid，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5160,9 +4876,7 @@
       "summary": "函数 _fit_logistic，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5178,9 +4892,7 @@
       "summary": "函数 _predict，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5196,9 +4908,7 @@
       "summary": "函数 _roc_auc，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5214,9 +4924,7 @@
       "summary": "函数 _pr_auc，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5232,9 +4940,7 @@
       "summary": "函数 _calibration_table，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5250,9 +4956,7 @@
       "summary": "函数 _prediction_metrics，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5268,9 +4972,7 @@
       "summary": "函数 _percentile，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5286,9 +4988,7 @@
       "summary": "函数 _split_rows，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5304,9 +5004,7 @@
       "summary": "函数 _random_predictions，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5322,9 +5020,7 @@
       "summary": "函数 _baseline_features，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5340,9 +5036,7 @@
       "summary": "函数 _fit_baseline，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5358,9 +5052,7 @@
       "summary": "函数 _baseline_predictions，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5376,9 +5068,7 @@
       "summary": "函数 _monotonicity，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5394,9 +5084,7 @@
       "summary": "函数 _fit_set_report，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5412,9 +5100,7 @@
       "summary": "函数 _ablation_report，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5430,11 +5116,9 @@
       "summary": "函数 calibrate_profit_window_probability，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         891,
         973
@@ -5448,9 +5132,7 @@
       "summary": "函数 evaluate_replay，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5466,9 +5148,7 @@
       "summary": "函数 evaluate_feature_groups，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5484,9 +5164,7 @@
       "summary": "函数 build_alpha_report，位于 xiaogu_horizon_evaluation.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5499,10 +5177,10 @@
       "type": "file",
       "name": "xiaogu_portfolio_decision.py",
       "filePath": "xiaogu_portfolio_decision.py",
-      "summary": "当前文件：xiaogu_portfolio_decision.py；状态：modified。 函数 4。",
+      "summary": "唯一 Decision。持仓状态 FLAT/LONG，动作 BUY/HOLD/REDUCE/SELL；T+5 必须 SELL/CLOSED。 符号 9。",
       "tags": [
         "xiaogu",
-        "status:modified",
+        "production",
         "code"
       ],
       "complexity": "moderate"
@@ -5515,9 +5193,7 @@
       "summary": "函数 _decision_id，位于 xiaogu_portfolio_decision.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5533,9 +5209,7 @@
       "summary": "函数 _blockers，位于 xiaogu_portfolio_decision.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5551,9 +5225,7 @@
       "summary": "函数 _exit_reason，位于 xiaogu_portfolio_decision.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5569,11 +5241,9 @@
       "summary": "函数 evaluate_candidate_bundle，位于 xiaogu_portfolio_decision.py。",
       "tags": [
         "xiaogu",
-        "status:modified",
-        "code",
-        "functions"
+        "function"
       ],
-      "complexity": "complex",
+      "complexity": "moderate",
       "lineRange": [
         88,
         223
@@ -5584,13 +5254,13 @@
       "type": "file",
       "name": "xiaogu_research_context.py",
       "filePath": "xiaogu_research_context.py",
-      "summary": "当前文件：xiaogu_research_context.py；状态：tracked。 函数 10。",
+      "summary": "研究上下文。Serenity/Buffett/UZI/Contradiction 只提供证据，不发 BUY/RANK。 符号 12。",
       "tags": [
         "xiaogu",
-        "status:tracked",
+        "production",
         "code"
       ],
-      "complexity": "complex"
+      "complexity": "moderate"
     },
     {
       "id": "function:xiaogu_research_context.py:_number",
@@ -5600,9 +5270,7 @@
       "summary": "函数 _number，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5618,9 +5286,7 @@
       "summary": "函数 _context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5636,9 +5302,7 @@
       "summary": "函数 build_serenity_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5654,9 +5318,7 @@
       "summary": "函数 build_buffett_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5672,9 +5334,7 @@
       "summary": "函数 build_uzi_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5690,9 +5350,7 @@
       "summary": "函数 build_supply_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5708,9 +5366,7 @@
       "summary": "函数 build_pricing_gap_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5726,9 +5382,7 @@
       "summary": "函数 build_future_buyer_map，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5744,9 +5398,7 @@
       "summary": "函数 build_tradingagents_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -5762,9 +5414,7 @@
       "summary": "函数 build_integrated_research_context，位于 xiaogu_research_context.py。",
       "tags": [
         "xiaogu",
-        "status:tracked",
-        "code",
-        "functions"
+        "function"
       ],
       "complexity": "moderate",
       "lineRange": [
@@ -6067,6 +5717,1206 @@
         113,
         116
       ]
+    },
+    {
+      "id": "function:xiaogu_forward_runner.py:BASE",
+      "type": "function",
+      "name": "BASE",
+      "filePath": "xiaogu_forward_runner.py",
+      "summary": "函数 BASE，位于 xiaogu_forward_runner.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_runner.py:RECORDABLE_ACTIONS",
+      "type": "function",
+      "name": "RECORDABLE_ACTIONS",
+      "filePath": "xiaogu_forward_runner.py",
+      "summary": "函数 RECORDABLE_ACTIONS，位于 xiaogu_forward_runner.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_runner.py:PRODUCTION_MODES",
+      "type": "function",
+      "name": "PRODUCTION_MODES",
+      "filePath": "xiaogu_forward_runner.py",
+      "summary": "函数 PRODUCTION_MODES，位于 xiaogu_forward_runner.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_runner.py:_parse_clock",
+      "type": "function",
+      "name": "_parse_clock",
+      "filePath": "xiaogu_forward_runner.py",
+      "summary": "函数 _parse_clock，位于 xiaogu_forward_runner.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:FUTURE_FIELD_PATTERNS",
+      "type": "function",
+      "name": "FUTURE_FIELD_PATTERNS",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 FUTURE_FIELD_PATTERNS，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:REGISTERED_PRODUCTION_SOURCES",
+      "type": "function",
+      "name": "REGISTERED_PRODUCTION_SOURCES",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 REGISTERED_PRODUCTION_SOURCES，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:SCHEMA_VERSION",
+      "type": "function",
+      "name": "SCHEMA_VERSION",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 SCHEMA_VERSION，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:SOURCE_VERSION",
+      "type": "function",
+      "name": "SOURCE_VERSION",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 SOURCE_VERSION，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:MAX_STALENESS",
+      "type": "function",
+      "name": "MAX_STALENESS",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 MAX_STALENESS，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:STALE_DATA",
+      "type": "function",
+      "name": "STALE_DATA",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 STALE_DATA，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:REQUIRED_CANONICAL_FIELDS",
+      "type": "function",
+      "name": "REQUIRED_CANONICAL_FIELDS",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 REQUIRED_CANONICAL_FIELDS，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_TRUST_TOKEN",
+      "type": "function",
+      "name": "_TRUST_TOKEN",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _TRUST_TOKEN，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:RawSnapshot",
+      "type": "function",
+      "name": "RawSnapshot",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 RawSnapshot，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:CanonicalSnapshot",
+      "type": "function",
+      "name": "CanonicalSnapshot",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 CanonicalSnapshot，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_parse_timestamp",
+      "type": "function",
+      "name": "_parse_timestamp",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _parse_timestamp，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_assert_time_order",
+      "type": "function",
+      "name": "_assert_time_order",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _assert_time_order，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:snapshot_age",
+      "type": "function",
+      "name": "snapshot_age",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 snapshot_age，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:production_decision_clock",
+      "type": "function",
+      "name": "production_decision_clock",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 production_decision_clock，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:select_canonical_snapshot",
+      "type": "function",
+      "name": "select_canonical_snapshot",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 select_canonical_snapshot，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_sha256",
+      "type": "function",
+      "name": "_sha256",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _sha256，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_serialized_canonical",
+      "type": "function",
+      "name": "_serialized_canonical",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _serialized_canonical，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_build_payload",
+      "type": "function",
+      "name": "_build_payload",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _build_payload，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:_validate_required",
+      "type": "function",
+      "name": "_validate_required",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 _validate_required，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:validate_and_build_canonical_snapshot",
+      "type": "function",
+      "name": "validate_and_build_canonical_snapshot",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 validate_and_build_canonical_snapshot，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:assert_production_provenance",
+      "type": "function",
+      "name": "assert_production_provenance",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 assert_production_provenance，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:validate_production_provenance",
+      "type": "function",
+      "name": "validate_production_provenance",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 validate_production_provenance，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_snapshot.py:normalize_snapshot",
+      "type": "function",
+      "name": "normalize_snapshot",
+      "filePath": "xiaogu_forward_snapshot.py",
+      "summary": "函数 normalize_snapshot，位于 xiaogu_forward_snapshot.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:engine",
+      "type": "function",
+      "name": "engine",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 engine，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:ensure_production_schema",
+      "type": "function",
+      "name": "ensure_production_schema",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 ensure_production_schema，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:verify_persisted_snapshot",
+      "type": "function",
+      "name": "verify_persisted_snapshot",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 verify_persisted_snapshot，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
+      "type": "function",
+      "name": "fetch_persisted_canonical_snapshots",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 fetch_persisted_canonical_snapshots，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_table_columns",
+      "type": "function",
+      "name": "_table_columns",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 _table_columns，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_open_positions",
+      "type": "function",
+      "name": "fetch_open_positions",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 fetch_open_positions，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_position_outcome",
+      "type": "function",
+      "name": "fetch_position_outcome",
+      "filePath": "xiaogu_db.py",
+      "summary": "函数 fetch_position_outcome，位于 xiaogu_db.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_features.py:FEATURE_GROUPS",
+      "type": "function",
+      "name": "FEATURE_GROUPS",
+      "filePath": "xiaogu_forward_features.py",
+      "summary": "函数 FEATURE_GROUPS，位于 xiaogu_forward_features.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_features.py:DIRECT_EVIDENCE_FAMILIES",
+      "type": "function",
+      "name": "DIRECT_EVIDENCE_FAMILIES",
+      "filePath": "xiaogu_forward_features.py",
+      "summary": "函数 DIRECT_EVIDENCE_FAMILIES，位于 xiaogu_forward_features.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_features.py:_event_id",
+      "type": "function",
+      "name": "_event_id",
+      "filePath": "xiaogu_forward_features.py",
+      "summary": "函数 _event_id，位于 xiaogu_forward_features.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_features.py:_evidence",
+      "type": "function",
+      "name": "_evidence",
+      "filePath": "xiaogu_forward_features.py",
+      "summary": "函数 _evidence，位于 xiaogu_forward_features.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:MODEL_ID",
+      "type": "function",
+      "name": "MODEL_ID",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 MODEL_ID，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:FEATURE_VERSION",
+      "type": "function",
+      "name": "FEATURE_VERSION",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 FEATURE_VERSION，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:PROFIT_WINDOW_DAYS",
+      "type": "function",
+      "name": "PROFIT_WINDOW_DAYS",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 PROFIT_WINDOW_DAYS，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:CANONICAL_COST_MODEL",
+      "type": "function",
+      "name": "CANONICAL_COST_MODEL",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 CANONICAL_COST_MODEL，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:DEFAULT_COST_RATE",
+      "type": "function",
+      "name": "DEFAULT_COST_RATE",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 DEFAULT_COST_RATE，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:DEFAULT_PROFIT_TARGET",
+      "type": "function",
+      "name": "DEFAULT_PROFIT_TARGET",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 DEFAULT_PROFIT_TARGET，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:CALIBRATION_PATH",
+      "type": "function",
+      "name": "CALIBRATION_PATH",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 CALIBRATION_PATH，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_core_alpha.py:_direct_evidence_items",
+      "type": "function",
+      "name": "_direct_evidence_items",
+      "filePath": "xiaogu_core_alpha.py",
+      "summary": "函数 _direct_evidence_items，位于 xiaogu_core_alpha.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_portfolio_decision.py:PORTFOLIO_STATES",
+      "type": "function",
+      "name": "PORTFOLIO_STATES",
+      "filePath": "xiaogu_portfolio_decision.py",
+      "summary": "函数 PORTFOLIO_STATES，位于 xiaogu_portfolio_decision.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_portfolio_decision.py:TRADE_ACTIONS",
+      "type": "function",
+      "name": "TRADE_ACTIONS",
+      "filePath": "xiaogu_portfolio_decision.py",
+      "summary": "函数 TRADE_ACTIONS，位于 xiaogu_portfolio_decision.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_portfolio_decision.py:POSITION_STATES",
+      "type": "function",
+      "name": "POSITION_STATES",
+      "filePath": "xiaogu_portfolio_decision.py",
+      "summary": "函数 POSITION_STATES，位于 xiaogu_portfolio_decision.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_portfolio_decision.py:HELD_ACTIONS",
+      "type": "function",
+      "name": "HELD_ACTIONS",
+      "filePath": "xiaogu_portfolio_decision.py",
+      "summary": "函数 HELD_ACTIONS，位于 xiaogu_portfolio_decision.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_portfolio_decision.py:MAX_HOLDING_DAYS",
+      "type": "function",
+      "name": "MAX_HOLDING_DAYS",
+      "filePath": "xiaogu_portfolio_decision.py",
+      "summary": "函数 MAX_HOLDING_DAYS，位于 xiaogu_portfolio_decision.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:BASE",
+      "type": "function",
+      "name": "BASE",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 BASE，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:RULE_FREEZE",
+      "type": "function",
+      "name": "RULE_FREEZE",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 RULE_FREEZE，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:FORWARD_LEDGER",
+      "type": "function",
+      "name": "FORWARD_LEDGER",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 FORWARD_LEDGER，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:SNAPSHOT_ROOT",
+      "type": "function",
+      "name": "SNAPSHOT_ROOT",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 SNAPSHOT_ROOT，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:RECORDABLE_DECISIONS",
+      "type": "function",
+      "name": "RECORDABLE_DECISIONS",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 RECORDABLE_DECISIONS，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:VALID_DECISIONS",
+      "type": "function",
+      "name": "VALID_DECISIONS",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 VALID_DECISIONS，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:LOCKED_AT_GENERATION",
+      "type": "function",
+      "name": "LOCKED_AT_GENERATION",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 LOCKED_AT_GENERATION，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_paper_recorder_v0_1.py:PENDING_OUTCOME_FIELDS",
+      "type": "function",
+      "name": "PENDING_OUTCOME_FIELDS",
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "summary": "函数 PENDING_OUTCOME_FIELDS，位于 xiaogu_forward_paper_recorder_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:BASE",
+      "type": "function",
+      "name": "BASE",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 BASE，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:FORWARD_LEDGER",
+      "type": "function",
+      "name": "FORWARD_LEDGER",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 FORWARD_LEDGER，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:EASTMONEY_KLINE_ENDPOINT",
+      "type": "function",
+      "name": "EASTMONEY_KLINE_ENDPOINT",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 EASTMONEY_KLINE_ENDPOINT，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:EASTMONEY_KLINE_FIELDS",
+      "type": "function",
+      "name": "EASTMONEY_KLINE_FIELDS",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 EASTMONEY_KLINE_FIELDS，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:PRICE_BASIS",
+      "type": "function",
+      "name": "PRICE_BASIS",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 PRICE_BASIS，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:ENTRY_EXECUTION_MODE",
+      "type": "function",
+      "name": "ENTRY_EXECUTION_MODE",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 ENTRY_EXECUTION_MODE，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:DEFAULT_EXECUTION_COST_RATE",
+      "type": "function",
+      "name": "DEFAULT_EXECUTION_COST_RATE",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 DEFAULT_EXECUTION_COST_RATE，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:PROFIT_WINDOW_TARGET",
+      "type": "function",
+      "name": "PROFIT_WINDOW_TARGET",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 PROFIT_WINDOW_TARGET，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:EVALUATION_DAYS",
+      "type": "function",
+      "name": "EVALUATION_DAYS",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 EVALUATION_DAYS，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_forward_result_filler_v0_1.py:REALIZABILITY_LEVEL",
+      "type": "function",
+      "name": "REALIZABILITY_LEVEL",
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "summary": "函数 REALIZABILITY_LEVEL，位于 xiaogu_forward_result_filler_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_research_context.py:build_contradiction_context",
+      "type": "function",
+      "name": "build_contradiction_context",
+      "filePath": "xiaogu_research_context.py",
+      "summary": "函数 build_contradiction_context，位于 xiaogu_research_context.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_research_context.py:build_research_context",
+      "type": "function",
+      "name": "build_research_context",
+      "filePath": "xiaogu_research_context.py",
+      "summary": "函数 build_research_context，位于 xiaogu_research_context.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:HISTORICAL_SNAPSHOT_VERSION",
+      "type": "function",
+      "name": "HISTORICAL_SNAPSHOT_VERSION",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 HISTORICAL_SNAPSHOT_VERSION，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:HISTORICAL_TARGET_VERSION",
+      "type": "function",
+      "name": "HISTORICAL_TARGET_VERSION",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 HISTORICAL_TARGET_VERSION，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:MODEL_VERSION",
+      "type": "function",
+      "name": "MODEL_VERSION",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 MODEL_VERSION，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:TARGET_QUALITY",
+      "type": "function",
+      "name": "TARGET_QUALITY",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 TARGET_QUALITY，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:NON_INPUT_KEY_MARKERS",
+      "type": "function",
+      "name": "NON_INPUT_KEY_MARKERS",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 NON_INPUT_KEY_MARKERS，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:DEFAULT_HISTORICAL_ROOT",
+      "type": "function",
+      "name": "DEFAULT_HISTORICAL_ROOT",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 DEFAULT_HISTORICAL_ROOT，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:CONFIG_PATH",
+      "type": "function",
+      "name": "CONFIG_PATH",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 CONFIG_PATH，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:CONFIG_HASH",
+      "type": "function",
+      "name": "CONFIG_HASH",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 CONFIG_HASH，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:DEFAULT_FUTURE_BAR_CACHE",
+      "type": "function",
+      "name": "DEFAULT_FUTURE_BAR_CACHE",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 DEFAULT_FUTURE_BAR_CACHE，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_backtest_v0_1.py:DEFAULT_CALIBRATION_ARTIFACT",
+      "type": "function",
+      "name": "DEFAULT_CALIBRATION_ARTIFACT",
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "summary": "函数 DEFAULT_CALIBRATION_ARTIFACT，位于 xiaogu_backtest_v0_1.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:HORIZONS",
+      "type": "function",
+      "name": "HORIZONS",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 HORIZONS，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:HISTORICAL_VALIDATION_HORIZONS",
+      "type": "function",
+      "name": "HISTORICAL_VALIDATION_HORIZONS",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 HISTORICAL_VALIDATION_HORIZONS，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_TARGET_COVERAGE",
+      "type": "function",
+      "name": "MIN_TARGET_COVERAGE",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_TARGET_COVERAGE，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:PROFIT_WINDOW_TARGET",
+      "type": "function",
+      "name": "PROFIT_WINDOW_TARGET",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 PROFIT_WINDOW_TARGET，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_CALIBRATION_SAMPLES",
+      "type": "function",
+      "name": "MIN_CALIBRATION_SAMPLES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_CALIBRATION_SAMPLES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_SPLIT_SAMPLES",
+      "type": "function",
+      "name": "MIN_SPLIT_SAMPLES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_SPLIT_SAMPLES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_PROBABILITY_STD",
+      "type": "function",
+      "name": "MIN_PROBABILITY_STD",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_PROBABILITY_STD，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_PROBABILITY_RANGE",
+      "type": "function",
+      "name": "MIN_PROBABILITY_RANGE",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_PROBABILITY_RANGE，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MIN_TOP_DECILE_DELTA",
+      "type": "function",
+      "name": "MIN_TOP_DECILE_DELTA",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MIN_TOP_DECILE_DELTA，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:CORE_ALPHA_FEATURES",
+      "type": "function",
+      "name": "CORE_ALPHA_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 CORE_ALPHA_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:PRODUCTION_FEATURES",
+      "type": "function",
+      "name": "PRODUCTION_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 PRODUCTION_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:PRICE_MARKET_FEATURES",
+      "type": "function",
+      "name": "PRICE_MARKET_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 PRICE_MARKET_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:CAPITAL_FEATURES",
+      "type": "function",
+      "name": "CAPITAL_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 CAPITAL_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:CAPITAL_BEHAVIOR_FEATURES",
+      "type": "function",
+      "name": "CAPITAL_BEHAVIOR_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 CAPITAL_BEHAVIOR_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:FEATURE_FAMILIES",
+      "type": "function",
+      "name": "FEATURE_FAMILIES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 FEATURE_FAMILIES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:CUMULATIVE_ABLATION_FEATURES",
+      "type": "function",
+      "name": "CUMULATIVE_ABLATION_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 CUMULATIVE_ABLATION_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:SINGLE_FAMILY_ABLATION_FEATURES",
+      "type": "function",
+      "name": "SINGLE_FAMILY_ABLATION_FEATURES",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 SINGLE_FAMILY_ABLATION_FEATURES，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:REPRICING_ENCODING",
+      "type": "function",
+      "name": "REPRICING_ENCODING",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 REPRICING_ENCODING，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_horizon_evaluation.py:MARKET_ENCODING",
+      "type": "function",
+      "name": "MARKET_ENCODING",
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "summary": "函数 MARKET_ENCODING，位于 xiaogu_horizon_evaluation.py。",
+      "tags": [
+        "xiaogu",
+        "function"
+      ],
+      "complexity": "moderate"
     }
   ],
   "edges": [
@@ -8171,13 +9021,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:scrapy_scanner/runner_v2.py:stock_codes_from_row",
-      "target": "function:scrapy_scanner/runner_v2.py:normalize_stock_code",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
       "target": "function:scrapy_scanner/runner_v2.py:_store_diagnostic",
       "type": "calls",
@@ -8263,48 +9106,6 @@
     },
     {
       "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "target": "function:scrapy_scanner/runner_v2.py:_by_symbol",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
       "target": "function:scrapy_scanner/runner_v2.py:normalize_stock_code",
       "type": "calls",
       "direction": "forward",
@@ -8339,118 +9140,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:scrapy_scanner/runner_v2.py:_collect",
-      "target": "function:scrapy_scanner/runner_v2.py:result_item_count",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:_collect",
-      "target": "function:scrapy_scanner/runner_v2.py:result_item_count",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_collect",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:scrapy_scanner/runner_v2.py:_collect",
       "type": "calls",
@@ -8480,34 +9169,6 @@
     },
     {
       "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:_write_jsonl",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
       "type": "calls",
       "direction": "forward",
@@ -8516,55 +9177,6 @@
     {
       "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_datacenter",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:fetch_report_list",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -8614,13 +9226,6 @@
     {
       "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:xiaogu_db.py:record_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:scrapy_scanner/runner_v2.py:result_item_count",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -8739,20 +9344,6 @@
     },
     {
       "source": "file:tests/test_data_contract.py",
-      "target": "file:xiaogu_forward_paper_recorder_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:tests/test_data_contract.py",
-      "target": "file:xiaogu_forward_paper_recorder_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:tests/test_data_contract.py",
       "target": "file:xiaogu_forward_result_filler_v0_1.py",
       "type": "imports",
       "direction": "forward",
@@ -8775,27 +9366,6 @@
     {
       "source": "function:tests/test_data_contract.py:test_snapshot_has_no_future_fields_and_features_are_measurements",
       "target": "function:xiaogu_forward_features.py:build_feature_vector",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_snapshot_has_no_future_fields_and_features_are_measurements",
-      "target": "function:xiaogu_forward_snapshot.py:canonical_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_snapshot_has_no_future_fields_and_features_are_measurements",
-      "target": "function:xiaogu_forward_snapshot.py:canonical_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_snapshot_has_no_future_fields_and_features_are_measurements",
-      "target": "function:xiaogu_forward_snapshot.py:canonical_snapshot",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -8956,20 +9526,6 @@
     },
     {
       "source": "function:tests/test_data_contract.py:test_api_exposes_current_state_and_trade_views",
-      "target": "function:xiaogu_api.py:trade",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_api_exposes_current_state_and_trade_views",
-      "target": "function:xiaogu_api.py:trades",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_api_exposes_current_state_and_trade_views",
       "target": "function:xiaogu_api.py:current_state",
       "type": "calls",
       "direction": "forward",
@@ -9019,27 +9575,6 @@
     },
     {
       "source": "function:tests/test_database_historical_replay.py:test_entry_conflict_and_missing_metadata_are_explicit",
-      "target": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_entry_conflict_and_missing_metadata_are_explicit",
-      "target": "function:tests/test_database_historical_replay.py:_return_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_entry_conflict_and_missing_metadata_are_explicit",
-      "target": "function:tests/test_database_historical_replay.py:_return_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_entry_conflict_and_missing_metadata_are_explicit",
       "target": "function:tests/test_database_historical_replay.py:_return_row",
       "type": "calls",
       "direction": "forward",
@@ -9048,34 +9583,6 @@
     {
       "source": "function:tests/test_database_historical_replay.py:test_duplicate_targets_merge_when_equal_and_conflict_when_not",
       "target": "function:xiaogu_backtest_v0_1.py:_return_targets",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_duplicate_targets_merge_when_equal_and_conflict_when_not",
-      "target": "function:xiaogu_backtest_v0_1.py:_return_targets",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_duplicate_targets_merge_when_equal_and_conflict_when_not",
-      "target": "function:tests/test_database_historical_replay.py:_return_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_duplicate_targets_merge_when_equal_and_conflict_when_not",
-      "target": "function:tests/test_database_historical_replay.py:_return_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_database_historical_replay.py:test_duplicate_targets_merge_when_equal_and_conflict_when_not",
-      "target": "function:tests/test_database_historical_replay.py:_return_row",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -9291,13 +9798,6 @@
       "weight": 0.7
     },
     {
-      "source": "file:tests/test_production_decision.py",
-      "target": "file:xiaogu_core_alpha.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
       "source": "function:tests/test_production_decision.py:test_only_portfolio_owner_emits_state",
       "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
       "type": "calls",
@@ -9319,34 +9819,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:tests/test_production_decision.py:test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_production_decision.py:test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_production_decision.py:test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_production_decision.py:test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:tests/test_production_decision.py:test_unverified_profit_window_cannot_enable_buy",
       "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
       "type": "calls",
@@ -9391,20 +9863,6 @@
     {
       "source": "function:tests/test_production_decision.py:test_capital_convergence_exposes_formal_levels_and_conflict",
       "target": "function:tests/test_production_decision.py:_repricing_ready_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_production_decision.py:test_capital_convergence_exposes_formal_levels_and_conflict",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_production_decision.py:test_capital_convergence_exposes_formal_levels_and_conflict",
-      "target": "function:xiaogu_portfolio_decision.py:evaluate_candidate_bundle",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -9471,13 +9929,6 @@
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
-    },
-    {
-      "source": "file:tests/test_return_calculation.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
     },
     {
       "source": "file:tests/test_return_calculation.py",
@@ -9489,13 +9940,6 @@
     {
       "source": "file:tests/test_return_calculation.py",
       "target": "file:xiaogu_db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:tests/test_return_calculation.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
@@ -9578,13 +10022,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:tests/test_return_calculation.py:test_pending_filler_appends_only_newly_available_outcomes",
-      "target": "function:xiaogu_forward_result_filler_v0_1.py:fill_pending_results",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "file:xiaogu_api.py",
       "target": "file:xiaogu_utils.py",
       "type": "imports",
@@ -9622,13 +10059,6 @@
     {
       "source": "function:xiaogu_api.py:current_state",
       "target": "function:xiaogu_api.py:_decision_records",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_api.py:current_state",
-      "target": "function:xiaogu_api.py:_production_view",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -9726,34 +10156,6 @@
     },
     {
       "source": "file:xiaogu_backtest_v0_1.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_backtest_v0_1.py",
-      "target": "file:xiaogu_db.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_backtest_v0_1.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_backtest_v0_1.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_backtest_v0_1.py",
       "target": "file:xiaogu_db.py",
       "type": "imports",
       "direction": "forward",
@@ -9782,91 +10184,7 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
       "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -9881,104 +10199,6 @@
     {
       "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
       "target": "function:xiaogu_backtest_v0_1.py:_strip_non_input_fields",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_strip_non_input_fields",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_strip_non_input_fields",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_strip_non_input_fields",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_compact_snapshot_source",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_pick_snapshot",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_json_row",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10005,29 +10225,8 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_backtest_v0_1.py:_return_targets",
       "target": "function:xiaogu_backtest_v0_1.py:_json_row",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_return_targets",
-      "target": "function:xiaogu_backtest_v0_1.py:_as_dict",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10062,48 +10261,6 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_materialized_asset_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_materialized_asset_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_ranges",
       "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
       "type": "calls",
       "direction": "forward",
@@ -10112,41 +10269,6 @@
     {
       "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
       "target": "function:xiaogu_backtest_v0_1.py:_materialized_asset_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
-      "target": "function:xiaogu_backtest_v0_1.py:_materialized_asset_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
-      "target": "function:xiaogu_backtest_v0_1.py:_materialized_asset_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:_database_linked_decision_windows",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10216,27 +10338,6 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
-      "target": "function:xiaogu_backtest_v0_1.py:_bars_cover_five_days",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
-      "target": "function:xiaogu_backtest_v0_1.py:_bars_cover_five_days",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
-      "target": "function:xiaogu_backtest_v0_1.py:_cache_write",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
       "target": "function:xiaogu_db.py:init_db",
       "type": "calls",
       "direction": "forward",
@@ -10279,13 +10380,6 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
       "target": "function:xiaogu_backtest_v0_1.py:_historical_decision_id",
       "type": "calls",
       "direction": "forward",
@@ -10294,13 +10388,6 @@
     {
       "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
       "target": "function:xiaogu_backtest_v0_1.py:_entry_audit",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_as_dict",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10335,35 +10422,7 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
       "target": "function:xiaogu_backtest_v0_1.py:_merge_missing_future_targets",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10378,20 +10437,6 @@
     {
       "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
       "target": "function:xiaogu_forward_runner.py:run_production_decision",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:build_historical_5d_profit_window_dataset",
-      "target": "function:xiaogu_backtest_v0_1.py:_relation_key",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10545,13 +10590,6 @@
     },
     {
       "source": "function:xiaogu_backtest_v0_1.py:replay_historical_root",
-      "target": "function:xiaogu_backtest_v0_1.py:historical_replay",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:replay_historical_root",
       "target": "function:xiaogu_backtest_v0_1.py:canonical_historical_snapshot",
       "type": "calls",
       "direction": "forward",
@@ -10609,13 +10647,6 @@
     {
       "source": "function:xiaogu_core_alpha.py:build_core_alpha",
       "target": "function:xiaogu_core_alpha.py:_calibrated_probability",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_core_alpha.py:build_core_alpha",
-      "target": "function:xiaogu_core_alpha.py:_research_score",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -10712,13 +10743,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_forward_bundle_io.py:load_latest_snapshot_bundle",
-      "target": "function:xiaogu_forward_bundle_io.py:canonical_rows",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_forward_eligibility.py:candidate_universe",
       "target": "function:xiaogu_forward_eligibility.py:cheap_eligibility_blockers",
       "type": "calls",
@@ -10783,13 +10807,6 @@
     },
     {
       "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
-      "target": "file:xiaogu_forward_result_filler_v0_1.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
       "target": "file:xiaogu_db.py",
       "type": "imports",
       "direction": "forward",
@@ -10831,125 +10848,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:write_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
       "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_memory_symbol",
       "type": "calls",
@@ -10965,35 +10863,7 @@
     },
     {
       "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
       "target": "function:xiaogu_forward_paper_recorder_v0_1.py:memory_root",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:memory_root",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:memory_root",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_paper_recorder_v0_1.py:update_trade_memory",
-      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:_markdown",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -11167,20 +11037,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_forward_result_filler_v0_1.py:historical_entry_contract",
-      "target": "function:xiaogu_forward_result_filler_v0_1.py:_parse_timestamp",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_result_filler_v0_1.py:entry_contract_from_record",
-      "target": "function:xiaogu_forward_result_filler_v0_1.py:historical_entry_contract",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_forward_result_filler_v0_1.py:entry_contract_from_record",
       "target": "function:xiaogu_forward_result_filler_v0_1.py:historical_entry_contract",
       "type": "calls",
@@ -11322,13 +11178,6 @@
     },
     {
       "source": "function:xiaogu_forward_result_filler_v0_1.py:fill_pending_results",
-      "target": "function:xiaogu_utils.py:decision_record_id",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_forward_result_filler_v0_1.py:fill_pending_results",
       "target": "function:xiaogu_forward_result_filler_v0_1.py:_persist_and_append_result",
       "type": "calls",
       "direction": "forward",
@@ -11379,13 +11228,6 @@
     {
       "source": "file:xiaogu_forward_runner.py",
       "target": "file:xiaogu_portfolio_decision.py",
-      "type": "imports",
-      "direction": "forward",
-      "weight": 0.7
-    },
-    {
-      "source": "file:xiaogu_forward_runner.py",
-      "target": "file:xiaogu_forward_paper_recorder_v0_1.py",
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
@@ -11517,20 +11359,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_forward_snapshot.py:canonical_snapshot",
-      "target": "function:xiaogu_forward_snapshot.py:_assert_visible",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_day_return",
-      "target": "function:xiaogu_horizon_evaluation.py:_label",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_horizon_evaluation.py:_day_return",
       "target": "function:xiaogu_horizon_evaluation.py:_label",
       "type": "calls",
@@ -11545,28 +11373,7 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_horizon_evaluation.py:_outcome_profit",
-      "target": "function:xiaogu_horizon_evaluation.py:_label",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_horizon_evaluation.py:_mfe",
-      "target": "function:xiaogu_horizon_evaluation.py:_label",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_mfe",
-      "target": "function:xiaogu_horizon_evaluation.py:_label",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_mae",
       "target": "function:xiaogu_horizon_evaluation.py:_label",
       "type": "calls",
       "direction": "forward",
@@ -11609,26 +11416,12 @@
     },
     {
       "source": "function:xiaogu_horizon_evaluation.py:target_quality_gate",
-      "target": "function:xiaogu_horizon_evaluation.py:_canonical_entry_present",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:target_quality_gate",
       "target": "function:xiaogu_horizon_evaluation.py:_day_return",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_horizon_evaluation.py:target_quality_gate",
-      "target": "function:xiaogu_horizon_evaluation.py:_day_ohlc_present",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_horizon_evaluation.py:_feature_value",
       "target": "function:xiaogu_horizon_evaluation.py:_alpha_payload",
       "type": "calls",
@@ -11645,13 +11438,6 @@
     {
       "source": "function:xiaogu_horizon_evaluation.py:_extra_feature_value",
       "target": "function:xiaogu_horizon_evaluation.py:_alpha_payload",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_extra_feature_value",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_payload",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -11686,13 +11472,6 @@
     },
     {
       "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_alpha_payload",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
       "target": "function:xiaogu_horizon_evaluation.py:_feature_payload",
       "type": "calls",
       "direction": "forward",
@@ -11701,55 +11480,6 @@
     {
       "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
       "target": "function:xiaogu_horizon_evaluation.py:_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_payload",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_extra_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_extra_feature_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_feature_value_present",
-      "target": "function:xiaogu_horizon_evaluation.py:_extra_feature_value",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -11805,35 +11535,7 @@
     },
     {
       "source": "function:xiaogu_horizon_evaluation.py:diagnose_features",
-      "target": "function:xiaogu_horizon_evaluation.py:_correlation",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:diagnose_features",
       "target": "function:xiaogu_horizon_evaluation.py:_feature_vector",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:diagnose_features",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_vector",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:diagnose_features",
-      "target": "function:xiaogu_horizon_evaluation.py:_feature_vector",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_probability_separation",
-      "target": "function:xiaogu_horizon_evaluation.py:_label_value",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -11883,13 +11585,6 @@
     {
       "source": "function:xiaogu_horizon_evaluation.py:_fit_logistic",
       "target": "function:xiaogu_horizon_evaluation.py:_sigmoid",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_fit_logistic",
-      "target": "function:xiaogu_horizon_evaluation.py:_label_value",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -12001,13 +11696,6 @@
     },
     {
       "source": "function:xiaogu_horizon_evaluation.py:_monotonicity",
-      "target": "function:xiaogu_horizon_evaluation.py:_outcome_profit",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_monotonicity",
       "target": "function:xiaogu_horizon_evaluation.py:_mae",
       "type": "calls",
       "direction": "forward",
@@ -12030,34 +11718,6 @@
     {
       "source": "function:xiaogu_horizon_evaluation.py:_fit_set_report",
       "target": "function:xiaogu_horizon_evaluation.py:_predict",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_fit_set_report",
-      "target": "function:xiaogu_horizon_evaluation.py:_predict",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_fit_set_report",
-      "target": "function:xiaogu_horizon_evaluation.py:_predict",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_fit_set_report",
-      "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:_fit_set_report",
-      "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -12113,34 +11773,6 @@
     },
     {
       "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
-      "target": "function:xiaogu_horizon_evaluation.py:_predict",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
-      "target": "function:xiaogu_horizon_evaluation.py:_predict",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
-      "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
-      "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
       "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
       "type": "calls",
       "direction": "forward",
@@ -12163,13 +11795,6 @@
     {
       "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
       "target": "function:xiaogu_horizon_evaluation.py:_fit_baseline",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_horizon_evaluation.py:calibrate_profit_window_probability",
-      "target": "function:xiaogu_horizon_evaluation.py:_prediction_metrics",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -12553,15 +12178,778 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_scheduler.py:job_horizon_evaluation",
-      "target": "function:xiaogu_scheduler.py:_run",
+      "source": "function:xiaogu_utils.py:decision_record_id",
+      "target": "function:xiaogu_utils.py:decision_symbol",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_utils.py:decision_record_id",
-      "target": "function:xiaogu_utils.py:decision_symbol",
+      "source": "file:xiaogu_forward_runner.py",
+      "target": "function:xiaogu_forward_runner.py:BASE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_runner.py",
+      "target": "function:xiaogu_forward_runner.py:RECORDABLE_ACTIONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_runner.py",
+      "target": "function:xiaogu_forward_runner.py:PRODUCTION_MODES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_runner.py",
+      "target": "function:xiaogu_forward_runner.py:_parse_clock",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:FUTURE_FIELD_PATTERNS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:REGISTERED_PRODUCTION_SOURCES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:SCHEMA_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:SOURCE_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:MAX_STALENESS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:STALE_DATA",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:REQUIRED_CANONICAL_FIELDS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_TRUST_TOKEN",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:RawSnapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:CanonicalSnapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_parse_timestamp",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_assert_time_order",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:snapshot_age",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:production_decision_clock",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:select_canonical_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_sha256",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_serialized_canonical",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_build_payload",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:_validate_required",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:validate_and_build_canonical_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:assert_production_provenance",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:validate_production_provenance",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_snapshot.py",
+      "target": "function:xiaogu_forward_snapshot.py:normalize_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:engine",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:ensure_production_schema",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:verify_persisted_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_table_columns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_open_positions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_position_outcome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_features.py",
+      "target": "function:xiaogu_forward_features.py:FEATURE_GROUPS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_features.py",
+      "target": "function:xiaogu_forward_features.py:DIRECT_EVIDENCE_FAMILIES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_features.py",
+      "target": "function:xiaogu_forward_features.py:_event_id",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_features.py",
+      "target": "function:xiaogu_forward_features.py:_evidence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:MODEL_ID",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:FEATURE_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:PROFIT_WINDOW_DAYS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:CANONICAL_COST_MODEL",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:DEFAULT_COST_RATE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:DEFAULT_PROFIT_TARGET",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:CALIBRATION_PATH",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_core_alpha.py",
+      "target": "function:xiaogu_core_alpha.py:_direct_evidence_items",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_portfolio_decision.py",
+      "target": "function:xiaogu_portfolio_decision.py:PORTFOLIO_STATES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_portfolio_decision.py",
+      "target": "function:xiaogu_portfolio_decision.py:TRADE_ACTIONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_portfolio_decision.py",
+      "target": "function:xiaogu_portfolio_decision.py:POSITION_STATES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_portfolio_decision.py",
+      "target": "function:xiaogu_portfolio_decision.py:HELD_ACTIONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_portfolio_decision.py",
+      "target": "function:xiaogu_portfolio_decision.py:MAX_HOLDING_DAYS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:BASE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:RULE_FREEZE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:FORWARD_LEDGER",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:SNAPSHOT_ROOT",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:RECORDABLE_DECISIONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:VALID_DECISIONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:LOCKED_AT_GENERATION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_paper_recorder_v0_1.py",
+      "target": "function:xiaogu_forward_paper_recorder_v0_1.py:PENDING_OUTCOME_FIELDS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:BASE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:FORWARD_LEDGER",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:EASTMONEY_KLINE_ENDPOINT",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:EASTMONEY_KLINE_FIELDS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:PRICE_BASIS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:ENTRY_EXECUTION_MODE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:DEFAULT_EXECUTION_COST_RATE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:PROFIT_WINDOW_TARGET",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:EVALUATION_DAYS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_forward_result_filler_v0_1.py",
+      "target": "function:xiaogu_forward_result_filler_v0_1.py:REALIZABILITY_LEVEL",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_research_context.py",
+      "target": "function:xiaogu_research_context.py:build_contradiction_context",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_research_context.py",
+      "target": "function:xiaogu_research_context.py:build_research_context",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:HISTORICAL_SNAPSHOT_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:HISTORICAL_TARGET_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:MODEL_VERSION",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:TARGET_QUALITY",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:NON_INPUT_KEY_MARKERS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:DEFAULT_HISTORICAL_ROOT",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:CONFIG_PATH",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:CONFIG_HASH",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:DEFAULT_FUTURE_BAR_CACHE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_backtest_v0_1.py",
+      "target": "function:xiaogu_backtest_v0_1.py:DEFAULT_CALIBRATION_ARTIFACT",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:HORIZONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:HISTORICAL_VALIDATION_HORIZONS",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_TARGET_COVERAGE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:PROFIT_WINDOW_TARGET",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_CALIBRATION_SAMPLES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_SPLIT_SAMPLES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_PROBABILITY_STD",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_PROBABILITY_RANGE",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MIN_TOP_DECILE_DELTA",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:CORE_ALPHA_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:PRODUCTION_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:PRICE_MARKET_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:CAPITAL_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:CAPITAL_BEHAVIOR_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:FEATURE_FAMILIES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:CUMULATIVE_ABLATION_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:SINGLE_FAMILY_ABLATION_FEATURES",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:REPRICING_ENCODING",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "file:xiaogu_horizon_evaluation.py",
+      "target": "function:xiaogu_horizon_evaluation.py:MARKET_ENCODING",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1.0
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:run_production_decision",
+      "target": "function:xiaogu_forward_snapshot.py:validate_and_build_canonical_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:run_production_decision",
+      "target": "function:xiaogu_db.py:verify_persisted_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:run_production_decision",
+      "target": "function:xiaogu_forward_snapshot.py:production_decision_clock",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:run_production_decision",
+      "target": "function:xiaogu_forward_snapshot.py:assert_production_provenance",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:main",
+      "target": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:main",
+      "target": "function:xiaogu_forward_snapshot.py:select_canonical_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:daily_position_review",
+      "target": "function:xiaogu_db.py:fetch_position_outcome",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_runner.py:daily_position_review",
+      "target": "function:xiaogu_forward_snapshot.py:select_canonical_snapshot",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_snapshot.py:assert_production_provenance",
+      "target": "function:xiaogu_forward_snapshot.py:production_decision_clock",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:xiaogu_forward_snapshot.py:assert_production_provenance",
+      "target": "function:xiaogu_forward_snapshot.py:snapshot_age",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8

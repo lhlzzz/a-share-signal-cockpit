@@ -1,0 +1,4886 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "19489f28fc4f9e1414691800d6a554175ce0ff43",
+  "generatedAt": "2026-08-29T04:15:37.370Z",
+  "files": {
+    ".codebase-memory/.gitattributes": {
+      "filePath": ".codebase-memory/.gitattributes",
+      "contentHash": "f0fb6249b3ab0d365dfc14ace70e78bc4f441575d1f9e44a0a6dcdafe7ce551e",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 4,
+      "hasStructuralAnalysis": false
+    },
+    ".codebase-memory/graph.db.zst": {
+      "filePath": ".codebase-memory/graph.db.zst",
+      "contentHash": "65a29b8841a0898f900cc42d45216f3fb1ab7738632fa8878e0720404d0af82c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2824,
+      "hasStructuralAnalysis": false
+    },
+    ".env.example": {
+      "filePath": ".env.example",
+      "contentHash": "47c52290f6a6d3b27584baa94d1cc076e24a8361cd90084fc3b1be9691882237",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 14,
+      "hasStructuralAnalysis": true
+    },
+    ".github/workflows/ci.yml": {
+      "filePath": ".github/workflows/ci.yml",
+      "contentHash": "23c1628f0ff1b4e464ab5f6075a93c5283949ad5c474e471eafba3399de9a87c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 25,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/.session-log.jsonl": {
+      "filePath": ".plan-enforcer/.session-log.jsonl",
+      "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 1,
+      "hasStructuralAnalysis": false
+    },
+    ".plan-enforcer/awareness.md": {
+      "filePath": ".plan-enforcer/awareness.md",
+      "contentHash": "8c64d8bb568024dc3e2fa4d4e14c5cfe5a65eee38b4166f36be6b96efdbcf746",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/combobulate.md": {
+      "filePath": ".plan-enforcer/combobulate.md",
+      "contentHash": "77d6b014e36dd1c2be701a865e498f95d779beebaf3bfaa83dc5b7dbd02be052",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/config.md": {
+      "filePath": ".plan-enforcer/config.md",
+      "contentHash": "fd248aaffcb83da58970cee859bc3f9800b44e201cfdda1d68eba22a2f2685e3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 8,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/discuss.md": {
+      "filePath": ".plan-enforcer/discuss.md",
+      "contentHash": "d405d66ad13900aad54e80fa6df0a75a3f5275cc70dc997406a4a16f7be37d2c",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 69,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/ledger.md": {
+      "filePath": ".plan-enforcer/ledger.md",
+      "contentHash": "57a237603d95c6f453f70348e7c8a18f3079e43e37bbc2a5d8f981ff84efdd86",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    ".plan-enforcer/statusline-state.json": {
+      "filePath": ".plan-enforcer/statusline-state.json",
+      "contentHash": "1262454267da24c4cba7510219a72026582f323cdab922278612b95ec6954661",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 19,
+      "hasStructuralAnalysis": true
+    },
+    ".skills/karpathy-daily.md": {
+      "filePath": ".skills/karpathy-daily.md",
+      "contentHash": "1d6d056f752f472c32bd13a047e4cd2bfef31b575c573210042fa44e297478ca",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 70,
+      "hasStructuralAnalysis": true
+    },
+    ".skills/karpathy-guidelines/SKILL.md": {
+      "filePath": ".skills/karpathy-guidelines/SKILL.md",
+      "contentHash": "6e22cc54cb02a5e98ae42d06d9d7292db0c1b43894831b32879beb0166b2aea7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/config.json": {
+      "filePath": ".understand-anything/config.json",
+      "contentHash": "311ddf92d118f86a5d7c395355e7b24505deef0771bde87ba87949170834d216",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 4,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/knowledge-graph.json": {
+      "filePath": ".understand-anything/knowledge-graph.json",
+      "contentHash": "13bda1344656fac15abe57a2e57914fff91debcac62d7edb36d7551d9ffc7f42",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 13108,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/meta.json": {
+      "filePath": ".understand-anything/meta.json",
+      "contentHash": "75056bf742bbf897b307b6e82bfd98f5d7a231e6a73acf52d5f1a6a15c7aea4b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 7,
+      "hasStructuralAnalysis": true
+    },
+    "AGENTS.md": {
+      "filePath": "AGENTS.md",
+      "contentHash": "2ab04cc69fb92f20375e24dfc7dea41402dc3b5a1a364989aa5a92d9bbf52022",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 173,
+      "hasStructuralAnalysis": true
+    },
+    "CLAUDE.md": {
+      "filePath": "CLAUDE.md",
+      "contentHash": "da81688786ff26fe687c23e7914baf1b26275925fa6d10ef1e9e246c11e8cf2a",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 68,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "92ae663f3a7182f1aeeb99a4665cc5da2731dc64a17b3a380d7d79d503a26ff0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 64,
+      "hasStructuralAnalysis": true
+    },
+    "daily_pipeline.sh": {
+      "filePath": "daily_pipeline.sh",
+      "contentHash": "81150695cf13846fe09cb9ef493a3145b18d23e9c8c55e03bc01c7118cae96c5",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "data/research/profit_window_calibration.json": {
+      "filePath": "data/research/profit_window_calibration.json",
+      "contentHash": "298855440878eca8ea3d50339958bc1a03357863d5d2cc48b5bde1e426df12bf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 263,
+      "hasStructuralAnalysis": true
+    },
+    "docs/plans/2026-08-26-final-repricing-rebuild.md": {
+      "filePath": "docs/plans/2026-08-26-final-repricing-rebuild.md",
+      "contentHash": "2a94ac16d1c247c85db631f55a78321f88e4edb760db7322d4e93c012f9dc238",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 33,
+      "hasStructuralAnalysis": true
+    },
+    "integrations/contradiction_adapter.py": {
+      "filePath": "integrations/contradiction_adapter.py",
+      "contentHash": "63a553f5c15304f83ea6f4bccabeec0e341315f89b2f09b63b479e5323a131a7",
+      "functions": [
+        {
+          "name": "integrate_research_context",
+          "params": [
+            "industry",
+            "company",
+            "capital",
+            "lineage_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 28
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        }
+      ],
+      "exports": [
+        "integrate_research_context"
+      ],
+      "totalLines": 37,
+      "hasStructuralAnalysis": true
+    },
+    "pytest.ini": {
+      "filePath": "pytest.ini",
+      "contentHash": "53463e99940e54805e650cd55c0698a17d348e09489a436c9fd149d8e1e2381d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 5,
+      "hasStructuralAnalysis": false
+    },
+    "requirements.txt": {
+      "filePath": "requirements.txt",
+      "contentHash": "2e2353f030ed6316bc4f62cc21ca7d4bdd13dca1fe3dd309c0ae16ebada559a0",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 7,
+      "hasStructuralAnalysis": false
+    },
+    "rule_freeze_v0_1.json": {
+      "filePath": "rule_freeze_v0_1.json",
+      "contentHash": "063767a03a23ef43c8c3dd4a63337050c1c8a26faad829956c274c3c62c53f8b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 123,
+      "hasStructuralAnalysis": true
+    },
+    "scrapy_scanner/__init__.py": {
+      "filePath": "scrapy_scanner/__init__.py",
+      "contentHash": "5b2dd99cfce451acd469e8e32bced7a6d4205cd5af7021e9493bffd6cec2ffe7",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 2,
+      "hasStructuralAnalysis": true
+    },
+    "scrapy_scanner/runner_v2.py": {
+      "filePath": "scrapy_scanner/runner_v2.py",
+      "contentHash": "c04ba600543351e00b3f762a8f625916ce3df25508b135812a2b7922f7afe3e5",
+      "functions": [
+        {
+          "name": "fnum",
+          "params": [
+            "value",
+            "default"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_json_payload",
+          "params": [
+            "text"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "api_get",
+          "params": [
+            "url",
+            "timeout"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "normalize_stock_code",
+          "params": [
+            "value"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "stock_codes_from_row",
+          "params": [
+            "row"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "result_item_count",
+          "params": [
+            "value"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_store_diagnostic",
+          "params": [
+            "diagnostics"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "fetch_paginated",
+          "params": [
+            "fs",
+            "page_size",
+            "fields",
+            "diagnostics"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "fetch_datacenter",
+          "params": [
+            "report_name",
+            "sort_column",
+            "page_size",
+            "extra_params",
+            "diagnostics"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "fetch_report_list",
+          "params": [
+            "query_type",
+            "begin_time",
+            "end_time",
+            "page_size",
+            "diagnostics"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "fetch_announcements",
+          "params": [
+            "page_size",
+            "diagnostics"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "fetch_news",
+          "params": [
+            "page_size",
+            "diagnostics"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_by_symbol",
+          "params": [
+            "rows"
+          ],
+          "returnType": "Dict[str, list[Dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "build_canonical_snapshots",
+          "params": [
+            "results",
+            "source_time"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "_write_jsonl",
+          "params": [
+            "path",
+            "rows"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "build_market_snapshot",
+          "params": [
+            "stocks",
+            "source_time"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_collect",
+          "params": [
+            "name",
+            "timings",
+            "fetcher",
+            "default"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 83
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timedelta"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Callable",
+            "Dict",
+            "Iterable"
+          ]
+        },
+        {
+          "source": "urllib.parse",
+          "specifiers": [
+            "urlencode"
+          ]
+        },
+        {
+          "source": "urllib.request",
+          "specifiers": [
+            "Request",
+            "urlopen"
+          ]
+        },
+        {
+          "source": "zoneinfo",
+          "specifiers": [
+            "ZoneInfo"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "attach_research_observations",
+            "canonical_snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "fnum",
+        "_json_payload",
+        "api_get",
+        "normalize_stock_code",
+        "stock_codes_from_row",
+        "result_item_count",
+        "_store_diagnostic",
+        "fetch_paginated",
+        "fetch_datacenter",
+        "fetch_report_list",
+        "fetch_announcements",
+        "fetch_news",
+        "_by_symbol",
+        "build_canonical_snapshots",
+        "_write_jsonl",
+        "build_market_snapshot",
+        "_collect",
+        "main"
+      ],
+      "totalLines": 433,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/agentmemory_daily.sh": {
+      "filePath": "scripts/agentmemory_daily.sh",
+      "contentHash": "55e8be25fc0866f518fd4e8eeda86e5712a1173aed78036ff928487de2d2b5b3",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 27,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/xiaogu_daily_health_check.py": {
+      "filePath": "scripts/xiaogu_daily_health_check.py",
+      "contentHash": "6e3686d8f23cc60950af680cf9333f246b0d83c1214439193afb636eb488ef13",
+      "functions": [
+        {
+          "name": "_text",
+          "params": [
+            "name"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_compile",
+          "params": [
+            "name"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_contains",
+          "params": [
+            "name"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "check_scanner_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "check_decision_owner",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "check_price_formation_features",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "check_horizon_outcomes",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "check_scheduler_outcome_job",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "check_pipeline_chain",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "check_rule_freeze",
+          "params": [],
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "check_ledger_readable",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 19
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "py_compile",
+          "specifiers": [
+            "py_compile"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        }
+      ],
+      "exports": [
+        "_text",
+        "_compile",
+        "_contains",
+        "check_scanner_contract",
+        "check_decision_owner",
+        "check_price_formation_features",
+        "check_horizon_outcomes",
+        "check_scheduler_outcome_job",
+        "check_pipeline_chain",
+        "check_rule_freeze",
+        "check_ledger_readable",
+        "main"
+      ],
+      "totalLines": 149,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/xiaogu_db_init.sql": {
+      "filePath": "scripts/xiaogu_db_init.sql",
+      "contentHash": "77c5474347d0a2fd9d08ec1812fd52d2554c27a52a54bb49abc8f7de07b43518",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 97,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/xiaogu_ensure_database.py": {
+      "filePath": "scripts/xiaogu_ensure_database.py",
+      "contentHash": "88b378451cde96d51a5a3226c9cf5f9ad17852624deb6758e078ca318fe6e17d",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "xiaogu_db",
+          "specifiers": [
+            "init_db"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 5,
+      "hasStructuralAnalysis": true
+    },
+    "start_api.sh": {
+      "filePath": "start_api.sh",
+      "contentHash": "f1d07d41b2ae0c27677514350feec3492db504f6c87b334c86628cf60f33f7db",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 8,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_data_contract.py": {
+      "filePath": "tests/test_data_contract.py",
+      "contentHash": "79770ebfe79c5d27961826073b5c6ffa29a4a35ea3399ad281451fe2306bc5b6",
+      "functions": [
+        {
+          "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_eastmoney_quote_fields_feed_existing_measurements",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_eastmoney_capital_flow_reaches_core_alpha",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_capital_price_impact_distinguishes_flow_and_price_response",
+          "params": [
+            "flow",
+            "change",
+            "expected"
+          ],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_same_day_research_observations_feed_existing_contexts",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_scanner_fixture_only_emits_canonical_market_observations",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_candidate_universe_is_cheap_and_has_no_alpha_fields",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_recorder_accepts_trade_events_but_rejects_watch_memory",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_recorder_persists_buy_without_watch_memory",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "test_post_trade_review_and_memory_are_written_for_complete_window",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "test_api_exposes_current_state_and_trade_views",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "test_fake_canonical_snapshot_is_blocked_from_feature_engine",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_production_mode_rejects_unpersisted_snapshot_json",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_position_review_reads_postgres_not_jsonl",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "test_production_clock_rejects_stale_snapshot",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_persisted_flag_is_not_enough_without_db_row",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_recorder_db_failure_does_not_write_jsonl",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "test_same_symbol_outcomes_are_bound_to_decision_id",
+          "params": [],
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_eligibility",
+          "specifiers": [
+            "candidate_universe"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_features",
+          "specifiers": [
+            "FEATURE_GROUPS",
+            "build_feature_vector"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "attach_research_observations",
+            "canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_portfolio_decision",
+          "specifiers": [
+            "evaluate_candidate_bundle"
+          ]
+        },
+        {
+          "source": "scrapy_scanner.runner_v2",
+          "specifiers": [
+            "build_canonical_snapshots"
+          ]
+        }
+      ],
+      "exports": [
+        "test_snapshot_has_no_future_fields_and_features_are_measurements",
+        "test_nested_future_outcomes_are_rejected_before_feature_measurement",
+        "test_eastmoney_quote_fields_feed_existing_measurements",
+        "test_eastmoney_capital_flow_reaches_core_alpha",
+        "test_capital_price_impact_distinguishes_flow_and_price_response",
+        "test_same_day_research_observations_feed_existing_contexts",
+        "test_scanner_fixture_only_emits_canonical_market_observations",
+        "test_candidate_universe_is_cheap_and_has_no_alpha_fields",
+        "test_recorder_accepts_trade_events_but_rejects_watch_memory",
+        "test_recorder_persists_buy_without_watch_memory",
+        "test_post_trade_review_and_memory_are_written_for_complete_window",
+        "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
+        "test_api_exposes_current_state_and_trade_views",
+        "test_fake_canonical_snapshot_is_blocked_from_feature_engine",
+        "test_production_mode_rejects_unpersisted_snapshot_json",
+        "test_position_review_reads_postgres_not_jsonl",
+        "test_production_clock_rejects_stale_snapshot",
+        "test_persisted_flag_is_not_enough_without_db_row",
+        "test_recorder_db_failure_does_not_write_jsonl",
+        "test_same_symbol_outcomes_are_bound_to_decision_id"
+      ],
+      "totalLines": 363,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_database_historical_replay.py": {
+      "filePath": "tests/test_database_historical_replay.py",
+      "contentHash": "30c512128a1b1eaefd061b2925b9a989443c75a3f78f8f72d65bbf3fdcace6d3",
+      "functions": [
+        {
+          "name": "_return_row",
+          "params": [
+            "**kwargs"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "test_entry_priority_ignores_derived_execution_model_fill",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_entry_conflict_and_missing_metadata_are_explicit",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_duplicate_targets_merge_when_equal_and_conflict_when_not",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_t1_net_return_is_not_used_as_gross_target",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_evaluation_reports_mfe_and_mae_for_diagnostic_groups",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_feature_diagnostics_marks_zero_filled_production_inputs_missing",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_probability_separation_blocks_constant_predictions",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_feature_diagnostics_accepts_only_complete_future_buyer_evidence",
+          "params": [],
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "test_profit_window_uses_cost_adjusted_high_not_close",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_gate_does_not_trust_quality_label_or_fabricate_t4",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_gate_requires_day_by_day_ohlc_not_only_returns",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_database_builder_requires_explicit_linked_snapshot",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_database_linked_ranges_ignore_rows_without_trade_date",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_persist_historical_replay_writes_only_research_artifact",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_missing_future_targets_are_filled_without_overwriting_returns",
+          "params": [],
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "test_future_target_merge_handles_complete_ohlc_without_existing_mfe",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_future_supplementation_uses_cache_and_only_linked_decisions",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "test_future_supplementation_falls_back_to_baostock",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "xiaogu_backtest_v0_1",
+          "specifiers": [
+            "_database_linked_decision_ranges",
+            "_entry_audit",
+            "_merge_missing_future_targets",
+            "_return_targets",
+            "build_historical_5d_profit_window_dataset",
+            "persist_historical_replay",
+            "supplement_database_future_prices"
+          ]
+        },
+        {
+          "source": "xiaogu_horizon_evaluation",
+          "specifiers": [
+            "_probability_separation",
+            "diagnose_features",
+            "evaluate_replay",
+            "target_quality_gate"
+          ]
+        }
+      ],
+      "exports": [
+        "_return_row",
+        "test_entry_priority_ignores_derived_execution_model_fill",
+        "test_entry_conflict_and_missing_metadata_are_explicit",
+        "test_duplicate_targets_merge_when_equal_and_conflict_when_not",
+        "test_t1_net_return_is_not_used_as_gross_target",
+        "test_evaluation_reports_mfe_and_mae_for_diagnostic_groups",
+        "test_feature_diagnostics_marks_zero_filled_production_inputs_missing",
+        "test_probability_separation_blocks_constant_predictions",
+        "test_feature_diagnostics_accepts_only_complete_future_buyer_evidence",
+        "test_profit_window_uses_cost_adjusted_high_not_close",
+        "test_gate_does_not_trust_quality_label_or_fabricate_t4",
+        "test_gate_requires_day_by_day_ohlc_not_only_returns",
+        "test_database_builder_requires_explicit_linked_snapshot",
+        "test_database_linked_ranges_ignore_rows_without_trade_date",
+        "test_persist_historical_replay_writes_only_research_artifact",
+        "test_missing_future_targets_are_filled_without_overwriting_returns",
+        "test_future_target_merge_handles_complete_ohlc_without_existing_mfe",
+        "test_future_supplementation_uses_cache_and_only_linked_decisions",
+        "test_future_supplementation_falls_back_to_baostock"
+      ],
+      "totalLines": 335,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_historical_replay.py": {
+      "filePath": "tests/test_historical_replay.py",
+      "contentHash": "e80d88cb9d0cbed3554807a3c32be6d47e93cc7acdfa0551ac73c5b5764aaa91",
+      "functions": [
+        {
+          "name": "test_replay_uses_production_decision",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_replay_strips_future_labels_before_calling_production_owner",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "test_historical_label_coverage_gate_requires_five_day_window",
+          "params": [],
+          "exported": true,
+          "lineCount": 18
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "xiaogu_backtest_v0_1",
+          "specifiers": [
+            "HISTORICAL_VALIDATION_HORIZONS",
+            "historical_replay"
+          ]
+        }
+      ],
+      "exports": [
+        "test_replay_uses_production_decision",
+        "test_replay_strips_future_labels_before_calling_production_owner",
+        "test_historical_label_coverage_gate_requires_five_day_window"
+      ],
+      "totalLines": 60,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_no_future_leakage.py": {
+      "filePath": "tests/test_no_future_leakage.py",
+      "contentHash": "436974b246f76b742f31aaf8aa25e8673cabf77d94ec72cc3adbcc2fe42c6f59",
+      "functions": [
+        {
+          "name": "test_future_outcomes_are_rejected",
+          "params": [
+            "field"
+          ],
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "canonical_snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "test_future_outcomes_are_rejected"
+      ],
+      "totalLines": 10,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_production_decision.py": {
+      "filePath": "tests/test_production_decision.py",
+      "contentHash": "6fa82443e64dd29933f53a873f03e3adeca7a8442639151b1a582972f7d092fd",
+      "functions": [
+        {
+          "name": "_repricing_ready_snapshot",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "test_only_portfolio_owner_emits_state",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_unverified_profit_window_cannot_enable_buy",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "test_validated_label_without_all_production_gates_stays_experimental",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_capital_convergence_exposes_formal_levels_and_conflict",
+          "params": [],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "test_profit_window_hit_reduces_held_position",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_climax_or_buyer_exhaustion_blocks_new_buy",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_five_day_boundary_closes_trade",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_five_day_boundary_closes_even_after_profit_window_hit",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_same_lhb_event_is_one_independent_origin",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_inflow_is_capital_flow_not_main_force",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_duplicate_evidence_family_does_not_inflate_independent_channels",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_five_day_boundary_uses_sell_action_and_closed_trade",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_position_state_is_not_previous_action",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_reduce_is_action_not_position_state",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "xiaogu_portfolio_decision",
+          "specifiers": [
+            "evaluate_candidate_bundle"
+          ]
+        }
+      ],
+      "exports": [
+        "_repricing_ready_snapshot",
+        "test_only_portfolio_owner_emits_state",
+        "test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract",
+        "test_unverified_profit_window_cannot_enable_buy",
+        "test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed",
+        "test_validated_label_without_all_production_gates_stays_experimental",
+        "test_capital_convergence_exposes_formal_levels_and_conflict",
+        "test_profit_window_hit_reduces_held_position",
+        "test_climax_or_buyer_exhaustion_blocks_new_buy",
+        "test_five_day_boundary_closes_trade",
+        "test_five_day_boundary_closes_even_after_profit_window_hit",
+        "test_same_lhb_event_is_one_independent_origin",
+        "test_inflow_is_capital_flow_not_main_force",
+        "test_duplicate_evidence_family_does_not_inflate_independent_channels",
+        "test_five_day_boundary_uses_sell_action_and_closed_trade",
+        "test_position_state_is_not_previous_action",
+        "test_reduce_is_action_not_position_state"
+      ],
+      "totalLines": 295,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_return_calculation.py": {
+      "filePath": "tests/test_return_calculation.py",
+      "contentHash": "4152e7501ebf70f22601cbf9ee49523327d9e66dc46fedfdaf3458dd41ac1d03",
+      "functions": [
+        {
+          "name": "_bars",
+          "params": [
+            "count"
+          ],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_five_day_profit_window_uses_daily_path_and_costs",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_missing_five_day_data_is_explicitly_insufficient",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_eastmoney_loader_counts_only_five_future_trading_days",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_baostock_loader_normalizes_unadjusted_ohlcv",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "test_append_result_exposes_only_profit_window_target",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_pending_filler_appends_only_newly_available_outcomes",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_result_filler_v0_1",
+          "specifiers": [
+            "append_result",
+            "calculate_horizon_outcomes",
+            "calculate_horizon_returns",
+            "eastmoney_future_close_prices"
+          ]
+        }
+      ],
+      "exports": [
+        "_bars",
+        "test_five_day_profit_window_uses_daily_path_and_costs",
+        "test_missing_five_day_data_is_explicitly_insufficient",
+        "test_eastmoney_loader_counts_only_five_future_trading_days",
+        "test_baostock_loader_normalizes_unadjusted_ohlcv",
+        "test_append_result_exposes_only_profit_window_target",
+        "test_pending_filler_appends_only_newly_available_outcomes"
+      ],
+      "totalLines": 116,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_api.py": {
+      "filePath": "xiaogu_api.py",
+      "contentHash": "f8292c086750f18b5a3f24c871b0143540fbcf1a41b57f7d6b96db9bc1e03cfe",
+      "functions": [
+        {
+          "name": "_records",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_decision_id",
+          "params": [
+            "record"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_decision_records",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_result_records",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_production_view",
+          "params": [
+            "value"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "system_health",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "current_state",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "current_decision",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "trades",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "trade",
+          "params": [
+            "decision_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_memory_root",
+          "params": [],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "memory",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "patterns",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List"
+          ]
+        },
+        {
+          "source": "fastapi",
+          "specifiers": [
+            "FastAPI"
+          ]
+        },
+        {
+          "source": "xiaogu_utils",
+          "specifiers": [
+            "decision_record_id",
+            "has_decision_payload"
+          ]
+        }
+      ],
+      "exports": [
+        "_records",
+        "_decision_id",
+        "_decision_records",
+        "_result_records",
+        "_production_view",
+        "system_health",
+        "current_state",
+        "current_decision",
+        "trades",
+        "trade",
+        "_memory_root",
+        "memory",
+        "patterns"
+      ],
+      "totalLines": 156,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_backtest_v0_1.py": {
+      "filePath": "xiaogu_backtest_v0_1.py",
+      "contentHash": "c5b6e57f74497075dd223a7e743a66337cffdc214dcf94ebdbcadc7095bc932f",
+      "functions": [
+        {
+          "name": "load_snapshot",
+          "params": [
+            "path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "calculate_portfolio_metrics",
+          "params": [
+            "returns"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_strip_non_input_fields",
+          "params": [
+            "payload"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "_compact_snapshot_source",
+          "params": [
+            "payload"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_as_dict",
+          "params": [
+            "value"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_first_value",
+          "params": [],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_number",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_same_number",
+          "params": [
+            "values",
+            "tolerance"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_json_row",
+          "params": [
+            "row",
+            "key"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_historical_decision_id",
+          "params": [
+            "pick",
+            "candidate"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_relation_key",
+          "params": [
+            "row"
+          ],
+          "returnType": "tuple[Any, ...] | None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_pick_snapshot",
+          "params": [
+            "pick",
+            "candidate"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 56
+        },
+        {
+          "name": "_entry_audit",
+          "params": [
+            "return_rows"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 69
+        },
+        {
+          "name": "_return_targets",
+          "params": [
+            "return_rows",
+            "entry_price"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 119
+        },
+        {
+          "name": "_quality",
+          "params": [
+            "entry",
+            "targets",
+            "relation_conflict"
+          ],
+          "returnType": "tuple[str, list[str]]",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_merge_missing_future_targets",
+          "params": [
+            "targets",
+            "future_bars",
+            "entry_price"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 110
+        },
+        {
+          "name": "_materialized_asset_rows",
+          "params": [
+            "rows"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_database_linked_decision_ranges",
+          "params": [
+            "assets"
+          ],
+          "returnType": "Dict[str, str]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_database_linked_decision_windows",
+          "params": [
+            "assets"
+          ],
+          "returnType": "Dict[str, tuple[str, str]]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_cache_read",
+          "params": [
+            "path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_cache_write",
+          "params": [
+            "path",
+            "cache"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_bars_cover_five_days",
+          "params": [
+            "bars",
+            "trade_date"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_future_request_end",
+          "params": [
+            "trade_date",
+            "requested_end"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "supplement_database_future_prices",
+          "params": [
+            "assets",
+            "cache_path",
+            "end_date",
+            "symbol_offset",
+            "max_symbols",
+            "checkpoint_every",
+            "max_retries",
+            "retry_delay",
+            "request_timeout",
+            "eastmoney_timeout",
+            "baostock_timeout",
+            "max_errors"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 214
+        },
+        {
+          "name": "_compact_current_decision",
+          "params": [
+            "decision"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "_capital_convergence_level",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "build_historical_5d_profit_window_dataset",
+          "params": [
+            "assets"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 236
+        },
+        {
+          "name": "canonical_historical_snapshot",
+          "params": [
+            "row",
+            "trade_date",
+            "signal_time",
+            "source",
+            "source_timestamp",
+            "snapshot_version"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 61
+        },
+        {
+          "name": "_source_rows",
+          "params": [
+            "root"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "build_canonical_historical_snapshots",
+          "params": [
+            "rows"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_replay_entry",
+          "params": [
+            "entry"
+          ],
+          "returnType": "tuple[Dict[str, Any], List[Dict[str, Any]], Dict[int, Any]]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_decision_record",
+          "params": [
+            "snapshot",
+            "decision",
+            "entry"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "historical_replay",
+          "params": [
+            "snapshots",
+            "min_coverage",
+            "persist_path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 62
+        },
+        {
+          "name": "persist_historical_replay",
+          "params": [
+            "result"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "replay_database_history",
+          "params": [
+            "start_date",
+            "end_date",
+            "symbol_offset",
+            "max_symbols",
+            "research_artifact_path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "replay_historical_root",
+          "params": [
+            "root"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "eastmoney_future_loader",
+          "params": [
+            "snapshot",
+            "end_date"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 65
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "defaultdict"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "date",
+            "datetime",
+            "timedelta",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Iterable",
+            "List",
+            "Mapping",
+            "Sequence"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_bundle_io",
+          "specifiers": [
+            "_load_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_runner",
+          "specifiers": [
+            "run_production_decision"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_result_filler_v0_1",
+          "specifiers": [
+            "PRICE_BASIS",
+            "canonical_future_prices",
+            "calculate_horizon_outcomes",
+            "historical_entry_contract"
+          ]
+        },
+        {
+          "source": "xiaogu_horizon_evaluation",
+          "specifiers": [
+            "HORIZONS",
+            "HISTORICAL_VALIDATION_HORIZONS",
+            "build_alpha_report",
+            "evaluate_feature_groups",
+            "evaluate_replay",
+            "portfolio_metrics",
+            "target_quality_gate"
+          ]
+        }
+      ],
+      "exports": [
+        "load_snapshot",
+        "calculate_portfolio_metrics",
+        "_strip_non_input_fields",
+        "_compact_snapshot_source",
+        "_as_dict",
+        "_first_value",
+        "_number",
+        "_same_number",
+        "_json_row",
+        "_historical_decision_id",
+        "_relation_key",
+        "_pick_snapshot",
+        "_entry_audit",
+        "_return_targets",
+        "_quality",
+        "_merge_missing_future_targets",
+        "_materialized_asset_rows",
+        "_database_linked_decision_ranges",
+        "_database_linked_decision_windows",
+        "_cache_read",
+        "_cache_write",
+        "_bars_cover_five_days",
+        "_future_request_end",
+        "supplement_database_future_prices",
+        "_compact_current_decision",
+        "_capital_convergence_level",
+        "build_historical_5d_profit_window_dataset",
+        "canonical_historical_snapshot",
+        "_source_rows",
+        "build_canonical_historical_snapshots",
+        "_replay_entry",
+        "_decision_record",
+        "historical_replay",
+        "persist_historical_replay",
+        "replay_database_history",
+        "replay_historical_root",
+        "eastmoney_future_loader",
+        "main"
+      ],
+      "totalLines": 1533,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_core_alpha.py": {
+      "filePath": "xiaogu_core_alpha.py",
+      "contentHash": "049dc34d4b1aae7c8d8e527578d1f7ba3376c2fc624a6d9d9cf7ac77044e6c43",
+      "functions": [
+        {
+          "name": "_clip",
+          "params": [
+            "value"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_mean",
+          "params": [],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_research_score",
+          "params": [
+            "payload"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_first_buyer_capacity",
+          "params": [
+            "raw",
+            "future_buyer_map"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_direct_evidence_items",
+          "params": [
+            "behavior"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_capital_convergence",
+          "params": [
+            "capital"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 81
+        },
+        {
+          "name": "_repricing_state",
+          "params": [
+            "capital",
+            "supply",
+            "market",
+            "convergence"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_calibrated_probability",
+          "params": [
+            "values"
+          ],
+          "returnType": "tuple[float, Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "build_core_alpha",
+          "params": [
+            "features",
+            "industry",
+            "company",
+            "capital",
+            "integrated",
+            "future_buyer_map"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 213
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_features",
+          "specifiers": [
+            "FEATURE_GROUPS"
+          ]
+        }
+      ],
+      "exports": [
+        "_clip",
+        "_mean",
+        "_research_score",
+        "_first_buyer_capacity",
+        "_direct_evidence_items",
+        "_capital_convergence",
+        "_repricing_state",
+        "_calibrated_probability",
+        "build_core_alpha"
+      ],
+      "totalLines": 434,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_db.py": {
+      "filePath": "xiaogu_db.py",
+      "contentHash": "e8f498eb8a6de108f3cb13ad30d28587a8c219c8ee76ab2dd6ffeec27daac352",
+      "functions": [
+        {
+          "name": "get_db",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "init_db",
+          "params": [
+            "sql_path"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "ensure_production_schema",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "verify_persisted_snapshot",
+          "params": [
+            "snapshot_id",
+            "lineage_id",
+            "trade_date",
+            "source",
+            "source_time"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "fetch_persisted_canonical_snapshots",
+          "params": [
+            "trade_date"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "record_snapshot",
+          "params": [
+            "snapshot"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "record_decision",
+          "params": [
+            "decision"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "record_returns",
+          "params": [
+            "trade_date",
+            "symbol",
+            "payload",
+            "decision_id"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "record_canonical_historical_snapshot",
+          "params": [
+            "snapshot"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "record_canonical_historical_snapshots",
+          "params": [
+            "snapshots"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "record_canonical_future_prices",
+          "params": [
+            "bars"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "insert_scan_session",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "upsert_scan_market_data",
+          "params": [
+            "scan_session_id",
+            "trade_date",
+            "scan_time",
+            "results",
+            "diagnostics"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "fetch_picks",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_table_columns",
+          "params": [
+            "table_name"
+          ],
+          "returnType": "set[str]",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "fetch_open_positions",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "fetch_position_outcome",
+          "params": [
+            "symbol",
+            "decision_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "fetch_returns",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "fetch_trade_records",
+          "params": [],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "database_asset_report",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 89
+        },
+        {
+          "name": "fetch_historical_replay_assets",
+          "params": [
+            "start_date",
+            "end_date"
+          ],
+          "returnType": "Dict[str, List[Dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 169
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextmanager"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Iterable",
+            "List"
+          ]
+        },
+        {
+          "source": "sqlalchemy",
+          "specifiers": [
+            "create_engine",
+            "text"
+          ]
+        }
+      ],
+      "exports": [
+        "get_db",
+        "init_db",
+        "ensure_production_schema",
+        "verify_persisted_snapshot",
+        "fetch_persisted_canonical_snapshots",
+        "record_snapshot",
+        "record_decision",
+        "record_returns",
+        "record_canonical_historical_snapshot",
+        "record_canonical_historical_snapshots",
+        "record_canonical_future_prices",
+        "insert_scan_session",
+        "upsert_scan_market_data",
+        "fetch_picks",
+        "_table_columns",
+        "fetch_open_positions",
+        "fetch_position_outcome",
+        "fetch_returns",
+        "fetch_trade_records",
+        "database_asset_report",
+        "fetch_historical_replay_assets"
+      ],
+      "totalLines": 734,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_bundle_io.py": {
+      "filePath": "xiaogu_forward_bundle_io.py",
+      "contentHash": "cae8fab36234cfbb06bd5efea82eeee035e0f68c26748b827dd500c45e029582",
+      "functions": [
+        {
+          "name": "load_snapshot",
+          "params": [
+            "path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_load_jsonl",
+          "params": [
+            "path"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "canonical_rows",
+          "params": [
+            "payload"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "load_latest_snapshot_bundle",
+          "params": [
+            "trade_date"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "canonical_snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "load_snapshot",
+        "_load_jsonl",
+        "canonical_rows",
+        "load_latest_snapshot_bundle"
+      ],
+      "totalLines": 47,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_eligibility.py": {
+      "filePath": "xiaogu_forward_eligibility.py",
+      "contentHash": "7cbac97b3b77b0d9d0008750cf2072172eb52a9a63dda32e24600341d7839704",
+      "functions": [
+        {
+          "name": "cheap_eligibility_blockers",
+          "params": [
+            "row"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "candidate_universe",
+          "params": [
+            "snapshots"
+          ],
+          "returnType": "tuple[List[Dict[str, Any]], Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "paper_pick_buyability_block_reason",
+          "params": [
+            "row",
+            "account"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "eligibility_blockers",
+          "params": [
+            "snapshot",
+            "account",
+            "max_staleness_minutes",
+            "as_of"
+          ],
+          "returnType": "List[str]",
+          "exported": true,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List"
+          ]
+        }
+      ],
+      "exports": [
+        "cheap_eligibility_blockers",
+        "candidate_universe",
+        "paper_pick_buyability_block_reason",
+        "eligibility_blockers"
+      ],
+      "totalLines": 109,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_features.py": {
+      "filePath": "xiaogu_forward_features.py",
+      "contentHash": "6c98d78080f8fa68bdd37018e758f6734f26abbd545659fc4370006f67280093",
+      "functions": [
+        {
+          "name": "_event_id",
+          "params": [
+            "source_id",
+            "payload",
+            "index"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_evidence",
+          "params": [
+            "observed",
+            "source",
+            "available_at",
+            "evidence_family",
+            "source_id",
+            "event_id",
+            "mechanism",
+            "observed_at",
+            "lineage_id",
+            "interpretation"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "_number",
+          "params": [
+            "value",
+            "default"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_first",
+          "params": [
+            "payload",
+            "default"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_clip",
+          "params": [
+            "value",
+            "low",
+            "high"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_mean",
+          "params": [],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_ratio",
+          "params": [
+            "numerator",
+            "denominator"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_signed_strength",
+          "params": [
+            "value",
+            "scale"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_percentile",
+          "params": [
+            "values",
+            "current"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_raw",
+          "params": [
+            "snapshot"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_market_stage",
+          "params": [
+            "raw",
+            "capital",
+            "supply",
+            "market"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "build_feature_vector",
+          "params": [
+            "snapshot"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 576
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Iterable"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "CanonicalSnapshot",
+            "canonical_snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "_event_id",
+        "_evidence",
+        "_number",
+        "_first",
+        "_clip",
+        "_mean",
+        "_ratio",
+        "_signed_strength",
+        "_percentile",
+        "_raw",
+        "_market_stage",
+        "build_feature_vector"
+      ],
+      "totalLines": 707,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_paper_recorder_v0_1.py": {
+      "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
+      "contentHash": "b1de51987342a528c7bd7b0ed061f47558f9c0458e2e612d4b6b84d03a4a1691",
+      "functions": [
+        {
+          "name": "dump_json",
+          "params": [
+            "path",
+            "obj"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "memory_root",
+          "params": [],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_memory_symbol",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_memory_note_path",
+          "params": [
+            "state",
+            "record"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_markdown",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "write_trade_memory",
+          "params": [
+            "record"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 60
+        },
+        {
+          "name": "update_trade_memory",
+          "params": [
+            "result"
+          ],
+          "returnType": "str | None",
+          "exported": true,
+          "lineCount": 54
+        },
+        {
+          "name": "read_features_arg",
+          "params": [
+            "s"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "snapshot_path_for",
+          "params": [
+            "date",
+            "asof_time",
+            "rule_version",
+            "symbol"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "validate_generation",
+          "params": [
+            "decision",
+            "rule"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_snapshot_and_record",
+          "params": [
+            "date",
+            "asof_time",
+            "symbol",
+            "decision",
+            "features",
+            "decision_reason",
+            "generated_at",
+            "rule_version",
+            "production_run_id",
+            "correction_of",
+            "source"
+          ],
+          "returnType": "Tuple[Path, Dict[str, Any], Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 148
+        },
+        {
+          "name": "append_production_decision",
+          "params": [
+            "decision"
+          ],
+          "returnType": "Tuple[Path, Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 51
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 50
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "dt"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Tuple"
+          ]
+        },
+        {
+          "source": "xiaogu_utils",
+          "specifiers": [
+            "PRODUCTION_TRADE_MODE",
+            "append_jsonl",
+            "now_iso",
+            "load_json"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_result_filler_v0_1",
+          "specifiers": [
+            "EVALUATION_DAYS"
+          ]
+        }
+      ],
+      "exports": [
+        "dump_json",
+        "memory_root",
+        "_memory_symbol",
+        "_memory_note_path",
+        "_markdown",
+        "write_trade_memory",
+        "update_trade_memory",
+        "read_features_arg",
+        "snapshot_path_for",
+        "validate_generation",
+        "_snapshot_and_record",
+        "append_production_decision",
+        "main"
+      ],
+      "totalLines": 486,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_result_filler_v0_1.py": {
+      "filePath": "xiaogu_forward_result_filler_v0_1.py",
+      "contentHash": "db650ce1451f4c7d10c9bb5d882c71a6a18418f9c0e70161f989b048472ce969",
+      "functions": [
+        {
+          "name": "_deadline",
+          "params": [
+            "seconds"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_eastmoney_secid",
+          "params": [
+            "symbol"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "fetch_eastmoney_daily_bars",
+          "params": [
+            "symbol",
+            "start_date",
+            "end_date",
+            "timeout"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "fetch_baostock_daily_bars",
+          "params": [
+            "symbol",
+            "start_date",
+            "end_date",
+            "timeout"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "canonical_future_prices",
+          "params": [
+            "bars",
+            "symbol",
+            "source_timestamp",
+            "price_basis",
+            "require_volume"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "_parse_timestamp",
+          "params": [
+            "value"
+          ],
+          "returnType": "datetime",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "historical_entry_contract",
+          "params": [
+            "snapshot",
+            "execution_time",
+            "execution_mode",
+            "price_basis"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "entry_contract_from_record",
+          "params": [
+            "record"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "eastmoney_future_close_prices",
+          "params": [
+            "symbol",
+            "entry_date",
+            "end_date"
+          ],
+          "returnType": "Dict[int, float | None]",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "calculate_horizon_returns",
+          "params": [
+            "entry_price",
+            "future_prices"
+          ],
+          "returnType": "Dict[str, float | None]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "calculate_horizon_outcomes",
+          "params": [
+            "entry_price",
+            "future_bars",
+            "horizons"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 126
+        },
+        {
+          "name": "eastmoney_future_bars",
+          "params": [
+            "symbol",
+            "entry_date",
+            "end_date"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_entry_price",
+          "params": [
+            "record"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "append_result",
+          "params": [
+            "record",
+            "future_prices",
+            "future_bars"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "build_post_trade_review",
+          "params": [
+            "record",
+            "outcomes"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "_persist_and_append_result",
+          "params": [
+            "result"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "_has_new_outcome",
+          "params": [
+            "result",
+            "prior"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "fill_pending_results",
+          "params": [
+            "end_date"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 20
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "contextlib",
+          "specifiers": [
+            "contextmanager"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "date",
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "signal",
+          "specifiers": [
+            "signal"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "urllib.parse",
+          "specifiers": [
+            "urlencode"
+          ]
+        },
+        {
+          "source": "xiaogu_horizon_evaluation",
+          "specifiers": [
+            "HORIZONS"
+          ]
+        },
+        {
+          "source": "scrapy_scanner.runner_v2",
+          "specifiers": [
+            "api_get"
+          ]
+        },
+        {
+          "source": "xiaogu_utils",
+          "specifiers": [
+            "append_jsonl",
+            "decision_record_id",
+            "has_decision_payload",
+            "load_jsonl",
+            "now_iso"
+          ]
+        }
+      ],
+      "exports": [
+        "_deadline",
+        "_eastmoney_secid",
+        "fetch_eastmoney_daily_bars",
+        "fetch_baostock_daily_bars",
+        "canonical_future_prices",
+        "_parse_timestamp",
+        "historical_entry_contract",
+        "entry_contract_from_record",
+        "eastmoney_future_close_prices",
+        "calculate_horizon_returns",
+        "calculate_horizon_outcomes",
+        "eastmoney_future_bars",
+        "_entry_price",
+        "append_result",
+        "build_post_trade_review",
+        "_persist_and_append_result",
+        "_has_new_outcome",
+        "fill_pending_results",
+        "main"
+      ],
+      "totalLines": 576,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_runner.py": {
+      "filePath": "xiaogu_forward_runner.py",
+      "contentHash": "6f56c20b5e2089cbbfca3b764458701d7d1a9d9187ee8bba9c4f2429ce3e8136",
+      "functions": [
+        {
+          "name": "_parse_clock",
+          "params": [
+            "value"
+          ],
+          "returnType": "datetime | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "run_production_decision",
+          "params": [
+            "snapshot",
+            "portfolio_state",
+            "account",
+            "mode",
+            "persisted",
+            "trade_date",
+            "decision_clock",
+            "position_state",
+            "previous_action"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "_write_ledger_record",
+          "params": [
+            "decision"
+          ],
+          "returnType": "Path",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "daily_position_review",
+          "params": [
+            "trade_date"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 55
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 61
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "date",
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_bundle_io",
+          "specifiers": [
+            "load_latest_snapshot_bundle"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_eligibility",
+          "specifiers": [
+            "candidate_universe"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "assert_production_provenance",
+            "production_decision_clock",
+            "select_canonical_snapshot",
+            "validate_and_build_canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_portfolio_decision",
+          "specifiers": [
+            "evaluate_candidate_bundle"
+          ]
+        }
+      ],
+      "exports": [
+        "_parse_clock",
+        "run_production_decision",
+        "_write_ledger_record",
+        "daily_position_review",
+        "main"
+      ],
+      "totalLines": 223,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_forward_snapshot.py": {
+      "filePath": "xiaogu_forward_snapshot.py",
+      "contentHash": "7b9a5da4af78b547672ec5491defbb0fcbf84eb169d77bc51f8ccbe66c2f26bf",
+      "functions": [
+        {
+          "name": "_number",
+          "params": [
+            "value"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_first",
+          "params": [
+            "row"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_normalize_timestamp",
+          "params": [
+            "value"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_parse_timestamp",
+          "params": [
+            "value"
+          ],
+          "returnType": "datetime | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_future_fields",
+          "params": [
+            "payload",
+            "path"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_assert_visible",
+          "params": [
+            "payload",
+            "location"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_assert_time_order",
+          "params": [
+            "source_time",
+            "as_of",
+            "decision_time"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "snapshot_age",
+          "params": [
+            "source_time",
+            "decision_time"
+          ],
+          "returnType": "timedelta | None",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "production_decision_clock",
+          "params": [
+            "decision_time"
+          ],
+          "returnType": "datetime",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "select_canonical_snapshot",
+          "params": [
+            "rows",
+            "symbol",
+            "trade_date"
+          ],
+          "returnType": "CanonicalSnapshot | None",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_sha256",
+          "params": [
+            "payload"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_serialized_canonical",
+          "params": [
+            "row"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "attach_research_observations",
+          "params": [
+            "row",
+            "stock_capital_flow",
+            "earnings_preview",
+            "org_surveys",
+            "stock_reports",
+            "lhb",
+            "announcements",
+            "industry_flow",
+            "industry_reports",
+            "news",
+            "shareholder_changes",
+            "lockup_expiry"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_build_payload",
+          "params": [
+            "row",
+            "trade_date",
+            "source",
+            "source_time",
+            "producer"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 56
+        },
+        {
+          "name": "_validate_required",
+          "params": [
+            "payload",
+            "strict"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "validate_and_build_canonical_snapshot",
+          "params": [
+            "row",
+            "trade_date",
+            "source",
+            "source_time",
+            "timestamp",
+            "source_timestamp",
+            "producer",
+            "decision_time",
+            "target_trade_date"
+          ],
+          "returnType": "CanonicalSnapshot",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "assert_production_provenance",
+          "params": [
+            "snapshot",
+            "trade_date",
+            "decision_time",
+            "persisted",
+            "registered_sources",
+            "max_staleness"
+          ],
+          "returnType": "CanonicalSnapshot",
+          "exported": true,
+          "lineCount": 33
+        },
+        {
+          "name": "canonical_snapshot",
+          "params": [
+            "row",
+            "trade_date",
+            "source",
+            "source_time",
+            "timestamp",
+            "source_timestamp",
+            "producer"
+          ],
+          "returnType": "CanonicalSnapshot",
+          "exported": true,
+          "lineCount": 19
+        }
+      ],
+      "classes": [
+        {
+          "name": "RawSnapshot",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "CanonicalSnapshot",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "imports": [
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "re",
+          "specifiers": [
+            "re"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timedelta",
+            "timezone"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Iterable",
+            "Mapping"
+          ]
+        }
+      ],
+      "exports": [
+        "RawSnapshot",
+        "CanonicalSnapshot",
+        "_number",
+        "_first",
+        "_normalize_timestamp",
+        "_parse_timestamp",
+        "_future_fields",
+        "_assert_visible",
+        "_assert_time_order",
+        "snapshot_age",
+        "production_decision_clock",
+        "select_canonical_snapshot",
+        "_sha256",
+        "_serialized_canonical",
+        "attach_research_observations",
+        "_build_payload",
+        "_validate_required",
+        "validate_and_build_canonical_snapshot",
+        "assert_production_provenance",
+        "canonical_snapshot"
+      ],
+      "totalLines": 402,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_horizon_evaluation.py": {
+      "filePath": "xiaogu_horizon_evaluation.py",
+      "contentHash": "11d499bb857679bf72044ce00da6b916f6094c19206187df61e2e5887bc8fc25",
+      "functions": [
+        {
+          "name": "validate_horizons",
+          "params": [
+            "horizons"
+          ],
+          "returnType": "tuple[int, ...]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_number",
+          "params": [
+            "value",
+            "default"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_label",
+          "params": [
+            "row",
+            "field"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_day_return",
+          "params": [
+            "row",
+            "day"
+          ],
+          "returnType": "Any",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_day_ohlc_present",
+          "params": [
+            "row",
+            "day"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_canonical_entry_present",
+          "params": [
+            "row"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_outcome_profit",
+          "params": [
+            "row"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_mfe",
+          "params": [
+            "row"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_mae",
+          "params": [
+            "row"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_time_to_profit",
+          "params": [
+            "row"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "evaluate_5d",
+          "params": [
+            "entry_price",
+            "prices"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "portfolio_metrics",
+          "params": [
+            "values"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "target_quality_gate",
+          "params": [
+            "rows",
+            "min_coverage",
+            "horizons"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "bootstrap_confidence_interval",
+          "params": [
+            "values",
+            "seed",
+            "samples",
+            "confidence"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "_alpha_payload",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_feature_payload",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_feature_value",
+          "params": [
+            "row",
+            "name"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_extra_feature_value",
+          "params": [
+            "row",
+            "name"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_feature_vector",
+          "params": [
+            "row",
+            "names"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_feature_value_present",
+          "params": [
+            "row",
+            "name"
+          ],
+          "returnType": "tuple[float, bool]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_snapshot_raw",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_feature_observed",
+          "params": [
+            "row",
+            "name",
+            "value"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 70
+        },
+        {
+          "name": "diagnose_features",
+          "params": [
+            "rows",
+            "feature_names"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 57
+        },
+        {
+          "name": "_correlation",
+          "params": [
+            "left",
+            "right"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_probability_separation",
+          "params": [
+            "rows",
+            "predictions"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "_label_value",
+          "params": [
+            "row"
+          ],
+          "returnType": "int | None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_complete_training_rows",
+          "params": [
+            "rows"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "_sigmoid",
+          "params": [
+            "value"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_fit_logistic",
+          "params": [
+            "rows",
+            "names"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "_predict",
+          "params": [
+            "model",
+            "rows"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_roc_auc",
+          "params": [
+            "labels",
+            "predictions"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_pr_auc",
+          "params": [
+            "labels",
+            "predictions"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "_calibration_table",
+          "params": [
+            "labels",
+            "predictions",
+            "bins"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_prediction_metrics",
+          "params": [
+            "rows",
+            "predictions"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_percentile",
+          "params": [
+            "values",
+            "fraction"
+          ],
+          "returnType": "float | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "_split_rows",
+          "params": [
+            "rows"
+          ],
+          "returnType": "tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_random_predictions",
+          "params": [
+            "rows",
+            "seed"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_baseline_features",
+          "params": [
+            "name"
+          ],
+          "returnType": "tuple[str, ...]",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_fit_baseline",
+          "params": [
+            "rows",
+            "name"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_baseline_predictions",
+          "params": [
+            "model",
+            "rows"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_monotonicity",
+          "params": [
+            "rows",
+            "predictions"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "_fit_set_report",
+          "params": [
+            "train",
+            "validation",
+            "oos",
+            "names"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_ablation_report",
+          "params": [
+            "train",
+            "validation",
+            "oos"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "calibrate_profit_window_probability",
+          "params": [
+            "rows"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 83
+        },
+        {
+          "name": "evaluate_replay",
+          "params": [
+            "rows",
+            "quality_gate",
+            "horizons"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "evaluate_feature_groups",
+          "params": [
+            "rows"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "build_alpha_report",
+          "params": [
+            "rows",
+            "quality_gate",
+            "horizons"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 73
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "itertools",
+          "specifiers": [
+            "combinations"
+          ]
+        },
+        {
+          "source": "statistics",
+          "specifiers": [
+            "median"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "Iterable",
+            "Mapping",
+            "Sequence"
+          ]
+        }
+      ],
+      "exports": [
+        "validate_horizons",
+        "_number",
+        "_label",
+        "_day_return",
+        "_day_ohlc_present",
+        "_canonical_entry_present",
+        "_outcome_profit",
+        "_mfe",
+        "_mae",
+        "_time_to_profit",
+        "evaluate_5d",
+        "portfolio_metrics",
+        "target_quality_gate",
+        "bootstrap_confidence_interval",
+        "_alpha_payload",
+        "_feature_payload",
+        "_feature_value",
+        "_extra_feature_value",
+        "_feature_vector",
+        "_feature_value_present",
+        "_snapshot_raw",
+        "_feature_observed",
+        "diagnose_features",
+        "_correlation",
+        "_probability_separation",
+        "_label_value",
+        "_complete_training_rows",
+        "_sigmoid",
+        "_fit_logistic",
+        "_predict",
+        "_roc_auc",
+        "_pr_auc",
+        "_calibration_table",
+        "_prediction_metrics",
+        "_percentile",
+        "_split_rows",
+        "_random_predictions",
+        "_baseline_features",
+        "_fit_baseline",
+        "_baseline_predictions",
+        "_monotonicity",
+        "_fit_set_report",
+        "_ablation_report",
+        "calibrate_profit_window_probability",
+        "evaluate_replay",
+        "evaluate_feature_groups",
+        "build_alpha_report"
+      ],
+      "totalLines": 1118,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_portfolio_decision.py": {
+      "filePath": "xiaogu_portfolio_decision.py",
+      "contentHash": "ffdc40988afbd2c1b0c336609f5d53e926f2b580a8159fd07b77f75685e504bc",
+      "functions": [
+        {
+          "name": "_decision_id",
+          "params": [
+            "snapshot",
+            "state",
+            "as_of"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_blockers",
+          "params": [
+            "alpha",
+            "features",
+            "research"
+          ],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "_exit_reason",
+          "params": [
+            "alpha",
+            "features",
+            "snapshot",
+            "account"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "evaluate_candidate_bundle",
+          "params": [
+            "canonical",
+            "portfolio_state",
+            "account",
+            "minimum_required_return",
+            "as_of",
+            "position_state",
+            "previous_action"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 154
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "hashlib",
+          "specifiers": [
+            "hashlib"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        },
+        {
+          "source": "xiaogu_core_alpha",
+          "specifiers": [
+            "build_core_alpha"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_eligibility",
+          "specifiers": [
+            "eligibility_blockers"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_features",
+          "specifiers": [
+            "build_feature_vector"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "CanonicalSnapshot",
+            "validate_and_build_canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_research_context",
+          "specifiers": [
+            "build_integrated_research_context"
+          ]
+        }
+      ],
+      "exports": [
+        "_decision_id",
+        "_blockers",
+        "_exit_reason",
+        "evaluate_candidate_bundle"
+      ],
+      "totalLines": 244,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_research_context.py": {
+      "filePath": "xiaogu_research_context.py",
+      "contentHash": "b1f09570ed33ca8084422d55b11eb45636ed0eaea02d6e05a5d6de2a1923b911",
+      "functions": [
+        {
+          "name": "_number",
+          "params": [
+            "value"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_context",
+          "params": [
+            "kind",
+            "values",
+            "lineage_id",
+            "provider"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "build_serenity_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "build_buffett_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "build_uzi_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "build_supply_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "build_pricing_gap_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "build_future_buyer_map",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 64
+        },
+        {
+          "name": "build_contradiction_context",
+          "params": [
+            "industry",
+            "company",
+            "capital",
+            "lineage_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "build_integrated_research_context",
+          "params": [
+            "snapshot",
+            "features"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 29
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict"
+          ]
+        }
+      ],
+      "exports": [
+        "_number",
+        "_context",
+        "build_serenity_context",
+        "build_buffett_context",
+        "build_uzi_context",
+        "build_supply_context",
+        "build_pricing_gap_context",
+        "build_future_buyer_map",
+        "build_contradiction_context",
+        "build_integrated_research_context"
+      ],
+      "totalLines": 246,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_scheduler.py": {
+      "filePath": "xiaogu_scheduler.py",
+      "contentHash": "f1c3eeebd8b92b795ca5f45b70be13d3a523de9969d5b6aa547c8035a9964d2e",
+      "functions": [
+        {
+          "name": "is_trading_day",
+          "params": [
+            "check_date"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "_run",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "job_morning_scan",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "job_afternoon_scan_and_pick",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "job_horizon_evaluation",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "zoneinfo",
+          "specifiers": [
+            "ZoneInfo"
+          ]
+        },
+        {
+          "source": "apscheduler.schedulers.blocking",
+          "specifiers": [
+            "BlockingScheduler"
+          ]
+        },
+        {
+          "source": "apscheduler.triggers.cron",
+          "specifiers": [
+            "CronTrigger"
+          ]
+        }
+      ],
+      "exports": [
+        "is_trading_day",
+        "_run",
+        "job_morning_scan",
+        "job_afternoon_scan_and_pick",
+        "job_horizon_evaluation",
+        "main"
+      ],
+      "totalLines": 51,
+      "hasStructuralAnalysis": true
+    },
+    "xiaogu_utils.py": {
+      "filePath": "xiaogu_utils.py",
+      "contentHash": "83b1ed26ec2f5957150cb997095698de8c922e67a6c0dc8b010de849a2797d9a",
+      "functions": [
+        {
+          "name": "eastmoney_quote_prices",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Optional[float]]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "now_iso",
+          "params": [],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "read_json",
+          "params": [
+            "path"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "dump_json",
+          "params": [
+            "path",
+            "obj"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "load_jsonl",
+          "params": [
+            "path"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "decision_symbol",
+          "params": [
+            "decision"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "decision_record_id",
+          "params": [
+            "row"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "has_decision_payload",
+          "params": [
+            "row"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "append_jsonl",
+          "params": [
+            "path",
+            "obj"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "dt"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Any",
+            "Dict",
+            "List",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "eastmoney_quote_prices",
+        "now_iso",
+        "read_json",
+        "dump_json",
+        "load_jsonl",
+        "decision_symbol",
+        "decision_record_id",
+        "has_decision_payload",
+        "append_jsonl"
+      ],
+      "totalLines": 117,
+      "hasStructuralAnalysis": true
+    }
+  }
+}
