@@ -264,14 +264,17 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
 
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", fake_positions)
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {"status": "OUTCOME_NOT_BOUND"})
-    monkeypatch.setattr("xiaogu_db.fetch_persisted_canonical_snapshots", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        "xiaogu_db.fetch_persisted_canonical_snapshots",
+        lambda *_args, **_kwargs: [canonical_snapshot({
+            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        })],
+    )
     monkeypatch.setattr(
         runner,
         "load_latest_snapshot_bundle",
-        lambda _date: {"available": True, "canonical_snapshots": [canonical_snapshot({
-            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
-            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
-        })]},
+        lambda _date: (_ for _ in ()).throw(AssertionError("LOCAL_BUNDLE_IS_NOT_POSITION_STATE")),
     )
     monkeypatch.setattr(runner, "run_production_decision", lambda *args, **kwargs: {
         "state": "SELL", "action": "SELL", "position_state": "FLAT",
@@ -337,6 +340,15 @@ def test_same_symbol_outcomes_are_bound_to_decision_id():
     ensure_production_schema()
     with engine.begin() as db:
         db.execute(text("DELETE FROM returns WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+        db.execute(text("DELETE FROM picks WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+        db.execute(
+            text(
+                "INSERT INTO picks (trade_date, symbol, decision, state, decision_id, payload) "
+                "VALUES ('2026-08-01', '600001', 'BUY', 'BUY', 'test-trade-a', CAST(:payload AS jsonb)), "
+                "       ('2026-08-08', '600001', 'BUY', 'BUY', 'test-trade-b', CAST(:payload AS jsonb))"
+            ),
+            {"payload": json.dumps({"decision_id": "seed"})},
+        )
         db.execute(
             text("INSERT INTO returns (trade_date, symbol, decision_id, payload) VALUES ('2026-08-01', '600001', 'test-trade-a', CAST(:payload AS jsonb))"),
             {"payload": json.dumps({"profit_window": True, "decision_id": "test-trade-a", "max_profit": 0.08})},
@@ -346,10 +358,10 @@ def test_same_symbol_outcomes_are_bound_to_decision_id():
             {"payload": json.dumps({"profit_window": False, "decision_id": "test-trade-b", "max_profit": -0.04})},
         )
     try:
-        trade_a = fetch_position_outcome("600001", "test-trade-a")
-        trade_b = fetch_position_outcome("600001", "test-trade-b")
-        missing = fetch_position_outcome("600001", "")
-        unknown = fetch_position_outcome("600001", "test-trade-missing")
+        trade_a = fetch_position_outcome("test-trade-a", symbol="600001")
+        trade_b = fetch_position_outcome("test-trade-b", symbol="600001")
+        missing = fetch_position_outcome("", symbol="600001")
+        unknown = fetch_position_outcome("test-trade-missing", symbol="600001")
         assert trade_a["status"] == "BOUND"
         assert trade_a["decision_id"] == "test-trade-a"
         assert trade_a.get("profit_window") is True
@@ -360,3 +372,90 @@ def test_same_symbol_outcomes_are_bound_to_decision_id():
     finally:
         with engine.begin() as db:
             db.execute(text("DELETE FROM returns WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+            db.execute(text("DELETE FROM picks WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+
+
+def test_schema_migration_failure_is_fail_closed(monkeypatch):
+    import xiaogu_db as db
+
+    class Boom:
+        def __enter__(self):
+            raise RuntimeError("ALTER TABLE failed")
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(db.engine, "begin", lambda: Boom())
+    with pytest.raises(RuntimeError, match="ALTER TABLE failed"):
+        db.ensure_production_schema()
+
+
+def test_scan_lineage_is_shared_and_snapshot_id_is_unique():
+    from xiaogu_forward_snapshot import select_unique_canonical_snapshots
+
+    snapshots = build_canonical_snapshots({
+        "stock_all_a": [
+            {"f12": "600001", "f14": "A", "f2": 10, "f3": 1, "f6": 1_000, "f5": 100, "f100": "示例行业"},
+            {"f12": "600002", "f14": "B", "f2": 11, "f3": 1, "f6": 1_000, "f5": 100, "f100": "示例行业"},
+        ],
+        "stock_capital_flow": [], "earnings_preview": [], "stock_reports": [],
+        "lhb": [], "announcements": [], "flow_industry": [], "industry_reports": [],
+    }, "2026-08-26 14:50:00")
+    assert len(snapshots) == 2
+    assert snapshots[0]["lineage_id"] == snapshots[1]["lineage_id"]
+    assert snapshots[0]["snapshot_id"] != snapshots[1]["snapshot_id"]
+    selected = select_unique_canonical_snapshots(snapshots + snapshots, trade_date="2026-08-26")
+    assert {row["symbol"] for row in selected} == {"600001", "600002"}
+    assert len(selected) == 2
+
+
+def test_record_snapshot_conflicts_on_snapshot_id_not_lineage():
+    from xiaogu_db import engine, ensure_production_schema, record_snapshot
+    from sqlalchemy import text
+
+    first, second = build_canonical_snapshots({
+        "stock_all_a": [
+            {"f12": "600001", "f14": "A", "f2": 10, "f3": 1, "f6": 1_000, "f5": 100},
+            {"f12": "600002", "f14": "B", "f2": 11, "f3": 1, "f6": 1_000, "f5": 100},
+        ],
+        "stock_capital_flow": [], "earnings_preview": [], "stock_reports": [],
+        "lhb": [], "announcements": [], "flow_industry": [], "industry_reports": [],
+    }, "2026-08-26 14:50:00")
+    ensure_production_schema()
+    ids = (first["snapshot_id"], second["snapshot_id"])
+    with engine.begin() as db:
+        db.execute(
+            text("DELETE FROM snapshots WHERE snapshot_id = :left OR snapshot_id = :right"),
+            {"left": ids[0], "right": ids[1]},
+        )
+    try:
+        record_snapshot(first)
+        record_snapshot(second)
+        record_snapshot(first)
+        with engine.connect() as db:
+            rows = list(db.execute(
+                text("SELECT snapshot_id, lineage_id, symbol FROM snapshots WHERE snapshot_id = :left OR snapshot_id = :right"),
+                {"left": ids[0], "right": ids[1]},
+            ).mappings())
+        assert len(rows) == 2
+        assert {row["lineage_id"] for row in rows} == {first["lineage_id"]}
+        assert {row["symbol"] for row in rows} == {"600001", "600002"}
+    finally:
+        with engine.begin() as db:
+            db.execute(
+                text("DELETE FROM snapshots WHERE snapshot_id = :left OR snapshot_id = :right"),
+                {"left": ids[0], "right": ids[1]},
+            )
+
+
+def test_supply_state_exposes_evidence_and_confidence():
+    vector = build_feature_vector(canonical_snapshot({
+        "symbol": "600001", "price": 10, "high": 10.5, "low": 9.5,
+        "amount": 1_000, "volume": 100, "turnover": 5, "f62": 400, "f3": 1,
+        "overhead_supply": 0.2,
+    }))
+    supply = vector["SUPPLY"]
+    assert supply["supply_absorption_state"] in {"UNKNOWN", "RELEASING", "BALANCED", "ABSORPTION"}
+    assert "evidence" in supply
+    assert "evidence_count" in supply
+    assert "confidence" in supply

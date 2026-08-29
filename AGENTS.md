@@ -116,6 +116,8 @@ Research context (Serenity, Buffett, UZI, Contradiction) may supply evidence, ri
 
 Production Decision accepts trusted snapshots only. Runner modes are PRODUCTION, REPLAY, DRY_RUN, RESEARCH. PRODUCTION reads DB-verified trusted snapshots, uses `datetime.now(timezone.utc)` or an explicit current clock, and computes age as `decision_clock - source_time`. `--snapshot-json` cannot enter paper production. `persisted` means PostgreSQL verification, not a local file flag.
 
+`snapshot_id` is one immutable Canonical Snapshot. `lineage_id` is one scan lineage and may map to many symbol snapshots. `ensure_production_schema()` must raise on ALTER failure. Missing historical `decision_id` stays UNRESOLVED and is never rewritten.
+
 Position state is `FLAT` or `LONG`. Action is `BUY`, `HOLD`, `REDUCE`, or `SELL`. T+5 is SELL / CLOSED. A still-valid thesis requires a new trade, not renewal.
 
 Recorder persists only BUY/HOLD/REDUCE/SELL and position transitions.

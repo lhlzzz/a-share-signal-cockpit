@@ -14,6 +14,7 @@ from xiaogu_forward_snapshot import (
     assert_production_provenance,
     production_decision_clock,
     select_canonical_snapshot,
+    select_unique_canonical_snapshots,
     validate_and_build_canonical_snapshot,
 )
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
@@ -104,8 +105,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
 
     positions = fetch_open_positions()
     db_rows = fetch_persisted_canonical_snapshots(trade_date)
-    bundle_rows = load_latest_snapshot_bundle(trade_date).get("canonical_snapshots") or []
-    rows = list(db_rows or []) + list(bundle_rows)
+    rows = list(db_rows or [])
     reviewed = []
     for prior in positions:
         symbol = str(prior.get("symbol") or "").zfill(6)
@@ -115,7 +115,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         if snapshot is None:
             continue
         prior_id = str(prior.get("decision_id") or prior.get("id") or "")
-        result = fetch_position_outcome(symbol, prior_id)
+        result = fetch_position_outcome(prior_id, symbol=symbol)
         try:
             start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
             end = date.fromisoformat(str(trade_date))
@@ -187,11 +187,16 @@ def main() -> None:
     if not rows:
         print(json.dumps({"state": "WATCH", "reason": "SNAPSHOT_NOT_FOUND", "date": args.date}))
         return
+    trusted = []
+    for row in rows:
+        try:
+            trusted.append(validate_and_build_canonical_snapshot(row, target_trade_date=args.date))
+        except (TypeError, ValueError):
+            continue
+    rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
     if args.symbol:
         selected = select_canonical_snapshot(rows, symbol=args.symbol, trade_date=args.date)
-        rows = [selected] if selected is not None else [
-            row for row in rows if str(row.get("symbol") or "").zfill(6) == args.symbol.zfill(6)
-        ]
+        rows = [selected] if selected is not None else []
     rows, universe = candidate_universe(rows)
     decisions = []
     recorded = 0

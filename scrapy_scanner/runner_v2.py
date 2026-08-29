@@ -12,6 +12,7 @@ import json
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable
@@ -24,7 +25,7 @@ import sys
 BASE = Path(os.environ.get("XIAOGU_HOME") or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(BASE))
 
-from xiaogu_forward_snapshot import attach_research_observations, canonical_snapshot
+from xiaogu_forward_snapshot import attach_research_observations, build_scan_lineage_id, canonical_snapshot
 
 HEADERS = {
     "Referer": "https://quote.eastmoney.com/",
@@ -260,9 +261,20 @@ def _by_symbol(rows: Iterable[Dict[str, Any]]) -> Dict[str, list[Dict[str, Any]]
     return indexed
 
 
-def build_canonical_snapshots(results: Dict[str, Any], source_time: str) -> list[Dict[str, Any]]:
+def build_canonical_snapshots(
+    results: Dict[str, Any],
+    source_time: str,
+    lineage_id: str = "",
+) -> list[Dict[str, Any]]:
     """Attach same-time raw observations and create one canonical row per quote."""
     stocks = [row for row in results.get("stock_all_a", []) if isinstance(row, dict)]
+    lineage_id = lineage_id or build_scan_lineage_id(
+        source="eastmoney_api_scan_v2",
+        source_time=source_time,
+        producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
+        trade_date=source_time[:10],
+        scan_nonce=uuid.uuid4().hex,
+    )
     capital = _by_symbol(results.get("stock_capital_flow", []))
     earnings = _by_symbol(results.get("earnings_preview", []))
     reports = _by_symbol(results.get("stock_reports", []))
@@ -304,6 +316,7 @@ def build_canonical_snapshots(results: Dict[str, Any], source_time: str) -> list
             source="eastmoney_api_scan_v2",
             source_time=source_time,
             producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
+            lineage_id=lineage_id,
         ))
     return snapshots
 
@@ -385,7 +398,14 @@ def main() -> Dict[str, Any]:
         files[name] = _write_jsonl(output_dir / f"{name}.jsonl", rows if isinstance(rows, list) else [rows])
     stocks = results["stock_all_a"]
     market = build_market_snapshot(stocks, source_time)
-    snapshots = build_canonical_snapshots(results, source_time)
+    scan_lineage_id = build_scan_lineage_id(
+        source="eastmoney_api_scan_v2",
+        source_time=source_time,
+        producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
+        trade_date=source_time[:10],
+        scan_nonce=uuid.uuid4().hex,
+    )
+    snapshots = build_canonical_snapshots(results, source_time, lineage_id=scan_lineage_id)
     files["canonical_snapshots"] = _write_jsonl(output_dir / "canonical_snapshots.jsonl", snapshots)
     market_path = output_dir / "canonical_market_snapshot.json"
     market_path.write_text(json.dumps(market, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -417,7 +437,12 @@ def main() -> Dict[str, Any]:
             "owner": "scrapy_scanner.runner_v2", "responsibility": "DATA_CAPTURE_ONLY",
             "selection": False, "ranking": False, "strategy_score": False, "portfolio_action": False,
         },
-        "lineage": {"source": "eastmoney", "source_time": source_time, "source_version": "market_reality_capture_v1"},
+        "lineage": {
+            "lineage_id": scan_lineage_id,
+            "source": "eastmoney",
+            "source_time": source_time,
+            "source_version": "market_reality_capture_v1",
+        },
         "domain_timings": timings, "fetch_diagnostics": diagnostics,
         "database_persistence": persistence, "files": files,
         "elapsed_seconds": round(time.monotonic() - started, 4),

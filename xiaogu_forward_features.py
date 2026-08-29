@@ -565,6 +565,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         else "ABSORPTION" if supply["supply_absorption"] >= 0.35
         else "BALANCED"
     )
+    supply["evidence"] = [name for name, present in absorption_components.items() if present]
+    supply["evidence_count"] = int(supply["absorption_evidence_count"])
+    supply["confidence"] = supply["absorption_confidence"]
     supply["score"] = supply["supply_absorption"]
     if capital_price_impact_state != "UNKNOWN":
         if main_flow > 0 and pct_change > 0 and supply["supply_absorption_state"] == "ABSORPTION":

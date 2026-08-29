@@ -1,7 +1,7 @@
 {
   "rule_version": "repricing_production_v1",
-  "frozen_at": "2026-08-27T00:00:00+08:00",
-  "change_reason": "Lock trusted canonical snapshots, independent capital evidence, DB position state, and T+5 close.",
+  "frozen_at": "2026-08-29T00:00:00+08:00",
+  "change_reason": "Lock fail-closed schema, snapshot identity, decision_id outcomes, and EXPERIMENTAL 5D alpha.",
   "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
   "allowed_decisions": [
     "WATCH",
@@ -118,5 +118,16 @@
     "REPLAY",
     "DRY_RUN",
     "RESEARCH"
-  ]
+  ],
+  "snapshot_identity": {
+    "snapshot_id": "immutable canonical snapshot identity",
+    "lineage_id": "scan/lineage identity, not snapshot identity"
+  },
+  "schema_contract": {
+    "migration_failure": "RAISE",
+    "health": "FAIL",
+    "production": "BLOCK"
+  },
+  "alpha_status": "EXPERIMENTAL",
+  "buy_enabled": false
 }

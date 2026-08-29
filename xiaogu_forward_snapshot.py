@@ -177,10 +177,53 @@ def select_canonical_snapshot(
     return max(matched, key=_key)
 
 
+def select_unique_canonical_snapshots(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    trade_date: str,
+) -> list[CanonicalSnapshot]:
+    """Keep one trusted snapshot per symbol for a production day."""
+    grouped: dict[str, list[CanonicalSnapshot]] = {}
+    for row in rows:
+        if not isinstance(row, CanonicalSnapshot) or row.get("trusted_snapshot") is not True:
+            continue
+        if str(row.get("trade_date") or "") != str(trade_date):
+            continue
+        symbol = str(row.get("symbol") or "").zfill(6)[-6:]
+        if not symbol or symbol == "000000":
+            continue
+        grouped.setdefault(symbol, []).append(row)
+    selected = [
+        select_canonical_snapshot(items, symbol=symbol, trade_date=trade_date)
+        for symbol, items in grouped.items()
+    ]
+    return [snapshot for snapshot in selected if snapshot is not None]
+
+
 def _sha256(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
+
+
+def build_scan_lineage_id(
+    *,
+    source: str,
+    source_time: str,
+    producer: str,
+    trade_date: str,
+    scan_nonce: str = "",
+) -> str:
+    """Identity of one data-production/scan lineage. Never a per-symbol snapshot id."""
+    return _sha256(
+        {
+            "source": source,
+            "source_time": source_time,
+            "producer": producer,
+            "trade_date": trade_date,
+            "scan_nonce": scan_nonce,
+        }
+    )
 
 
 def _serialized_canonical(row: Mapping[str, Any]) -> bool:
@@ -228,6 +271,7 @@ def _build_payload(
     source: str,
     source_time: str,
     producer: str,
+    lineage_id: str = "",
 ) -> Dict[str, Any]:
     visible_at = _normalize_timestamp(
         source_time or _first(row, "source_time", "as_of", "timestamp", "scan_time") or ""
@@ -262,7 +306,14 @@ def _build_payload(
     }
     if payload["symbol"] == "000000":
         payload["symbol"] = ""
-    payload["lineage_id"] = _sha256(payload)
+    if not payload["trade_date"] and payload["source_time"]:
+        payload["trade_date"] = payload["source_time"][:10]
+    payload["lineage_id"] = lineage_id or build_scan_lineage_id(
+        source=payload["source"],
+        source_time=payload["source_time"],
+        producer=payload["producer"],
+        trade_date=payload["trade_date"],
+    )
     payload["snapshot_id"] = _sha256(
         {
             "lineage_id": payload["lineage_id"],
@@ -273,8 +324,6 @@ def _build_payload(
             "producer": payload["producer"],
         }
     )
-    if not payload["trade_date"] and payload["source_time"]:
-        payload["trade_date"] = payload["source_time"][:10]
     payload["trusted_snapshot"] = True
     return payload
 
@@ -302,6 +351,7 @@ def validate_and_build_canonical_snapshot(
     producer: str = "xiaogu_forward_snapshot.validate_and_build_canonical_snapshot",
     decision_time: str | datetime | None = None,
     target_trade_date: str = "",
+    lineage_id: str = "",
 ) -> CanonicalSnapshot:
     """Convert untrusted input into a trusted canonical snapshot."""
     if isinstance(row, CanonicalSnapshot):
@@ -322,6 +372,7 @@ def validate_and_build_canonical_snapshot(
         source=source or str(raw_row.get("source") or "eastmoney_api_scan_v2"),
         source_time=visible_at,
         producer=str(raw_row.get("producer") or producer),
+        lineage_id=str(lineage_id or raw_row.get("lineage_id") or ""),
     )
     if _serialized_canonical(raw_row):
         payload["raw"] = dict(raw_row.get("raw") or {})
@@ -386,6 +437,7 @@ def canonical_snapshot(
     timestamp: str = "",
     source_timestamp: str = "",
     producer: str = "xiaogu_forward_snapshot.validate_and_build_canonical_snapshot",
+    lineage_id: str = "",
 ) -> CanonicalSnapshot:
     return validate_and_build_canonical_snapshot(
         row,
@@ -395,6 +447,7 @@ def canonical_snapshot(
         timestamp=timestamp,
         source_timestamp=source_timestamp,
         producer=producer,
+        lineage_id=lineage_id,
     )
 
 

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 engine = create_engine(
     os.environ.get("DATABASE_URL", "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"),
@@ -26,12 +27,217 @@ def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
     ensure_production_schema()
 
 
+def _exec_schema(statement: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text(statement))
+
+
+def _schema_error_already_exists(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "already exists" in message or "duplicate" in message
+
+
+def _constraint_columns(table_name: str, constraint_type: str) -> list[str]:
+    with engine.connect() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT kcu.column_name
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.table_schema = 'public'
+                  AND tc.table_name = :table_name
+                  AND tc.constraint_type = :constraint_type
+                ORDER BY kcu.ordinal_position
+                """
+            ),
+            {"table_name": table_name, "constraint_type": constraint_type},
+        ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _unique_index_columns(table_name: str) -> set[str]:
+    columns: set[str] = set()
+    with engine.connect() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = :table_name
+                """
+            ),
+            {"table_name": table_name},
+        ).fetchall()
+    for row in rows:
+        definition = str(row[0] or "")
+        if "UNIQUE" not in definition.upper():
+            continue
+        start = definition.find("(")
+        end = definition.find(")", start + 1)
+        if start < 0 or end < 0:
+            continue
+        for raw in definition[start + 1:end].split(","):
+            name = raw.strip().strip('"')
+            if name:
+                columns.add(name)
+    return columns
+
+
+def _foreign_keys(table_name: str) -> list[dict[str, str]]:
+    with engine.connect() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    tc.constraint_name,
+                    kcu.column_name,
+                    ccu.table_name AS foreign_table,
+                    ccu.column_name AS foreign_column
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.table_schema = 'public'
+                  AND tc.table_name = :table_name
+                  AND tc.constraint_type = 'FOREIGN KEY'
+                """
+            ),
+            {"table_name": table_name},
+        ).mappings()
+        return [dict(row) for row in rows]
+
+
+def _exists_label(present: bool) -> str:
+    return "EXISTS" if present else "MISSING"
+
+
+def _count_unbound_decision_ids(table_name: str) -> int:
+    columns = _table_columns(table_name)
+    if "decision_id" not in columns:
+        return -1
+    with engine.connect() as db:
+        return int(
+            db.execute(
+                text(
+                    f'SELECT count(*) FROM "{table_name}" '
+                    "WHERE decision_id IS NULL OR BTRIM(CAST(decision_id AS text)) = ''"
+                )
+            ).scalar_one()
+        )
+
+
+def _count_returns_decision_fk_conflicts() -> int:
+    columns_returns = _table_columns("returns")
+    columns_picks = _table_columns("picks")
+    if "decision_id" not in columns_returns or "decision_id" not in columns_picks:
+        return -1
+    with engine.connect() as db:
+        return int(
+            db.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM returns r
+                    WHERE r.decision_id IS NOT NULL
+                      AND BTRIM(CAST(r.decision_id AS text)) <> ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM picks p
+                          WHERE p.decision_id = r.decision_id
+                      )
+                    """
+                )
+            ).scalar_one()
+        )
+
+
+def audit_production_schema() -> Dict[str, Any]:
+    """Inspect required production identity objects. Never rewrite historical values."""
+    required_columns = {
+        "snapshots": ("snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time"),
+        "picks": ("decision_id",),
+        "returns": ("decision_id",),
+        "canonical_historical_snapshots": ("lineage_id", "symbol", "trade_date"),
+        "canonical_future_prices": ("symbol", "date", "source", "price_basis"),
+    }
+    required_unique = {
+        "snapshots": ("snapshot_id",),
+        "picks": ("decision_id",),
+    }
+    required_indexes = {
+        "snapshots": ("idx_snapshots_trade_date", "idx_snapshots_lineage_id"),
+        "picks": ("idx_picks_decision_id",),
+        "returns": ("idx_returns_decision_id",),
+    }
+    tables = {}
+    ok = True
+    for table_name, columns in required_columns.items():
+        present_columns = _table_columns(table_name)
+        unique_cols = set(_constraint_columns(table_name, "UNIQUE")) | set(
+            _constraint_columns(table_name, "PRIMARY KEY")
+        ) | _unique_index_columns(table_name)
+        with engine.connect() as db:
+            index_names = {
+                str(row[0])
+                for row in db.execute(
+                    text(
+                        """
+                        SELECT indexname
+                        FROM pg_indexes
+                        WHERE schemaname = 'public' AND tablename = :table_name
+                        """
+                    ),
+                    {"table_name": table_name},
+                ).fetchall()
+            }
+        column_audit = {column: _exists_label(column in present_columns) for column in columns}
+        unique_audit = {column: _exists_label(column in unique_cols) for column in required_unique.get(table_name, ())}
+        index_audit = {name: _exists_label(name in index_names) for name in required_indexes.get(table_name, ())}
+        fk_audit = {
+            f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}": "EXISTS"
+            for item in _foreign_keys(table_name)
+        }
+        if table_name == "returns":
+            expected_fk = "decision_id->picks.decision_id"
+            if expected_fk not in fk_audit:
+                fk_audit[expected_fk] = "MISSING"
+        tables[table_name] = {
+            "columns": column_audit,
+            "indexes": index_audit,
+            "unique": unique_audit,
+            "foreign_keys": fk_audit,
+        }
+        ok = ok and all(value == "EXISTS" for value in column_audit.values())
+        ok = ok and all(value == "EXISTS" for value in unique_audit.values())
+        ok = ok and all(value == "EXISTS" for value in index_audit.values())
+        if table_name == "returns":
+            ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
+    anomalies = {
+        "picks_missing_decision_id": _count_unbound_decision_ids("picks"),
+        "returns_missing_decision_id": _count_unbound_decision_ids("returns"),
+        "returns_decision_fk_conflicts": _count_returns_decision_fk_conflicts(),
+    }
+    if anomalies["returns_decision_fk_conflicts"] > 0:
+        tables["returns"]["foreign_keys"]["decision_id->picks.decision_id"] = "HISTORICAL_CONFLICT"
+    return {
+        "ok": ok,
+        "tables": tables,
+        "historical_anomalies": anomalies,
+    }
+
+
 def ensure_production_schema() -> None:
-    """ADD-only production columns and indexes. Never drop or rewrite historical values."""
+    """ADD-only production identity. ALTER failure raises and blocks production."""
     statements = [
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT",
+        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
@@ -40,21 +246,67 @@ def ensure_production_schema() -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
     ]
     for statement in statements:
-        try:
-            with engine.begin() as connection:
-                connection.execute(text(statement))
-        except Exception:
-            continue
+        _exec_schema(statement)
+    _exec_schema(
+        """
+        UPDATE snapshots
+        SET snapshot_id = COALESCE(NULLIF(snapshot_id, ''), payload->>'snapshot_id', lineage_id)
+        WHERE snapshot_id IS NULL OR snapshot_id = ''
+        """
+    )
+    _exec_schema(
+        """
+        UPDATE snapshots
+        SET source = COALESCE(NULLIF(source, ''), payload->>'source')
+        WHERE source IS NULL OR source = ''
+        """
+    )
+    _exec_schema(
+        """
+        UPDATE snapshots
+        SET source_time = COALESCE(NULLIF(source_time, ''), payload->>'source_time')
+        WHERE source_time IS NULL OR source_time = ''
+        """
+    )
+    _exec_schema(
+        """
+        UPDATE snapshots
+        SET symbol = COALESCE(NULLIF(symbol, ''), payload->>'symbol')
+        WHERE symbol IS NULL OR symbol = ''
+        """
+    )
+    _exec_schema("ALTER TABLE snapshots ALTER COLUMN snapshot_id SET NOT NULL")
+    primary_key = _constraint_columns("snapshots", "PRIMARY KEY")
+    if primary_key == ["lineage_id"]:
+        _exec_schema("ALTER TABLE snapshots DROP CONSTRAINT snapshots_pkey")
+        _exec_schema("ALTER TABLE snapshots ADD PRIMARY KEY (snapshot_id)")
+    elif primary_key != ["snapshot_id"]:
+        _exec_schema("ALTER TABLE snapshots ADD PRIMARY KEY (snapshot_id)")
     try:
-        with engine.begin() as connection:
-            connection.execute(text(
-                "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
-                "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
-            ))
-    except Exception:
-        pass
+        _exec_schema("CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)")
+    except SQLAlchemyError as exc:
+        if not _schema_error_already_exists(exc):
+            raise
+    try:
+        _exec_schema("ALTER TABLE picks ADD CONSTRAINT picks_decision_id_key UNIQUE (decision_id)")
+    except SQLAlchemyError as exc:
+        if not _schema_error_already_exists(exc):
+            raise
+    try:
+        _exec_schema(
+            "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
+            "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
+        )
+    except SQLAlchemyError as exc:
+        if _schema_error_already_exists(exc):
+            return
+        conflicts = _count_returns_decision_fk_conflicts()
+        if conflicts > 0:
+            return
+        raise
 
 
 def verify_persisted_snapshot(
@@ -63,9 +315,10 @@ def verify_persisted_snapshot(
     trade_date: str = "",
     source: str = "",
     source_time: str = "",
+    symbol: str = "",
 ) -> bool:
     """Prove the canonical snapshot exists in PostgreSQL. Local files are not persistence."""
-    if not lineage_id and not snapshot_id:
+    if not snapshot_id and not lineage_id:
         return False
     try:
         ensure_production_schema()
@@ -74,12 +327,15 @@ def verify_persisted_snapshot(
             return False
         clauses = []
         params: Dict[str, Any] = {}
-        if "lineage_id" in columns and lineage_id:
-            clauses.append("lineage_id = :lineage_id")
-            params["lineage_id"] = lineage_id
         if "snapshot_id" in columns and snapshot_id:
             clauses.append("(snapshot_id = :snapshot_id OR payload->>'snapshot_id' = :snapshot_id)")
             params["snapshot_id"] = snapshot_id
+        if "lineage_id" in columns and lineage_id:
+            clauses.append("lineage_id = :lineage_id")
+            params["lineage_id"] = lineage_id
+        if "symbol" in columns and symbol:
+            clauses.append("(symbol = :symbol OR payload->>'symbol' = :symbol)")
+            params["symbol"] = symbol
         if "trade_date" in columns and trade_date:
             clauses.append("trade_date = CAST(:trade_date AS date)")
             params["trade_date"] = trade_date
@@ -87,7 +343,10 @@ def verify_persisted_snapshot(
             return False
         with engine.connect() as db:
             row = db.execute(
-                text(f"SELECT payload, lineage_id FROM snapshots WHERE {' AND '.join(clauses)} LIMIT 1"),
+                text(
+                    "SELECT payload, lineage_id, snapshot_id, source, source_time "
+                    f"FROM snapshots WHERE {' AND '.join(clauses)} LIMIT 1"
+                ),
                 params,
             ).mappings().first()
         if not row:
@@ -97,33 +356,32 @@ def verify_persisted_snapshot(
             payload = json.loads(payload)
         if not isinstance(payload, dict):
             payload = {}
-        if snapshot_id and str(payload.get("snapshot_id") or row.get("snapshot_id") or "") not in {snapshot_id, ""}:
-            if str(payload.get("snapshot_id") or "") != snapshot_id:
-                return False
-        if source and str(payload.get("source") or "") not in {source, ""}:
-            if str(payload.get("source") or "") != source:
-                return False
-        if source_time and str(payload.get("source_time") or "") not in {source_time, ""}:
-            stored = str(payload.get("source_time") or "")
-            if stored and stored != source_time:
-                return False
+        stored_snapshot_id = str(row.get("snapshot_id") or payload.get("snapshot_id") or "")
+        if snapshot_id and stored_snapshot_id not in {snapshot_id, ""}:
+            return False
+        stored_source = str(row.get("source") or payload.get("source") or "")
+        if source and stored_source not in {source, ""}:
+            return False
+        stored_source_time = str(row.get("source_time") or payload.get("source_time") or "")
+        if source_time and stored_source_time not in {source_time, ""}:
+            return False
         return True
-    except Exception:
+    except SQLAlchemyError:
         return False
 
 
 def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]:
     """Load DB-verified canonical snapshots for one T-day."""
+    ensure_production_schema()
     try:
-        ensure_production_schema()
-        from xiaogu_forward_snapshot import CanonicalSnapshot, validate_and_build_canonical_snapshot
+        from xiaogu_forward_snapshot import select_unique_canonical_snapshots, validate_and_build_canonical_snapshot
         with engine.connect() as db:
             rows = [
                 dict(row)
                 for row in db.execute(
                     text(
                         """
-                        SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time
+                        SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time, symbol
                         FROM snapshots
                         WHERE trade_date = CAST(:trade_date AS date)
                         ORDER BY source_time DESC NULLS LAST, created_at DESC
@@ -144,37 +402,36 @@ def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]
             payload.setdefault("snapshot_id", row.get("snapshot_id") or payload.get("snapshot_id"))
             payload.setdefault("source", row.get("source") or payload.get("source"))
             payload.setdefault("source_time", row.get("source_time") or payload.get("source_time"))
+            payload.setdefault("symbol", row.get("symbol") or payload.get("symbol"))
             try:
                 snapshots.append(validate_and_build_canonical_snapshot(payload, target_trade_date=trade_date))
             except (TypeError, ValueError):
                 continue
-        return snapshots
-    except Exception:
+        return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
+    except SQLAlchemyError:
         return []
 
 
 def record_snapshot(snapshot: Dict[str, Any]) -> None:
     ensure_production_schema()
+    snapshot_id = str(snapshot.get("snapshot_id") or "")
+    lineage_id = str(snapshot.get("lineage_id") or "")
+    if not snapshot_id or not lineage_id:
+        raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
     columns = _table_columns("snapshots")
     fields = ["lineage_id", "trade_date", "payload"]
     params = {
-        "lineage_id": snapshot["lineage_id"],
+        "lineage_id": lineage_id,
         "trade_date": snapshot["trade_date"],
         "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
+        "snapshot_id": snapshot_id,
+        "source": snapshot.get("source"),
+        "source_time": snapshot.get("source_time"),
+        "symbol": snapshot.get("symbol"),
     }
-    if "snapshot_id" in columns:
-        fields.append("snapshot_id")
-        params["snapshot_id"] = snapshot.get("snapshot_id")
-    if "source" in columns:
-        fields.append("source")
-        params["source"] = snapshot.get("source")
-    if "source_time" in columns:
-        fields.append("source_time")
-        params["source_time"] = snapshot.get("source_time")
-    placeholders = ", ".join(
-        ":payload" if field == "payload" else f":{field}" if field != "payload" else ":payload"
-        for field in fields
-    )
+    for field in ("snapshot_id", "source", "source_time", "symbol"):
+        if field in columns:
+            fields.append(field)
     placeholders = ", ".join(
         "CAST(:payload AS jsonb)" if field == "payload" else f":{field}"
         for field in fields
@@ -183,7 +440,7 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
         db.execute(
             text(
                 f"INSERT INTO snapshots ({', '.join(fields)}) VALUES ({placeholders}) "
-                "ON CONFLICT (lineage_id) DO NOTHING"
+                "ON CONFLICT (snapshot_id) DO NOTHING"
             ),
             params,
         )
@@ -368,13 +625,14 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
     else:
         select_state = "decision AS state"
     select_payload = ", payload" if "payload" in columns else ""
+    select_decision_id = ", decision_id" if "decision_id" in columns else ""
     with engine.connect() as db:
         rows = [
             dict(row)
             for row in db.execute(
                 text(
                     f"""
-                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}
+                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}{select_decision_id}
                     FROM picks
                     ORDER BY symbol, id DESC
                     """
@@ -406,10 +664,10 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
     return positions
 
 
-def fetch_position_outcome(symbol: str, decision_id: str = "") -> Dict[str, Any]:
+def fetch_position_outcome(decision_id: str = "", *, symbol: str = "") -> Dict[str, Any]:
     """Read the 5D outcome bound to one decision_id. Symbol-only lookup is forbidden."""
     if not decision_id:
-        return {"status": "OUTCOME_NOT_BOUND", "symbol": symbol}
+        return {"status": "OUTCOME_NOT_BOUND", "symbol": symbol, "decision_id": ""}
     columns = _table_columns("returns")
     with engine.connect() as db:
         if "decision_id" in columns:
@@ -559,7 +817,7 @@ def database_asset_report() -> Dict[str, Any]:
                 "table": name, "purpose": purpose, "row_count": count,
                 "date_range": date_range, "symbol_count": symbol_count,
             })
-    return {"read_only": True, "tables": report}
+    return {"read_only": True, "tables": report, "schema_audit": audit_production_schema()}
 
 
 def fetch_historical_replay_assets(

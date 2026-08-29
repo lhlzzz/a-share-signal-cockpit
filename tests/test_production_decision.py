@@ -292,3 +292,48 @@ def test_reduce_is_action_not_position_state():
     assert decision["action"] == "REDUCE"
     assert decision["position_state"] == "LONG"
     assert decision["state"] == "REDUCE"
+
+
+def test_collapsed_and_unvalidated_families_have_no_production_alpha_permission():
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    permissions = decision["core_alpha"]["production_alpha_permissions"]
+    assert permissions
+    assert all(value == "RESEARCH_ONLY" for value in permissions.values())
+    assert decision["state"] != "BUY"
+    assert decision["core_alpha"]["model_status"] != "VALIDATED"
+
+
+def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monkeypatch):
+    import xiaogu_core_alpha as alpha
+
+    calibration_path = tmp_path / "profit_window_calibration.json"
+    calibration_path.write_text(json.dumps({
+        "model_id": "collapsed",
+        "target": "PROFIT_WINDOW_5D",
+        "status": "VALIDATED",
+        "intercept": 0.0,
+        "coefficients": [0.0] * 11,
+        "feature_names": [
+            "capital_convergence", "capital_persistence", "capital_acceleration",
+            "supply_absorption", "pricing_gap", "repricing_state",
+            "future_buyer_evidence", "reflexivity", "market_state",
+            "execution_quality", "risk",
+        ],
+        "oos": {
+            "passed": True,
+            "probability_std": 0.001,
+            "buy_coverage": 1.0,
+        },
+        "production_gates": {
+            "data_quality": True,
+            "oos_pass": True,
+            "monotonicity": True,
+            "probability_separation": True,
+            "full_alpha_baseline_increment": True,
+            "capital_supply_repricing_increment": True,
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    assert decision["core_alpha"]["model_status"] == "MODEL_NOT_DISCRIMINATIVE"
+    assert decision["state"] != "BUY"

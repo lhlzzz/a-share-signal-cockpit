@@ -86,6 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_canonical_future_prices_date
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT;
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT;
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT;
+ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB;
@@ -94,3 +95,4 @@ ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
+CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);

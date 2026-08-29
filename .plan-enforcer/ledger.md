@@ -1,35 +1,33 @@
 # Plan Enforcer Ledger
 
-Plan: `docs/plans/2026-08-29-production-truth-lock.md`
+Plan: `docs/plans/2026-08-29-final-truth-alpha-closure.md`
 Tier: structural
 
 | ID | Task | Status | Evidence | Chain | Notes |
 |---|---|---|---|---|---|
-| T1 | Production clock and provenance | verified | STALE_DATA clock tests | D1,V1 | production clock != source_time |
-| T2 | DB persistence verification | verified | persisted flag != DB | D1,V1 | persisted=DB_VERIFIED |
-| T3 | Decision-outcome linkage | verified | same-symbol isolation | D1,V1 | fetch requires decision_id |
-| T4 | Position state and snapshot selection | verified | FLAT/LONG vs action | D1,V1 | REDUCE is action |
-| T5 | Capital evidence independence | verified | one LHB = 1 origin | D1,V1 | inflow != MAIN_FORCE |
-| T6 | Supply, repricing naming, alpha gates | verified | BUY stay blocked | D1,V1 | evidence_score not probability |
-| T7 | Recorder ownership | verified | DB fail no JSONL | D1,V1 | Obsidian retry queue |
-| T8 | Historical dataset and docs | verified | UNRESOLVED unbound | D1,V1 | README/AGENTS clock+DB |
-| T9 | Validation, indexes, git | verified | pytest 69, health 14/14 | D1,V1,C:19489f2 | understand hash=19489f2 |
+| T1 | Schema fail-closed | verified | ALTER raises; audit 16/16 | D1,V1 | no except-continue |
+| T2 | Snapshot identity | verified | shared lineage, unique snapshot_id | D1,V1 | ON CONFLICT snapshot_id |
+| T3 | Persistence/clock/selection | verified | stale/unpersisted tests | D1,V1 | unique trusted snapshot |
+| T4 | Decision-outcome isolation | verified | same-symbol isolation | D1,V1 | fetch by decision_id |
+| T5 | Evidence and supply states | verified | supply evidence fields | D1,V1 | inflow != main force |
+| T6 | Feature audit and OOS permissions | verified | RESEARCH_ONLY, collapse | D1,V1 | BUY blocked EXPERIMENTAL |
+| T7 | Docs, health, tests, git | in-progress | pytest 75, health 16/16 | D1,V1 | understand/push remaining |
 
 ## Decision Log
 
 | ID | Type | Scope | Reason | Evidence |
 |---|---|---|---|---|
-| D1 | pivot | plan | User superseded prior repricing-rebuild ledger with production truth lock | current task package |
+| D1 | pivot | plan | New closure task after production-truth-lock | user package |
+| D2 | unplanned | xiaogu_db.py | Drop lineage_id PK because scanner is 1 lineage to N snapshots | live schema + runner_v2 |
 
 ## Verification Records
 
 | ID | Evidence |
 |---|---|
-| V1 | pytest 69 passed, compileall 0, health 14/14 |
+| V1 | pytest 75 passed, compileall 0, health 16/16, schema audit ok=true |
 
 ## Reconciliation History
 
 | Sweep | Result |
 |---|---|
-| S1 | T1-T8 verified from existing owners; T9 remaining git/understand |
-| S2 | T9 verified: compile 0, pytest 69, health 14/14, understand 19489f2 |
+| S1 | T1-T6 verified; T7 remaining understand/index/commit/push |

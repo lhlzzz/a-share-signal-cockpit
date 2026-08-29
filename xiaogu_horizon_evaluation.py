@@ -504,9 +504,15 @@ def diagnose_features(
         positive = [value for value, label in zip(values, labels) if label == 1]
         negative = [value for value, label in zip(values, labels) if label == 0]
         report[name] = {
+            "mean": (sum(values) / len(values)) if values else None,
+            "std": (
+                math.sqrt(sum((value - (sum(values) / len(values))) ** 2 for value in values) / len(values))
+                if values else None
+            ),
             "min": min(values) if values else None,
             "p10": _percentile(values, 0.10),
             "p25": _percentile(values, 0.25),
+            "p50": _percentile(values, 0.50),
             "median": _percentile(values, 0.50),
             "p75": _percentile(values, 0.75),
             "p90": _percentile(values, 0.90),
@@ -526,6 +532,15 @@ def diagnose_features(
             "negative_mean": sum(negative) / len(negative) if negative else None,
             "label_correlation": _correlation(values, [label or 0 for label in labels]),
         }
+        std = report[name]["std"]
+        missing_rate = report[name]["missing_rate"] or 0.0
+        unique_count = report[name]["unique_count"]
+        collapsed = (
+            unique_count <= 1
+            or (std is not None and std < 1e-12)
+            or missing_rate >= 0.95
+        )
+        report[name]["status"] = "FEATURE_COLLAPSED" if collapsed else "OK"
     collinearity = []
     for left, right in combinations(feature_names, 2):
         correlation = _correlation(

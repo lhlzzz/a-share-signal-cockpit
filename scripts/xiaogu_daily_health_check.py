@@ -110,6 +110,37 @@ def check_ledger_readable():
         return False, repr(exc)
 
 
+def check_schema_fail_closed():
+    db_text = open(os.path.join(WORKSPACE_ROOT, "xiaogu_db.py"), encoding="utf-8").read()
+    if "except Exception:\n            continue" in db_text or "except Exception:\n        pass" in db_text:
+        return False, "schema migration still swallows exceptions"
+    if "ON CONFLICT (lineage_id) DO NOTHING" in db_text.split("def record_canonical")[0]:
+        return False, "production snapshots still conflict on lineage_id"
+    if "ON CONFLICT (snapshot_id) DO NOTHING" not in db_text:
+        return False, "missing snapshot_id conflict target"
+    return True, "ok"
+
+
+def check_production_schema_audit():
+    from xiaogu_db import audit_production_schema, ensure_production_schema
+
+    ensure_production_schema()
+    audit = audit_production_schema()
+    snapshots = audit["tables"]["snapshots"]
+    required = (
+        snapshots["columns"]["snapshot_id"] == "EXISTS"
+        and snapshots["columns"]["lineage_id"] == "EXISTS"
+        and snapshots["columns"]["source"] == "EXISTS"
+        and snapshots["columns"]["source_time"] == "EXISTS"
+        and audit["tables"]["picks"]["columns"]["decision_id"] == "EXISTS"
+        and audit["tables"]["returns"]["columns"]["decision_id"] == "EXISTS"
+        and snapshots["unique"]["snapshot_id"] == "EXISTS"
+    )
+    fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
+    required = required and fk in {"EXISTS", "HISTORICAL_CONFLICT"}
+    return required, "ok" if required else json.dumps(audit, ensure_ascii=False, default=str)
+
+
 CHECKS = [
     *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
     ("scanner_contract", check_scanner_contract),
@@ -120,6 +151,8 @@ CHECKS = [
     ("pipeline_chain", check_pipeline_chain),
     ("rule_freeze", check_rule_freeze),
     ("ledger_readable", check_ledger_readable),
+    ("schema_fail_closed", check_schema_fail_closed),
+    ("production_schema_audit", check_production_schema_audit),
 ]
 
 

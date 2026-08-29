@@ -215,6 +215,16 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float, Dict[str, 
         "model_id": model.get("model_id"),
         "oos": oos,
         "production_gates": production_gates,
+        "production_alpha_permissions": model.get("production_alpha_permissions") or {
+            "PRICE": "RESEARCH_ONLY",
+            "CAPITAL": "RESEARCH_ONLY",
+            "SUPPLY": "RESEARCH_ONLY",
+            "PRICING_GAP": "RESEARCH_ONLY",
+            "REPRICING": "RESEARCH_ONLY",
+            "FUTURE_BUYER": "RESEARCH_ONLY",
+            "REFLEXIVITY": "RESEARCH_ONLY",
+        },
+        "collapsed_features": model.get("collapsed_features") or [],
     }
 
 
@@ -403,6 +413,8 @@ def build_core_alpha(
         "profit_window_probability": round(profit_window_probability, 8),
         "profit_window_calibration": calibration,
         "profit_window_feature_values": probability_features,
+        "production_alpha_permissions": calibration.get("production_alpha_permissions") or {},
+        "collapsed_features": calibration.get("collapsed_features") or [],
         "expected_max_profit_5d": expected_max_profit_5d,
         "expected_time_to_profit": expected_time_to_profit,
         "expected_mae_5d": expected_mae_5d,
