@@ -10,7 +10,7 @@ Tier: structural
 | T3 | Decision linkage | verified | fetch by decision_id | D3 | UNRESOLVED stays |
 | T4 | Missing evidence collapse | verified | missing stays None | D3,D4 | None != 0 |
 | T5 | Ground truth + OOS | verified | 0 CANONICAL labels | D3 | PRE_REPAIR preserved |
-| T6 | Docs, health, tests, git | in_progress | pytest 76 health 16/16 | D3,D4 | commit+push remaining |
+| T6 | Docs, health, tests, git | verified | pytest 76 health 16/16 | D3,D4,C:983f54d | understand=983f54d |
 
 ## Decision Log
 
@@ -25,9 +25,13 @@ Tier: structural
 
 | ID | Evidence |
 |---|---|
+| V1 | pytest 76 passed; compileall 0; health 16/16 |
+| V2 | historical PK snapshot_id; 0 unresolved snapshot_ids |
+| V3 | dataset 0 CANONICAL / 3598 UNRESOLVED |
 
 ## Reconciliation History
 
 | Sweep | Result |
 |---|---|
 | R1 | T1-T5 verified; T6 open for understand/git |
+| R2 | T1-T6 verified; BUY remains BLOCKED |

@@ -39,5 +39,5 @@
 - Verification: BUY blocked unless VALIDATED
 
 ### Task 6: Docs, health, compile, tests, indexes, git
-- [ ] compileall, pytest, health, understand, codebase-memory, commit, push
+- [x] compileall, pytest, health, understand, codebase-memory, commit, push
 - Verification: 0 compile errors, pytest pass, HEAD == origin/main

@@ -21,8 +21,8 @@
       "SQLAlchemy"
     ],
     "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Canonical → Eligibility → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian.",
-    "analyzedAt": "2026-08-29T12:15:24+08:00",
-    "gitCommitHash": "c83558fac921bd82b569574eed2c3d59a686458f"
+    "analyzedAt": "2026-08-29T17:42:29+08:00",
+    "gitCommitHash": "983f54d626421e57f4a745241a88832bd5cc83f4"
   },
   "nodes": [
     {
