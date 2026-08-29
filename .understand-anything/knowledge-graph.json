@@ -22,7 +22,7 @@
     ],
     "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Canonical → Eligibility → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian.",
     "analyzedAt": "2026-08-29T12:15:24+08:00",
-    "gitCommitHash": "19489f28fc4f9e1414691800d6a554175ce0ff43"
+    "gitCommitHash": "c83558fac921bd82b569574eed2c3d59a686458f"
   },
   "nodes": [
     {
@@ -3076,7 +3076,7 @@
       "type": "file",
       "name": "xiaogu_db.py",
       "filePath": "xiaogu_db.py",
-      "summary": "PostgreSQL 生产真相。persisted 必须 DB 验证；returns 按 decision_id 绑定；schema 只 ADD。 符号 22。",
+      "summary": "PostgreSQL production persistence. Schema fail-closed. snapshot_id unique. outcomes bind by decision_id.",
       "tags": [
         "xiaogu",
         "production",
@@ -3121,7 +3121,7 @@
       "type": "function",
       "name": "record_snapshot",
       "filePath": "xiaogu_db.py",
-      "summary": "函数 record_snapshot，位于 xiaogu_db.py。",
+      "summary": "Persist one canonical snapshot keyed by snapshot_id. lineage_id is scan identity, not the row unique key.",
       "tags": [
         "xiaogu",
         "function"
@@ -5999,7 +5999,7 @@
       "type": "function",
       "name": "validate_and_build_canonical_snapshot",
       "filePath": "xiaogu_forward_snapshot.py",
-      "summary": "函数 validate_and_build_canonical_snapshot，位于 xiaogu_forward_snapshot.py。",
+      "summary": "Build a trusted snapshot with scan-level lineage_id and unique snapshot_id.",
       "tags": [
         "xiaogu",
         "function"
@@ -6059,7 +6059,7 @@
       "type": "function",
       "name": "ensure_production_schema",
       "filePath": "xiaogu_db.py",
-      "summary": "函数 ensure_production_schema，位于 xiaogu_db.py。",
+      "summary": "ADD-only schema migration that raises on ALTER failure and audits snapshot_id, decision_id, and returns FK.",
       "tags": [
         "xiaogu",
         "function"
@@ -6119,7 +6119,7 @@
       "type": "function",
       "name": "fetch_position_outcome",
       "filePath": "xiaogu_db.py",
-      "summary": "函数 fetch_position_outcome，位于 xiaogu_db.py。",
+      "summary": "Read T+1..T+5 outcome bound to one decision_id. Missing decision_id is OUTCOME_NOT_BOUND.",
       "tags": [
         "xiaogu",
         "function"
