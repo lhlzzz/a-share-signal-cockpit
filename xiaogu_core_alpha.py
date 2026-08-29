@@ -153,31 +153,31 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
 
 def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Dict[str, Any], convergence: Dict[str, Any]) -> Dict[str, Any]:
     evidence = []
-    if capital.get("distribution_risk", 0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK":
+    if (capital.get("distribution_risk") or 0.0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK":
         evidence.append("distribution_risk")
         state = "DISTRIBUTION"
     elif market.get("stage") in {"CLIMAX", "DISTRIBUTION"}:
         evidence.append("market_stage")
         state = market["stage"]
-    elif market.get("attention", 0) >= 0.85 and market.get("price_strength", 0) >= 0.80:
+    elif (market.get("attention") or 0.0) >= 0.85 and (market.get("price_strength") or 0.0) >= 0.80:
         evidence.extend(["attention_extreme", "price_strength"])
         state = "CLIMAX"
     elif (
         convergence["status"] == "CONVERGENCE"
         and capital.get("fund_flow_acceleration") is not None
         and capital.get("fund_flow_acceleration") >= 0.60
-        and market.get("price_strength", 0) >= 0.50
+        and (market.get("price_strength") or 0.0) >= 0.50
     ):
         evidence.extend(["capital_acceleration", "price_response", "capital_convergence"])
         state = "IGNITION"
-    elif convergence["status"] == "CONVERGENCE" and market.get("sector_breadth", 0) >= 0.60 and market.get("leader_strength", 0) >= 0.60:
+    elif convergence["status"] == "CONVERGENCE" and (market.get("sector_breadth") or 0.0) >= 0.60 and (market.get("leader_strength") or 0.0) >= 0.60:
         evidence.extend(["capital_convergence", "breadth_expansion", "leader_strength"])
         state = "EXPANSION"
     elif (
         capital.get("fund_flow_persistence") is not None
         and capital.get("fund_flow_persistence") >= 0.55
         and supply.get("supply_absorption_state") == "ABSORPTION"
-        and market.get("price_strength", 0) < 0.55
+        and (market.get("price_strength") or 0.0) < 0.55
     ):
         evidence.extend(["capital_persistence", "supply_absorption", "price_contained"])
         state = "ACCUMULATION"
@@ -319,11 +319,11 @@ def build_core_alpha(
     repricing = _repricing_state(capital_measure, supply, market, convergence)
     repricing_state = repricing["state"]
     completion = {
-        "price_expanded": market["price_strength"] >= 0.80,
+        "price_expanded": (market["price_strength"] or 0.0) >= 0.80,
         "valuation_expanded": gap.get("price_reflection") is not None and gap["price_reflection"] >= 0.80,
-        "attention_extreme": market["attention"] >= 0.85,
+        "attention_extreme": (market["attention"] or 0.0) >= 0.85,
         "institutional_saturated": _clip(capital_measure["institutional_flow"]) >= 0.90,
-        "hot_money_crowded": capital_measure["hot_money_flow"] >= 0.90,
+        "hot_money_crowded": (capital_measure["hot_money_flow"] or 0.0) >= 0.90,
     }
     completion["completed"] = bool(
         sum(bool(value) for key, value in completion.items() if key != "completed") >= 2
@@ -332,7 +332,7 @@ def build_core_alpha(
 
     execution_feasibility = (
         None if execution.get("execution_feasibility") is None
-        else _clip(execution["execution_feasibility"] * (1.0 - execution["short_term_overheat"] * 0.35))
+        else _clip(execution["execution_feasibility"] * (1.0 - (execution["short_term_overheat"] or 0.0) * 0.35))
     )
     probability_features = {
         "capital_convergence": convergence["score"],
@@ -370,16 +370,16 @@ def build_core_alpha(
     expected_net_profit_window = None
 
     readiness = {
-        "BUSINESS_READY": axes["BUSINESS"] >= 0.50,
-        "FUTURE_DEMAND_READY": axes["FUTURE_DEMAND"] >= 0.50,
+        "BUSINESS_READY": (axes["BUSINESS"] or 0.0) >= 0.50,
+        "FUTURE_DEMAND_READY": (axes["FUTURE_DEMAND"] or 0.0) >= 0.50,
         "CAPITAL_CONVERGENCE_READY": convergence["status"] == "CONVERGENCE",
         "SUPPLY_ABSORPTION_READY": supply["supply_absorption_state"] == "ABSORPTION",
         "PRICING_GAP_READY": gap.get("score") is not None and gap["score"] >= 0.35,
         "FUTURE_BUYERS_READY": buyer_observed and buyer_capacity >= 0.35,
-        "REFLEXIVITY_READY": reflexivity["score"] >= 0.35 and reflexivity["break"] < 0.70,
+        "REFLEXIVITY_READY": (reflexivity["score"] or 0.0) >= 0.35 and (reflexivity["break"] or 0.0) < 0.70,
         "EXECUTION_FEASIBLE": execution_feasibility is not None and execution_feasibility >= 0.35,
-        "RISK_READY": risk["score"] >= 0.50,
-        "MARKET_READY": market["score"] >= 0.35,
+        "RISK_READY": (risk["score"] or 0.0) >= 0.50,
+        "MARKET_READY": (market["score"] or 0.0) >= 0.35,
         "COMPLETION_CLEAR": not completion["completed"],
         "PROFIT_WINDOW_READY": (
             model_status == "VALIDATED"
@@ -408,11 +408,11 @@ def build_core_alpha(
         ] or ["future demand evidence and buyer triggers remain incomplete"],
         "who_is_buying": [
             key for key, value in (("institution", convergence["institution"]), ("main_force", convergence["main_force"]), ("hot_money", convergence["hot_money"]))
-            if value >= 0.50
+            if value is not None and value >= 0.50
         ],
         "who_may_sell": [
             key for key, value in (("overhead_supply", supply["overhead_supply"]), ("shareholder_reduction", supply["shareholder_reduction"]), ("unlocking", supply["unlocking_pressure"]))
-            if value > 0.40
+            if value is not None and value > 0.40
         ],
         "supply_absorption": supply["supply_absorption"],
         "pricing_gap": gap["score"],
@@ -438,9 +438,9 @@ def build_core_alpha(
         "REPRICING_READINESS": readiness,
         "repricing_readiness_score": round(_mean(*([axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["real_pricing_gap"], axes["REFLEXIVITY"]] + ([buyer_capacity] if buyer_observed else []))), 8),
         "repricing_state_evidence": repricing,
-        "business_quality": round(axes["BUSINESS"], 8),
-        "future_demand": round(axes["FUTURE_DEMAND"], 8),
-        "capital_accumulation": round(capital_measure["accumulation"], 8),
+        "business_quality": _round_or_none(axes["BUSINESS"]),
+        "future_demand": _round_or_none(axes["FUTURE_DEMAND"]),
+        "capital_accumulation": _round_or_none(capital_measure["accumulation"]),
         "capital_convergence": convergence,
         "capital_convergence_status": convergence["status"],
         "capital_convergence_level": (
@@ -449,20 +449,20 @@ def build_core_alpha(
             else "LOW" if convergence["status"] == "CONFLICT"
             else "UNKNOWN"
         ),
-        "capital_price_impact": round(capital_measure["capital_price_impact"], 8),
+        "capital_price_impact": _round_or_none(capital_measure["capital_price_impact"]),
         "capital_price_impact_state": capital_measure["capital_price_impact_state"],
         "supply_absorption": _round_or_none(supply["supply_absorption"]),
-        "supply_pressure": round(supply["supply_pressure"], 8),
+        "supply_pressure": _round_or_none(supply["supply_pressure"]),
         "pricing_gap": _round_or_none(gap["score"]),
         "real_pricing_gap": _round_or_none(gap["real_pricing_gap"]),
         "low_price": bool(gap["low_price"]),
         "future_buyer_capacity": round(buyer_capacity, 8),
         "future_buyer_evidence": (future_buyer_map or {}).get("buyer_evidence", {}),
-        "reflexivity": round(reflexivity["score"], 8),
-        "reflexivity_strength": round(reflexivity["score"], 8),
-        "reflexivity_break_risk": round(reflexivity["break"], 8),
-        "crowding_risk": round(reflexivity.get("crowding", 0.0), 8),
-        "buyer_exhaustion": reflexivity.get("buyer_exhaustion", False),
+        "reflexivity": _round_or_none(reflexivity["score"]),
+        "reflexivity_strength": _round_or_none(reflexivity["score"]),
+        "reflexivity_break_risk": _round_or_none(reflexivity["break"]),
+        "crowding_risk": _round_or_none(reflexivity.get("crowding")),
+        "buyer_exhaustion": reflexivity.get("buyer_exhaustion"),
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
         "repricing_evidence_score": round(repricing_evidence_score, 8),
@@ -483,10 +483,10 @@ def build_core_alpha(
             "cost_rate": DEFAULT_COST_RATE,
         },
         "thesis_score": round(thesis_score, 8),
-        "downside_risk": round(_clip(risk["downside"]), 8),
+        "downside_risk": _round_or_none(risk["downside"]),
         "confidence": round(_mean(thesis_score, demand["evidence_strength"], execution_feasibility, convergence["score"]), 8),
         "market_stage": market["stage"],
-        "reflexivity_break": reflexivity["break"],
+        "reflexivity_break": _round_or_none(reflexivity["break"]),
         "repricing_completion": completion,
         "REPRICING_COMPLETION": completion,
         "contradiction": {"status": contradiction_status, "veto": contradiction_veto},

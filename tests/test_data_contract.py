@@ -5,7 +5,7 @@ from xiaogu_forward_eligibility import candidate_universe
 from xiaogu_forward_features import FEATURE_GROUPS, build_feature_vector
 from xiaogu_forward_snapshot import attach_research_observations, canonical_snapshot
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
-from scrapy_scanner.runner_v2 import build_canonical_snapshots
+from scrapy_scanner.runner_v2 import build_canonical_snapshots, detect_capital_candidates
 
 
 def test_snapshot_has_no_future_fields_and_features_are_measurements():
@@ -104,6 +104,60 @@ def test_scanner_fixture_only_emits_canonical_market_observations():
     assert snapshots[0]["source_version"] == "canonical_snapshot_v2"
     for forbidden in ("candidate_rank", "strategy_score", "recommendation", "setup_type"):
         assert forbidden not in snapshots[0]
+
+
+def test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates():
+    stocks = [
+        {
+            "f12": "600001", "f14": "候选", "f2": 10, "f3": 3, "f5": 100,
+            "f6": 1_000, "f8": 2, "f10": 1.2, "f15": 10.5, "f16": 9.5, "f62": 500,
+            "f100": "示例行业",
+        },
+        {
+            "f12": "600002", "f14": "轻量", "f2": 10, "f3": 0, "f5": 100,
+            "f6": 1_000, "f8": 0.5, "f10": 0.8, "f15": 10.5, "f16": 9.5,
+            "f100": "示例行业",
+        },
+    ]
+    candidates, audit = detect_capital_candidates(stocks)
+    assert [row["f12"] for row in candidates] == ["600001"]
+    assert audit["selection"] is False
+    assert audit["ranking"] is False
+    assert audit["alpha"] is False
+
+    snapshots = build_canonical_snapshots(
+        {
+            "stock_all_a": stocks,
+            "stock_capital_flow": [{"f12": "600001", "f62": 500}, {"f12": "600002", "f62": 900}],
+            "earnings_preview": [], "stock_reports": [], "lhb": [], "announcements": [],
+            "org_survey": [{"SECURITY_CODE": "600001", "survey": "observed"}],
+            "news_kuaixun": [{"SECURITY_CODE": "600001", "title": "observed"}],
+            "flow_industry": [], "industry_reports": [],
+        },
+        "2026-08-26T14:50:00+08:00",
+        symbols=["600001"],
+    )
+    assert {row["symbol"] for row in snapshots} == {"600001", "600002"}
+    by_symbol = {row["symbol"]: row for row in snapshots}
+    assert by_symbol["600001"]["raw"]["stock_capital_flow"]["f62"] == 500
+    assert by_symbol["600001"]["raw"]["org_surveys"][0]["survey"] == "observed"
+    assert by_symbol["600001"]["raw"]["news"][0]["title"] == "observed"
+    assert "stock_capital_flow" not in by_symbol["600002"]["raw"]
+    assert "L3_DEEP_CANDIDATE_FETCH" in by_symbol["600001"]["source_layers"]
+    assert "L3_DEEP_CANDIDATE_FETCH" not in by_symbol["600002"]["source_layers"]
+
+
+def test_missing_measurements_remain_unknown_instead_of_zero_fill():
+    vector = build_feature_vector(canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1_000,
+        "source_time": "2026-08-26T14:50:00+08:00",
+    }))
+    assert vector["CAPITAL"]["fund_flow_acceleration"] is None
+    assert vector["SUPPLY"]["effective_supply"] is None
+    assert vector["PRICING_GAP"]["score"] is None
+    assert vector["MARKET"]["leader_strength"] is None
+    assert vector["RISK"]["event_risk"] is None
+    assert vector["EXECUTION"]["execution_feasibility"] is None
 
 
 def test_candidate_universe_is_cheap_and_has_no_alpha_fields():

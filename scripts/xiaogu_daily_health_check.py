@@ -135,6 +135,7 @@ def check_production_schema_audit():
         and snapshots["columns"]["lineage_id"] == "EXISTS"
         and snapshots["columns"]["source"] == "EXISTS"
         and snapshots["columns"]["source_time"] == "EXISTS"
+        and snapshots["columns"]["payload_hash"] == "EXISTS"
         and audit["tables"]["picks"]["columns"]["decision_id"] == "EXISTS"
         and audit["tables"]["returns"]["columns"]["decision_id"] == "EXISTS"
         and snapshots["unique"]["snapshot_id"] == "EXISTS"

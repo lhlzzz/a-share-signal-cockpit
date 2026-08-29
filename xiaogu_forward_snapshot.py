@@ -24,12 +24,15 @@ STALE_DATA = "STALE_DATA"
 REQUIRED_CANONICAL_FIELDS = (
     "symbol",
     "trade_date",
+    "signal_time",
     "source",
     "source_version",
     "source_time",
+    "available_at",
     "as_of",
     "lineage_id",
     "snapshot_id",
+    "payload_hash",
     "producer",
     "schema_version",
 )
@@ -206,6 +209,16 @@ def _sha256(payload: Any) -> str:
     ).hexdigest()
 
 
+def snapshot_payload_hash(payload: Mapping[str, Any]) -> str:
+    """Hash immutable snapshot facts, excluding write-time provenance fields."""
+    stable = {
+        key: value
+        for key, value in dict(payload).items()
+        if key not in {"payload_hash", "trusted_snapshot", "decision_clock", "source_age_seconds"}
+    }
+    return _sha256(stable)
+
+
 def build_scan_lineage_id(
     *,
     source: str,
@@ -299,6 +312,8 @@ def _build_payload(
         source_time or _first(row, "source_time", "as_of", "timestamp", "scan_time") or ""
     )
     as_of = _normalize_timestamp(row.get("as_of") or visible_at)
+    signal_time = _normalize_timestamp(row.get("signal_time") or visible_at)
+    available_at = _normalize_timestamp(row.get("available_at") or as_of or visible_at)
     payload = {
         "symbol": str(_first(row, "symbol", "code", "f12") or "").strip().zfill(6)[-6:],
         "name": str(_first(row, "name", "stock_name", "f14") or ""),
@@ -306,6 +321,8 @@ def _build_payload(
         "source": source or str(row.get("source") or "eastmoney_api_scan_v2"),
         "source_version": str(row.get("source_version") or SOURCE_VERSION),
         "source_time": visible_at,
+        "signal_time": signal_time,
+        "available_at": available_at,
         "as_of": as_of,
         "producer": producer,
         "schema_version": SCHEMA_VERSION,
@@ -324,6 +341,7 @@ def _build_payload(
         "lhb": row.get("lhb") or row.get("lhb_evidence") or [],
         "market": row.get("market") or row.get("market_state") or {},
         "risk": row.get("risk") or {},
+        "source_layers": list(row.get("source_layers") or []),
         "raw": dict(row.get("raw") or row),
     }
     if payload["symbol"] == "000000":
@@ -345,6 +363,7 @@ def _build_payload(
         producer=payload["producer"],
     )
     payload["trusted_snapshot"] = True
+    payload["payload_hash"] = snapshot_payload_hash(payload)
     return payload
 
 
@@ -403,7 +422,10 @@ def validate_and_build_canonical_snapshot(
         payload["source_version"] = str(raw_row.get("source_version") or SOURCE_VERSION)
         payload["as_of"] = _normalize_timestamp(raw_row.get("as_of") or payload["as_of"])
         payload["source_time"] = _normalize_timestamp(raw_row.get("source_time") or payload["source_time"])
+        payload["signal_time"] = _normalize_timestamp(raw_row.get("signal_time") or payload["signal_time"])
+        payload["available_at"] = _normalize_timestamp(raw_row.get("available_at") or payload["available_at"])
     _validate_required(payload)
+    payload["payload_hash"] = snapshot_payload_hash(payload)
     _assert_time_order(payload["source_time"], payload["as_of"], decision_time)
     if target_trade_date and payload["trade_date"] != str(target_trade_date):
         raise ValueError("NO_PRODUCTION_SNAPSHOT:trade_date_mismatch")
@@ -440,9 +462,10 @@ def assert_production_provenance(
         raise ValueError("STALE_DATA")
     if trade_date and str(snapshot.get("trade_date") or "") != str(trade_date):
         raise ValueError("NO_PRODUCTION_SNAPSHOT:trade_date_mismatch")
-    snapshot["decision_clock"] = clock.isoformat()
-    snapshot["source_age_seconds"] = age.total_seconds()
-    return snapshot
+    enriched = dict(snapshot)
+    enriched["decision_clock"] = clock.isoformat()
+    enriched["source_age_seconds"] = age.total_seconds()
+    return CanonicalSnapshot(enriched, _token=_TRUST_TOKEN)
 
 
 validate_production_provenance = assert_production_provenance

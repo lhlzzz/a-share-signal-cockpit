@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 def cheap_eligibility_blockers(row: Dict[str, Any]) -> List[str]:
     """Check only observable market and operational prerequisites."""
-    symbol = str(row.get("symbol") or row.get("code") or "").strip()
+    symbol = str(row.get("symbol") or row.get("code") or row.get("f12") or "").strip()
     try:
         price = float(row.get("price") or row.get("close") or row.get("f2") or 0)
     except (TypeError, ValueError):
@@ -59,7 +59,7 @@ def candidate_universe(snapshots: List[Dict[str, Any]]) -> tuple[List[Dict[str, 
 
 def paper_pick_buyability_block_reason(row: Dict[str, Any], account: Dict[str, Any] | None = None) -> str:
     account = account or {}
-    symbol = str(row.get("symbol") or row.get("code") or "").strip()
+    symbol = str(row.get("symbol") or row.get("code") or row.get("f12") or "").strip()
     try:
         price = float(row.get("price") or row.get("close") or 0)
     except (TypeError, ValueError):

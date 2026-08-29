@@ -176,7 +176,10 @@ def _count_unresolved_snapshot_ids(table_name: str) -> int:
 def audit_production_schema() -> Dict[str, Any]:
     """Inspect required production identity objects. Never rewrite historical values."""
     required_columns = {
-        "snapshots": ("snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time"),
+        "snapshots": (
+            "snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time",
+            "payload_hash",
+        ),
         "picks": ("decision_id",),
         "returns": ("decision_id",),
         "canonical_historical_snapshots": (
@@ -284,6 +287,7 @@ def ensure_production_schema() -> None:
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT",
         "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT",
+        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS payload_hash TEXT",
         "ALTER TABLE canonical_historical_snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
@@ -326,9 +330,6 @@ def ensure_production_schema() -> None:
         )
     except SQLAlchemyError as exc:
         if _schema_error_already_exists(exc):
-            return
-        conflicts = _count_returns_decision_fk_conflicts()
-        if conflicts > 0:
             return
         raise
 
@@ -476,35 +477,32 @@ def verify_persisted_snapshot(
     source: str = "",
     source_time: str = "",
     symbol: str = "",
+    payload_hash: str = "",
 ) -> bool:
     """Prove the canonical snapshot exists in PostgreSQL. Local files are not persistence."""
-    if not snapshot_id and not lineage_id:
+    if not snapshot_id:
         return False
     try:
         ensure_production_schema()
         columns = _table_columns("snapshots")
         if not columns:
             return False
-        clauses = []
-        params: Dict[str, Any] = {}
-        if "snapshot_id" in columns and snapshot_id:
-            clauses.append("(snapshot_id = :snapshot_id OR payload->>'snapshot_id' = :snapshot_id)")
-            params["snapshot_id"] = snapshot_id
-        if "lineage_id" in columns and lineage_id:
+        clauses = ["snapshot_id = :snapshot_id"]
+        params: Dict[str, Any] = {"snapshot_id": snapshot_id}
+        if lineage_id:
             clauses.append("lineage_id = :lineage_id")
             params["lineage_id"] = lineage_id
-        if "symbol" in columns and symbol:
-            clauses.append("(symbol = :symbol OR payload->>'symbol' = :symbol)")
+        if symbol:
+            clauses.append("symbol = :symbol")
             params["symbol"] = symbol
-        if "trade_date" in columns and trade_date:
+        if trade_date:
             clauses.append("trade_date = CAST(:trade_date AS date)")
             params["trade_date"] = trade_date
-        if not clauses:
-            return False
         with engine.connect() as db:
             row = db.execute(
                 text(
-                    "SELECT payload, lineage_id, snapshot_id, source, source_time "
+                    "SELECT payload, lineage_id, snapshot_id, source, source_time, "
+                    "payload_hash, symbol, trade_date "
                     f"FROM snapshots WHERE {' AND '.join(clauses)} LIMIT 1"
                 ),
                 params,
@@ -516,15 +514,26 @@ def verify_persisted_snapshot(
             payload = json.loads(payload)
         if not isinstance(payload, dict):
             payload = {}
-        stored_snapshot_id = str(row.get("snapshot_id") or payload.get("snapshot_id") or "")
-        if snapshot_id and stored_snapshot_id not in {snapshot_id, ""}:
+        stored_snapshot_id = str(row.get("snapshot_id") or "")
+        if stored_snapshot_id != snapshot_id or str(payload.get("snapshot_id") or "") != snapshot_id:
             return False
         stored_source = str(row.get("source") or payload.get("source") or "")
-        if source and stored_source not in {source, ""}:
+        if source and stored_source != source:
             return False
         stored_source_time = str(row.get("source_time") or payload.get("source_time") or "")
-        if source_time and stored_source_time not in {source_time, ""}:
+        if source_time and stored_source_time != source_time:
             return False
+        if lineage_id and str(row.get("lineage_id") or "") != lineage_id:
+            return False
+        if symbol and str(row.get("symbol") or "") != symbol:
+            return False
+        computed_hash = snapshot_payload_hash(payload)
+        stored_hash = str(row.get("payload_hash") or payload.get("payload_hash") or "")
+        if stored_hash and stored_hash != computed_hash:
+            return False
+        if payload_hash:
+            if computed_hash != payload_hash:
+                return False
         return True
     except SQLAlchemyError:
         return False
@@ -582,6 +591,11 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
         raise ValueError("SNAPSHOT_IDENTITY_REQUIRED")
     columns = _table_columns("snapshots")
     fields = ["lineage_id", "trade_date", "payload"]
+    from xiaogu_forward_snapshot import snapshot_payload_hash
+    computed_hash = snapshot_payload_hash(snapshot)
+    provided_hash = str(snapshot.get("payload_hash") or "")
+    if provided_hash and provided_hash != computed_hash:
+        raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
     params = {
         "lineage_id": lineage_id,
         "trade_date": snapshot["trade_date"],
@@ -590,8 +604,9 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
         "source": snapshot.get("source"),
         "source_time": snapshot.get("source_time"),
         "symbol": snapshot.get("symbol"),
+        "payload_hash": computed_hash,
     }
-    for field in ("snapshot_id", "source", "source_time", "symbol"):
+    for field in ("snapshot_id", "source", "source_time", "symbol", "payload_hash"):
         if field in columns:
             fields.append(field)
     placeholders = ", ".join(
@@ -600,11 +615,15 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
     )
     with get_db() as db:
         existing = db.execute(
-            text("SELECT payload FROM snapshots WHERE snapshot_id = :snapshot_id"),
+            text("SELECT payload, payload_hash FROM snapshots WHERE snapshot_id = :snapshot_id"),
             {"snapshot_id": snapshot_id},
         ).mappings().first()
         if existing:
-            if snapshot_payload_identity(existing.get("payload")) != snapshot_payload_identity(snapshot):
+            stored_payload = existing.get("payload")
+            stored_hash = str(existing.get("payload_hash") or "")
+            if not stored_hash:
+                stored_hash = snapshot_payload_hash(stored_payload)
+            if stored_hash != str(params["payload_hash"]):
                 raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
             return
         db.execute(
@@ -614,10 +633,21 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
             ),
             params,
         )
+        stored = db.execute(
+            text("SELECT payload, payload_hash FROM snapshots WHERE snapshot_id = :snapshot_id"),
+            {"snapshot_id": snapshot_id},
+        ).mappings().first()
+        stored_hash = snapshot_payload_hash(stored.get("payload")) if stored else ""
+        if stored and stored.get("payload_hash"):
+            stored_hash = str(stored["payload_hash"])
+        if not stored or stored_hash != str(params["payload_hash"]):
+            raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
 
 
 def record_decision(decision: Dict[str, Any]) -> None:
     ensure_production_schema()
+    if not str(decision.get("decision_id") or "").strip():
+        raise ValueError("DECISION_ID_REQUIRED")
     columns = _table_columns("picks")
     fields = ["trade_date", "symbol", "state", "payload"]
     canonical = decision.get("canonical_snapshot") or {}
@@ -650,13 +680,16 @@ def record_decision(decision: Dict[str, Any]) -> None:
 
 def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
     ensure_production_schema()
+    decision_id = decision_id or payload.get("decision_id") or payload.get("id") or ""
+    if not str(decision_id).strip():
+        raise ValueError("DECISION_ID_REQUIRED")
     columns = _table_columns("returns")
     fields = ["trade_date", "symbol", "payload"]
     params = {
         "trade_date": trade_date,
         "symbol": symbol,
         "payload": json.dumps(payload, ensure_ascii=False, default=str),
-        "decision_id": decision_id or payload.get("decision_id") or payload.get("id") or "",
+        "decision_id": decision_id,
     }
     if "decision_id" in columns:
         fields.append("decision_id")

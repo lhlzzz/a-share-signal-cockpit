@@ -92,6 +92,11 @@ def _optional_clip(value: Any, low: float = 0.0, high: float = 1.0) -> float | N
     return None if number is None else max(low, min(high, number))
 
 
+def _optional_rate(value: Any, high: float = 0.02) -> float | None:
+    number = _optional_number(value)
+    return None if number is None else _clip(number, high=high) / high
+
+
 def _first(payload: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         if payload.get(key) not in (None, "", "-"):
@@ -144,23 +149,23 @@ def _market_stage(raw: Dict[str, Any], capital: Dict[str, Any], supply: Dict[str
     explicit = str(_first(raw, "repricing_state", "market_stage", default="") or "").upper()
     if explicit in {"ACCUMULATION", "IGNITION", "EXPANSION", "CLIMAX", "DISTRIBUTION"}:
         return explicit
-    if market["attention"] >= 0.85 and market["price_strength"] >= 0.80:
+    if (market["attention"] or 0.0) >= 0.85 and (market["price_strength"] or 0.0) >= 0.80:
         return "CLIMAX"
-    if capital["capital_price_divergence"] >= 0.70 and market["price_strength"] >= 0.55:
+    if (capital["capital_price_divergence"] or 0.0) >= 0.70 and (market["price_strength"] or 0.0) >= 0.55:
         return "DISTRIBUTION"
     if (
         capital.get("fund_flow_acceleration") is not None
         and capital["fund_flow_acceleration"] >= 0.65
-        and market["price_strength"] >= 0.50
+        and (market["price_strength"] or 0.0) >= 0.50
     ):
         return "IGNITION"
-    if market["breadth"] >= 0.60 and market["leader_strength"] >= 0.60:
+    if (market["breadth"] or 0.0) >= 0.60 and (market["leader_strength"] or 0.0) >= 0.60:
         return "EXPANSION"
     if (
         capital.get("fund_flow_persistence") is not None
         and capital["fund_flow_persistence"] >= 0.55
         and supply["supply_absorption_state"] == "ABSORPTION"
-        and market["price_strength"] < 0.55
+        and (market["price_strength"] or 0.0) < 0.55
     ):
         return "ACCUMULATION"
     return "UNKNOWN"
@@ -176,42 +181,47 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     industry_flow = raw.get("industry_flow") if isinstance(raw.get("industry_flow"), dict) else {}
     earnings = raw.get("earnings_preview") if isinstance(raw.get("earnings_preview"), dict) else {}
     shareholder = raw.get("shareholder_changes") if isinstance(raw.get("shareholder_changes"), list) else []
-    price = _number(snap.get("price"))
-    high = _number(snap.get("high"))
-    low = _number(snap.get("low"))
-    amount = _number(snap.get("amount"))
-    turnover = _number(snap.get("turnover"))
-    pct_change = _number(_first(raw, "pct_chg", "signal_pct", "f3"))
-    main_flow = _number(_first(flow, "main_net_inflow", "f62", default=_first(raw, "main_net_inflow", "f62")))
-    main_flow_pct = _number(_first(flow, "main_net_inflow_pct", "f184", "f18"))
-    close_position = _ratio(price - low, high - low) if high > low else 0.0
-    turnover_velocity = _clip(turnover / 20.0)
-    price_strength = _clip((pct_change + 5.0) / 15.0)
-    amount_pctile = _clip(_first(raw, "amount_percentile", "full_universe_amount_pctile", default=0.0))
-    attention = _clip(_first(raw, "attention_score", "popularity_score", "popularity_percentile", default=0.0))
-    breadth = _clip(_number(_first(raw, "market_breadth_up_pct", default=0.0)) / 100.0)
-    sector_breadth = _clip(_first(raw, "sector_breadth", "sector_strength", default=_number(_first(industry_flow, "f3", default=0.0)) / 10.0))
+    price = _optional_number(snap.get("price"))
+    high = _optional_number(snap.get("high"))
+    low = _optional_number(snap.get("low"))
+    amount = _optional_number(snap.get("amount"))
+    turnover = _optional_number(snap.get("turnover"))
+    pct_change = _optional_number(_first(raw, "pct_chg", "signal_pct", "f3"))
+    main_flow = _optional_number(_first(flow, "main_net_inflow", "f62", default=_first(raw, "main_net_inflow", "f62")))
+    main_flow_pct = _optional_number(_first(flow, "main_net_inflow_pct", "f184", "f18"))
+    amount_value = amount or 0.0
+    turnover_value = turnover or 0.0
+    main_flow_value = main_flow or 0.0
+    pct_change_value = pct_change or 0.0
+    close_position = _ratio(price - low, high - low) if price is not None and high is not None and low is not None and high > low else None
+    turnover_velocity = _optional_clip(turnover / 20.0) if turnover is not None else None
+    price_strength = _optional_clip((pct_change + 5.0) / 15.0) if pct_change is not None else None
+    amount_pctile = _optional_clip(_first(raw, "amount_percentile", "full_universe_amount_pctile"))
+    attention = _optional_clip(_first(raw, "attention_score", "popularity_score", "popularity_percentile"))
+    breadth = _optional_clip(_optional_number(_first(raw, "market_breadth_up_pct")) / 100.0 if _optional_number(_first(raw, "market_breadth_up_pct")) is not None else None)
+    sector_source = _first(raw, "sector_breadth", "sector_strength")
+    sector_breadth = _optional_clip(sector_source if sector_source is not None else (_optional_number(_first(industry_flow, "f3")) / 10.0 if _optional_number(_first(industry_flow, "f3")) is not None else None))
     # A flow amount without traded amount has no comparable denominator and
     # must remain unobserved rather than becoming a saturated signal.
-    flow_comparable = amount > 0 and abs(main_flow) <= amount * 5.0
-    positive_flow = _clip(max(main_flow, 0.0) / amount) if flow_comparable else 0.0
-    negative_flow = _clip(max(-main_flow, 0.0) / amount) if flow_comparable else 0.0
-    price_impact = _clip(abs(pct_change) / max(abs(main_flow_pct) * 2.0, 1.0)) if main_flow or main_flow_pct else 0.0
-    price_response = _clip(max(pct_change, 0.0) / 10.0)
-    capital_divergence = _clip(
-        _first(raw, "capital_price_divergence", default=0.0)
+    flow_comparable = amount is not None and amount > 0 and main_flow is not None and abs(main_flow) <= amount * 5.0
+    positive_flow = _clip(max(main_flow, 0.0) / amount) if flow_comparable else None
+    negative_flow = _clip(max(-main_flow, 0.0) / amount) if flow_comparable else None
+    price_impact = _clip(abs(pct_change) / max(abs(main_flow_pct) * 2.0, 1.0)) if pct_change is not None and main_flow_pct is not None else None
+    price_response = _optional_clip(max(pct_change, 0.0) / 10.0) if pct_change is not None else None
+    capital_divergence = _optional_clip(
+        _first(raw, "capital_price_divergence")
         if raw.get("capital_price_divergence") not in (None, "")
         else (
             1.0
-            if main_flow > 0 and any(
+            if main_flow is not None and main_flow > 0 and any(
                 _number(row.get("NET_BS_AMT")) < 0
                 for row in (raw.get("lhb") or [])
                 if isinstance(row, dict)
             )
-            else (0.75 if main_flow > 0 and pct_change <= 0 else 0.0)
+            else (0.75 if main_flow is not None and main_flow > 0 and pct_change is not None and pct_change <= 0 else None)
         )
     )
-    if not amount or not main_flow:
+    if amount is None or main_flow is None or pct_change is None:
         capital_price_impact_state = "UNKNOWN"
     elif main_flow > 0 and pct_change > 0:
         capital_price_impact_state = "DEMAND_CONFIRMATION"
@@ -225,55 +235,55 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         capital_price_impact_state = "NEUTRAL"
 
     business = {
-        "business_quality": _clip(_first(raw, "business_quality", "financial_quality", default=_number(_first(earnings, "WEIGHTAVG_ROE")) / 100.0)),
-        "moat": _clip(_first(raw, "moat", "moat_quality", default=0.0)),
-        "pricing_power": _clip(_first(raw, "pricing_power", default=0.0)),
-        "earnings_quality": _clip(_first(raw, "earnings_quality", "cash_flow_quality", default=0.0)),
-        "roic": _clip(_number(_first(raw, "roic", default=0.0)) / 100.0),
-        "roe": _clip(_number(_first(raw, "roe", default=_first(earnings, "WEIGHTAVG_ROE", default=0.0))) / 100.0),
-        "growth": _clip(_number(_first(raw, "growth", "earnings_growth", default=0.0)) / 100.0),
-        "management": _clip(_first(raw, "management", "management_quality", default=0.0)),
-        "debt_safety": _clip(_first(raw, "debt_safety", default=0.0)),
-        "capital_allocation": _clip(_first(raw, "capital_allocation", default=0.0)),
-        "valuation": _clip(_first(raw, "valuation", "valuation_quality", "valuation_score", default=0.0)),
+        "business_quality": _optional_clip(_first(raw, "business_quality", "financial_quality", default=_optional_number(_first(earnings, "WEIGHTAVG_ROE")) / 100.0 if _optional_number(_first(earnings, "WEIGHTAVG_ROE")) is not None else None)),
+        "moat": _optional_clip(_first(raw, "moat", "moat_quality")),
+        "pricing_power": _optional_clip(_first(raw, "pricing_power")),
+        "earnings_quality": _optional_clip(_first(raw, "earnings_quality", "cash_flow_quality")),
+        "roic": _optional_clip(_optional_number(_first(raw, "roic")) / 100.0 if _optional_number(_first(raw, "roic")) is not None else None),
+        "roe": _optional_clip(_optional_number(_first(raw, "roe", default=_first(earnings, "WEIGHTAVG_ROE"))) / 100.0 if _optional_number(_first(raw, "roe", default=_first(earnings, "WEIGHTAVG_ROE"))) is not None else None),
+        "growth": _optional_clip(_optional_number(_first(raw, "growth", "earnings_growth")) / 100.0 if _optional_number(_first(raw, "growth", "earnings_growth")) is not None else None),
+        "management": _optional_clip(_first(raw, "management", "management_quality")),
+        "debt_safety": _optional_clip(_first(raw, "debt_safety")),
+        "capital_allocation": _optional_clip(_first(raw, "capital_allocation")),
+        "valuation": _optional_clip(_first(raw, "valuation", "valuation_quality", "valuation_score")),
     }
-    business["score"] = sum(business.values()) / len(business)
+    business["score"] = _observed_mean((1.0, value) for key, value in business.items() if key != "score")
     # Accept the source synonym while keeping BUSINESS as the production axis.
     business["financial_quality"] = business["business_quality"]
 
     future_demand = {
-        "market_story": _clip(_first(raw, "market_story_strength", default=0.0)),
-        "system_change": _clip(_first(raw, "system_change_strength", default=0.0)),
-        "demand_strength": _clip(_first(raw, "demand_strength", "demand_score", default=0.0)),
-        "bottleneck_strength": _clip(_first(raw, "bottleneck_strength", "bottleneck_score", default=0.0)),
-        "supply_constraint": _clip(_first(raw, "supply_constraint", default=0.0)),
-        "demand_visibility": _clip(_first(raw, "demand_visibility", default=0.0)),
+        "market_story": _optional_clip(_first(raw, "market_story_strength")),
+        "system_change": _optional_clip(_first(raw, "system_change_strength")),
+        "demand_strength": _optional_clip(_first(raw, "demand_strength", "demand_score")),
+        "bottleneck_strength": _optional_clip(_first(raw, "bottleneck_strength", "bottleneck_score")),
+        "supply_constraint": _optional_clip(_first(raw, "supply_constraint")),
+        "demand_visibility": _optional_clip(_first(raw, "demand_visibility")),
         "industry_cycle": str(_first(raw, "industry_cycle", default="UNKNOWN") or "UNKNOWN").upper(),
-        "industry_catalyst": _clip(_first(raw, "industry_catalyst", "catalyst_strength", default=0.0)),
-        "evidence_strength": _clip(_first(raw, "evidence_strength", default=0.0)),
+        "industry_catalyst": _optional_clip(_first(raw, "industry_catalyst", "catalyst_strength")),
+        "evidence_strength": _optional_clip(_first(raw, "evidence_strength")),
         "invalidation_condition": list(raw.get("industry_invalidation_conditions") or []),
     }
     demand_numeric = [value for key, value in future_demand.items() if key not in {"industry_cycle", "invalidation_condition"}]
-    future_demand["score"] = sum(demand_numeric) / len(demand_numeric) if demand_numeric else 0.0
+    future_demand["score"] = _observed_mean((1.0, value) for value in demand_numeric)
 
     capital = {
         "fund_flow": positive_flow,
         "fund_flow_acceleration": _optional_clip(_first(raw, "fund_flow_acceleration", "capital_acceleration")),
         "fund_flow_persistence": _optional_clip(_first(raw, "fund_flow_persistence", "capital_persistence")),
-        "fund_flow_percentile": _clip(_first(raw, "fund_flow_percentile", default=amount_pctile if main_flow > 0 else 0.0)),
-        "institutional_flow": _clip(_first(raw, "institutional_flow", "institution_confirmation", default=0.0)),
-        "hot_money_flow": _clip(_first(raw, "hot_money_flow", "hot_money_confirmation", default=0.0)),
-        "lhb_quality": _clip(_first(raw, "lhb_quality", default=0.0)),
-        "seat_behavior": _clip(_first(raw, "seat_behavior_score", default=0.0)),
-        "order_pressure": _clip(_first(raw, "order_pressure", "order_book_pressure", default=0.0)),
-        "volume_accumulation": _clip(_first(raw, "volume_accumulation", "capital_accumulation", default=positive_flow)),
-        "price_volume_confirmation": _clip(_first(raw, "price_volume_confirmation", default=price_response)),
+            "fund_flow_percentile": _optional_clip(_first(raw, "fund_flow_percentile", default=amount_pctile if main_flow is not None and main_flow > 0 else None)),
+        "institutional_flow": _optional_clip(_first(raw, "institutional_flow", "institution_confirmation")),
+        "hot_money_flow": _optional_clip(_first(raw, "hot_money_flow", "hot_money_confirmation")),
+        "lhb_quality": _optional_clip(_first(raw, "lhb_quality")),
+        "seat_behavior": _optional_clip(_first(raw, "seat_behavior_score")),
+        "order_pressure": _optional_clip(_first(raw, "order_pressure", "order_book_pressure")),
+        "volume_accumulation": _optional_clip(_first(raw, "volume_accumulation", "capital_accumulation", default=positive_flow)),
+        "price_volume_confirmation": _optional_clip(_first(raw, "price_volume_confirmation", default=price_response)),
         "capital_price_divergence": capital_divergence,
         "capital_price_impact": price_impact,
         "capital_price_impact_state": capital_price_impact_state,
         "distribution_risk": negative_flow,
     }
-    capital["accumulation"] = _clip(
+    capital["accumulation"] = _optional_clip(
         _first(raw, "capital_accumulation", default=positive_flow)
         if raw.get("capital_accumulation") not in (None, "")
         else positive_flow
@@ -283,7 +293,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         (0.25, capital["fund_flow_persistence"]),
         (0.20, capital["volume_accumulation"]),
         (0.20, capital["price_volume_confirmation"]),
-    )) or 0.0
+    ))
     capital["capital_persistence"] = capital["fund_flow_persistence"]
     capital["capital_acceleration"] = capital["fund_flow_acceleration"]
     available_at = str(snap.get("as_of") or snap.get("source_time") or "")
@@ -355,7 +365,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 observed_at=available_at, lineage_id=lineage_id, interpretation="HOT_MONEY",
             ))
     capital_flow_observation = []
-    if amount > 0 and main_flow:
+    if amount_value > 0 and main_flow:
         capital_flow_observation.append(_evidence(
             observed=True, source=flow_source, available_at=available_at,
             evidence_family="DIRECT_CAPITAL_FLOW", detail="main_net_inflow",
@@ -417,9 +427,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         institution_direction = "INSTITUTION_ACCUMULATING"
     elif institution_direction_hint == "BUY":
         institution_direction = "INSTITUTION_BUYING"
-    elif capital["institutional_flow"] > 0 and institution_direction_hint == "BUY":
+    elif (capital["institutional_flow"] or 0.0) > 0 and institution_direction_hint == "BUY":
         institution_direction = "INSTITUTION_BUYING"
-    elif capital["institutional_flow"] < 0:
+    elif (capital["institutional_flow"] or 0.0) < 0:
         institution_direction = "INSTITUTION_DISTRIBUTING"
     elif capital["institutional_flow"] == 0:
         institution_direction = "INSTITUTION_NEUTRAL"
@@ -429,7 +439,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     hot_money_direction_hint = _lhb_direction(hot_money_rows)
     if not hot_money_direct:
         hot_money_direction = "UNKNOWN"
-    elif hot_money_direction_hint == "SELL" or capital["hot_money_flow"] < 0:
+    elif hot_money_direction_hint == "SELL" or (capital["hot_money_flow"] or 0.0) < 0:
         hot_money_direction = "HOT_MONEY_EXITING"
     elif (
         capital["fund_flow_acceleration"] is not None
@@ -437,14 +447,14 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         and hot_money_direction_hint == "BUY"
     ):
         hot_money_direction = "HOT_MONEY_ACCELERATING"
-    elif hot_money_direction_hint == "BUY" or capital["hot_money_flow"] > 0:
+    elif hot_money_direction_hint == "BUY" or (capital["hot_money_flow"] or 0.0) > 0:
         hot_money_direction = "HOT_MONEY_BUYING"
     else:
         hot_money_direction = "HOT_MONEY_PRESENT"
 
     if not main_force_direct:
         main_force_direction = "UNKNOWN"
-    elif main_flow < 0:
+    elif main_flow_value < 0:
         main_force_direction = "MAIN_FORCE_DISTRIBUTING"
     else:
         main_force_direction = "MAIN_FORCE_LIKELY_ACCUMULATING"
@@ -481,8 +491,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     capital["capital_flow_observation"] = capital_flow_observation
     capital["capital_flow_state"] = (
-        "CAPITAL_FLOW_POSITIVE" if main_flow > 0 and amount > 0
-        else "CAPITAL_FLOW_NEGATIVE" if main_flow < 0 and amount > 0
+        "CAPITAL_FLOW_POSITIVE" if main_flow_value > 0 and amount_value > 0
+        else "CAPITAL_FLOW_NEGATIVE" if main_flow_value < 0 and amount_value > 0
         else "UNKNOWN"
     )
     capital["hot_money_behavior"] = behavior(
@@ -498,47 +508,47 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         (0.20, capital["institutional_flow"]),
         (0.15, capital["price_volume_confirmation"]),
         (0.10, capital["fund_flow"]),
-    )) or 0.0
-    if capital["distribution_risk"] >= 0.70:
+    ))
+    if (capital["distribution_risk"] or 0.0) >= 0.70:
         capital["accumulation_phase"] = "DISTRIBUTION"
     elif (
-        capital["accumulation"] >= 0.60
+        (capital["accumulation"] or 0.0) >= 0.60
         and capital["fund_flow_acceleration"] is not None
         and capital["fund_flow_acceleration"] >= 0.60
     ):
         capital["accumulation_phase"] = "IGNITION"
-    elif capital["accumulation_quality"] >= 0.45:
+    elif (capital["accumulation_quality"] or 0.0) >= 0.45:
         capital["accumulation_phase"] = "ACCUMULATION"
-    elif capital["accumulation"] > 0:
+    elif (capital["accumulation"] or 0.0) > 0:
         capital["accumulation_phase"] = "ORDINARY_TRADING"
     else:
         capital["accumulation_phase"] = "UNOBSERVED"
 
     supply = {
-        "free_float": _clip(_first(raw, "free_float_ratio", "free_float", default=0.0)),
-        "turnover": _clip(turnover / 20.0),
+        "free_float": _optional_clip(_first(raw, "free_float_ratio", "free_float")),
+        "turnover": _optional_clip(turnover / 20.0) if turnover is not None else None,
         "turnover_velocity": turnover_velocity,
-        "historical_volume_nodes": _clip(_first(raw, "historical_volume_nodes", default=0.0)),
-        "overhead_supply": _clip(_first(raw, "overhead_supply", default=0.0)),
-        "profit_chip_ratio": _clip(_first(raw, "profit_chip_ratio", default=0.0)),
-        "trapped_chip_ratio": _clip(_first(raw, "trapped_chip_ratio", default=0.0)),
-        "shareholder_reduction": _clip(_first(raw, "shareholder_reduction", default=0.0)),
-        "pledge_pressure": _clip(_first(raw, "pledge_pressure", default=0.0)),
-        "unlocking_pressure": _clip(_first(raw, "unlocking_pressure", "lockup_pressure", default=0.0)),
-        "large_holder_supply": _clip(_first(raw, "large_holder_supply", default=0.0)),
-        "recent_distribution": _clip(_first(raw, "recent_distribution", default=0.0)),
-        "sell_pressure": _clip(_first(raw, "sell_pressure", default=0.0)),
+        "historical_volume_nodes": _optional_clip(_first(raw, "historical_volume_nodes")),
+        "overhead_supply": _optional_clip(_first(raw, "overhead_supply")),
+        "profit_chip_ratio": _optional_clip(_first(raw, "profit_chip_ratio")),
+        "trapped_chip_ratio": _optional_clip(_first(raw, "trapped_chip_ratio")),
+        "shareholder_reduction": _optional_clip(_first(raw, "shareholder_reduction")),
+        "pledge_pressure": _optional_clip(_first(raw, "pledge_pressure")),
+        "unlocking_pressure": _optional_clip(_first(raw, "unlocking_pressure", "lockup_pressure")),
+        "large_holder_supply": _optional_clip(_first(raw, "large_holder_supply")),
+        "recent_distribution": _optional_clip(_first(raw, "recent_distribution")),
+        "sell_pressure": _optional_clip(_first(raw, "sell_pressure")),
     }
     if not supply["shareholder_reduction"] and shareholder:
         supply["shareholder_reduction"] = _clip(sum(1 for row in shareholder if isinstance(row, dict) and _number(row.get("change_num")) < 0) / 3.0)
-    supply["effective_supply"] = _clip(
-        0.35 * supply["overhead_supply"]
-        + 0.20 * supply["trapped_chip_ratio"]
-        + 0.15 * supply["shareholder_reduction"]
-        + 0.10 * supply["pledge_pressure"]
-        + 0.10 * supply["unlocking_pressure"]
-        + 0.10 * supply["sell_pressure"]
-    )
+    supply["effective_supply"] = _observed_mean((
+        (0.35, supply["overhead_supply"]),
+        (0.20, supply["trapped_chip_ratio"]),
+        (0.15, supply["shareholder_reduction"]),
+        (0.10, supply["pledge_pressure"]),
+        (0.10, supply["unlocking_pressure"]),
+        (0.10, supply["sell_pressure"]),
+    ))
     supply["supply_evidence_count"] = sum(
         raw.get(key) not in (None, "", "-")
         for key in (
@@ -558,16 +568,16 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     absorption_components = {
         "funds": (
-            capital["accumulation"] > 0
+            (capital["accumulation"] or 0.0) > 0
             and capital["fund_flow_persistence"] is not None
             and capital["fund_flow_persistence"] > 0
-            and main_flow > 0
-            and amount > 0
+            and main_flow_value > 0
+            and amount_value > 0
         ),
-        "turnover": turnover >= 1.0,
-        "price_response": capital["price_volume_confirmation"] > 0 and amount > 0,
+        "turnover": turnover is not None and turnover >= 1.0,
+        "price_response": (capital["price_volume_confirmation"] or 0.0) > 0 and amount_value > 0,
         "supply": supply["supply_evidence_count"] > 0,
-        "stability": close_position >= 0.45,
+        "stability": close_position is not None and close_position >= 0.45,
         "continuation": capital["fund_flow_acceleration"] is not None and capital["fund_flow_acceleration"] > 0,
     }
     supply["SUPPLY_OBSERVED"] = bool(absorption_components["supply"])
@@ -583,51 +593,51 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     supply["absorption_confidence"] = round(
         _clip(supply["absorption_evidence_count"] / len(absorption_components)), 8
     )
-    supply_support = _mean(
-        capital["accumulation"],
-        capital["fund_flow_persistence"],
-        capital["fund_flow_acceleration"],
-        capital["price_volume_confirmation"],
-        supply["turnover_velocity"],
-        close_position,
-    )
-    supply_pressure = _mean(
-        supply["effective_supply"],
-        supply["sell_pressure"],
-        supply["overhead_supply"],
-        supply["recent_distribution"],
-    )
+    supply_support = _observed_mean((
+        (1.0, capital["accumulation"]),
+        (1.0, capital["fund_flow_persistence"]),
+        (1.0, capital["fund_flow_acceleration"]),
+        (1.0, capital["price_volume_confirmation"]),
+        (1.0, supply["turnover_velocity"]),
+        (1.0, close_position),
+    ))
+    supply_pressure = _observed_mean((
+        (1.0, supply["effective_supply"]),
+        (1.0, supply["sell_pressure"]),
+        (1.0, supply["overhead_supply"]),
+        (1.0, supply["recent_distribution"]),
+    ))
     supply["unlock_pressure"] = supply["unlocking_pressure"]
     supply["supply_pressure"] = supply["effective_supply"]
     supply["distribution_pressure"] = supply["sell_pressure"]
     minimum_evidence = (
-        amount > 0
-        and turnover >= 1.0
+        amount_value > 0
+        and turnover_value >= 1.0
         and supply["absorption_evidence_count"] >= 4
         and all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
         and supply["PRICE_RESPONSE_OBSERVED"]
     )
     supply["supply_absorption"] = round(
         _clip(supply_support - 0.60 * supply_pressure), 8
-    ) if minimum_evidence else None
+    ) if minimum_evidence and supply_support is not None and supply_pressure is not None else None
     supply["supply_absorption_state"] = (
         "UNKNOWN" if not minimum_evidence
-        else "RELEASING" if supply_pressure > supply_support + 0.15
+        else "RELEASING" if supply_pressure is not None and supply_support is not None and supply_pressure > supply_support + 0.15
         else "ABSORPTION" if (supply["supply_absorption"] or 0.0) >= 0.35
         else "BALANCED"
     )
     supply["evidence"] = [name for name, present in absorption_components.items() if present]
     supply["evidence_count"] = int(supply["absorption_evidence_count"])
     supply["confidence"] = supply["absorption_confidence"]
-    supply["score"] = supply["supply_absorption"] if supply["supply_absorption"] is not None else 0.0
+    supply["score"] = supply["supply_absorption"]
     if capital_price_impact_state != "UNKNOWN":
-        if main_flow > 0 and pct_change > 0 and supply["supply_absorption_state"] == "ABSORPTION":
+        if main_flow_value > 0 and pct_change_value > 0 and supply["supply_absorption_state"] == "ABSORPTION":
             capital_price_impact_state = "DEMAND_CONFIRMATION"
-        elif main_flow > 0 and supply["supply_absorption_state"] == "ABSORPTION":
+        elif main_flow_value > 0 and supply["supply_absorption_state"] == "ABSORPTION":
             capital_price_impact_state = "SUPPLY_ABSORPTION"
-        elif main_flow > 0 and pct_change < 0:
+        elif main_flow_value > 0 and pct_change_value < 0:
             capital_price_impact_state = "DISTRIBUTION_RISK"
-        elif main_flow < 0 and pct_change > 0:
+        elif main_flow_value < 0 and pct_change_value > 0:
             capital_price_impact_state = "PRICE_SUPPORTED_DIVERGENCE"
         capital["capital_price_impact_state"] = capital_price_impact_state
 
@@ -638,8 +648,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "earnings_gap": _optional_clip(_first(raw, "earnings_gap")),
         "demand_gap": _optional_clip(_first(raw, "demand_gap")),
         "attention_gap": _optional_clip(_first(raw, "attention_gap")),
-        "institutional_positioning": _clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"])),
-        "institutional_gap": _clip(1.0 - _clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"]))),
+        "institutional_positioning": _optional_clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"])),
+        "institutional_gap": _optional_clip(1.0 - _clip(_first(raw, "institutional_positioning", default=capital["institutional_flow"]))) if capital["institutional_flow"] is not None or _source_present(raw, "institutional_positioning") else None,
         "price_reflection": _optional_clip(_first(raw, "price_reflection")),
     }
     pricing_gap["score"] = _observed_mean((
@@ -660,67 +670,74 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "regime": str(_first(raw, "market_regime", default="UNKNOWN") or "UNKNOWN").upper(),
         "breadth": breadth,
         "sector_breadth": sector_breadth,
-        "leader_strength": _clip(_first(raw, "leader_strength", "leader_position", default=0.0)),
+        "leader_strength": _optional_clip(_first(raw, "leader_strength", "leader_position")),
         "price_strength": price_strength,
         "attention": attention,
-        "follow_through": _clip(_first(raw, "market_follow_through_score", "follow_through", default=0.0)),
-        "revaluation": _clip(_first(raw, "revaluation_probability", default=0.0)),
+        "follow_through": _optional_clip(_first(raw, "market_follow_through_score", "follow_through")),
+        "revaluation": _optional_clip(_first(raw, "revaluation_probability")),
     }
     market["stage"] = _market_stage(raw, capital, supply, market)
-    market["alignment"] = _clip(_first(raw, "market_alignment", default=sector_breadth))
-    market["score"] = _clip(0.35 * market["breadth"] + 0.25 * market["sector_breadth"] + 0.20 * market["follow_through"] + 0.20 * market["price_strength"])
+    market["alignment"] = _optional_clip(_first(raw, "market_alignment", default=sector_breadth))
+    market_values = [market[key] for key in ("breadth", "sector_breadth", "follow_through", "price_strength") if market[key] is not None]
+    market["score"] = _observed_mean((1.0, value) for value in market_values)
 
     reflexivity = {
         "price_strength": market["price_strength"],
         "sector_breadth": market["sector_breadth"],
         "leader_strength": market["leader_strength"],
-        "attention_growth": _clip(_first(raw, "attention_growth", default=0.0)),
+        "attention_growth": _optional_clip(_first(raw, "attention_growth")),
         "capital_acceleration": capital["fund_flow_acceleration"],
         "market_regime": market["regime"],
-        "crowding": _clip(_first(raw, "crowding_risk", "crowding", default=max(market["attention"] - 0.75, 0.0))),
-        "buyer_exhaustion": bool(raw.get("buyer_exhaustion")),
+        "crowding": _optional_clip(_first(raw, "crowding_risk", "crowding"))
+        if _source_present(raw, "crowding_risk", "crowding")
+        else (_optional_clip((market["attention"] - 0.75)) if market["attention"] is not None else None),
+        "buyer_exhaustion": None if raw.get("buyer_exhaustion") is None else bool(raw.get("buyer_exhaustion")),
     }
-    reflexivity["score"] = _mean(
-        *(reflexivity[key] for key in ("price_strength", "sector_breadth", "leader_strength", "attention_growth", "capital_acceleration"))
-    )
-    reflexivity["break"] = _clip(
-        _first(raw, "reflexivity_break", default=0.0)
+    reflexivity["score"] = _observed_mean((1.0, reflexivity[key]) for key in ("price_strength", "sector_breadth", "leader_strength", "attention_growth", "capital_acceleration"))
+    reflexivity["break"] = _optional_clip(
+        _first(raw, "reflexivity_break")
         if raw.get("reflexivity_break") not in (None, "")
-        else max(capital["distribution_risk"], market["attention"] - 0.75, 0.0)
+        else max(value for value in (capital["distribution_risk"], (market["attention"] - 0.75) if market["attention"] is not None else None) if value is not None)
+        if capital["distribution_risk"] is not None or market["attention"] is not None
+        else None
     )
     reflexivity["reflexivity_strength"] = reflexivity["score"]
     reflexivity["reflexivity_break_risk"] = reflexivity["break"]
 
+    halted_source = _first(raw, "halted", "is_suspended")
+    regulatory_source = _first(raw, "regulatory_hard_block", "risk_hard_block")
+    thesis_invalidated_source = raw.get("thesis_invalidated")
     risk = {
-        "halted": bool(raw.get("halted") or raw.get("is_suspended")),
-        "regulatory_hard_risk": bool(raw.get("regulatory_hard_block") or raw.get("risk_hard_block")),
-        "liquidity": _clip(_first(raw, "liquidity_score", default=1.0 if amount > 0 else 0.0)),
+        "halted": None if halted_source is None else bool(halted_source),
+        "regulatory_hard_risk": None if regulatory_source is None else bool(regulatory_source),
+        "liquidity": _optional_clip(_first(raw, "liquidity_score")),
         "downside": _optional_clip(_first(raw, "downside_risk")),
-        "event_risk": _clip(_first(raw, "event_risk", "risk_notice_penalty", default=0.0)),
-        "thesis_invalidated": bool(raw.get("thesis_invalidated")),
+        "event_risk": _optional_clip(_first(raw, "event_risk", "risk_notice_penalty")),
+        "thesis_invalidated": None if thesis_invalidated_source is None else bool(thesis_invalidated_source),
     }
-    risk["score"] = _clip(
-        1.0 - (
-            (0.35 * risk["downside"] if risk["downside"] is not None else 0.0)
-            + 0.25 * risk["event_risk"]
-            + 0.20 * float(risk["regulatory_hard_risk"])
-            + 0.20 * float(risk["halted"])
-        )
+    risk_penalties = (
+        (0.35, risk["downside"]),
+        (0.25, risk["event_risk"]),
+        (0.20, None if risk["regulatory_hard_risk"] is None else float(risk["regulatory_hard_risk"])),
+        (0.20, None if risk["halted"] is None else float(risk["halted"])),
     )
+    observed_penalty = _observed_mean(risk_penalties)
+    risk["score"] = None if observed_penalty is None else _clip(1.0 - observed_penalty)
 
     execution = {
         "entry_price": price,
         "buyable": raw.get("buyable"),
         "execution_quality": _optional_clip(_first(raw, "execution_quality")),
-        "short_term_overheat": _clip(_first(raw, "short_term_overheat", default=max(price_response, market["attention"]))),
-        "gap_risk": _clip(_first(raw, "gap_risk", "next_day_risk", default=0.0)),
+        "short_term_overheat": _optional_clip(_first(raw, "short_term_overheat")) if _source_present(raw, "short_term_overheat") else _optional_clip(max(value for value in (price_response, market["attention"]) if value is not None)) if price_response is not None or market["attention"] is not None else None,
+        "gap_risk": _optional_clip(_first(raw, "gap_risk", "next_day_risk")),
         "close_position": close_position,
-        "slippage": _clip(_first(raw, "slippage", "slippage_rate", default=0.0), high=0.02) / 0.02,
-        "spread": _clip(_first(raw, "spread", "spread_rate", default=0.0), high=0.02) / 0.02,
-        "market_impact": _clip(_first(raw, "market_impact", "market_impact_rate", default=0.0), high=0.02) / 0.02,
+        "slippage": _optional_rate(_first(raw, "slippage", "slippage_rate")),
+        "spread": _optional_rate(_first(raw, "spread", "spread_rate")),
+        "market_impact": _optional_rate(_first(raw, "market_impact", "market_impact_rate")),
     }
-    execution["cost_rate"] = _clip(_first(raw, "execution_cost_rate", default=0.003), high=0.02)
-    execution["execution_feasibility"] = None if execution["execution_quality"] is None else _clip(
+    execution["cost_rate"] = _optional_clip(_first(raw, "execution_cost_rate"), high=0.02)
+    execution_inputs = (execution["execution_quality"], execution["gap_risk"], execution["slippage"], execution["spread"], execution["market_impact"])
+    execution["execution_feasibility"] = None if any(value is None for value in execution_inputs) else _clip(
         execution["execution_quality"]
         * (1.0 - execution["gap_risk"])
         * (1.0 - 0.50 * execution["slippage"] - 0.25 * execution["spread"] - 0.25 * execution["market_impact"])

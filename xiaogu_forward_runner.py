@@ -68,9 +68,11 @@ def run_production_decision(
             trade_date=trade_date or str(trusted.get("trade_date") or ""),
             source=str(trusted.get("source") or ""),
             source_time=str(trusted.get("source_time") or ""),
+            symbol=str(trusted.get("symbol") or ""),
+            payload_hash=str(trusted.get("payload_hash") or ""),
         )
         clock = production_decision_clock(decision_clock)
-        assert_production_provenance(
+        trusted = assert_production_provenance(
             trusted,
             trade_date=trade_date or str(trusted.get("trade_date") or ""),
             decision_time=clock,

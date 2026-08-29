@@ -26,6 +26,7 @@ BASE = Path(os.environ.get("XIAOGU_HOME") or Path(__file__).resolve().parent.par
 sys.path.insert(0, str(BASE))
 
 from xiaogu_forward_snapshot import attach_research_observations, build_scan_lineage_id, canonical_snapshot
+from xiaogu_forward_eligibility import cheap_eligibility_blockers
 
 HEADERS = {
     "Referer": "https://quote.eastmoney.com/",
@@ -33,8 +34,16 @@ HEADERS = {
 }
 MAX_PAGES = 100
 MARKET_TIMEZONE = ZoneInfo("Asia/Shanghai")
-STOCK_FIELDS = ",".join(f"f{i}" for i in range(1, 201))
-CAPITAL_FIELDS = ",".join(["f1", "f2", "f3", "f12", "f14"] + [f"f{i}" for i in range(51, 76)])
+LIGHT_STOCK_FIELDS = ",".join([
+    "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f14", "f15", "f16", "f17", "f43",
+    "f44", "f45", "f46", "f100", "f62",
+])
+STOCK_FIELDS = LIGHT_STOCK_FIELDS
+CAPITAL_FIELDS = ",".join(["f1", "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f14"] + [f"f{i}" for i in range(51, 76)])
+DEEP_DOMAINS = (
+    "stock_capital_flow", "earnings_preview", "org_survey", "stock_reports", "lhb",
+    "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
+)
 
 
 def fnum(value: Any, default: float = 0.0) -> float:
@@ -261,13 +270,73 @@ def _by_symbol(rows: Iterable[Dict[str, Any]]) -> Dict[str, list[Dict[str, Any]]
     return indexed
 
 
+def _quote_number(row: Dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        if row.get(key) not in (None, "", "-"):
+            try:
+                return float(str(row[key]).replace(",", "").replace("%", ""))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def detect_capital_candidates(stocks: Iterable[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
+    """Find cheap deep-fetch triggers; never ranks, scores, or recommends."""
+    stocks = [row for row in (stocks or []) if isinstance(row, dict)]
+    candidates = []
+    rejected = []
+    for row in stocks or []:
+        blockers = cheap_eligibility_blockers(row)
+        if blockers:
+            rejected.append({"symbol": row.get("f12") or row.get("symbol"), "blockers": blockers})
+            continue
+        pct_change = _quote_number(row, "f3", "pct_change")
+        main_flow = _quote_number(row, "f62", "main_net_inflow")
+        turnover = _quote_number(row, "f8", "turnover")
+        relative_volume = _quote_number(row, "f10", "relative_volume")
+        price = _quote_number(row, "f2", "price")
+        low = _quote_number(row, "f16", "low")
+        high = _quote_number(row, "f15", "high")
+        close_position = (price - low) / (high - low) if price is not None and high is not None and low is not None and high > low else None
+        evidence = []
+        if main_flow is not None and main_flow > 0:
+            evidence.append("basic_capital_flow")
+        if pct_change is not None and pct_change > 0:
+            evidence.append("price_response")
+        if turnover is not None and turnover >= 1.0:
+            evidence.append("turnover")
+        if relative_volume is not None and relative_volume >= 1.0:
+            evidence.append("relative_volume")
+        if close_position is not None and close_position >= 0.60:
+            evidence.append("close_position")
+        if main_flow is not None and main_flow > 0 and len(evidence) >= 2:
+            item = dict(row)
+            item["deep_fetch_trigger"] = True
+            item["deep_fetch_reasons"] = evidence
+            candidates.append(item)
+        else:
+            rejected.append({"symbol": row.get("f12") or row.get("symbol"), "blockers": ["NO_DEEP_FETCH_TRIGGER"]})
+    return candidates, {
+        "input_count": len(stocks),
+        "candidate_count": len(candidates),
+        "rejected_count": len(rejected),
+        "rejected": rejected,
+        "selection": False,
+        "ranking": False,
+        "alpha": False,
+        "purpose": "DEEP_FETCH_TRIGGER_ONLY",
+    }
+
+
 def build_canonical_snapshots(
     results: Dict[str, Any],
     source_time: str,
     lineage_id: str = "",
+    symbols: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
-    """Attach same-time raw observations and create one canonical row per quote."""
+    """Create canonical rows; deep observations are attached only for symbols."""
     stocks = [row for row in results.get("stock_all_a", []) if isinstance(row, dict)]
+    selected_symbols = {normalize_stock_code(value) for value in (symbols or [])}
     lineage_id = lineage_id or build_scan_lineage_id(
         source="eastmoney_api_scan_v2",
         source_time=source_time,
@@ -280,6 +349,8 @@ def build_canonical_snapshots(
     reports = _by_symbol(results.get("stock_reports", []))
     lhb = _by_symbol(results.get("lhb", []))
     announcements = _by_symbol(results.get("announcements", []))
+    org_surveys = _by_symbol(results.get("org_survey", []))
+    news = _by_symbol(results.get("news_kuaixun", []))
     shareholder_changes = _by_symbol(results.get("shareholder_changes", []))
     lockup_expiry = _by_symbol(results.get("lockup_expiry", []))
     industry_flow = {
@@ -298,18 +369,28 @@ def build_canonical_snapshots(
     for row in stocks:
         code = normalize_stock_code(row.get("f12"))
         sector = str(row.get("f100") or "").strip()
-        visible = attach_research_observations(
-            row,
-            stock_capital_flow=(capital.get(code) or [{}])[0],
-            earnings_preview=(earnings.get(code) or [{}])[0],
-            stock_reports=(reports.get(code) or [])[:5],
-            lhb=(lhb.get(code) or [])[:5],
-            announcements=(announcements.get(code) or [])[:5],
-            shareholder_changes=(shareholder_changes.get(code) or [])[:5],
-            lockup_expiry=(lockup_expiry.get(code) or [])[:5],
-            industry_flow=industry_flow.get(sector, {}),
-            industry_reports=(industry_reports.get(sector) or [])[:5],
-        )
+        deep = symbols is None or code in selected_symbols
+        visible = dict(row)
+        visible["source_layers"] = ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY"]
+        if deep:
+            visible = attach_research_observations(
+                visible,
+                stock_capital_flow=(capital.get(code) or [{}])[0],
+                earnings_preview=(earnings.get(code) or [{}])[0],
+                org_surveys=(org_surveys.get(code) or [])[:5],
+                stock_reports=(reports.get(code) or [])[:5],
+                lhb=(lhb.get(code) or [])[:5],
+                announcements=(announcements.get(code) or [])[:5],
+                shareholder_changes=(shareholder_changes.get(code) or [])[:5],
+                lockup_expiry=(lockup_expiry.get(code) or [])[:5],
+                industry_flow=industry_flow.get(sector, {}),
+                industry_reports=(industry_reports.get(sector) or [])[:5],
+                news=(news.get(code) or [])[:5],
+            )
+            visible["source_layers"] = [
+                "L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
+                "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH",
+            ]
         snapshots.append(canonical_snapshot(
             visible,
             trade_date=source_time[:10],
@@ -372,23 +453,31 @@ def main() -> Dict[str, Any]:
     diagnostics: Dict[str, Any] = {}
     results: Dict[str, Any] = {}
 
-    results["stock_all_a"] = _collect("stock_all_a", timings, lambda: fetch_paginated("m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048", 100, STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})), [])
+    results["stock_all_a"] = _collect("stock_all_a", timings, lambda: fetch_paginated("m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048", 100, LIGHT_STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})), [])
     results["flow_industry"] = _collect("flow_industry", timings, lambda: fetch_paginated("m:90+t:2", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_industry", {})), [])
     results["flow_concept"] = _collect("flow_concept", timings, lambda: fetch_paginated("m:90+t:3", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_concept", {})), [])
-    results["stock_capital_flow"] = _collect("stock_capital_flow", timings, lambda: fetch_paginated("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", 100, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})), [])
-    results["lhb"] = _collect("lhb", timings, lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {})), [])
     recent = (market_now - timedelta(days=7)).strftime("%Y-%m-%d")
     today = market_now.strftime("%Y-%m-%d")
-    results["earnings_preview"] = _collect("earnings_preview", timings, lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {})), [])
-    results["shareholder_changes"] = _collect("shareholder_changes", timings, lambda: fetch_datacenter("RPT_SHARE_HOLDER_INCREASE", "END_DATE", diagnostics=diagnostics.setdefault("shareholder_changes", {})), [])
-    results["lockup_expiry"] = _collect("lockup_expiry", timings, lambda: fetch_datacenter("RPT_LIFT_STAGE", "FREE_DATE", diagnostics=diagnostics.setdefault("lockup_expiry", {})), [])
-    results["org_survey"] = _collect("org_survey", timings, lambda: fetch_datacenter("RPT_ORG_SURVEY", "NOTICE_DATE", extra_params={"filter": f"(NOTICE_DATE>='{recent}')"}, diagnostics=diagnostics.setdefault("org_survey", {})), [])
-    results["hsgt_holdings"] = _collect("hsgt_holdings", timings, lambda: fetch_datacenter("RPT_MUTUAL_HOLDSTOCKNORTH_STA", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_holdings", {})), [])
-    results["hsgt_deals"] = _collect("hsgt_deals", timings, lambda: fetch_datacenter("RPT_MUTUAL_DEAL_HISTORY", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_deals", {})), [])
-    results["stock_reports"] = _collect("stock_reports", timings, lambda: fetch_report_list("0", recent, today, diagnostics=diagnostics.setdefault("stock_reports", {})), [])
-    results["industry_reports"] = _collect("industry_reports", timings, lambda: fetch_report_list("1", recent, today, diagnostics=diagnostics.setdefault("industry_reports", {})), [])
-    results["announcements"] = _collect("announcements", timings, lambda: fetch_announcements(diagnostics=diagnostics.setdefault("announcements", {})), [])
-    results["news_kuaixun"] = _collect("news_kuaixun", timings, lambda: fetch_news(diagnostics=diagnostics.setdefault("news_kuaixun", {})), [])
+    level_2_candidates, level_2_audit = detect_capital_candidates(results["stock_all_a"])
+    candidate_codes = [normalize_stock_code(row.get("f12")) for row in level_2_candidates]
+    results["level_2_candidates"] = level_2_candidates
+    results["level_2_audit"] = level_2_audit
+    if candidate_codes:
+        results["stock_capital_flow"] = _collect("stock_capital_flow", timings, lambda: fetch_paginated("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", 100, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})), [])
+        results["lhb"] = _collect("lhb", timings, lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {})), [])
+        results["earnings_preview"] = _collect("earnings_preview", timings, lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {})), [])
+        results["shareholder_changes"] = _collect("shareholder_changes", timings, lambda: fetch_datacenter("RPT_SHARE_HOLDER_INCREASE", "END_DATE", diagnostics=diagnostics.setdefault("shareholder_changes", {})), [])
+        results["lockup_expiry"] = _collect("lockup_expiry", timings, lambda: fetch_datacenter("RPT_LIFT_STAGE", "FREE_DATE", diagnostics=diagnostics.setdefault("lockup_expiry", {})), [])
+        results["org_survey"] = _collect("org_survey", timings, lambda: fetch_datacenter("RPT_ORG_SURVEY", "NOTICE_DATE", extra_params={"filter": f"(NOTICE_DATE>='{recent}')"}, diagnostics=diagnostics.setdefault("org_survey", {})), [])
+        results["hsgt_holdings"] = _collect("hsgt_holdings", timings, lambda: fetch_datacenter("RPT_MUTUAL_HOLDSTOCKNORTH_STA", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_holdings", {})), [])
+        results["hsgt_deals"] = _collect("hsgt_deals", timings, lambda: fetch_datacenter("RPT_MUTUAL_DEAL_HISTORY", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_deals", {})), [])
+        results["stock_reports"] = _collect("stock_reports", timings, lambda: fetch_report_list("0", recent, today, diagnostics=diagnostics.setdefault("stock_reports", {})), [])
+        results["industry_reports"] = _collect("industry_reports", timings, lambda: fetch_report_list("1", recent, today, diagnostics=diagnostics.setdefault("industry_reports", {})), [])
+        results["announcements"] = _collect("announcements", timings, lambda: fetch_announcements(diagnostics=diagnostics.setdefault("announcements", {})), [])
+        results["news_kuaixun"] = _collect("news_kuaixun", timings, lambda: fetch_news(diagnostics=diagnostics.setdefault("news_kuaixun", {})), [])
+    else:
+        for name in DEEP_DOMAINS:
+            results[name] = []
     results["external_market"] = []
     results["indexes"] = []
     results["market_capital_flow"] = []
@@ -405,7 +494,7 @@ def main() -> Dict[str, Any]:
         trade_date=source_time[:10],
         scan_nonce=uuid.uuid4().hex,
     )
-    snapshots = build_canonical_snapshots(results, source_time, lineage_id=scan_lineage_id)
+    snapshots = build_canonical_snapshots(results, source_time, lineage_id=scan_lineage_id, symbols=candidate_codes)
     files["canonical_snapshots"] = _write_jsonl(output_dir / "canonical_snapshots.jsonl", snapshots)
     market_path = output_dir / "canonical_market_snapshot.json"
     market_path.write_text(json.dumps(market, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -436,6 +525,12 @@ def main() -> Dict[str, Any]:
         "scanner_contract": {
             "owner": "scrapy_scanner.runner_v2", "responsibility": "DATA_CAPTURE_ONLY",
             "selection": False, "ranking": False, "strategy_score": False, "portfolio_action": False,
+        },
+        "levels": {
+            "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": len(stocks), "fields": LIGHT_STOCK_FIELDS.split(",")},
+            "level_1": {"name": "CHEAP_ELIGIBILITY", "operational_only": True},
+            "level_2": {"name": "CAPITAL_CANDIDATE_DETECTION", **level_2_audit},
+            "level_3": {"name": "DEEP_CANDIDATE_FETCH", "candidate_count": len(candidate_codes), "domains": list(DEEP_DOMAINS)},
         },
         "lineage": {
             "lineage_id": scan_lineage_id,

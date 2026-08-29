@@ -20,34 +20,32 @@ MAX_HOLDING_DAYS = 5
 
 def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -> str:
     signal_time = snapshot.get("signal_time") or snapshot.get("source_time") or ""
-    identity = f"{snapshot.get('trade_date', '')}|{signal_time}|{snapshot['symbol']}|{state}"
+    clock = as_of.isoformat() if as_of else ""
+    identity = f"{snapshot.get('snapshot_id', '')}|{snapshot.get('trade_date', '')}|{signal_time}|{clock}|{snapshot['symbol']}|{state}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
 def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[str, Any]) -> list[str]:
     blockers = []
     readiness = alpha["readiness"]
-    blockers.extend(key for key, passed in readiness.items() if not passed)
+    # Research unknowns remain observable context. Only operational, risk,
+    # model-validation, and explicit negative evidence can block BUY here.
+    blockers.extend(
+        key for key in ("EXECUTION_FEASIBLE", "RISK_READY", "MARKET_READY")
+        if not readiness.get(key, False)
+    )
     if alpha["model_status"] != "VALIDATED":
         blockers.append("ALPHA_CALIBRATION_UNAVAILABLE")
     if alpha["repricing_completion"]["completed"]:
         blockers.append("REPRICING_COMPLETED")
     if alpha["contradiction"]["veto"]:
         blockers.append("TRADINGAGENTS_CONTRADICTION")
-    if alpha["reflexivity_break"] >= 0.70:
+    if (alpha["reflexivity_break"] or 0.0) >= 0.70:
         blockers.append("REFLEXIVITY_BREAK")
-    if alpha.get("repricing_state") == "CLIMAX" or alpha.get("crowding_risk", 0) >= 0.85 or alpha.get("buyer_exhaustion"):
+    if alpha.get("repricing_state") == "CLIMAX" or (alpha.get("crowding_risk") or 0.0) >= 0.85 or alpha.get("buyer_exhaustion"):
         blockers.append("BUYER_EXHAUSTION_OR_CLIMAX")
-    if alpha["capital_convergence"]["status"] != "CONVERGENCE":
-        blockers.append("CAPITAL_CONVERGENCE_INCOMPLETE")
     if alpha["capital_convergence"]["status"] == "CONFLICT":
         blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
-    if features["SUPPLY"]["supply_absorption_state"] != "ABSORPTION":
-        blockers.append("SUPPLY_ABSORPTION_UNCONFIRMED")
-    if features["PRICING_GAP"]["score"] is None or features["PRICING_GAP"]["score"] < 0.35:
-        blockers.append("PRICING_GAP_TOO_SMALL")
-    if not research["future_buyer_map"].get("next_buyer"):
-        blockers.append("FUTURE_BUYER_EVIDENCE_MISSING")
     if alpha["profit_window_probability"] is None or alpha["profit_window_probability"] < 0.45:
         blockers.append("PROFIT_WINDOW_PROBABILITY_LOW")
     expected_net_profit = alpha.get("expected_net_profit_window")
@@ -72,17 +70,17 @@ def _exit_reason(
     completion = alpha["repricing_completion"]
     if risk["thesis_invalidated"] or snapshot["raw"].get("thesis_invalidated"):
         return "BUSINESS_OR_INDUSTRY_THESIS_BROKEN"
-    if risk["regulatory_hard_risk"] or risk["event_risk"] >= 0.80:
+    if risk["regulatory_hard_risk"] or (risk["event_risk"] or 0.0) >= 0.80:
         return "RISK_EVENT"
-    if features["CAPITAL"]["distribution_risk"] >= 0.70:
+    if (features["CAPITAL"]["distribution_risk"] or 0.0) >= 0.70:
         return "CAPITAL_EXIT"
-    if features["SUPPLY"]["effective_supply"] >= 0.80:
+    if (features["SUPPLY"]["effective_supply"] or 0.0) >= 0.80:
         return "SUPPLY_REVERSAL"
     if completion["completed"]:
         return "REPRICING_COMPLETED"
     if features["PRICING_GAP"]["score"] is not None and features["PRICING_GAP"]["score"] <= 0.10:
         return "PRICING_GAP_CLOSED"
-    if features["BUSINESS"]["valuation"] >= 0.90:
+    if (features["BUSINESS"]["valuation"] or 0.0) >= 0.90:
         return "VALUATION_EXCESS"
     return "THESIS_INTACT"
 
@@ -151,7 +149,9 @@ def evaluate_candidate_bundle(
             if exit_reason != "THESIS_INTACT":
                 state = "SELL" if exit_reason in {"BUSINESS_OR_INDUSTRY_THESIS_BROKEN", "RISK_EVENT", "REPRICING_COMPLETED", "PRICING_GAP_CLOSED", "VALUATION_EXCESS"} else "REDUCE"
                 reason = exit_reason
-            elif alpha["downside_risk"] >= alpha["confidence"] or any(
+            elif (
+                (alpha["downside_risk"] is not None and alpha["downside_risk"] >= (alpha["confidence"] or 0.0))
+                or any(
                 blocker in repricing_blockers
                 for blocker in (
                     "CAPITAL_CONVERGENCE_CONFLICT",
@@ -160,6 +160,7 @@ def evaluate_candidate_bundle(
                     "TRADINGAGENTS_CONTRADICTION",
                     "SUPPLY_REVERSAL",
                     "CAPITAL_EXIT",
+                )
                 )
             ):
                 state, reason = "REDUCE", "REPRICING_RISK_OR_CONFIRMATION_DETERIORATED"
@@ -182,6 +183,7 @@ def evaluate_candidate_bundle(
         "previous_action": previous_action,
         "holding_days": int((account or {}).get("holding_days", 0) or 0),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
+        "buy_status": "BUY_ALLOWED" if state == "BUY" else "BUY_BLOCKED",
         "symbol": snapshot["symbol"],
         "reason": reason,
         "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",

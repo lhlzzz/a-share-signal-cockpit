@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     source TEXT,
     source_time TEXT,
     symbol TEXT,
+    payload_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);
