@@ -5,9 +5,9 @@ from typing import Any, Dict
 
 from xiaogu_forward_features import FEATURE_GROUPS
 
-MODEL_ID = "profit_window_alpha_5d_v2"
-MODEL_VERSION = "v2"
-FEATURE_VERSION = "capital_behavior_measurements_v2"
+MODEL_ID = "profit_window_alpha_5d_v4"
+MODEL_VERSION = "v4"
+FEATURE_VERSION = "minimal_price_alpha_v1"
 TARGET_VERSION = "PROFIT_WINDOW_5D"
 SCHEMA_VERSION = "alpha_artifact_v1"
 PROFIT_WINDOW_DAYS = 5
@@ -429,19 +429,10 @@ def build_core_alpha(
         None if execution.get("execution_feasibility") is None
         else _clip(execution["execution_feasibility"] * (1.0 - (execution["short_term_overheat"] if execution.get("short_term_overheat") is not None else 0.0) * 0.35))
     )
+    # Production alpha is intentionally minimal. Other measurements remain
+    # diagnostic/research context and cannot enter the probability model.
     probability_features = {
-        "capital_convergence": None if convergence["status"] == "UNKNOWN" else convergence["score"],
-        "capital_flow_ratio": capital_measure.get("capital_flow_ratio"),
-        "capital_persistence": capital_measure["fund_flow_persistence"],
-        "capital_acceleration": capital_measure["fund_flow_acceleration"],
-        "supply_absorption": supply["supply_absorption"],
-        "pricing_gap": gap["real_pricing_gap"],
-        "repricing_state": None if repricing_state == "UNKNOWN" else {"ACCUMULATION": 0.35, "IGNITION": 0.65, "EXPANSION": 0.55, "CLIMAX": 0.80, "DISTRIBUTION": 0.10}.get(repricing_state),
-        "future_buyer_evidence": buyer_capacity if buyer_observed else None,
-        "reflexivity": reflexivity["score"],
-        "market_state": market["score"],
-        "execution_quality": execution_feasibility,
-        "risk": risk["downside"],
+        "price_strength": market.get("price_strength"),
     }
     research_probability, calibration = _calibrated_probability(probability_features)
     oos = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
@@ -458,7 +449,7 @@ def build_core_alpha(
         capital_measure.get("capital_flow_ratio"),
         supply["supply_absorption"],
         gap["real_pricing_gap"],
-        probability_features["repricing_state"],
+        {"ACCUMULATION": 0.35, "IGNITION": 0.65, "EXPANSION": 0.55, "CLIMAX": 0.80, "DISTRIBUTION": 0.10}.get(repricing_state),
     )
     # No conditional expected-profit model exists. Do not copy OOS averages
     # onto each candidate; keep these fields unset so BUY stays fail-closed.

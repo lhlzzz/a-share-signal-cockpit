@@ -27,7 +27,8 @@ def test_replay_strips_future_labels_before_calling_production_owner(monkeypatch
             "source_time": "2026-08-26T14:50:00+00:00",
         },
         "future_bars": [
-            {"date": "2026-08-27", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100}
+        {"date": "2026-08-27", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100,
+         "amount": 1000, "source": "test", "source_timestamp": "2026-08-27T15:00:00+08:00"}
             for _ in range(10)
         ],
         "outcomes": {"labels": {"future_5d_return": 0.3}},
@@ -41,7 +42,9 @@ def test_replay_strips_future_labels_before_calling_production_owner(monkeypatch
 
 def test_historical_label_coverage_gate_requires_five_day_window():
     bars = [
-        {"date": f"2026-09-{day:02d}", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100}
+        {"date": f"2026-09-{day:02d}", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100,
+         "amount": 1000, "source": "test", "source_timestamp": f"2026-09-{day:02d}T15:00:00+08:00",
+         "price_basis": "UNADJUSTED"}
         for day in range(1, 6)
     ]
     replay = historical_replay([{

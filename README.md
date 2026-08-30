@@ -44,7 +44,7 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 
 The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. T+5 closes the trade. `WATCH` and `READY` are analysis states. The recorder persists only `BUY`, `HOLD`, `REDUCE`, and `SELL`. BUY stays blocked until the alpha is OOS-validated.
 
-`snapshot_id` is the immutable canonical snapshot identity. `lineage_id` is one scan/lineage and may cover many symbols. Schema migration failure raises, health fails, and production is blocked. Historical rows with missing `decision_id` stay `UNRESOLVED` and are not rewritten. Current alpha status is `EXPERIMENTAL`; OOS has not passed, so production BUY stays blocked.
+`snapshot_id` is the immutable canonical snapshot identity. `lineage_id` is one scan/lineage and may cover many symbols. Schema migration failure raises, health fails, and production is blocked. Historical rows with missing `decision_id` stay `UNRESOLVED` and are not rewritten. Current alpha status is `DATA_INSUFFICIENT`; the rebuilt 5D ground truth covers 92.61% of historical decisions, so production BUY stays blocked. The only remaining production-alpha candidate is `price_strength`; other tested features are research-only or have no stable OOS increment.
 
 ## API
 

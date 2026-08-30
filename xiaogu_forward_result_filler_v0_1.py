@@ -362,6 +362,8 @@ def calculate_horizon_outcomes(
             "mae": (low - entry_price) / entry_price,
             "net_return": (float(bar["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
             "daily_bar_profit_opportunity": bar_opportunity,
+            "volume": bar.get("volume"),
+            "amount": bar.get("amount"),
             "source": bar.get("source", "unknown"),
             "source_timestamp": bar.get("source_timestamp", ""),
             "price_basis": bar.get("price_basis", PRICE_BASIS),

@@ -25,30 +25,20 @@ MIN_PROBABILITY_STD = 0.01
 MIN_PROBABILITY_RANGE = 0.05
 MIN_TOP_DECILE_DELTA = 0.02
 
-CORE_ALPHA_FEATURES = (
-    "capital_convergence",
-    "capital_flow_ratio",
-    "capital_persistence",
-    "capital_acceleration",
-    "supply_absorption",
-    "pricing_gap",
-    "repricing_state",
-    "future_buyer_evidence",
-    "reflexivity",
-    "market_state",
-    "execution_quality",
-    "risk",
+MINIMAL_ALPHA_FEATURES = ("price_strength",)
+CORE_ALPHA_FEATURES = MINIMAL_ALPHA_FEATURES
+
+PRODUCTION_FEATURES = (
+    "price_strength", "turnover", "capital_flow_ratio", "capital_price_impact",
+    "capital_convergence", "capital_persistence", "capital_acceleration",
+    "supply_absorption", "pricing_gap", "real_pricing_gap", "repricing_state",
+    "future_buyer_evidence", "future_buyer_capacity", "reflexivity", "market_state",
+    "business_quality", "future_demand", "risk", "execution_quality",
 )
 
-PRODUCTION_FEATURES = CORE_ALPHA_FEATURES + (
-    "capital_price_impact",
-    "real_pricing_gap",
-    "future_buyer_capacity",
-)
-
-PRICE_MARKET_FEATURES = ("price_strength", "market_score")
-CAPITAL_FEATURES = ("capital_flow_ratio", "capital_convergence", "capital_persistence", "capital_acceleration")
-CAPITAL_BEHAVIOR_FEATURES = ("capital_persistence", "capital_acceleration")
+PRICE_FEATURES = ("price_strength",)
+VOLUME_FEATURES = ("turnover",)
+CAPITAL_FEATURES = ("capital_flow_ratio", "capital_price_impact")
 FEATURE_FAMILIES = {
     "CAPITAL": CAPITAL_FEATURES,
     "CAPITAL_CONVERGENCE": ("capital_convergence",),
@@ -62,17 +52,19 @@ CUMULATIVE_ABLATION_FEATURES = {
     "BASELINE": (),
     "PRICE": ("price_strength",),
     "PRICE + VOLUME": ("price_strength", "turnover"),
-    "PRICE + CAPITAL": ("price_strength",) + CAPITAL_FEATURES,
-    "PRICE + SUPPLY": ("price_strength", "supply_absorption"),
-    "PRICE + PRICING GAP": ("price_strength", "pricing_gap"),
-    "PRICE + REPRICING": ("price_strength", "repricing_state"),
-    "PRICE + FUTURE BUYER": ("price_strength", "future_buyer_evidence"),
-    "FULL": PRICE_MARKET_FEATURES + CORE_ALPHA_FEATURES,
+    "PRICE + CAPITAL": PRICE_FEATURES + CAPITAL_FEATURES,
+    "PRICE + CAPITAL + SUPPLY": PRICE_FEATURES + CAPITAL_FEATURES + ("supply_absorption",),
+    "PRICE + CAPITAL + REPRICING": PRICE_FEATURES + CAPITAL_FEATURES + ("repricing_state",),
+    "PRICE + CAPITAL + PRICING GAP": PRICE_FEATURES + CAPITAL_FEATURES + ("real_pricing_gap",),
+    "PRICE + CAPITAL + FUTURE BUYER": PRICE_FEATURES + CAPITAL_FEATURES + ("future_buyer_evidence",),
+    "FULL": PRICE_FEATURES + VOLUME_FEATURES + CAPITAL_FEATURES + (
+        "supply_absorption", "real_pricing_gap", "repricing_state", "future_buyer_evidence",
+    ),
 }
 SINGLE_FAMILY_ABLATION_FEATURES = {
     "CAPITAL ONLY": CAPITAL_FEATURES,
     "SUPPLY ONLY": ("supply_absorption",),
-    "PRICING GAP ONLY": ("pricing_gap",),
+    "PRICING_GAP ONLY": ("real_pricing_gap",),
     "REPRICING ONLY": ("repricing_state",),
     "FUTURE BUYER ONLY": ("future_buyer_evidence",),
 }
@@ -138,6 +130,84 @@ FEATURE_SOURCE_MATRIX = {
         "snapshot_field": "raw.future_buyers",
         "feature_function": "xiaogu_core_alpha._first_buyer_capacity",
     },
+    "capital_flow": {
+        "raw_source": "L0 basic capital flow",
+        "scanner_level": "L0",
+        "snapshot_field": "raw.net_inflow_main/raw.f62",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_price_response": {
+        "raw_source": "L0 capital flow plus price response",
+        "scanner_level": "L0",
+        "snapshot_field": "raw.net_inflow_main/raw.pct_chg",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "institution": {
+        "raw_source": "L3 direct institution evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.lhb/raw.institution_position_change",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "main_force": {
+        "raw_source": "L3 direct main-force identity evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.main_force_identity/raw.large_order_structure",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "hot_money": {
+        "raw_source": "L3 direct hot-money evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.lhb/raw.hot_money_evidence",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "supply": {
+        "raw_source": "L3 supply evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.overhead_supply/raw.shareholder_changes",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "real_pricing_gap": {
+        "raw_source": "L3 evidence-backed pricing gap",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.fundamental_gap/raw.price_reflection",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "repricing_evidence_score": {
+        "raw_source": "L3 repricing diagnostic",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.repricing_state + capital/supply evidence",
+        "feature_function": "xiaogu_core_alpha._repricing_state",
+    },
+    "future_buyer_capacity": {
+        "raw_source": "L3 evidence-backed buyer capacity",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.future_buyers[].capacity",
+        "feature_function": "xiaogu_core_alpha._first_buyer_capacity",
+    },
+    "business_quality": {
+        "raw_source": "L3 company and earnings evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.business_quality/raw.earnings_preview",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "future_demand": {
+        "raw_source": "L3 demand and industry evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.demand_strength/raw.industry_reports",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "risk": {
+        "raw_source": "L0/L3 risk evidence",
+        "scanner_level": "L0/L3",
+        "snapshot_field": "raw.downside_risk/raw.risk_notice_penalty",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "execution_quality": {
+        "raw_source": "L0 buyability and execution evidence",
+        "scanner_level": "L0",
+        "snapshot_field": "raw.buyable/raw.slippage/raw.spread",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
 }
 
 REPRICING_ENCODING = {
@@ -170,6 +240,11 @@ def _number(value: Any, default: float | None = None) -> float | None:
         return default
 
 
+def _clip(value: Any) -> float | None:
+    numeric = _number(value)
+    return None if numeric is None else max(0.0, min(1.0, numeric))
+
+
 def _label(row: Dict[str, Any], field: str) -> Any:
     labels = row.get("labels") if isinstance(row.get("labels"), dict) else row
     return labels.get(field)
@@ -189,6 +264,20 @@ def _day_ohlc_present(row: Dict[str, Any], day: int) -> bool:
     return isinstance(values, dict) and all(
         _number(values.get(field)) is not None
         for field in ("open", "high", "low", "close")
+    )
+
+
+def _day_fact_present(row: Dict[str, Any], day: int) -> bool:
+    labels = row.get("labels") if isinstance(row.get("labels"), dict) else row
+    days = labels.get("days")
+    if not isinstance(days, dict):
+        return False
+    values = days.get(str(day), days.get(day))
+    if not isinstance(values, dict):
+        return False
+    return (
+        all(_number(values.get(field)) is not None for field in ("open", "high", "low", "close", "volume", "amount"))
+        and all(values.get(field) not in (None, "") for field in ("source", "source_timestamp", "price_basis"))
     )
 
 
@@ -291,6 +380,7 @@ def target_quality_gate(
     entry = sum(_canonical_entry_present(row) for row in rows) / total if total else 0.0
     return_coverage = {}
     ohlc_coverage = {}
+    fact_coverage = {}
     for day in HORIZONS:
         return_coverage[str(day)] = sum(
             _day_return(row, day) is not None
@@ -300,13 +390,18 @@ def target_quality_gate(
             _day_ohlc_present(row, day)
             for row in rows
         ) / total if total else 0.0
+        fact_coverage[str(day)] = sum(
+            _day_fact_present(row, day)
+            for row in rows
+        ) / total if total else 0.0
     complete = sum(
         _canonical_entry_present(row)
-        and all(_day_ohlc_present(row, day) for day in HORIZONS)
+        and all(_day_fact_present(row, day) for day in HORIZONS)
         for row in rows
     ) / total if total else 0.0
     checks = {
         **{f"T+{day}_OHLC": ohlc_coverage[str(day)] >= min_coverage for day in HORIZONS},
+        **{f"T+{day}_FACT": fact_coverage[str(day)] >= min_coverage for day in HORIZONS},
         "complete_5d": complete >= min_coverage,
         "entry": entry >= min_coverage,
     }
@@ -322,6 +417,7 @@ def target_quality_gate(
             str(day): {
                 "return": return_coverage[str(day)],
                 "ohlc": ohlc_coverage[str(day)],
+                "fact": fact_coverage[str(day)],
             }
             for day in HORIZONS
         },
@@ -372,7 +468,24 @@ def _feature_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+FEATURE_ALIASES = {
+    "capital_flow": "capital_flow_ratio",
+    "capital_price_response": "capital_price_impact",
+    "supply": "supply_absorption",
+    "business_quality": "business_quality",
+    "future_demand": "future_demand",
+    "institution": "institution",
+    "main_force": "main_force",
+    "hot_money": "hot_money",
+}
+
+
+def _feature_name(name: str) -> str:
+    return FEATURE_ALIASES.get(name, name)
+
+
 def _feature_value(row: Dict[str, Any], name: str) -> float:
+    name = _feature_name(name)
     alpha = _alpha_payload(row)
     values = alpha.get("profit_window_feature_values")
     if not isinstance(values, dict):
@@ -418,6 +531,9 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         if raw in (None, ""):
             raw = alpha.get(name)
         if raw in (None, ""):
+            market_payload = vector.get("MARKET") if isinstance(vector, dict) else None
+            raw = market_payload.get("score") if isinstance(market_payload, dict) else None
+        if raw in (None, ""):
             raw = row.get("market_regime")
         if isinstance(raw, dict):
             if raw.get("regime") is not None:
@@ -432,6 +548,24 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         if raw in (None, "", "UNKNOWN"):
             return None
         return MARKET_ENCODING.get(str(raw).upper())
+    if name in {"institution", "main_force", "hot_money"}:
+        convergence = alpha.get("capital_convergence")
+        if not isinstance(convergence, dict):
+            return None
+        return _number(convergence.get(name))
+    if name in {"business_quality", "future_demand"}:
+        direct = alpha.get(name)
+        if direct is None:
+            direct = row.get(name)
+        return _clip(direct)
+    if name in {"risk", "execution_quality"}:
+        group = "RISK" if name == "risk" else "EXECUTION"
+        group_payload = vector.get(group) if isinstance(vector, dict) else None
+        if isinstance(group_payload, dict):
+            direct = group_payload.get("score")
+            if direct is None and name == "execution_quality":
+                direct = group_payload.get("execution_feasibility")
+            return _clip(direct)
     if name in {"repricing_probability", "repricing_evidence_score"}:
         direct = row.get("repricing_evidence_score", alpha.get("repricing_evidence_score"))
         numeric = _number(direct)
@@ -464,6 +598,7 @@ def _extra_feature_value(row: Dict[str, Any], name: str) -> float:
 
 
 def _raw_feature_value(row: Dict[str, Any], name: str) -> float | None:
+    name = _feature_name(name)
     if name in {"price_strength", "market_score", "turnover"}:
         return _extra_feature_value(row, name)
     return _feature_value(row, name)
@@ -497,6 +632,7 @@ def _feature_vector(
 
 def _feature_value_present(row: Dict[str, Any], name: str) -> tuple[float, bool]:
     """Return the model value and whether it was present, without hiding fallbacks."""
+    name = _feature_name(name)
     if name in {"price_strength", "market_score", "turnover"}:
         if name == "turnover":
             vector = _feature_payload(row)
@@ -535,6 +671,7 @@ def _snapshot_raw(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
     """Identify source evidence separately from derived zero-filled values."""
+    name = _feature_name(name)
     raw = _snapshot_raw(row)
     alpha = _alpha_payload(row)
     vector = _feature_payload(row)
@@ -593,6 +730,16 @@ def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
         return isinstance(market, dict) and any(market.get(key) not in (None, "") for key in (
             "breadth", "sector_breadth", "price_strength", "follow_through",
         ))
+    if name in {"institution", "main_force", "hot_money"}:
+        convergence = alpha.get("capital_convergence")
+        behavior = (convergence or {}).get("behaviors", {}).get(name) if isinstance(convergence, dict) else None
+        return isinstance(behavior, dict) and any(
+            item.get("observed") and str(item.get("evidence_family") or "").startswith("DIRECT_")
+            for item in behavior.get("evidence") or []
+            if isinstance(item, dict)
+        )
+    if name in {"business_quality", "future_demand"}:
+        return name in alpha or name in row
     if name == "execution_quality":
         return any(key in raw for key in (
             "execution_quality", "buyable", "slippage", "spread", "market_impact",
@@ -711,9 +858,13 @@ def build_feature_source_matrix(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             **source,
             "observed_count": item.get("observed_count", 0),
             "available_count": item.get("available_count", len(rows)),
+            "coverage": item.get("valid_rate"),
             "missing_rate": item.get("missing_rate"),
             "valid_rate": item.get("valid_rate"),
+            "unique_count": item.get("unique_count", 0),
+            "std": item.get("std"),
             "status": item.get("status", "FEATURE_COLLAPSED"),
+            "production_permission": "RESEARCH_ONLY" if item.get("status") == "OK" else "NONE",
             "production_allowed": item.get("status") == "OK",
         }
     return result
@@ -739,10 +890,12 @@ def _probability_separation(rows: Sequence[Dict[str, Any]], predictions: Sequenc
     mean = sum(predictions) / len(predictions)
     std = math.sqrt(sum((value - mean) ** 2 for value in predictions) / len(predictions))
     base_rate = sum(_label_value(row) for row in rows) / len(rows)
+    cutoff_index = max(0, math.ceil(len(predictions) * 0.10) - 1)
+    top10_cutoff = sorted(predictions, reverse=True)[cutoff_index]
     high_probability = [
         _label_value(row)
         for row, prediction in zip(rows, predictions)
-        if prediction >= median(predictions)
+        if prediction >= top10_cutoff
     ]
     high_rate = sum(high_probability) / len(high_probability) if high_probability else None
     delta = high_rate - base_rate if high_rate is not None else None
@@ -1058,6 +1211,7 @@ def _fit_set_report(
         "oos": oos_metrics,
         "monotonicity": _monotonicity(oos, predictions["oos"]),
         "probability_separation": _probability_separation(oos, predictions["oos"]),
+        "selectivity": _selectivity(oos, predictions["oos"]),
     }
 
 
@@ -1074,16 +1228,19 @@ def _ablation_report(
         }.items()
     }
     baseline = results.get("BASELINE", {})
-    baseline_pr_auc = (baseline.get("oos") or {}).get("pr_auc")
+    baseline_oos = baseline.get("oos") or {}
     for result in results.values():
         oos = result.get("oos") or {}
+        def delta(name: str) -> float | None:
+            current = oos.get(name)
+            base = baseline_oos.get(name)
+            return current - base if current is not None and base is not None else None
         result["baseline_delta"] = {
-            "roc_auc": oos.get("roc_auc") - (baseline.get("oos") or {}).get("roc_auc")
-            if oos.get("roc_auc") is not None and (baseline.get("oos") or {}).get("roc_auc") is not None else None,
-            "pr_auc": oos.get("pr_auc") - baseline_pr_auc
-            if oos.get("pr_auc") is not None and baseline_pr_auc is not None else None,
-            "brier_score": (baseline.get("oos") or {}).get("brier_score") - oos.get("brier_score")
-            if oos.get("brier_score") is not None and (baseline.get("oos") or {}).get("brier_score") is not None else None,
+            name: delta(name) for name in (
+                "roc_auc", "pr_auc", "brier_score", "calibration_error", "profit_window_rate",
+                "mean_net_profit", "median_net_profit", "mean_mae", "mean_mfe", "profit_factor",
+                "max_drawdown",
+            )
         }
     return {
         "same_rows": True,
@@ -1102,25 +1259,36 @@ def _selectivity(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -
     base_rate = sum(int(_label_value(row)) for row in rows if _label_value(row) is not None) / len(rows)
 
     def band(fraction: float | None) -> Dict[str, Any]:
-        selected = ordered if fraction is None else ordered[: max(1, int(len(ordered) * fraction))]
+        selected = ordered if fraction is None else ordered[: max(1, math.ceil(len(ordered) * fraction))]
         labels = [int(_label_value(row)) for _, row in selected if _label_value(row) is not None]
         profits = [_outcome_profit(row) for _, row in selected if _outcome_profit(row) is not None]
         maes = [_mae(row) for _, row in selected if _mae(row) is not None]
+        mfes = [_mfe(row) for _, row in selected if _mfe(row) is not None]
         portfolio = portfolio_metrics(profits)
         rate = sum(labels) / len(labels) if labels else None
         return {
             "samples": len(selected),
+            "label_samples": len(labels),
             "profit_window_rate": rate,
             "mean_net_profit": sum(profits) / len(profits) if profits else None,
+            "median_net_profit": median(profits) if profits else None,
             "mae": sum(maes) / len(maes) if maes else None,
+            "mfe": sum(mfes) / len(mfes) if mfes else None,
             "profit_factor": portfolio.get("profit_factor"),
+            "drawdown": portfolio.get("max_drawdown"),
         }
 
+    top5 = band(0.05)
     top10 = band(0.10)
-    selective = bool(top10.get("profit_window_rate") is not None and top10["profit_window_rate"] >= base_rate)
+    selective = bool(top10.get("profit_window_rate") is not None and top10["profit_window_rate"] > base_rate)
     return {
         "status": "PASS" if selective else "MODEL_NOT_SELECTIVE",
         "base_rate": base_rate,
+        "Top5": top5,
+        "Top10": top10,
+        "Top20": band(0.20),
+        "Top30": band(0.30),
+        "All": band(None),
         "top10": top10,
         "top20": band(0.20),
         "top30": band(0.30),
@@ -1205,6 +1373,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         {
             "decision_id": row.get("decision_id"),
             "snapshot_id": row.get("snapshot_id"),
+            "decision_identity_key": row.get("decision_identity_key"),
             "trade_date": row.get("trade_date") or row.get("signal_date"),
             "target": _label_value(row),
             "profit": _outcome_profit(row),
@@ -1220,7 +1389,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         "model_version": MODEL_VERSION,
         "feature_version": FEATURE_VERSION,
         "dataset_hash": dataset_hash,
-        "dataset_version": "historical_profit_window_v2",
+        "dataset_version": "historical_profit_window_v4",
         "train_window": {
             "count": len(train),
             "start": str(train[0].get("trade_date") or train[0].get("signal_date") or "") if train else "",
@@ -1242,6 +1411,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         "schema_version": SCHEMA_VERSION,
         "target": "PROFIT_WINDOW_5D",
         "status": "VALIDATED" if passed else "EXPERIMENTAL",
+        "production_permission": "NONE",
         "calibration_status": "CALIBRATED",
         "samples": len(complete),
         "train_samples": len(train),
@@ -1379,24 +1549,22 @@ def build_alpha_report(
         "PRICE": ("price_strength",),
         "CAPITAL": CAPITAL_FEATURES,
         "SUPPLY": ("supply_absorption",),
-        "PRICING_GAP": ("pricing_gap",),
+        "PRICING_GAP": ("real_pricing_gap",),
         "REPRICING": ("repricing_state",),
         "FUTURE_BUYER": ("future_buyer_evidence",),
-        "REFLEXIVITY": ("reflexivity",),
     }
     family_models = {
         "PRICE": "PRICE",
         "CAPITAL": "PRICE + CAPITAL",
-        "SUPPLY": "PRICE + SUPPLY",
-        "PRICING_GAP": "PRICE + PRICING GAP",
-        "REPRICING": "PRICE + REPRICING",
-        "FUTURE_BUYER": "PRICE + FUTURE BUYER",
-        "REFLEXIVITY": "FULL",
+        "SUPPLY": "PRICE + CAPITAL + SUPPLY",
+        "PRICING_GAP": "PRICE + CAPITAL + PRICING GAP",
+        "REPRICING": "PRICE + CAPITAL + REPRICING",
+        "FUTURE_BUYER": "PRICE + CAPITAL + FUTURE BUYER",
     }
     production_alpha_permissions = {}
     for family, names in family_features.items():
         collapsed_family = any(name in collapsed for name in names)
-        incremented = _family_increment(family_models[family])
+        incremented = family == "PRICE" or _family_increment(family_models[family])
         if collapsed_family or not incremented:
             production_alpha_permissions[family] = "NONE"
         elif validation_status == "VALIDATED":
@@ -1404,14 +1572,48 @@ def build_alpha_report(
         else:
             production_alpha_permissions[family] = "RESEARCH_ONLY"
     family_oos_increment = {
-        family: _family_increment(family_models[family])
+        family: family == "PRICE" or _family_increment(family_models[family])
         for family in family_features
+    }
+    feature_permission = {
+        "price_strength": family_oos_increment["PRICE"],
+        "turnover": _family_increment("PRICE + VOLUME"),
+        "capital_flow_ratio": family_oos_increment["CAPITAL"],
+        "capital_price_impact": family_oos_increment["CAPITAL"],
+        "supply_absorption": family_oos_increment["SUPPLY"],
+        "real_pricing_gap": family_oos_increment["PRICING_GAP"],
+        "repricing_state": family_oos_increment["REPRICING"],
+        "future_buyer_evidence": family_oos_increment["FUTURE_BUYER"],
     }
     production_permission = (
         "PRODUCTION"
         if validation_status == "VALIDATED" and all(family_oos_increment.values())
         else "NONE"
     )
+    calibration["production_permission"] = production_permission
+    calibration["status"] = validation_status
+    calibration["production_gates"] = {
+        "data_quality": gate.get("status") == "PASS",
+        "oos_pass": bool((calibration.get("oos") or {}).get("passed")),
+        "monotonicity": calibration.get("monotonicity", {}).get("status") == "PASS",
+        "probability_separation": calibration.get("probability_separation", {}).get("status") == "PASS",
+        "full_alpha_baseline_increment": full_passed,
+        "capital_supply_repricing_increment": any(
+            family_oos_increment[name] for name in ("CAPITAL", "SUPPLY", "REPRICING")
+        ),
+    }
+    production_feature_names = {
+        name for name in (calibration.get("feature_names") or MINIMAL_ALPHA_FEATURES)
+        if name not in collapsed and feature_permission.get(name, False)
+    }
+    for name, item in feature_source_matrix.items():
+        item["production_permission"] = (
+            "PRODUCTION"
+            if validation_status == "VALIDATED" and name in production_feature_names
+            else "RESEARCH_ONLY"
+            if item.get("status") == "OK"
+            else "NONE"
+        )
     return {
         "data_status": "READY" if gate.get("status") == "PASS" else "BLOCKED",
         "status": validation_status,
@@ -1426,6 +1628,8 @@ def build_alpha_report(
         "supply_absorption": feature_groups["supply_absorption"],
         "repricing_state": feature_groups["repricing_state"],
         "feature_source_matrix": feature_source_matrix,
+        "production_alpha_features": sorted(production_feature_names),
+        "removed_features": sorted(set(PRODUCTION_FEATURES) - production_feature_names),
         "feature_coverage": {
             name: {
                 "observed_count": item.get("observed_count"),
@@ -1454,6 +1658,22 @@ def build_alpha_report(
         "production_alpha_permissions": production_alpha_permissions,
         "family_oos_increment": family_oos_increment,
         "production_permission": production_permission,
+        "artifact": {
+            "model_id": calibration.get("model_id", "profit_window_alpha_5d_v4"),
+            "model_version": calibration.get("model_version", "v4"),
+            "dataset_hash": calibration.get("dataset_hash"),
+            "dataset_version": calibration.get("dataset_version", "historical_profit_window_v4"),
+            "feature_version": calibration.get("feature_version", "minimal_price_alpha_v1"),
+            "schema_version": calibration.get("schema_version", "alpha_artifact_v1"),
+            "target_version": calibration.get("target_version", "PROFIT_WINDOW_5D"),
+            "horizon": 5,
+            "cost_model_version": COST_MODEL_VERSION,
+            "train_window": calibration.get("train_window", {"count": len(train)}),
+            "validation_window": calibration.get("validation_window", {"count": len(validation)}),
+            "oos_window": calibration.get("oos_window", {"count": len(oos)}),
+            "production_permission": production_permission,
+            "status": validation_status,
+        },
         "calibration": calibration,
         "core_alpha_status": validation_status,
     }

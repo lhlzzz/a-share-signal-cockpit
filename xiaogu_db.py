@@ -942,19 +942,31 @@ def fetch_production_model(model_id: str) -> Dict[str, Any] | None:
     """Return the sole registry-backed production model, never a research artifact."""
     if not model_id:
         return None
+    columns = _table_columns("model_registry")
+    if not columns:
+        return None
+    selected = ["model_id"]
+    for column in ("acceptance_artifact", "performance_summary"):
+        if column in columns:
+            selected.append(column)
     with engine.connect() as db:
         row = db.execute(
-            text("SELECT model_id, payload FROM model_registry WHERE model_id = :model_id"),
+            text(f"SELECT {', '.join(selected)} FROM model_registry WHERE model_id = :model_id"),
             {"model_id": model_id},
         ).mappings().first()
     if not row:
         return None
-    payload = row.get("payload")
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-    if not isinstance(payload, dict):
+    artifact = row.get("acceptance_artifact")
+    summary = row.get("performance_summary")
+    if isinstance(artifact, str):
+        artifact = json.loads(artifact)
+    if isinstance(summary, str):
+        summary = json.loads(summary)
+    artifact = artifact if isinstance(artifact, dict) else {}
+    summary = summary if isinstance(summary, dict) else {}
+    if not artifact and not summary:
         return None
-    return {**payload, "model_id": payload.get("model_id") or row["model_id"]}
+    return {**summary, **artifact, "model_id": artifact.get("model_id") or row["model_id"]}
 
 
 

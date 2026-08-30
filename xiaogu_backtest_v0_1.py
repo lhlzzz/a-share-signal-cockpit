@@ -25,6 +25,7 @@ from xiaogu_core_alpha import (
     CANONICAL_COST_MODEL,
     FEATURE_VERSION as CURRENT_FEATURE_VERSION,
     MODEL_ID as CURRENT_ALPHA_VERSION,
+    MODEL_VERSION as CURRENT_ALPHA_MODEL_VERSION,
 )
 from xiaogu_horizon_evaluation import (
     HORIZONS,
@@ -38,8 +39,12 @@ from xiaogu_horizon_evaluation import (
 
 HISTORICAL_SNAPSHOT_VERSION = "canonical_historical_snapshot_v1"
 HISTORICAL_TARGET_VERSION = "profit_window_5d_labels_v1"
-MODEL_VERSION = "profit_window_alpha_5d_v1"
+MODEL_VERSION = CURRENT_ALPHA_MODEL_VERSION
 TARGET_QUALITY = ("CANONICAL", "PARTIAL", "CONFLICT", "INVALID", "UNRESOLVED")
+NONCANONICAL_CATEGORIES = (
+    "MISSING_ENTRY", "MISSING_T1", "MISSING_T2", "MISSING_T3", "MISSING_T4", "MISSING_T5",
+    "CONFLICT", "INVALID", "SOURCE_UNAVAILABLE", "AMBIGUOUS_IDENTITY", "UNRESOLVED",
+)
 NON_INPUT_KEY_MARKERS = (
     "rank", "score", "bonus", "penalty", "selection", "recommendation",
     "priority", "outcome", "decision",
@@ -233,13 +238,10 @@ def _historical_decision_identity(
                 "return_signal_times": sorted(return_times),
             },
         }
-    # This is a transparent recovery key, not an original decision id. It is
-    # permitted only after the complete production relation is unique.
-    recovered = "RECOVERED|{}|{}|{}|{}|{}".format(
-        run_id, snapshot_id, symbol, trade_date, signal_time,
-    )
+    # Keep the proven relation as evidence, but never promote it to a fake
+    # decision_id. The production decision id is absent in this legacy data.
     return {
-        "decision_id": recovered,
+        "decision_id": None,
         "status": "RECOVERED_EXPLICIT_RELATION",
         "source": "PRODUCTION_RUN_CANDIDATE_SIGNAL_RELATION",
         "original_decision_id": None,
@@ -250,6 +252,13 @@ def _historical_decision_identity(
             "trade_date": trade_date,
             "signal_time": signal_time,
             "return_count": len(rows),
+        },
+        "identity_key": {
+            "production_run_id": run_id,
+            "candidate_snapshot_id": snapshot_id,
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "signal_time": signal_time,
         },
     }
 
@@ -323,17 +332,24 @@ def _pick_snapshot(pick: Dict[str, Any], candidate: Dict[str, Any] | None) -> Di
     return source
 
 
-def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+def _entry_audit(
+    return_rows: Sequence[Dict[str, Any]],
+    *,
+    source_rows: Sequence[Dict[str, Any]] = (),
+) -> Dict[str, Any]:
     candidates: list[tuple[str, Any]] = []
     derived_candidates: list[tuple[str, Any]] = []
-    for row in return_rows:
+    records = [*source_rows, *return_rows]
+    for row in records:
         evidence = _json_row(row, "settlement_evidence")
         contract = _json_row(evidence, "execution_contract")
+        payload = _as_dict(row.get("payload"))
         candidates.extend((name, value) for name, value in (
             ("returns.entry_price", row.get("entry_price")),
             ("settlement_evidence.entry_price", evidence.get("entry_price")),
             ("execution_contract.execution_price", contract.get("execution_price")),
             ("execution_contract.signal_price", contract.get("signal_price")),
+            ("payload.entry_price", payload.get("entry_price")),
         ) if _number(value) is not None and _number(value) > 0)
         execution_model = _json_row(evidence, "execution_model")
         derived_candidates.extend((name, value) for name, value in (
@@ -341,25 +357,29 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             ("execution_model.entry_execution_price", execution_model.get("entry_execution_price")),
         ) if _number(value) is not None and _number(value) > 0)
     values = [value for _, value in candidates]
+    first = return_rows[0] if return_rows else (source_rows[0] if source_rows else {})
     metadata = {
-        "signal_date": return_rows[0].get("trade_date") if return_rows else None,
+        "decision_id": _first_value(*(row.get("decision_id") for row in records)),
+        "snapshot_id": _first_value(*(row.get("candidate_snapshot_id") for row in records)),
+        "signal_date": first.get("trade_date"),
         "signal_time": None,
         "entry_time": None,
-        "symbol": return_rows[0].get("symbol") if return_rows else None,
+        "execution_time": None,
+        "symbol": first.get("symbol"),
         "entry_price": None,
         "execution_price": None,
         "price_basis": None,
         "source": None,
-        "production_run_id": return_rows[0].get("production_run_id") if return_rows else None,
+        "production_run_id": first.get("production_run_id"),
         "feature_version": None,
         "alpha_version": None,
         "decision_version": None,
         "issues": [],
         "candidates": candidates,
         "derived_candidates": derived_candidates,
-        "t1_open": return_rows[0].get("t1_open_price") if return_rows else None,
-        "t1_high": return_rows[0].get("t1_high_price") if return_rows else None,
-        "t1_low": return_rows[0].get("t1_low_price") if return_rows else None,
+        "t1_open": first.get("t1_open_price"),
+        "t1_high": first.get("t1_high_price"),
+        "t1_low": first.get("t1_low_price"),
     }
     if not candidates:
         metadata["issues"].append("MISSING_ENTRY_METADATA")
@@ -374,9 +394,10 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             "settlement_evidence.entry_price",
             "execution_contract.execution_price",
             "execution_contract.signal_price",
+            "payload.entry_price",
         ) for name, value in candidates if name == source
-    )
-    evidence = _json_row(return_rows[0], "settlement_evidence")
+    ) if candidates else None
+    evidence = _json_row(records[0], "settlement_evidence") if records else {}
     contract = _json_row(evidence, "execution_contract")
     execution_price = next(
         (_number(value) for name, value in candidates if name == "execution_contract.execution_price"),
@@ -385,12 +406,17 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     metadata.update({
         "entry_price": selected,
         "execution_price": execution_price,
-        "price_basis": _first_value(return_rows[0].get("entry_price_basis"), evidence.get("price_basis")),
-        "source": _first_value(return_rows[0].get("entry_price_source"), evidence.get("price_source")),
-        "signal_time": _first_value(contract.get("signal_time"), return_rows[0].get("entry_time")),
+        "price_basis": _first_value(first.get("entry_price_basis"), evidence.get("price_basis")),
+        "source": _first_value(first.get("entry_price_source"), evidence.get("price_source")),
+        "signal_time": _first_value(contract.get("signal_time"), first.get("entry_time")),
         "entry_time": _first_value(
-            return_rows[0].get("entry_time"),
+            first.get("entry_time"),
             contract.get("execution_time"),
+        ),
+        "execution_time": _first_value(
+            contract.get("execution_time"),
+            first.get("execution_time"),
+            first.get("entry_time"),
         ),
     })
     required = (metadata["signal_date"], metadata["signal_time"], metadata["price_basis"], metadata["source"])
@@ -451,6 +477,7 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
                 "low": (f"future_{day}d_low", "low", "low_price"),
                 "close": (f"future_{day}d_close", "close", "close_price"),
                 "volume": (f"future_{day}d_volume", "volume"),
+                "amount": (f"future_{day}d_amount", "amount"),
                 "source": ("source",),
                 "source_timestamp": ("source_timestamp",),
                 "price_basis": ("price_basis",),
@@ -475,15 +502,18 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
 
     complete_days = [
         day for day in range(1, 6)
-        if all(days[str(day)].get(field) not in (None, "") for field in ("open", "high", "low", "close"))
+        if all(_number(days[str(day)].get(field)) is not None for field in ("open", "high", "low", "close", "volume", "amount"))
+        and all(days[str(day)].get(field) not in (None, "") for field in ("source", "source_timestamp", "price_basis"))
     ]
     opportunity_values = [
         days[str(day)]["daily_bar_profit_opportunity"]
-        for day in complete_days
-        if "daily_bar_profit_opportunity" in days[str(day)]
+        for day in range(1, 6)
+        if days[str(day)].get("daily_bar_profit_opportunity") is not None
     ]
     mae_values = [
-        days[str(day)]["mae"] for day in complete_days if "mae" in days[str(day)]
+        days[str(day)]["mae"]
+        for day in range(1, 6)
+        if days[str(day)].get("mae") is not None
     ]
     complete_5d = len(complete_days) == 5
     profitable = [
@@ -533,6 +563,45 @@ def _quality(entry: Dict[str, Any], targets: Dict[str, Any], *, relation_conflic
     if targets.get("complete_5d"):
         return "CANONICAL", sorted(set(issues))
     return "PARTIAL", sorted(set(issues))
+
+
+def _quality_categories(
+    *,
+    entry: Dict[str, Any] | None,
+    targets: Dict[str, Any] | None,
+    identity_status: str,
+    linked: Sequence[Dict[str, Any]],
+    quality: str,
+    replay_error: str | None = None,
+) -> list[str]:
+    entry = entry or {}
+    targets = targets or {}
+    categories: list[str] = []
+    if quality == "CONFLICT" or "ENTRY_PRICE_CONFLICT" in (entry.get("issues") or []) or targets.get("conflicts"):
+        categories.append("CONFLICT")
+    if quality == "INVALID" and replay_error:
+        categories.append("INVALID")
+    if "MISSING_ENTRY_METADATA" in (entry.get("issues") or []) or entry.get("entry_price") is None:
+        categories.append("MISSING_ENTRY")
+    for day in targets.get("missing_days") or []:
+        categories.append(f"MISSING_T{int(day)}")
+    if not linked:
+        categories.append("SOURCE_UNAVAILABLE")
+    if identity_status == "CONFLICT":
+        categories.append("AMBIGUOUS_IDENTITY")
+    elif identity_status == "UNRESOLVED":
+        categories.append("UNRESOLVED")
+    if quality == "INVALID" and not categories:
+        categories.append("INVALID")
+    return [category for category in NONCANONICAL_CATEGORIES if category in set(categories)]
+
+
+def _primary_quality_category(categories: Sequence[str]) -> str | None:
+    priority = (
+        "CONFLICT", "SOURCE_UNAVAILABLE", "INVALID", "MISSING_ENTRY", "MISSING_T1", "MISSING_T2",
+        "MISSING_T3", "MISSING_T4", "MISSING_T5", "AMBIGUOUS_IDENTITY", "UNRESOLVED",
+    )
+    return next((category for category in priority if category in categories), None)
 
 
 def _merge_missing_future_targets(
@@ -597,7 +666,9 @@ def _merge_missing_future_targets(
     complete_days = []
     for day in range(1, 6):
         item = days[str(day)]
-        if not all(_number(item.get(field)) is not None for field in ("open", "high", "low", "close")):
+        if not all(_number(item.get(field)) is not None for field in ("open", "high", "low", "close", "volume", "amount")):
+            continue
+        if not all(item.get(field) not in (None, "") for field in ("source", "source_timestamp", "price_basis")):
             continue
         complete_days.append(day)
         if entry_price and entry_price > 0:
@@ -1125,6 +1196,7 @@ def build_historical_5d_profit_window_dataset(
         },
     }
     for pick, candidate, linked in source_decisions:
+        source_rows = [row for row in (pick, candidate) if row]
         identity = _historical_decision_identity(
             pick=pick,
             candidate=candidate,
@@ -1150,6 +1222,14 @@ def build_historical_5d_profit_window_dataset(
         else:
             audit["relationship_graph"]["outcome"]["unresolved"] += 1
         if not linked:
+            entry = _entry_audit([], source_rows=source_rows)
+            categories = _quality_categories(
+                entry=entry,
+                targets=None,
+                identity_status=identity_status,
+                linked=linked,
+                quality="INVALID",
+            )
             dataset.append({
                 "historical_decision_id": None,
                 "symbol": str((pick or candidate).get("symbol") or "").zfill(6),
@@ -1158,6 +1238,8 @@ def build_historical_5d_profit_window_dataset(
                 "decision_id": None,
                 "decision_identity_status": "UNRESOLVED",
                 "decision_identity_source": identity.get("source"),
+                "decision_identity_evidence": identity.get("evidence") or {},
+                "decision_identity_key": identity.get("identity_key"),
                 "historical_original_decision": pick.get("decision") if pick else candidate.get("selection_outcome"),
                 "current_decision": None,
                 "canonical_entry_price": None,
@@ -1184,7 +1266,9 @@ def build_historical_5d_profit_window_dataset(
                 "accumulation_phase": None,
                 "target_quality": "INVALID",
                 "quality_issues": ["MISSING_HISTORICAL_RETURN_RELATION"],
-                "entry_audit": None,
+                "quality_categories": categories,
+                "quality_category": _primary_quality_category(categories),
+                "entry_audit": entry,
                 "feature_version": CURRENT_FEATURE_VERSION,
                 "alpha_version": CURRENT_ALPHA_VERSION,
                 "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
@@ -1194,9 +1278,10 @@ def build_historical_5d_profit_window_dataset(
                 "candidate_id": candidate.get("id"),
                 "replay_error": None,
             })
-            audit["unresolved_decisions"].append(decision_id or "UNRESOLVED")
+            audit["entry_audits"].append({"historical_decision_id": None, **entry, "quality": "INVALID", "issues": categories})
+            audit["unresolved_decisions"].append(identity.get("source") or "UNRESOLVED")
             continue
-        entry = _entry_audit(linked)
+        entry = _entry_audit(linked, source_rows=source_rows)
         symbol = str((pick or candidate).get("symbol") or "").zfill(6)
         trade_date = str((pick or candidate).get("trade_date") or "")
         persisted_future = [
@@ -1241,6 +1326,14 @@ def build_historical_5d_profit_window_dataset(
             if quality == "CANONICAL":
                 quality = "INVALID"
                 issues.append("CURRENT_REPLAY_FAILED")
+        categories = _quality_categories(
+            entry=entry,
+            targets=targets,
+            identity_status=identity_status,
+            linked=linked,
+            quality=quality,
+            replay_error=replay_error,
+        )
         alpha = (current or {}).get("core_alpha") or {}
         compact_current = _compact_current_decision(current)
         snapshot_payload = snapshot or {}
@@ -1250,6 +1343,7 @@ def build_historical_5d_profit_window_dataset(
             "decision_identity_status": identity_status,
             "decision_identity_source": identity.get("source"),
             "decision_identity_evidence": identity.get("evidence") or {},
+            "decision_identity_key": identity.get("identity_key"),
             "symbol": symbol,
             "signal_date": trade_date,
             "trade_date": trade_date,
@@ -1269,6 +1363,8 @@ def build_historical_5d_profit_window_dataset(
             "accumulation_phase": ((current or {}).get("portfolio_state") or {}).get("accumulation_status") or alpha.get("accumulation_phase"),
             "target_quality": quality,
             "quality_issues": sorted(set(issues)),
+            "quality_categories": categories,
+            "quality_category": _primary_quality_category(categories),
             "entry_audit": entry,
             "historical_feature_version": (pick or candidate).get("data_version"),
             "historical_alpha_version": (pick or candidate).get("rule_version"),
@@ -1301,6 +1397,11 @@ def build_historical_5d_profit_window_dataset(
     conflict = [row for row in dataset if row["target_quality"] == "CONFLICT"]
     invalid = [row for row in dataset if row["target_quality"] == "INVALID"]
     unresolved = [row for row in dataset if row["target_quality"] == "UNRESOLVED"]
+    category_counts = {category: sum(category in (row.get("quality_categories") or []) for row in dataset) for category in NONCANONICAL_CATEGORIES}
+    primary_category_counts = {
+        category: sum(row.get("quality_category") == category for row in dataset)
+        for category in NONCANONICAL_CATEGORIES
+    }
     gate = target_quality_gate(dataset, min_coverage=0.95, horizons=HISTORICAL_VALIDATION_HORIZONS)
     report = build_alpha_report(canonical, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)
     diagnostic = [row for row in dataset if row["target_quality"] in {"CANONICAL", "PARTIAL"}]
@@ -1380,6 +1481,8 @@ def build_historical_5d_profit_window_dataset(
         "selection_bias_reason": "DATABASE_ASSETS_START_AT_CANDIDATE_LAYER;_FULL_MARKET_AND_L3_ACCOUNTING_NOT_PROVEN",
         "selection_bias_report": selection_bias_report,
     }
+    audit["quality_categories"] = category_counts
+    audit["primary_quality_categories"] = primary_category_counts
     report["selection_bias_report"] = selection_bias_report
     report["selection_audit"] = selection_audit
     return {
@@ -1390,7 +1493,7 @@ def build_historical_5d_profit_window_dataset(
         "database_asset_report": None,
         "audit": audit,
         "selection_audit": selection_audit,
-        "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid), "unresolved": len(unresolved)},
+        "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid), "unresolved": len(unresolved), "quality_categories": category_counts, "primary_quality_categories": primary_category_counts},
         "target_quality_gate": gate,
         "alpha_report": report,
         "core_alpha_status": "VALIDATED" if gate.get("status") == "PASS" else ("DATA_INSUFFICIENT" if len(canonical) < 1 or gate.get("status") != "PASS" else "EXPERIMENTAL"),
@@ -1536,7 +1639,7 @@ def _decision_record(snapshot: Dict[str, Any], decision: Dict[str, Any], entry: 
         "capital_convergence": alpha.get("capital_convergence"),
         "entry_contract": entry,
         "model_registry": {
-            "model_version": MODEL_VERSION, "feature_version": "price_formation_measurements_v1",
+            "model_version": MODEL_VERSION, "feature_version": CURRENT_FEATURE_VERSION,
             "target_version": HISTORICAL_TARGET_VERSION, "data_version": snapshot.get("snapshot_version", "historical_fixture"),
             "config_hash": CONFIG_HASH,
             "training_window": None, "test_window": trade_date,

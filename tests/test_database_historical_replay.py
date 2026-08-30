@@ -55,6 +55,7 @@ def test_entry_priority_ignores_derived_execution_model_fill():
     audit = _entry_audit([_return_row()])
     assert audit["entry_price"] == pytest.approx(10.0)
     assert audit["execution_price"] == pytest.approx(10.0)
+    assert audit["execution_time"] == "15:00:00"
     assert "ENTRY_PRICE_CONFLICT" not in audit["issues"]
     assert audit["derived_candidates"][-1] == ("execution_model.entry_execution_price", 10.01)
 
@@ -246,7 +247,9 @@ def test_missing_future_targets_are_filled_without_overwriting_returns():
             "low": 9.8,
             "close": 10.2,
             "volume": 100.0,
+            "amount": 1000.0,
             "source": "external",
+            "source_timestamp": f"2026-08-{day:02d}T15:00:00+08:00",
             "price_basis": "UNADJUSTED",
         }
         for day in range(2, 7)
@@ -267,6 +270,10 @@ def test_future_target_merge_handles_complete_ohlc_without_existing_mfe():
         "low": 9.8,
         "close": 10.2,
         "volume": 100.0,
+        "amount": 1000.0,
+        "source": "external",
+        "source_timestamp": f"2026-08-{day:02d}T15:00:00+08:00",
+        "price_basis": "UNADJUSTED",
     } for day in range(2, 7)]
     merged = _merge_missing_future_targets(targets, bars, 10.0)
     assert merged["mfe_5d"] == pytest.approx(0.05)

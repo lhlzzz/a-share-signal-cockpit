@@ -121,9 +121,9 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
 
     calibration_path = tmp_path / "profit_window_calibration.json"
     calibration_path.write_text(json.dumps({
-        "model_id": "profit_window_alpha_5d_v2",
-        "model_version": "v2",
-        "feature_version": "capital_behavior_measurements_v2",
+        "model_id": "profit_window_alpha_5d_v4",
+        "model_version": "v4",
+        "feature_version": "minimal_price_alpha_v1",
         "dataset_hash": "test",
         "dataset_version": "test",
         "train_window": {"count": 10},
@@ -137,13 +137,8 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
             "status": "VALIDATED",
             "production_permission": "NONE",
         "intercept": 0.0,
-        "coefficients": [0.0] * 11,
-        "feature_names": [
-            "capital_convergence", "capital_persistence", "capital_acceleration",
-            "supply_absorption", "pricing_gap", "repricing_state",
-            "future_buyer_evidence", "reflexivity", "market_state",
-            "execution_quality", "risk",
-        ],
+        "coefficients": [0.0],
+        "feature_names": ["price_strength"],
         "oos": {"passed": True, "mean_profit": 0.03},
     }), encoding="utf-8")
     monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
@@ -322,9 +317,9 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
 
     calibration_path = tmp_path / "profit_window_calibration.json"
     calibration_path.write_text(json.dumps({
-        "model_id": "profit_window_alpha_5d_v2",
-        "model_version": "v2",
-        "feature_version": "capital_behavior_measurements_v2",
+        "model_id": "profit_window_alpha_5d_v4",
+        "model_version": "v4",
+        "feature_version": "minimal_price_alpha_v1",
         "dataset_hash": "test",
         "dataset_version": "test",
         "train_window": {"count": 10},
@@ -338,13 +333,8 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
         "status": "VALIDATED",
         "production_permission": "PRODUCTION",
         "intercept": 0.0,
-        "coefficients": [0.0] * 11,
-        "feature_names": [
-            "capital_convergence", "capital_persistence", "capital_acceleration",
-            "supply_absorption", "pricing_gap", "repricing_state",
-            "future_buyer_evidence", "reflexivity", "market_state",
-            "execution_quality", "risk",
-        ],
+        "coefficients": [0.0],
+        "feature_names": ["price_strength"],
         "oos": {
             "passed": True,
             "probability_std": 0.001,
