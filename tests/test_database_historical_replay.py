@@ -11,6 +11,7 @@ from xiaogu_backtest_v0_1 import (
 )
 from xiaogu_horizon_evaluation import (
     _probability_separation,
+    _split_rows,
     diagnose_features,
     evaluate_replay,
     target_quality_gate,
@@ -197,6 +198,20 @@ def test_database_builder_requires_explicit_linked_snapshot():
     assert result["counts"]["invalid"] == 1
     assert "pick:" not in str(result["audit"]["unresolved_decisions"])
     assert result["audit"]["unresolved_decisions"]
+
+
+def test_oos_split_keeps_each_trade_date_in_one_partition():
+    rows = [
+        {"trade_date": date, "profit_window": bool(index % 2), "max_daily_bar_profit_opportunity_5d": 0.03}
+        for index, date in enumerate(("2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05"))
+        for _ in range(2)
+    ]
+    partitions = _split_rows(rows)
+    partition_dates = [
+        {row["trade_date"] for row in partition}
+        for partition in partitions
+    ]
+    assert all(left.isdisjoint(right) for index, left in enumerate(partition_dates) for right in partition_dates[index + 1:])
 
 
 def test_database_linked_ranges_ignore_rows_without_trade_date():

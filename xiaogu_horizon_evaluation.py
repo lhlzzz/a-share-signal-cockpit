@@ -957,12 +957,21 @@ def _percentile(values: Sequence[float], fraction: float) -> float | None:
 
 def _split_rows(rows: Sequence[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]:
     ordered = sorted(rows, key=lambda row: str(row.get("signal_date") or row.get("trade_date") or ""))
-    if len(ordered) < 3:
+    dates = sorted({str(row.get("signal_date") or row.get("trade_date") or "") for row in ordered})
+    dates = [value for value in dates if value]
+    if len(dates) < 3:
         return [], [], []
-    train_end = max(1, int(len(ordered) * 0.6))
-    validation_end = max(train_end + 1, int(len(ordered) * 0.8))
-    validation_end = min(validation_end, len(ordered) - 1)
-    return ordered[:train_end], ordered[train_end:validation_end], ordered[validation_end:]
+    train_end = max(1, int(len(dates) * 0.6))
+    validation_end = max(train_end + 1, int(len(dates) * 0.8))
+    validation_end = min(validation_end, len(dates) - 1)
+    train_dates = set(dates[:train_end])
+    validation_dates = set(dates[train_end:validation_end])
+    oos_dates = set(dates[validation_end:])
+    return (
+        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in train_dates],
+        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in validation_dates],
+        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in oos_dates],
+    )
 
 
 def _random_predictions(rows: Sequence[Dict[str, Any]], seed: int = 5) -> list[float]:
