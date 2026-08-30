@@ -55,6 +55,14 @@ def _mean(*values: Any) -> float | None:
     return sum(numbers) / len(numbers) if numbers else None
 
 
+def _at_least(value: Any, threshold: float) -> bool:
+    return value is not None and float(value) >= threshold
+
+
+def _below(value: Any, threshold: float) -> bool:
+    return value is not None and float(value) < threshold
+
+
 def _research_score(payload: Dict[str, Any], *keys: str) -> float | None:
     return _mean(*(payload.get(key) for key in keys))
 
@@ -121,15 +129,15 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     }
     independent_mechanisms = {str(item.get("mechanism") or item.get("evidence_family") or "") for item in evidence_items if item.get("mechanism") or item.get("evidence_family")}
     independent_channel_count = len(independent_origins)
-    score = _mean(*[value for value in channels.values() if value is not None and value > 0]) or 0.0
+    score = _mean(*[value for value in channels.values() if value is not None and value > 0])
     distribution = None if capital.get("distribution_risk") is None else _clip(capital.get("distribution_risk"))
-    conflict = (distribution or 0.0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK"
+    conflict = _at_least(distribution, 0.70) or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK"
     bullish_directions = {
         "BUYING", "ACCUMULATING", "ACCELERATING",
     }
     directional = [
         name for name, behavior in behaviors.items()
-        if (channels[name] or 0) >= 0.50 and str(behavior.get("direction") or "") in bullish_directions
+        if _at_least(channels[name], 0.50) and str(behavior.get("direction") or "") in bullish_directions
     ]
     aligned = len(directional) >= 2
     status = (
@@ -145,10 +153,10 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     ])
     quality_score = _mean(*qualities)
     confidence = _clip(
-        (independent_channel_count / 3.0) * (quality_score or 0.0) * (freshness or 0.0)
-    ) if evidence_items else 0.0
+        (independent_channel_count / 3.0) * quality_score * freshness
+    ) if evidence_items and quality_score is not None and freshness is not None else None
     return {
-        "score": round(score, 8),
+        "score": _round_or_none(score),
         "institution": _round_or_none(channels["institution"]),
         "main_force": _round_or_none(channels["main_force"]),
         "hot_money": _round_or_none(channels["hot_money"]),
@@ -165,7 +173,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "independent_mechanisms": sorted(independent_mechanisms),
         "independent_sources": sorted(independent_sources),
         "independent_families": sorted(independent_families),
-        "confidence": round(confidence, 8),
+        "confidence": _round_or_none(confidence),
         "behaviors": behaviors,
         "status": status,
         "state": status,
@@ -174,31 +182,31 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
 
 def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Dict[str, Any], convergence: Dict[str, Any]) -> Dict[str, Any]:
     evidence = []
-    if (capital.get("distribution_risk") or 0.0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK":
+    if _at_least(capital.get("distribution_risk"), 0.70) or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK":
         evidence.append("distribution_risk")
         state = "DISTRIBUTION"
     elif market.get("stage") in {"CLIMAX", "DISTRIBUTION"}:
         evidence.append("market_stage")
         state = market["stage"]
-    elif (market.get("attention") or 0.0) >= 0.85 and (market.get("price_strength") or 0.0) >= 0.80:
+    elif _at_least(market.get("attention"), 0.85) and _at_least(market.get("price_strength"), 0.80):
         evidence.extend(["attention_extreme", "price_strength"])
         state = "CLIMAX"
     elif (
         convergence["status"] == "CONVERGENCE"
         and capital.get("fund_flow_acceleration") is not None
         and capital.get("fund_flow_acceleration") >= 0.60
-        and (market.get("price_strength") or 0.0) >= 0.50
+        and _at_least(market.get("price_strength"), 0.50)
     ):
         evidence.extend(["capital_acceleration", "price_response", "capital_convergence"])
         state = "IGNITION"
-    elif convergence["status"] == "CONVERGENCE" and (market.get("sector_breadth") or 0.0) >= 0.60 and (market.get("leader_strength") or 0.0) >= 0.60:
+    elif convergence["status"] == "CONVERGENCE" and _at_least(market.get("sector_breadth"), 0.60) and _at_least(market.get("leader_strength"), 0.60):
         evidence.extend(["capital_convergence", "breadth_expansion", "leader_strength"])
         state = "EXPANSION"
     elif (
         capital.get("fund_flow_persistence") is not None
         and capital.get("fund_flow_persistence") >= 0.55
         and supply.get("supply_absorption_state") == "ABSORPTION"
-        and (market.get("price_strength") or 0.0) < 0.55
+        and _below(market.get("price_strength"), 0.55)
     ):
         evidence.extend(["capital_persistence", "supply_absorption", "price_contained"])
         state = "ACCUMULATION"
@@ -302,13 +310,40 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
     else:
         validation_status = "EXPERIMENTAL"
     imputer = model.get("imputer") if isinstance(model.get("imputer"), dict) else {}
-    logit = float(model.get("intercept") or 0.0)
+    if model.get("intercept") in (None, ""):
+        return None, {
+            "status": "DATA_INSUFFICIENT",
+            "reason": "CALIBRATION_CONTRACT_INVALID:intercept",
+            "validation_status": "DATA_INSUFFICIENT",
+            "production_alpha_permissions": permissions,
+            "collapsed_features": collapsed,
+        }
+    try:
+        logit = float(model["intercept"])
+    except (TypeError, ValueError):
+        return None, {
+            "status": "DATA_INSUFFICIENT",
+            "reason": "CALIBRATION_CONTRACT_INVALID:intercept",
+            "validation_status": "DATA_INSUFFICIENT",
+            "production_alpha_permissions": permissions,
+            "collapsed_features": collapsed,
+        }
     for name, weight in zip(names, coefficients):
+        try:
+            numeric_weight = float(weight)
+        except (TypeError, ValueError):
+            return None, {
+                "status": "DATA_INSUFFICIENT",
+                "reason": f"CALIBRATION_CONTRACT_INVALID:coefficient:{name}",
+                "validation_status": "DATA_INSUFFICIENT",
+                "production_alpha_permissions": permissions,
+                "collapsed_features": collapsed,
+            }
         value = values.get(name)
         if value is None:
             value = imputer.get(name)
         if value is None:
-            if float(weight) == 0.0:
+            if numeric_weight == 0.0:
                 continue
             return None, {
                 "status": "DATA_INSUFFICIENT",
@@ -317,7 +352,7 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
                 "production_alpha_permissions": permissions,
                 "collapsed_features": collapsed,
             }
-        logit += float(weight) * float(value)
+        logit += numeric_weight * float(value)
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
     clipped = _clip(probability)
     meta = {
@@ -379,11 +414,11 @@ def build_core_alpha(
     repricing = _repricing_state(capital_measure, supply, market, convergence)
     repricing_state = repricing["state"]
     completion = {
-        "price_expanded": (market["price_strength"] or 0.0) >= 0.80,
+        "price_expanded": _at_least(market["price_strength"], 0.80),
         "valuation_expanded": gap.get("price_reflection") is not None and gap["price_reflection"] >= 0.80,
-        "attention_extreme": (market["attention"] or 0.0) >= 0.85,
-        "institutional_saturated": (capital_measure["institutional_flow"] or 0.0) >= 0.90,
-        "hot_money_crowded": (capital_measure["hot_money_flow"] or 0.0) >= 0.90,
+        "attention_extreme": _at_least(market["attention"], 0.85),
+        "institutional_saturated": _at_least(capital_measure["institutional_flow"], 0.90),
+        "hot_money_crowded": _at_least(capital_measure["hot_money_flow"], 0.90),
     }
     completion["completed"] = bool(
         sum(bool(value) for key, value in completion.items() if key != "completed") >= 2
@@ -392,7 +427,7 @@ def build_core_alpha(
 
     execution_feasibility = (
         None if execution.get("execution_feasibility") is None
-        else _clip(execution["execution_feasibility"] * (1.0 - (execution["short_term_overheat"] or 0.0) * 0.35))
+        else _clip(execution["execution_feasibility"] * (1.0 - (execution["short_term_overheat"] if execution.get("short_term_overheat") is not None else 0.0) * 0.35))
     )
     probability_features = {
         "capital_convergence": None if convergence["status"] == "UNKNOWN" else convergence["score"],
@@ -433,13 +468,13 @@ def build_core_alpha(
     expected_net_profit_window = None
 
     readiness = {
-        "BUSINESS_READY": (axes["BUSINESS"] or 0.0) >= 0.50,
-        "FUTURE_DEMAND_READY": (axes["FUTURE_DEMAND"] or 0.0) >= 0.50,
+        "BUSINESS_READY": _at_least(axes["BUSINESS"], 0.50),
+        "FUTURE_DEMAND_READY": _at_least(axes["FUTURE_DEMAND"], 0.50),
         "CAPITAL_CONVERGENCE_READY": convergence["status"] == "CONVERGENCE",
         "SUPPLY_ABSORPTION_READY": supply["supply_absorption_state"] == "ABSORPTION",
         "PRICING_GAP_READY": gap.get("score") is not None and gap["score"] >= 0.35,
         "FUTURE_BUYERS_READY": buyer_observed and buyer_capacity >= 0.35,
-        "REFLEXIVITY_READY": (reflexivity["score"] or 0.0) >= 0.35 and (reflexivity["break"] or 0.0) < 0.70,
+        "REFLEXIVITY_READY": _at_least(reflexivity["score"], 0.35) and _below(reflexivity["break"], 0.70),
         "EXECUTION_FEASIBLE": execution_feasibility is not None and execution_feasibility >= 0.35,
         "RISK_READY": risk["score"] is None or risk["score"] >= 0.50,
         "MARKET_READY": market["score"] is None or market["score"] >= 0.35,

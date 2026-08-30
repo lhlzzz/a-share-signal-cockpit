@@ -492,14 +492,19 @@ def build_post_trade_review(record: Dict[str, Any], outcomes: Dict[str, Any]) ->
         raw = (record.get("features_used") or {}).get("canonical_snapshot") or {}
         risk = (record.get("features_used") or {}).get("feature_vector", {}).get("RISK", {})
         execution = (record.get("features_used") or {}).get("feature_vector", {}).get("EXECUTION", {})
+        execution_feasibility = execution.get("execution_feasibility")
+        supply_absorption = alpha.get("supply_absorption")
+        future_buyer_capacity = alpha.get("future_buyer_capacity")
+        pricing_gap = alpha.get("pricing_gap")
+        reflexivity_break_risk = alpha.get("reflexivity_break_risk")
         attribution = next((reason for reason, condition in (
-            ("EXECUTION_FAILURE", float(execution.get("execution_feasibility") or 1) < 0.35),
+            ("EXECUTION_FAILURE", execution_feasibility is not None and float(execution_feasibility) < 0.35),
             ("CAPITAL_EXIT", (alpha.get("capital_convergence") or {}).get("status") == "CONFLICT"),
             ("DISTRIBUTION_MISREAD", str(alpha.get("repricing_state") or "") == "DISTRIBUTION"),
-            ("SUPPLY_NOT_ABSORBED", float(alpha.get("supply_absorption") or 0) < 0.35),
-            ("NO_FUTURE_BUYER", float(alpha.get("future_buyer_capacity") or 0) <= 0),
-            ("PRICING_GAP_FALSE", float(alpha.get("pricing_gap") or 0) < 0.35),
-            ("REFLEXIVITY_FAILED", float(alpha.get("reflexivity_break_risk") or 0) >= 0.70),
+            ("SUPPLY_NOT_ABSORBED", supply_absorption is not None and float(supply_absorption) < 0.35),
+            ("NO_FUTURE_BUYER", future_buyer_capacity is not None and float(future_buyer_capacity) <= 0),
+            ("PRICING_GAP_FALSE", pricing_gap is not None and float(pricing_gap) < 0.35),
+            ("REFLEXIVITY_FAILED", reflexivity_break_risk is not None and float(reflexivity_break_risk) >= 0.70),
             ("INDUSTRY_THESIS_WRONG", bool(raw.get("industry_thesis_wrong") or risk.get("industry_thesis_wrong"))),
             ("BUSINESS_THESIS_WRONG", bool(raw.get("business_thesis_wrong") or risk.get("business_thesis_wrong"))),
             ("MARKET_REGIME_FAILURE", bool(raw.get("market_regime_failure") or risk.get("market_regime_failure"))),
@@ -541,7 +546,9 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
 
 def _has_new_outcome(result: Dict[str, Any], prior: Dict[str, Any] | None) -> bool:
     prior = prior or {}
-    return int(result.get("available_days") or 0) > int(prior.get("available_days") or 0)
+    result_days = result.get("available_days")
+    prior_days = prior.get("available_days")
+    return int(0 if result_days is None else result_days) > int(0 if prior_days is None else prior_days)
 
 
 def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:

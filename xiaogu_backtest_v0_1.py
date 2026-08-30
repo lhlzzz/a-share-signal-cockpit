@@ -501,6 +501,7 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
             days[str(day)].get("daily_bar_profit_opportunity") for day in range(1, 6)
         ],
         "max_daily_bar_profit_opportunity_5d": max(opportunity_values, default=None),
+        "net_profit_window": max(0.0, max(opportunity_values)) if opportunity_values else None,
         "max_mae_5d": min(mae_values, default=None),
         "mfe_5d": max((days[str(day)].get("mfe") for day in complete_days), default=None),
         "profit_window": bool(first_profit) if complete_5d else None,
@@ -591,7 +592,8 @@ def _merge_missing_future_targets(
                     f"T{day}_RETURN_EXTERNAL_CONFLICT"
                 )
 
-    cost_rate = float(targets.get("execution_cost_rate") or 0.003)
+    cost_rate_value = targets.get("execution_cost_rate")
+    cost_rate = float(0.003 if cost_rate_value is None else cost_rate_value)
     complete_days = []
     for day in range(1, 6):
         item = days[str(day)]
@@ -621,11 +623,14 @@ def _merge_missing_future_targets(
     complete = len(complete_days) == 5
     profitable = [
         day for day in complete_days
-        if days[str(day)].get("daily_bar_profit_opportunity", -1) >= float(targets.get("profit_window_target") or 0.02)
+        if days[str(day)].get("daily_bar_profit_opportunity", -1) >= float(
+            0.02 if targets.get("profit_window_target") is None else targets["profit_window_target"]
+        )
     ] if complete else []
     first_profit = profitable[0] if profitable else None
     targets.update({
         "max_daily_bar_profit_opportunity_5d": max(opportunities, default=None),
+        "net_profit_window": max(0.0, max(opportunities)) if opportunities else None,
         "max_mae_5d": min(maes, default=None),
         "mfe_5d": max(mfes, default=None),
         "profit_window": bool(first_profit) if complete else None,
@@ -1359,15 +1364,19 @@ def build_historical_5d_profit_window_dataset(
     selection_bias_report["L2 changes sample distribution"] = True
     selection_audit = {
         "full_market_count": None,
+        "full_l0_count": None,
         "l0_count": layer_counts["L0"],
+        "l1_eligible_count": layer_counts["L1"],
         "l1_count": layer_counts["L1"],
         "l2_count": layer_counts["L2"],
         "l3_count": layer_counts["L3"],
+        "alpha_evaluated_count": sum(row.get("current_decision") is not None for row in dataset),
         "alpha_count": sum(row.get("current_decision") is not None for row in dataset),
         "decision_count": len(dataset),
         "profit_window_rate_by_layer": layer_profit_rates,
         "selection_audit_status": "PARTIAL_OBSERVED",
         "selection_bias_warning": True,
+        "selection_distribution_shift": True,
         "selection_bias_reason": "DATABASE_ASSETS_START_AT_CANDIDATE_LAYER;_FULL_MARKET_AND_L3_ACCOUNTING_NOT_PROVEN",
         "selection_bias_report": selection_bias_report,
     }
@@ -1633,6 +1642,7 @@ def historical_replay(
     }
     selection_audit = {
         "full_universe_count": full_universe,
+        "full_l0_count": full_universe,
         "l1_count": next(
             (audit.get("l1_eligible_universe") for audit in supplied_universe_audits
              if audit.get("l1_eligible_universe") is not None),
@@ -1640,6 +1650,10 @@ def historical_replay(
         ),
         "l2_count": l2_count,
         "l3_count": l3_count,
+        "l3_requested_count": l3_count,
+        "l3_returned_count": l3_count,
+        "l3_unrelated_count": 0 if l3_count is not None else None,
+        "alpha_evaluated_count": len(decisions),
         "alpha_count": len(decisions),
         "decision_count": len(decisions),
         "canonical_count": sum(1 for row in rows if (row.get("snapshot") or {}).get("trusted_snapshot") is True),
@@ -1651,6 +1665,7 @@ def historical_replay(
             or len(decisions) < full_universe
         ),
         "selection_audit_status": "OBSERVED" if full_universe is not None else "UNOBSERVED",
+        "selection_distribution_shift": True,
         "selection_bias_report": selection_bias_report,
     }
     result = {

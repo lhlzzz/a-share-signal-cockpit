@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
     symbol TEXT NOT NULL,
+    decision_id TEXT,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -108,5 +109,6 @@ ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
 CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);

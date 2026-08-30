@@ -304,6 +304,7 @@ def ensure_production_schema() -> None:
         "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)",
@@ -760,20 +761,42 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decisi
         raise ValueError("DECISION_ID_REQUIRED")
     columns = _table_columns("returns")
     fields = ["trade_date", "symbol", "payload"]
+    serialized_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     params = {
         "trade_date": trade_date,
         "symbol": symbol,
-        "payload": json.dumps(payload, ensure_ascii=False, default=str),
+        "payload": serialized_payload,
         "decision_id": decision_id,
     }
     if "decision_id" in columns:
         fields.append("decision_id")
+    conflict_clause = (
+        " ON CONFLICT (decision_id, trade_date) WHERE decision_id IS NOT NULL DO NOTHING"
+        if "decision_id" in columns else ""
+    )
     with get_db() as db:
+        if "decision_id" in columns:
+            existing = db.execute(
+                text(
+                    "SELECT payload FROM returns "
+                    "WHERE decision_id = :decision_id "
+                    "AND trade_date = CAST(:trade_date AS date) LIMIT 1"
+                ),
+                {"decision_id": decision_id, "trade_date": trade_date},
+            ).mappings().first()
+            if existing:
+                stored = existing.get("payload")
+                if isinstance(stored, str):
+                    stored = json.loads(stored)
+                stored_payload = json.dumps(stored, ensure_ascii=False, sort_keys=True, default=str)
+                if stored_payload == serialized_payload:
+                    return
+                raise ValueError("OUTCOME_IDENTITY_CONFLICT")
         db.execute(
             text(
                 f"INSERT INTO returns ({', '.join(fields)}) VALUES ("
                 + ", ".join("CAST(:payload AS jsonb)" if field == "payload" else f":{field}" for field in fields)
-                + ")"
+                + ")" + conflict_clause
             ),
             params,
         )

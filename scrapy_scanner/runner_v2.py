@@ -146,7 +146,21 @@ def result_item_count(value: Any) -> int:
 
 def _store_diagnostic(diagnostics: Dict[str, Any] | None, **values: Any) -> None:
     if diagnostics is not None:
+        unrelated_symbols = values.get("unrelated_symbols")
+        unrelated_rows = values.get("unrelated_rows", 0)
+        if not isinstance(unrelated_symbols, (list, tuple, set)):
+            unrelated_symbols = []
+        started = diagnostics.pop("_fetch_started_at", None)
+        values["unrelated_symbols"] = sorted(set(unrelated_symbols))
+        values["unrelated_rows"] = int(unrelated_rows)
+        values.setdefault("fetch_started_at", started or diagnostics.get("fetch_started_at") or _iso_now())
+        values.setdefault("fetch_finished_at", _iso_now())
         diagnostics.update(values)
+
+
+def _start_diagnostic(diagnostics: Dict[str, Any] | None) -> None:
+    if diagnostics is not None:
+        diagnostics["_fetch_started_at"] = _iso_now()
 
 
 def fetch_ulist(
@@ -155,6 +169,7 @@ def fetch_ulist(
     diagnostics: Dict[str, Any] | None = None,
 ) -> list[Dict[str, Any]]:
     """Fetch only the requested candidate quotes; never the full market table."""
+    _start_diagnostic(diagnostics)
     wanted = [item for item in (_secid(code) for code in secids) if item]
     rows: list[Dict[str, Any]] = []
     requests = 0
@@ -171,6 +186,7 @@ def fetch_ulist(
         time.sleep(0.03)
     returned = []
     unrelated = 0
+    unrelated_symbols = []
     wanted_codes = {normalize_stock_code(item.split(".", 1)[-1]) for item in wanted}
     kept = []
     for row in rows:
@@ -180,6 +196,7 @@ def fetch_ulist(
             returned.extend(codes)
         else:
             unrelated += 1
+            unrelated_symbols.extend(codes)
     _store_diagnostic(
         diagnostics,
         pages=requests,
@@ -187,6 +204,7 @@ def fetch_ulist(
         row_count=len(kept),
         requested_symbols=sorted(code for code in wanted_codes if code),
         returned_symbols=sorted(set(returned)),
+        unrelated_symbols=sorted(set(unrelated_symbols)),
         unrelated_rows=unrelated,
         request_count=requests,
         response_count=len(rows),
@@ -201,6 +219,7 @@ def fetch_paginated(
     fields: str = "f12,f14,f2,f3,f5,f6,f8",
     diagnostics: Dict[str, Any] | None = None,
 ) -> list[Dict[str, Any]]:
+    _start_diagnostic(diagnostics)
     rows = []
     total = None
     pages = 0
@@ -236,6 +255,7 @@ def fetch_datacenter(
     diagnostics: Dict[str, Any] | None = None,
     candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
+    _start_diagnostic(diagnostics)
     wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
     wanted = [code for code in wanted if code]
     if candidate_codes is not None and not wanted:
@@ -281,6 +301,7 @@ def fetch_datacenter(
         rows.extend(batch_rows)
     returned = []
     unrelated = 0
+    unrelated_symbols = []
     wanted_set = set(wanted)
     kept = []
     for row in rows:
@@ -290,9 +311,11 @@ def fetch_datacenter(
             returned.extend(codes)
         else:
             unrelated += 1
+            unrelated_symbols.extend(codes)
     _store_diagnostic(
         diagnostics, pages=pages, reported_total=total, row_count=len(kept),
         requested_symbols=wanted, returned_symbols=sorted(set(returned)),
+        unrelated_symbols=sorted(set(unrelated_symbols)),
         unrelated_rows=unrelated, request_count=requests, response_count=len(rows),
         status="PASS" if kept else "EMPTY",
     )
@@ -308,6 +331,7 @@ def fetch_report_list(
     candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
     """Capture research reports as raw evidence, without rating or filtering."""
+    _start_diagnostic(diagnostics)
     wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
     wanted = [code for code in wanted if code]
     if candidate_codes is not None and not wanted:
@@ -347,6 +371,7 @@ def fetch_report_list(
             time.sleep(0.03)
     returned = []
     unrelated = 0
+    unrelated_symbols = []
     wanted_set = set(wanted)
     kept = []
     for row in rows:
@@ -356,9 +381,11 @@ def fetch_report_list(
             returned.extend(codes_in_row)
         else:
             unrelated += 1
+            unrelated_symbols.extend(codes_in_row)
     _store_diagnostic(
         diagnostics, row_count=len(kept), requested_symbols=wanted,
-        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        returned_symbols=sorted(set(returned)), unrelated_symbols=sorted(set(unrelated_symbols)),
+        unrelated_rows=unrelated,
         request_count=requests, response_count=len(rows),
         status="PASS" if kept else "EMPTY",
     )
@@ -370,6 +397,7 @@ def fetch_announcements(
     diagnostics: Dict[str, Any] | None = None,
     candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
+    _start_diagnostic(diagnostics)
     wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
     wanted = [code for code in wanted if code]
     if candidate_codes is not None and not wanted:
@@ -407,6 +435,7 @@ def fetch_announcements(
                 break
     returned = []
     unrelated = 0
+    unrelated_symbols = []
     wanted_set = set(wanted)
     kept = []
     for row in rows:
@@ -416,9 +445,11 @@ def fetch_announcements(
             returned.extend(codes_in_row)
         else:
             unrelated += 1
+            unrelated_symbols.extend(codes_in_row)
     _store_diagnostic(
         diagnostics, row_count=len(kept), requested_symbols=wanted,
-        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        returned_symbols=sorted(set(returned)), unrelated_symbols=sorted(set(unrelated_symbols)),
+        unrelated_rows=unrelated,
         request_count=requests, response_count=len(rows),
         status="PASS" if kept else "EMPTY",
     )
@@ -430,6 +461,7 @@ def fetch_news(
     diagnostics: Dict[str, Any] | None = None,
     candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
+    _start_diagnostic(diagnostics)
     wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
     wanted = [code for code in wanted if code]
     if candidate_codes is not None and not wanted:
@@ -454,6 +486,7 @@ def fetch_news(
         time.sleep(0.03)
     returned = []
     unrelated = 0
+    unrelated_symbols = []
     wanted_set = set(wanted)
     kept = []
     for row in rows:
@@ -463,9 +496,11 @@ def fetch_news(
             returned.extend(codes_in_row)
         else:
             unrelated += 1
+            unrelated_symbols.extend(codes_in_row)
     _store_diagnostic(
         diagnostics, row_count=len(kept), requested_symbols=wanted,
-        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        returned_symbols=sorted(set(returned)), unrelated_symbols=sorted(set(unrelated_symbols)),
+        unrelated_rows=unrelated,
         request_count=requests, response_count=len(rows),
         status="PASS" if kept else "EMPTY",
     )
@@ -578,10 +613,14 @@ def detect_capital_candidates(
     return candidates, {
         "input_count": len(stocks),
         "full_universe_count": len(stocks),
+        "full_l0_count": len(stocks),
         "l1_eligible_count": l1_eligible_count,
         "l1_rejected_count": len(stocks) - l1_eligible_count,
         "l2_routed_count": len(candidates),
         "l2_not_routed_count": l1_eligible_count - len(candidates),
+        "l3_requested_count": None,
+        "l3_returned_count": None,
+        "l3_unrelated_count": None,
         "l3_fetched_count": None,
         "l3_fetch_failed_count": None,
         "alpha_evaluated_count": None,
@@ -775,6 +814,7 @@ def _collect(
             "domain_finished_at": domain_finished_at,
             "fetch_started_at": domain_started_at,
             "fetch_completed_at": domain_finished_at,
+            "fetch_finished_at": domain_finished_at,
             "source_time": domain_finished_at,
             "available_at": domain_finished_at,
             "critical": critical,
@@ -791,6 +831,7 @@ def _collect(
             "domain_finished_at": domain_finished_at,
             "fetch_started_at": domain_started_at,
             "fetch_completed_at": domain_finished_at,
+            "fetch_finished_at": domain_finished_at,
             "source_time": None,
             "available_at": None,
             "critical": critical,
@@ -970,8 +1011,20 @@ def main() -> Dict[str, Any]:
             persistence = {"status": "FAILED", "error": repr(exc)}
 
     scan_finished_at = datetime.now(MARKET_TIMEZONE).isoformat(timespec="seconds")
-    l1_eligible = int(level_2_audit.get("l1_eligible_count") or 0)
+    l1_eligible_value = level_2_audit.get("l1_eligible_count")
+    l1_eligible = int(0 if l1_eligible_value is None else l1_eligible_value)
     l2_routed = int(level_2_audit.get("l2_routed_count") or len(candidate_codes))
+    l3_returned_symbols = {
+        str(symbol)
+        for name, item in diagnostics.items()
+        if name in DEEP_DOMAINS and isinstance(item, dict)
+        for symbol in (item.get("returned_symbols") or [])
+    }
+    l3_unrelated_count = sum(
+        int(0 if item.get("unrelated_rows") is None else item["unrelated_rows"])
+        for name, item in diagnostics.items()
+        if name in DEEP_DOMAINS and isinstance(item, dict)
+    )
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
         "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
@@ -991,6 +1044,14 @@ def main() -> Dict[str, Any]:
         },
         "sample_accounting": {
             **level_2_audit,
+            "full_l0_count": len(stocks),
+            "l1_eligible_count": l1_eligible,
+            "l1_rejected_count": len(stocks) - l1_eligible,
+            "l2_routed_count": l2_routed,
+            "l2_not_routed_count": max(0, l1_eligible - l2_routed),
+            "l3_requested_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
+            "l3_returned_count": len(l3_returned_symbols),
+            "l3_unrelated_count": l3_unrelated_count,
             "l3_fetched_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
             "l3_fetch_failed_count": 0 if production_scan != "BLOCKED" else len(candidate_codes),
             "alpha_evaluated_count": None,
@@ -1000,7 +1061,12 @@ def main() -> Dict[str, Any]:
             "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": len(stocks), "fields": LIGHT_STOCK_FIELDS.split(",")},
             "level_1": {"name": "CHEAP_ELIGIBILITY", "operational_only": True, "eligible_count": l1_eligible},
             "level_2": {"name": "RESOURCE_ROUTER", **level_2_audit},
-            "level_3": {"name": "DEEP_CANDIDATE_FETCH", "candidate_count": len(candidate_codes), "domains": list(DEEP_DOMAINS)},
+            "level_3": {
+                "name": "DEEP_CANDIDATE_FETCH", "candidate_count": len(candidate_codes),
+                "requested_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
+                "returned_count": len(l3_returned_symbols), "unrelated_count": l3_unrelated_count,
+                "domains": list(DEEP_DOMAINS),
+            },
         },
         "lineage": {
             "lineage_id": scan_lineage_id,

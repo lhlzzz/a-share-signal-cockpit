@@ -656,12 +656,13 @@ def diagnose_features(
             "positive_mean": sum(positive) / len(positive) if positive else None,
             "negative_mean": sum(negative) / len(negative) if negative else None,
             "label_correlation": _correlation(
-                [value for value, label in zip(raw_values, labels) if value is not None],
-                [label or 0 for value, label in zip(raw_values, labels) if value is not None],
+                [value for value, label in zip(raw_values, labels) if value is not None and label is not None],
+                [label for value, label in zip(raw_values, labels) if value is not None and label is not None],
             ),
         }
         std = report[name]["std"]
-        missing_rate = report[name]["missing_rate"] or 0.0
+        missing_rate = report[name]["missing_rate"]
+        missing_rate = 0.0 if missing_rate is None else missing_rate
         unique_count = report[name]["unique_count"]
         collapsed = (
             unique_count <= 2
@@ -691,7 +692,10 @@ def diagnose_features(
         },
         "features": report,
         "constant_features": [name for name, item in report.items() if item["unique_count"] <= 2],
-        "high_missing_features": [name for name, item in report.items() if (item["missing_rate"] or 0.0) >= 0.95],
+        "high_missing_features": [
+            name for name, item in report.items()
+            if (0.0 if item["missing_rate"] is None else item["missing_rate"]) >= 0.95
+        ],
         "high_collinearity_pairs": collinearity,
     }
 
@@ -823,8 +827,9 @@ def _fit_logistic(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[
 
 def _predict(model: Mapping[str, Any], rows: Sequence[Dict[str, Any]]) -> list[float]:
     names = list(model.get("feature_names") or [])
+    intercept = float(model["intercept"])
     return [
-        _sigmoid(float(model.get("intercept") or 0.0) + sum(
+        _sigmoid(intercept + sum(
             float(weight) * value for weight, value in zip(
                 model.get("coefficients") or [],
                 _feature_vector(row, names, model.get("imputer") if isinstance(model.get("imputer"), dict) else None),
@@ -1011,7 +1016,11 @@ def _monotonicity(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) 
             "predicted": sum(prediction for prediction, _ in selected) / len(selected),
             "profit_window_rate": sum(labels) / len(labels),
             "mean_profit": sum(profits) / len(profits) if profits else None,
-            "mean_mae": sum(_mae(row) or 0.0 for _, row in selected) / len(selected),
+        "mean_mae": (
+            sum(values) / len(values)
+            if (values := [_mae(row) for _, row in selected if _mae(row) is not None])
+            else None
+        ),
         })
     rates = [item["profit_window_rate"] for item in bins]
     passed = bool(rates) and all(left <= right + 0.02 for left, right in zip(rates, rates[1:]))
@@ -1090,11 +1099,11 @@ def _selectivity(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -
     if not rows or not predictions:
         return {"status": "DATA_INSUFFICIENT"}
     ordered = sorted(zip(predictions, rows), key=lambda item: item[0], reverse=True)
-    base_rate = sum(int(_label_value(row) or 0) for row in rows) / len(rows)
+    base_rate = sum(int(_label_value(row)) for row in rows if _label_value(row) is not None) / len(rows)
 
     def band(fraction: float | None) -> Dict[str, Any]:
         selected = ordered if fraction is None else ordered[: max(1, int(len(ordered) * fraction))]
-        labels = [int(_label_value(row) or 0) for _, row in selected]
+        labels = [int(_label_value(row)) for _, row in selected if _label_value(row) is not None]
         profits = [_outcome_profit(row) for _, row in selected if _outcome_profit(row) is not None]
         maes = [_mae(row) for _, row in selected if _mae(row) is not None]
         portfolio = portfolio_metrics(profits)

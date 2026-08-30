@@ -64,7 +64,23 @@ def test_news_audit_does_not_fabricate_candidate_symbols(monkeypatch):
     assert scanner.fetch_news(candidate_codes=["600001"], diagnostics=diagnostics) == []
     assert diagnostics["requested_symbols"] == ["600001"]
     assert diagnostics["unrelated_rows"] == 1
+    assert diagnostics["unrelated_symbols"] == []
     assert diagnostics["response_count"] == 1
+
+
+def test_pit_trade_date_is_record_level():
+    from xiaogu_forward_snapshot import pit_record_audit
+
+    audit = pit_record_audit({
+        "source_id": "lhb",
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "trade_date": "2026-08-27",
+    }, "2026-08-26T15:00:00+08:00")
+    assert audit["pit_status"] == "EXCLUDED_FROM_FEATURES"
+    assert audit["exclusion_reason"] == "FUTURE_TRADE_DATE"
+    assert audit["primary_event_field"] == "event_time"
+    assert audit["availability_field"] == "available_at"
 
 
 def test_l2_is_resource_router():

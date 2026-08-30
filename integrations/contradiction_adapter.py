@@ -30,15 +30,22 @@ def integrate_research_context(
         "provider_commit": CONTRADICTION_ADAPTER_COMMIT,
         "lineage_id": lineage_id,
         "bull_case": industry.get("catalyst") or "",
-        "bear_case": "capital distribution risk" if (risk or 0) > 0 else "",
+        "bear_case": "capital distribution risk" if risk is not None and risk > 0 else "",
         "strongest_catalyst": industry.get("catalyst") or "",
-        "strongest_risk": "capital distribution" if (risk or 0) > 0 else "",
-        "strongest_counterargument": "capital distribution risk" if (risk or 0) > 0 else "insufficient demand evidence",
+        "strongest_risk": "capital distribution" if risk is not None and risk > 0 else "",
+        "strongest_counterargument": "capital distribution risk" if risk is not None and risk > 0 else "insufficient demand evidence",
         "missing_evidence": list(industry.get("invalidation") or []),
         "thesis_invalidation": list(industry.get("invalidation") or []),
-        "contradiction_status": "BEARISH" if (risk or 0) > 0 and (demand or 0) >= 0.50 else "UNRESOLVED",
-        "veto": bool((risk or 0) >= 0.80 and (demand is not None and demand < 0.50)),
+        "contradiction_status": "BEARISH" if risk is not None and risk > 0 and demand is not None and demand >= 0.50 else "UNRESOLVED",
+        "veto": bool(risk is not None and risk >= 0.80 and demand is not None and demand < 0.50),
         "key_conflicts": ["demand_vs_distribution"] if demand not in (None, 0) and risk not in (None, 0) else [],
-        "confidence": None if demand is None and quality is None else max(0.0, min(1.0, ((demand or 0) + (quality or 0)) / (2 if demand is not None and quality is not None else 1))),
+        "confidence": None if demand is None and quality is None else max(
+            0.0,
+            min(
+                1.0,
+                sum(value for value in (demand, quality) if value is not None)
+                / (2 if demand is not None and quality is not None else 1),
+            ),
+        ),
         "invalidation": industry.get("invalidation") or [],
     }

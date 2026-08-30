@@ -30,6 +30,10 @@ def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
+def _at_least(value: Any, threshold: float) -> bool:
+    return value is not None and float(value) >= threshold
+
+
 def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[str, Any]) -> list[str]:
     blockers = []
     del research
@@ -90,17 +94,17 @@ def _exit_reason(
     completion = alpha["repricing_completion"]
     if risk["thesis_invalidated"] or snapshot["raw"].get("thesis_invalidated"):
         return "BUSINESS_OR_INDUSTRY_THESIS_BROKEN"
-    if risk["regulatory_hard_risk"] or (risk["event_risk"] or 0.0) >= 0.80:
+    if risk["regulatory_hard_risk"] or _at_least(risk.get("event_risk"), 0.80):
         return "RISK_EVENT"
-    if (features["CAPITAL"]["distribution_risk"] or 0.0) >= 0.70:
+    if _at_least(features["CAPITAL"].get("distribution_risk"), 0.70):
         return "CAPITAL_EXIT"
-    if (features["SUPPLY"]["effective_supply"] or 0.0) >= 0.80:
+    if _at_least(features["SUPPLY"].get("effective_supply"), 0.80):
         return "SUPPLY_REVERSAL"
     if completion["completed"]:
         return "REPRICING_COMPLETED"
     if features["PRICING_GAP"]["score"] is not None and features["PRICING_GAP"]["score"] <= 0.10:
         return "PRICING_GAP_CLOSED"
-    if (features["BUSINESS"]["valuation"] or 0.0) >= 0.90:
+    if _at_least(features["BUSINESS"].get("valuation"), 0.90):
         return "VALUATION_EXCESS"
     return "THESIS_INTACT"
 
@@ -161,7 +165,8 @@ def evaluate_candidate_bundle(
     held = position_state == "LONG"
 
     if held:
-        if int((account or {}).get("holding_days", 0) or 0) >= MAX_HOLDING_DAYS:
+        holding_days = (account or {}).get("holding_days")
+        if int(0 if holding_days is None else holding_days) >= MAX_HOLDING_DAYS:
             state, reason = "SELL", "MAX_HOLDING_BOUNDARY_CLOSED"
         else:
             exit_reason = _exit_reason(alpha, features, snapshot, account)
@@ -169,7 +174,7 @@ def evaluate_candidate_bundle(
                 state = "SELL" if exit_reason in {"BUSINESS_OR_INDUSTRY_THESIS_BROKEN", "RISK_EVENT", "REPRICING_COMPLETED", "PRICING_GAP_CLOSED", "VALUATION_EXCESS"} else "REDUCE"
                 reason = exit_reason
             elif (
-                (alpha["downside_risk"] is not None and alpha["downside_risk"] >= (alpha["confidence"] or 0.0))
+                (alpha["downside_risk"] is not None and alpha["confidence"] is not None and alpha["downside_risk"] >= alpha["confidence"])
                 or any(
                 blocker in repricing_blockers
                 for blocker in (
@@ -203,7 +208,7 @@ def evaluate_candidate_bundle(
         "position_state_before": position_state,
         "position_state_after": position_state_after,
         "previous_action": previous_action,
-        "holding_days": int((account or {}).get("holding_days", 0) or 0),
+        "holding_days": int(0 if (account or {}).get("holding_days") is None else (account or {}).get("holding_days")),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
         "buy_status": "BUY_ALLOWED" if state == "BUY" else "BUY_BLOCKED",
         "symbol": snapshot["symbol"],

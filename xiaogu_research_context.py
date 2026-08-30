@@ -169,7 +169,7 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         current_buyer = [current_buyer]
     next_buyers = [
         item for item in buyers
-        if item.get("capacity") is not None and float(item.get("capacity") or 0) > 0.50
+        if item.get("capacity") is not None and float(item["capacity"]) > 0.50
         and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
     ]
     observed_buyers = [item for item in buyers if item.get("evidence_status") == "OBSERVED"]

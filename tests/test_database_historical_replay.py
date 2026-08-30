@@ -157,6 +157,7 @@ def test_profit_window_uses_cost_adjusted_high_not_close():
     )
     targets = _return_targets([row], 10.0)
     assert targets["max_daily_bar_profit_opportunity_5d"] == pytest.approx(0.019)
+    assert targets["net_profit_window"] == pytest.approx(0.019)
     assert "max_realizable_profit_5d" not in targets
     assert "max_profit_5d" not in targets
     assert targets["profit_window_flag"] is None

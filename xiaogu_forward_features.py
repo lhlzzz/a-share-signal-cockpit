@@ -113,6 +113,14 @@ def _clip(value: Any, low: float = 0.0, high: float = 1.0) -> float | None:
     return None if number is None else max(low, min(high, number))
 
 
+def _at_least(value: Any, threshold: float) -> bool:
+    return value is not None and float(value) >= threshold
+
+
+def _below(value: Any, threshold: float) -> bool:
+    return value is not None and float(value) < threshold
+
+
 def _mean(*values: Any) -> float | None:
     numbers = [number for number in (_clip(value) for value in values if value is not None) if number is not None]
     return sum(numbers) / len(numbers) if numbers else None
@@ -213,23 +221,23 @@ def _market_stage(raw: Dict[str, Any], capital: Dict[str, Any], supply: Dict[str
     explicit = str(_first(raw, "repricing_state", "market_stage", default="") or "").upper()
     if explicit in {"ACCUMULATION", "IGNITION", "EXPANSION", "CLIMAX", "DISTRIBUTION"}:
         return explicit
-    if (market["attention"] or 0.0) >= 0.85 and (market["price_strength"] or 0.0) >= 0.80:
+    if _at_least(market["attention"], 0.85) and _at_least(market["price_strength"], 0.80):
         return "CLIMAX"
-    if (capital["capital_price_divergence"] or 0.0) >= 0.70 and (market["price_strength"] or 0.0) >= 0.55:
+    if _at_least(capital["capital_price_divergence"], 0.70) and _at_least(market["price_strength"], 0.55):
         return "DISTRIBUTION"
     if (
         capital.get("fund_flow_acceleration") is not None
         and capital["fund_flow_acceleration"] >= 0.65
-        and (market["price_strength"] or 0.0) >= 0.50
+        and _at_least(market["price_strength"], 0.50)
     ):
         return "IGNITION"
-    if (market["breadth"] or 0.0) >= 0.60 and (market["leader_strength"] or 0.0) >= 0.60:
+    if _at_least(market["breadth"], 0.60) and _at_least(market["leader_strength"], 0.60):
         return "EXPANSION"
     if (
         capital.get("fund_flow_persistence") is not None
         and capital["fund_flow_persistence"] >= 0.55
         and supply["supply_absorption_state"] == "ABSORPTION"
-        and (market["price_strength"] or 0.0) < 0.55
+        and _below(market["price_strength"], 0.55)
     ):
         return "ACCUMULATION"
     return "UNKNOWN"
@@ -549,9 +557,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         institution_direction = "ACCUMULATING"
     elif institution_direction_hint == "BUY":
         institution_direction = "BUYING"
-    elif (capital["institutional_flow"] or 0.0) > 0 and institution_direction_hint == "BUY":
+    elif capital["institutional_flow"] is not None and capital["institutional_flow"] > 0 and institution_direction_hint == "BUY":
         institution_direction = "BUYING"
-    elif (capital["institutional_flow"] or 0.0) < 0:
+    elif capital["institutional_flow"] is not None and capital["institutional_flow"] < 0:
         institution_direction = "DISTRIBUTING"
     elif capital["institutional_flow"] == 0:
         institution_direction = "NEUTRAL"
@@ -561,7 +569,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     hot_money_direction_hint = _lhb_direction(hot_money_rows)
     if not hot_money_direct:
         hot_money_direction = "UNKNOWN"
-    elif hot_money_direction_hint == "SELL" or (capital["hot_money_flow"] or 0.0) < 0:
+    elif hot_money_direction_hint == "SELL" or (capital["hot_money_flow"] is not None and capital["hot_money_flow"] < 0):
         hot_money_direction = "EXITING"
     elif (
         capital["fund_flow_acceleration"] is not None
@@ -569,7 +577,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         and hot_money_direction_hint == "BUY"
     ):
         hot_money_direction = "ACCELERATING"
-    elif hot_money_direction_hint == "BUY" or (capital["hot_money_flow"] or 0.0) > 0:
+    elif hot_money_direction_hint == "BUY" or (capital["hot_money_flow"] is not None and capital["hot_money_flow"] > 0):
         hot_money_direction = "BUYING"
     else:
         hot_money_direction = "PRESENT"
@@ -645,7 +653,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         (0.15, capital["price_volume_confirmation"]),
         (0.10, capital["fund_flow"]),
     ))
-    if (capital["distribution_risk"] or 0.0) >= 0.70:
+    if _at_least(capital["distribution_risk"], 0.70):
         capital["accumulation_phase"] = "DISTRIBUTION"
     elif capital["accumulation"] is None:
         capital["accumulation_phase"] = "UNOBSERVED"
@@ -655,7 +663,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         and capital["fund_flow_acceleration"] >= 0.60
     ):
         capital["accumulation_phase"] = "IGNITION"
-    elif (capital["accumulation_quality"] or 0.0) >= 0.45:
+    elif _at_least(capital["accumulation_quality"], 0.45):
         capital["accumulation_phase"] = "ACCUMULATION"
     elif capital["accumulation"] > 0:
         capital["accumulation_phase"] = "ORDINARY_TRADING"
@@ -710,7 +718,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     absorption_components = {
         "funds": (
-            (capital["capital_flow_ratio"] or 0.0) > 0
+            capital["capital_flow_ratio"] is not None and capital["capital_flow_ratio"] > 0
             and capital["fund_flow_persistence"] is not None
             and capital["fund_flow_persistence"] > 0
             and main_flow is not None
@@ -770,7 +778,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "UNKNOWN" if not supply["absorption_evidence_count"]
         else "PARTIAL" if not minimum_evidence
         else "RELEASING" if supply_pressure is not None and supply_support is not None and supply_pressure > supply_support + 0.15
-        else "ABSORPTION" if (supply["supply_absorption"] or 0.0) >= 0.35
+        else "ABSORPTION" if _at_least(supply["supply_absorption"], 0.35)
         else "BALANCED"
     )
     supply["evidence"] = [name for name, present in absorption_components.items() if present]

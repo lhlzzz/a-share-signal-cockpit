@@ -22,13 +22,13 @@ SOURCE_VERSION = "canonical_snapshot_v2"
 MAX_STALENESS = timedelta(minutes=120)
 STALE_DATA = "STALE_DATA"
 SOURCE_TIMESTAMP_CONTRACTS = {
-    "lhb": {"PRIMARY_TIME_FIELD": "event_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "news": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "announcements": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "research_report": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "stock_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "industry_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
-    "default": {"PRIMARY_TIME_FIELD": "observed_at", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "lhb": {"PRIMARY_TIME_FIELD": "event_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "event_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "news": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "publication_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "announcements": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "publication_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "research_report": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "publication_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "stock_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "publication_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "industry_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "publication_time", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
+    "default": {"PRIMARY_TIME_FIELD": "observed_at", "AVAILABILITY_TIME_FIELD": "available_at", "primary_event_field": "observed_at", "availability_field": "available_at", "timezone": "Asia/Shanghai"},
 }
 REQUIRED_CANONICAL_FIELDS = (
     "symbol",
@@ -130,6 +130,10 @@ def pit_record_audit(record: Any, as_of: str | datetime | None) -> Dict[str, Any
     audit = {
         "pit_status": "OK", "time_basis": f"{source_id}:{primary_field}/{available_field}",
         "source_time": source_value, "available_at": available_value, "as_of": as_of_ts.isoformat(),
+        "trade_date": record.get("trade_date"),
+        "primary_event_field": primary_field,
+        "availability_field": available_field,
+        "timezone": contract.get("timezone", "UTC"),
         "exclusion_reason": None,
     }
     if not source_value or not available_value:
@@ -144,10 +148,32 @@ def pit_record_audit(record: Any, as_of: str | datetime | None) -> Dict[str, Any
         source_ts = source_ts.replace(tzinfo=timezone.utc)
     if available_ts.tzinfo is None:
         available_ts = available_ts.replace(tzinfo=timezone.utc)
+    explicit_times = {
+        key: record.get(key)
+        for key in ("event_time", "publication_time", "observed_at", "available_at")
+        if record.get(key) not in (None, "")
+    }
+    for value in explicit_times.values():
+        parsed = _parse_timestamp(value)
+        if parsed is None:
+            audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="TIMESTAMP_INVALID")
+            return audit
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if parsed > as_of_ts:
+            audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TIMESTAMP")
+            return audit
     if source_ts > as_of_ts or available_ts > as_of_ts:
         audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TIMESTAMP")
     elif available_ts < source_ts:
         audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="AVAILABILITY_BEFORE_EVENT")
+    trade_date_value = record.get("trade_date")
+    if audit["pit_status"] == "OK" and trade_date_value not in (None, ""):
+        trade_date = _parse_date(trade_date_value)
+        if trade_date is None:
+            audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="TRADE_DATE_INVALID")
+        elif trade_date > as_of_ts.date():
+            audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TRADE_DATE")
     return audit
 
 
