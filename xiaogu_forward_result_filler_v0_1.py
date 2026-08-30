@@ -11,6 +11,7 @@ import signal
 from typing import Any, Dict
 from urllib.parse import urlencode
 
+from xiaogu_core_alpha import CANONICAL_COST_MODEL, DEFAULT_COST_RATE
 from xiaogu_horizon_evaluation import HORIZONS
 from scrapy_scanner.runner_v2 import api_get
 from xiaogu_utils import append_jsonl, decision_record_id, has_decision_payload, load_jsonl, now_iso
@@ -23,7 +24,7 @@ EASTMONEY_KLINE_FIELDS = (
 )
 PRICE_BASIS = "UNADJUSTED"
 ENTRY_EXECUTION_MODE = "SIGNAL_TIME_LAST_PRICE"
-DEFAULT_EXECUTION_COST_RATE = 0.003
+DEFAULT_EXECUTION_COST_RATE = DEFAULT_COST_RATE
 PROFIT_WINDOW_TARGET = 0.02
 EVALUATION_DAYS = (1, 2, 3, 4, 5)
 REALIZABILITY_LEVEL = "DAILY_BAR_APPROXIMATION"
@@ -280,6 +281,8 @@ def calculate_horizon_outcomes(
     outcomes: Dict[str, Any] = {
         "profit_window_target": PROFIT_WINDOW_TARGET,
         "execution_cost_rate": DEFAULT_EXECUTION_COST_RATE,
+        "cost_model_version": CANONICAL_COST_MODEL["version"],
+        "all_in_transaction_cost": DEFAULT_EXECUTION_COST_RATE,
         "daily_outcomes": [],
         "days": {str(day): {} for day in EVALUATION_DAYS},
         "max_daily_bar_profit_opportunity_5d": None,
@@ -301,6 +304,8 @@ def calculate_horizon_outcomes(
             "spread_included": False,
             "market_impact_included": False,
             "transaction_cost_rate": DEFAULT_EXECUTION_COST_RATE,
+            "all_in_transaction_cost": DEFAULT_EXECUTION_COST_RATE,
+            "cost_model_version": CANONICAL_COST_MODEL["version"],
         },
     }
     for day in EVALUATION_DAYS:

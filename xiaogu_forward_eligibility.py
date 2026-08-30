@@ -8,24 +8,25 @@ from typing import Any, Dict, List
 def cheap_eligibility_blockers(row: Dict[str, Any]) -> List[str]:
     """Check only observable market and operational prerequisites."""
     symbol = str(row.get("symbol") or row.get("code") or row.get("f12") or "").strip()
-    try:
-        price = float(row.get("price") or row.get("close") or row.get("f2") or 0)
-    except (TypeError, ValueError):
-        price = 0.0
-    try:
-        volume = float(row.get("volume") or row.get("f5") or 0)
-    except (TypeError, ValueError):
-        volume = 0.0
-    try:
-        amount = float(row.get("amount") or row.get("f6") or 0)
-    except (TypeError, ValueError):
-        amount = 0.0
+    def _num(*keys):
+        for key in keys:
+            value = row.get(key)
+            if value in (None, "", "-"):
+                continue
+            try:
+                return float(str(value).replace(",", "").replace("%", ""))
+            except (TypeError, ValueError):
+                return None
+        return None
+    price = _num("price", "close", "f2")
+    volume = _num("volume", "f5")
+    amount = _num("amount", "f6")
     blockers = []
     if not symbol:
         blockers.append("INVALID_SYMBOL")
-    if price <= 0:
+    if price is None or price <= 0:
         blockers.append("INVALID_PRICE")
-    if volume <= 0 or amount <= 0:
+    if volume is None or amount is None or volume <= 0 or amount <= 0:
         blockers.append("INCOMPLETE_MARKET_DATA")
     if row.get("halted") or row.get("is_suspended") or row.get("in_halted"):
         blockers.append("HALTED")
@@ -66,13 +67,17 @@ def candidate_universe(snapshots: List[Dict[str, Any]]) -> tuple[List[Dict[str, 
 def paper_pick_buyability_block_reason(row: Dict[str, Any], account: Dict[str, Any] | None = None) -> str:
     account = account or {}
     symbol = str(row.get("symbol") or row.get("code") or row.get("f12") or "").strip()
-    try:
-        price = float(row.get("price") or row.get("close") or 0)
-    except (TypeError, ValueError):
-        price = 0.0
+    price = None
+    for key in ("price", "close"):
+        if row.get(key) not in (None, "", "-"):
+            try:
+                price = float(str(row.get(key)).replace(",", "").replace("%", ""))
+                break
+            except (TypeError, ValueError):
+                return "INVALID_PRICE"
     if not symbol:
         return "INVALID_SYMBOL"
-    if price <= 0:
+    if price is None or price <= 0:
         return "INVALID_PRICE"
     if row.get("halted") or row.get("is_suspended"):
         return "HALTED"

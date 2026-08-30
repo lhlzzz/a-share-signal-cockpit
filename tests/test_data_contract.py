@@ -3,27 +3,27 @@ import pytest
 
 from xiaogu_forward_eligibility import candidate_universe
 from xiaogu_forward_features import FEATURE_GROUPS, build_feature_vector
-from xiaogu_forward_snapshot import attach_research_observations, canonical_snapshot
+from xiaogu_forward_snapshot import attach_research_observations, validate_and_build_canonical_snapshot
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 from scrapy_scanner.runner_v2 import build_canonical_snapshots, detect_capital_candidates
 
 
 def test_snapshot_has_no_future_fields_and_features_are_measurements():
     with pytest.raises(ValueError):
-            canonical_snapshot({"symbol": "600001", "future_5d_return": 0.1})
+            validate_and_build_canonical_snapshot({"symbol": "600001", "future_5d_return": 0.1})
     with pytest.raises(ValueError):
-        canonical_snapshot({
+        validate_and_build_canonical_snapshot({
             "lineage_id": "already-canonical",
             "raw": {"symbol": "600001", "future_5d_return": 0.1},
         })
-    assert canonical_snapshot({"symbol": "600001", "source_time": "2026-08-25 14:39:45+08"})["source_time"].endswith("+08:00")
-    vector = build_feature_vector(canonical_snapshot({"symbol": "600001", "price": 10, "source_time": "2026-08-26T14:50:00+00:00"}))
+    assert validate_and_build_canonical_snapshot({"symbol": "600001", "source_time": "2026-08-25 14:39:45+08"})["source_time"].endswith("+08:00")
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({"symbol": "600001", "price": 10, "source_time": "2026-08-26T14:50:00+00:00"}))
     assert tuple(key for key in FEATURE_GROUPS if key in vector) == FEATURE_GROUPS
 
 
 def test_nested_future_outcomes_are_rejected_before_feature_measurement():
     with pytest.raises(ValueError, match=r"raw\.research\.labels"):
-        canonical_snapshot({
+        validate_and_build_canonical_snapshot({
             "symbol": "600001",
             "raw": {"research": {"labels": {"future_5d_return": 0.1}}},
         })
@@ -35,7 +35,7 @@ def test_nested_future_outcomes_are_rejected_before_feature_measurement():
 
 
 def test_eastmoney_quote_fields_feed_existing_measurements():
-    vector = build_feature_vector(canonical_snapshot({
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
         "f12": "600001", "f2": 10, "f3": 4, "f5": 100, "f6": 1_000,
         "f7": 3, "f8": 2, "f15": 10.5, "f16": 9.5, "f17": 9.8, "f62": 400,
     }))
@@ -64,7 +64,7 @@ def test_eastmoney_capital_flow_reaches_core_alpha():
     (-400, -3, "DISTRIBUTION_RISK"),
 ])
 def test_capital_price_impact_distinguishes_flow_and_price_response(flow, change, expected):
-    vector = build_feature_vector(canonical_snapshot({
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "high": 10.5, "low": 9.5,
         "amount": 1_000, "f62": flow, "f3": change, "f184": 2,
     }))
@@ -72,20 +72,22 @@ def test_capital_price_impact_distinguishes_flow_and_price_response(flow, change
 
 
 def test_same_day_research_observations_feed_existing_contexts():
-    snapshot = canonical_snapshot(attach_research_observations(
+    snapshot = validate_and_build_canonical_snapshot(attach_research_observations(
         {
             "f12": "600001", "f14": "示例公司", "f100": "示例行业",
             "f2": 10, "f3": 4, "f5": 100, "f6": 1_000,
             "f7": 3, "f15": 10.5, "f16": 9.5, "f17": 9.8, "f62": 100,
+            "source_time": "2026-08-26T14:50:00+08:00",
         },
-        stock_capital_flow={"f62": 400},
-        earnings_preview={"WEIGHTAVG_ROE": 20, "NOTICE_DATE": "2026-08-26"},
-        industry_flow={"f3": 5},
+        stock_capital_flow={"f62": 400, "available_at": "2026-08-26T14:50:00+08:00"},
+        earnings_preview={"WEIGHTAVG_ROE": 20, "NOTICE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+        industry_flow={"f3": 5, "available_at": "2026-08-26T14:50:00+08:00"},
         stock_reports=[{"title": "公司研究"}],
         industry_reports=[{"title": "行业研究"}],
         lhb=[{
             "EXPLAIN": "1家机构买入", "NET_BS_AMT": -100,
             "ACCUM_AMOUNT": 100, "TRADE_DATE": "2026-08-26",
+            "available_at": "2026-08-26T14:50:00+08:00",
         }],
     ))
     decision = evaluate_candidate_bundle(snapshot)
@@ -151,7 +153,7 @@ def test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates():
 
 
 def test_missing_measurements_remain_unknown_instead_of_zero_fill():
-    vector = build_feature_vector(canonical_snapshot({
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1_000,
         "source_time": "2026-08-26T14:50:00+08:00",
     }))
@@ -297,7 +299,7 @@ def test_fake_canonical_snapshot_is_blocked_from_feature_engine():
 def test_production_mode_rejects_unpersisted_snapshot_json():
     from xiaogu_forward_runner import run_production_decision
 
-    snapshot = canonical_snapshot({
+    snapshot = validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
     })
@@ -323,7 +325,7 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {"status": "OUTCOME_NOT_BOUND"})
     monkeypatch.setattr(
         "xiaogu_db.fetch_persisted_canonical_snapshots",
-        lambda *_args, **_kwargs: [canonical_snapshot({
+        lambda *_args, **_kwargs: [validate_and_build_canonical_snapshot({
             "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
             "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
         })],
@@ -350,7 +352,7 @@ def test_production_clock_rejects_stale_snapshot(monkeypatch):
     from xiaogu_forward_runner import run_production_decision
 
     monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
-    snapshot = canonical_snapshot({
+    snapshot = validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
     })
@@ -361,7 +363,7 @@ def test_production_clock_rejects_stale_snapshot(monkeypatch):
 def test_persisted_flag_is_not_enough_without_db_row():
     from xiaogu_forward_runner import run_production_decision
 
-    snapshot = canonical_snapshot({
+    snapshot = validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
     })
@@ -532,13 +534,13 @@ def test_record_snapshot_rejects_payload_identity_conflict():
 
 
 def test_supply_state_exposes_evidence_and_confidence():
-    vector = build_feature_vector(canonical_snapshot({
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "high": 10.5, "low": 9.5,
         "amount": 1_000, "volume": 100, "turnover": 5, "f62": 400, "f3": 1,
         "overhead_supply": 0.2,
     }))
     supply = vector["SUPPLY"]
-    assert supply["supply_absorption_state"] in {"UNKNOWN", "RELEASING", "BALANCED", "ABSORPTION"}
+    assert supply["supply_absorption_state"] in {"UNKNOWN", "PARTIAL", "RELEASING", "BALANCED", "ABSORPTION"}
     assert "evidence" in supply
     assert "evidence_count" in supply
     assert "confidence" in supply

@@ -61,7 +61,7 @@ def run_production_decision(
         target_trade_date=trade_date,
     )
     if mode == "PRODUCTION":
-        from xiaogu_db import verify_persisted_snapshot
+        from xiaogu_db import fetch_position_state, verify_persisted_snapshot
         db_verified = verify_persisted_snapshot(
             snapshot_id=str(trusted.get("snapshot_id") or ""),
             lineage_id=str(trusted.get("lineage_id") or ""),
@@ -78,6 +78,8 @@ def run_production_decision(
             decision_time=clock,
             persisted=bool(db_verified),
         )
+        if position_state is None:
+            position_state = fetch_position_state(str(trusted.get("symbol") or ""))
     elif mode == "REPLAY":
         clock = production_decision_clock(
             decision_clock
@@ -128,7 +130,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         except (TypeError, ValueError):
             holding_days = 0
         previous_action = str(prior.get("action") or prior.get("previous_action") or prior.get("decision") or "HOLD")
-        position_state = str(prior.get("position_state") or ("LONG" if previous_action in RECORDABLE_ACTIONS and previous_action != "SELL" else "FLAT"))
+        position_state = str(prior.get("position_state") or "FLAT")
         account = {
             "decision_id": prior_id,
             "position_state": position_state,

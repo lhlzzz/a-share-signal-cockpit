@@ -11,7 +11,7 @@ from itertools import combinations
 from statistics import median
 from typing import Any, Dict, Iterable, Mapping, Sequence
 
-from xiaogu_core_alpha import CANONICAL_COST_MODEL
+from xiaogu_core_alpha import CANONICAL_COST_MODEL, COST_MODEL_VERSION, DEFAULT_COST_RATE
 
 HORIZONS = (1, 2, 3, 4, 5)
 HISTORICAL_VALIDATION_HORIZONS = HORIZONS
@@ -167,7 +167,7 @@ def evaluate_5d(entry_price: float, prices: Dict[int, Any]) -> Dict[str, Any]:
     path = [prices.get(day) for day in HORIZONS]
     if any(value is None for value in path):
         return {"horizon_days": 5, "data_status": "PARTIAL", "profit_window": None}
-    net_values = [(float(value) - entry_price) / entry_price - CANONICAL_COST_MODEL["transaction_cost"] for value in path]
+    net_values = [(float(value) - entry_price) / entry_price - CANONICAL_COST_MODEL["all_in_transaction_cost"] for value in path]
     first = next((index for index, value in enumerate(net_values, 1) if value >= PROFIT_WINDOW_TARGET), None)
     return {
         "horizon_days": 5,
@@ -1053,9 +1053,22 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         and baseline_delta["pr_auc"] is not None
         and baseline_delta["pr_auc"] > 0.0
     )
+    from xiaogu_core_alpha import FEATURE_VERSION, MODEL_ID, MODEL_VERSION, SCHEMA_VERSION, TARGET_VERSION
+    dates = [str(row.get("trade_date") or row.get("signal_date") or "") for row in complete]
     result = {
         **model,
-        "model_id": "profit_window_logistic_5d_v1",
+        "model_id": MODEL_ID,
+        "model_version": MODEL_VERSION,
+        "feature_version": FEATURE_VERSION,
+        "dataset_hash": str(len(complete)) + ":" + str(len(usable)),
+        "dataset_version": "historical_profit_window_v1",
+        "train_window": {"count": len(train), "start": dates[0] if dates else "", "end": dates[len(train)-1] if dates and train else ""},
+        "validation_window": {"count": len(validation)},
+        "oos_window": {"count": len(oos)},
+        "cost_model_version": COST_MODEL_VERSION,
+        "target_version": TARGET_VERSION,
+        "horizon": 5,
+        "schema_version": SCHEMA_VERSION,
         "target": "PROFIT_WINDOW_5D",
         "status": "VALIDATED" if passed else "EXPERIMENTAL",
         "calibration_status": "CALIBRATED",
@@ -1208,17 +1221,16 @@ def build_alpha_report(
         "FUTURE_BUYER": "PRICE + FUTURE BUYER",
         "REFLEXIVITY": "FULL",
     }
-    production_alpha_permissions = {
-        family: (
-            "PRODUCTION"
-            if validation_status == "VALIDATED" and (
-                not any(name in collapsed for name in names)
-                and _family_increment(family_models[family])
-            )
-            else "RESEARCH_ONLY"
-        )
-        for family, names in family_features.items()
-    }
+    production_alpha_permissions = {}
+    for family, names in family_features.items():
+        collapsed_family = any(name in collapsed for name in names)
+        incremented = _family_increment(family_models[family])
+        if collapsed_family or not incremented:
+            production_alpha_permissions[family] = "NONE"
+        elif validation_status == "VALIDATED":
+            production_alpha_permissions[family] = "PRODUCTION"
+        else:
+            production_alpha_permissions[family] = "RESEARCH_ONLY"
     family_oos_increment = {
         family: _family_increment(family_models[family])
         for family in family_features

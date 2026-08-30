@@ -74,11 +74,13 @@
     ],
     "realizability_level": "DAILY_BAR_APPROXIMATION",
     "canonical_cost_model": {
+      "version": "cost_model_v1",
       "commission": 0.0005,
       "stamp_duty": 0.0005,
-      "slippage": 0.0,
-      "spread": 0.0,
-      "transaction_cost": 0.003
+      "slippage": 0.001,
+      "spread": 0.0005,
+      "market_impact": 0.0005,
+      "all_in_transaction_cost": 0.003
     },
     "not_executable_fill": true
   },

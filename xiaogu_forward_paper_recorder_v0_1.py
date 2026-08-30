@@ -396,10 +396,9 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
         production_run_id=str(decision.get('production_run_id') or ''),
         source='xiaogu_forward_runner',
     )
-    from xiaogu_db import record_decision, record_snapshot
+    from xiaogu_db import record_snapshot_and_decision
     try:
-        record_snapshot(canonical)
-        record_decision(decision)
+        record_snapshot_and_decision(canonical, decision)
         record['database_persistence'] = {'status': 'PASS'}
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}

@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Mapping
 
 FUTURE_FIELD_PATTERNS = (
@@ -21,6 +21,27 @@ SCHEMA_VERSION = "canonical_snapshot_trusted_v1"
 SOURCE_VERSION = "canonical_snapshot_v2"
 MAX_STALENESS = timedelta(minutes=120)
 STALE_DATA = "STALE_DATA"
+PIT_DATETIME_FIELDS = (
+    "event_time",
+    "publication_time",
+    "observed_at",
+    "available_at",
+    "NOTICE_DATE",
+    "notice_date",
+    "datetime",
+    "publish_time",
+    "showTime",
+    "SHOWTIME",
+)
+PIT_DATE_FIELDS = (
+    "trade_date",
+    "TRADE_DATE",
+    "END_DATE",
+    "FREE_DATE",
+    "NOTICE_DATE",
+    "notice_date",
+    "date",
+)
 REQUIRED_CANONICAL_FIELDS = (
     "symbol",
     "trade_date",
@@ -81,6 +102,83 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _parse_date(value: Any) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = _parse_timestamp(text)
+    if parsed is not None:
+        return parsed.date()
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def pit_record_status(record: Any, as_of: str | datetime | None) -> str:
+    """Return OK only when a record can prove it was available at as_of."""
+    if not isinstance(record, dict):
+        return "EXCLUDED_FROM_FEATURES"
+    as_of_ts = as_of if isinstance(as_of, datetime) else _parse_timestamp(as_of)
+    if as_of_ts is None:
+        return "EXCLUDED_FROM_FEATURES"
+    if as_of_ts.tzinfo is None:
+        as_of_ts = as_of_ts.replace(tzinfo=timezone.utc)
+    found = False
+    for key in PIT_DATETIME_FIELDS:
+        if record.get(key) in (None, "", "-"):
+            continue
+        found = True
+        stamp = _parse_timestamp(record.get(key))
+        if stamp is None:
+            day = _parse_date(record.get(key))
+            if day is None or day > as_of_ts.date():
+                return "EXCLUDED_FROM_FEATURES"
+            continue
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        if stamp > as_of_ts:
+            return "EXCLUDED_FROM_FEATURES"
+    for key in PIT_DATE_FIELDS:
+        if record.get(key) in (None, "", "-"):
+            continue
+        found = True
+        day = _parse_date(record.get(key))
+        if day is None or day > as_of_ts.date():
+            return "EXCLUDED_FROM_FEATURES"
+    if not found:
+        return "EXCLUDED_FROM_FEATURES"
+    return "OK"
+
+
+def assert_point_in_time_evidence(
+    record: Any,
+    as_of: str | datetime | None,
+    *,
+    location: str = "EVIDENCE",
+) -> Dict[str, Any] | None:
+    """Keep a record only when event/publication/observation time is proven PIT."""
+    del location
+    if pit_record_status(record, as_of) != "OK":
+        return None
+    return record
+
+
+def filter_point_in_time_records(
+    records: Iterable[Any] | None,
+    as_of: str | datetime | None,
+) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]]]:
+    kept: list[Dict[str, Any]] = []
+    excluded: list[Dict[str, Any]] = []
+    for record in records or []:
+        if assert_point_in_time_evidence(record, as_of) is None:
+            if isinstance(record, dict):
+                excluded.append(record)
+            continue
+        kept.append(record)
+    return kept, excluded
 
 
 def _future_fields(payload: Any, path: str = "$") -> list[str]:
@@ -402,6 +500,7 @@ def validate_and_build_canonical_snapshot(
 
     raw_row = RawSnapshot(row or {})
     _assert_visible(raw_row, "SNAPSHOT")
+    supplied_payload_hash = str(raw_row.get("payload_hash") or "")
     visible_at = _normalize_timestamp(
         source_time or timestamp or source_timestamp or _first(raw_row, "source_time", "timestamp", "scan_time") or ""
     )
@@ -426,6 +525,8 @@ def validate_and_build_canonical_snapshot(
         payload["available_at"] = _normalize_timestamp(raw_row.get("available_at") or payload["available_at"])
     _validate_required(payload)
     payload["payload_hash"] = snapshot_payload_hash(payload)
+    if supplied_payload_hash and supplied_payload_hash != payload["payload_hash"]:
+        raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
     _assert_time_order(payload["source_time"], payload["as_of"], decision_time)
     if target_trade_date and payload["trade_date"] != str(target_trade_date):
         raise ValueError("NO_PRODUCTION_SNAPSHOT:trade_date_mismatch")
@@ -469,29 +570,3 @@ def assert_production_provenance(
 
 
 validate_production_provenance = assert_production_provenance
-
-
-def canonical_snapshot(
-    row: Dict[str, Any],
-    *,
-    trade_date: str = "",
-    source: str = "eastmoney_api_scan_v2",
-    source_time: str = "",
-    timestamp: str = "",
-    source_timestamp: str = "",
-    producer: str = "xiaogu_forward_snapshot.validate_and_build_canonical_snapshot",
-    lineage_id: str = "",
-) -> CanonicalSnapshot:
-    return validate_and_build_canonical_snapshot(
-        row,
-        trade_date=trade_date,
-        source=source,
-        source_time=source_time,
-        timestamp=timestamp,
-        source_timestamp=source_timestamp,
-        producer=producer,
-        lineage_id=lineage_id,
-    )
-
-
-normalize_snapshot = canonical_snapshot

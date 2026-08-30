@@ -27,12 +27,28 @@ def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -
 
 def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[str, Any]) -> list[str]:
     blockers = []
-    del features, research
+    del research
     # Missing capital/supply/pricing-gap/future-buyer evidence is a model
     # input, not a BUY hard gate. Only operational failure, unvalidated
     # alpha, and confirmed negative evidence can block here.
-    if alpha["model_status"] != "VALIDATED":
-        blockers.append("ALPHA_CALIBRATION_UNAVAILABLE")
+    calibration = alpha.get("profit_window_calibration") or alpha.get("model_validation") or {}
+    gates = calibration.get("production_gates") if isinstance(calibration.get("production_gates"), dict) else {}
+    model_status = alpha.get("model_status")
+    if model_status != "VALIDATED":
+        blockers.append("ALPHA_NOT_VALIDATED")
+    if model_status == "MODEL_ARTIFACT_MISMATCH" or calibration.get("reason", "").startswith("MODEL_ARTIFACT_MISMATCH"):
+        blockers.append("MODEL_ARTIFACT_MISMATCH")
+    if gates.get("oos_pass") is False:
+        blockers.append("OOS_FAIL")
+    if gates.get("probability_separation") is False:
+        blockers.append("PROBABILITY_SEPARATION_FAIL")
+    if gates.get("monotonicity") is False:
+        blockers.append("MONOTONICITY_FAIL")
+    if gates.get("full_alpha_baseline_increment") is False:
+        blockers.append("BASELINE_INCREMENT_FAIL")
+    risk = features.get("RISK") or {}
+    if risk.get("thesis_invalidated") is True:
+        blockers.append("THESIS_INVALIDATED")
     if alpha["repricing_completion"]["completed"]:
         blockers.append("REPRICING_COMPLETED")
     if alpha["contradiction"]["veto"]:
@@ -45,16 +61,15 @@ def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[st
         blockers.append("BUYER_EXHAUSTION_OR_CLIMAX")
     if alpha["capital_convergence"]["status"] == "CONFLICT":
         blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
-    if alpha["profit_window_probability"] is None or alpha["profit_window_probability"] < 0.45:
-        blockers.append("PROFIT_WINDOW_PROBABILITY_LOW")
-    expected_net_profit = alpha.get("expected_net_profit_window")
-    if expected_net_profit is None:
-        blockers.append("NET_PROFIT_WINDOW_UNAVAILABLE")
-    elif expected_net_profit <= 0:
-        blockers.append("NET_PROFIT_WINDOW_NOT_POSITIVE")
-    execution_feasibility = alpha.get("execution_feasibility")
-    if execution_feasibility is not None and execution_feasibility < 0.35:
-        blockers.append("EXECUTION_NOT_FEASIBLE")
+        blockers.append("CONFIRMED_DISTRIBUTION")
+    if (features.get("SUPPLY") or {}).get("supply_absorption_state") == "RELEASING" and (features.get("CAPITAL") or {}).get("distribution_risk") not in (None, 0):
+        if (features.get("CAPITAL") or {}).get("distribution_risk", 0) >= 0.70:
+            blockers.append("CONFIRMED_SUPPLY_REVERSAL")
+    execution = features.get("EXECUTION") or {}
+    if execution.get("buyable") is False:
+        blockers.append("EXECUTION_IMPOSSIBLE")
+    elif execution.get("execution_feasibility") is not None and execution["execution_feasibility"] <= 0:
+        blockers.append("SEVERE_EXECUTION_RISK")
     return list(dict.fromkeys(blockers))
 
 
@@ -96,14 +111,13 @@ def evaluate_candidate_bundle(
     previous_action: str | None = None,
 ) -> Dict[str, Any]:
     """Evaluate one T-day snapshot; this is the only function allowed to emit states."""
-    if portfolio_state in POSITION_STATES and position_state is None:
-        position_state = portfolio_state
-        portfolio_state = previous_action or "WATCH"
     if portfolio_state not in PORTFOLIO_STATES:
         raise ValueError(f"INVALID_PORTFOLIO_STATE:{portfolio_state}")
     previous_action = previous_action or (portfolio_state if portfolio_state in TRADE_ACTIONS else None)
     if position_state is None:
-        position_state = "LONG" if portfolio_state in HELD_ACTIONS else "FLAT"
+        # The current holding is a PostgreSQL fact. Callers without that fact
+        # are fail-closed as FLAT.
+        position_state = "FLAT"
     if position_state not in POSITION_STATES:
         raise ValueError(f"INVALID_POSITION_STATE:{position_state}")
     snapshot = (
@@ -175,11 +189,14 @@ def evaluate_candidate_bundle(
     else:
         state, reason = "WATCH", "REPRICING_THESIS_INCOMPLETE:" + ";".join(repricing_blockers)
 
+    position_state_after = "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
     return {
         "decision_id": _decision_id(snapshot, state, as_of),
         "state": state,
         "action": state if state in TRADE_ACTIONS else None,
-        "position_state": "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG",
+        "position_state": position_state_after,
+        "position_state_before": position_state,
+        "position_state_after": position_state_after,
         "previous_action": previous_action,
         "holding_days": int((account or {}).get("holding_days", 0) or 0),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",

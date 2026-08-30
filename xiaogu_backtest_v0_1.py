@@ -115,16 +115,10 @@ def _historical_decision_id(*, pick: Dict[str, Any] | None = None, candidate: Di
     pick = pick or {}
     candidate = candidate or {}
     for row in (pick, candidate):
-        if row.get("decision_id"):
-            return str(row["decision_id"])
-    if pick.get("id") is not None:
-        return f"pick:{pick['id']}"
-    if candidate.get("id") is not None:
-        return f"candidate:{candidate['id']}"
-    run = candidate.get("production_run_id") or candidate.get("candidate_snapshot_id")
-    if run:
-        return f"snapshot:{run}"
-    raise ValueError("HISTORICAL_DECISION_ID_REQUIRED")
+        value = str(row.get("decision_id") or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _relation_key(row: Dict[str, Any]) -> tuple[Any, ...] | None:
@@ -271,7 +265,7 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
     proxy, never an execution fill.  Missing OHLC remains missing and prevents
     a row from becoming a canonical training label.
     """
-    cost_rate = CANONICAL_COST_MODEL["transaction_cost"]
+    cost_rate = CANONICAL_COST_MODEL["all_in_transaction_cost"]
     days: Dict[str, Dict[str, Any]] = {str(day): {} for day in range(1, 6)}
     conflicts: list[str] = []
 
@@ -1014,7 +1008,7 @@ def build_historical_5d_profit_window_dataset(
                 "candidate_id": candidate.get("id"),
                 "replay_error": None,
             })
-            audit["unresolved_decisions"].append(decision_id)
+            audit["unresolved_decisions"].append(decision_id or "UNRESOLVED")
             continue
         entry = _entry_audit(linked)
         symbol = str((pick or candidate).get("symbol") or "").zfill(6)
@@ -1318,12 +1312,53 @@ def historical_replay(
         })
     gate = target_quality_gate(rows, min_coverage=min_coverage, horizons=HISTORICAL_VALIDATION_HORIZONS)
     report = evaluate_replay(rows, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)
+    supplied_universe_audits = [
+        (row.get("snapshot") or {}).get("selection_audit")
+        for row in rows
+        if isinstance((row.get("snapshot") or {}).get("selection_audit"), dict)
+    ]
+    full_universe = next(
+        (audit.get("full_l0_universe") for audit in supplied_universe_audits
+         if audit.get("full_l0_universe") is not None),
+        None,
+    )
+    source_layers_present = any(
+        isinstance((row.get("snapshot") or {}).get("source_layers"), list)
+        for row in rows
+    )
+    l3_count = sum(
+        "L3_DEEP_CANDIDATE_FETCH" in ((row.get("snapshot") or {}).get("source_layers") or [])
+        for row in rows
+    ) if source_layers_present else None
+    selection_audit = {
+        "full_universe_count": full_universe,
+        "l1_count": next(
+            (audit.get("l1_eligible_universe") for audit in supplied_universe_audits
+             if audit.get("l1_eligible_universe") is not None),
+            None,
+        ),
+        "l2_count": l3_count,
+        "l3_count": l3_count,
+        "alpha_count": len(decisions),
+        "decision_count": len(decisions),
+        "canonical_count": sum(1 for row in rows if (row.get("snapshot") or {}).get("trusted_snapshot") is True),
+        "unresolved_count": sum(1 for row in rows if (row.get("target_quality") == "UNRESOLVED")),
+        "selection_bias_warning": bool(
+            full_universe is None
+            or l3_count is None
+            or l3_count not in {0, full_universe}
+            or len(decisions) < full_universe
+        ),
+        "selection_audit_status": "OBSERVED" if full_universe is not None else "UNOBSERVED",
+    }
     result = {
         "decisions": decisions, "decision_records": decision_records, "rows": rows,
         "metrics": report["horizon_metrics"], "horizon_metrics": report["horizon_metrics"],
         "horizons": HISTORICAL_VALIDATION_HORIZONS, "target_quality_gate": gate,
         "alpha_validation": "BLOCKED" if gate["status"] != "PASS" else "ELIGIBLE",
         "outcome_boundary": "OUTCOMES_ENTER_AFTER_PRODUCTION_DECISION",
+        "selection_audit": selection_audit,
+        **selection_audit,
     }
     result["alpha_report"] = build_alpha_report(rows, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)
     if persist_path:

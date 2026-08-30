@@ -23,7 +23,6 @@ def _context(kind: str, values: Dict[str, Any], lineage_id: str, provider: str) 
         **values,
     }
 
-
 def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     demand = features["FUTURE_DEMAND"]
     return _context("FutureDemandContext", {
@@ -49,7 +48,7 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
     return _context("CompanyContext", {
         "as_of": features.get("available_at", ""),
         "business_quality": business["score"],
-        "ability_circle": snapshot.get("raw", {}).get("ability_circle", "unknown"),
+        "ability_circle": snapshot.get("raw", {}).get("ability_circle", "UNKNOWN"),
         "moat": business["moat"],
         "pricing_power": business["pricing_power"],
         "earnings_quality": business["earnings_quality"],
@@ -80,7 +79,7 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         "as_of": features.get("available_at", ""),
         "institution_vs_hot_money": raw.get(
             "institution_vs_hot_money",
-            "institution" if institution_signal else "unknown",
+            "institution" if institution_signal else "UNKNOWN",
         ),
         "fund_flow": capital["fund_flow"],
         "fund_flow_acceleration": capital["fund_flow_acceleration"],
@@ -91,7 +90,7 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         "institutional_flow": capital["institutional_flow"],
         "hot_money_flow": capital["hot_money_flow"],
         "lhb_quality": capital["lhb_quality"],
-        "seat_behavior": raw.get("seat_behavior", "unknown"),
+        "seat_behavior": raw.get("seat_behavior", "UNKNOWN"),
         "accumulation": capital["accumulation"],
         "capital_flow_ratio": capital.get("capital_flow_ratio"),
         "distribution": capital["distribution_risk"],
@@ -165,7 +164,7 @@ def build_future_buyer_map(snapshot: Dict[str, Any], features: Dict[str, Any]) -
                 ("hot_money", capital.get("hot_money_behavior", {})),
             )
             if behavior.get("evidence_count", 0) > 0
-        ] or ["unknown"]
+        ] or ["UNKNOWN"]
     elif isinstance(current_buyer, str):
         current_buyer = [current_buyer]
     next_buyers = [
@@ -212,9 +211,6 @@ def build_contradiction_context(
     return integrate_research_context(industry, company, capital, lineage_id=lineage_id)
 
 
-build_tradingagents_context = build_contradiction_context
-
-
 def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     industry = build_serenity_context(snapshot, features)
     company = build_buffett_context(snapshot, features)
@@ -235,8 +231,6 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "as_of": features.get("available_at", ""),
         "industry": industry,
         "company": company,
-        "company_industry": {"industry": industry, "company": company},
-        "CompanyIndustryContext": {"industry": industry, "company": company},
         "capital": capital,
         "supply": supply,
         "pricing_gap": pricing_gap,
@@ -244,8 +238,3 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "integrated": integrated,
         "contradiction": integrated,
     }
-
-
-# One public context owner; the descriptive name is kept for callers that
-# consume the production graph directly.
-build_research_context = build_integrated_research_context

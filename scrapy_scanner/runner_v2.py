@@ -25,7 +25,7 @@ import sys
 BASE = Path(os.environ.get("XIAOGU_HOME") or Path(__file__).resolve().parent.parent)
 sys.path.insert(0, str(BASE))
 
-from xiaogu_forward_snapshot import attach_research_observations, build_scan_lineage_id, canonical_snapshot
+from xiaogu_forward_snapshot import attach_research_observations, build_scan_lineage_id, validate_and_build_canonical_snapshot
 from xiaogu_forward_eligibility import cheap_eligibility_blockers
 
 HEADERS = {
@@ -45,13 +45,48 @@ DEEP_DOMAINS = (
     "stock_capital_flow", "earnings_preview", "org_survey", "stock_reports", "lhb",
     "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
 )
+CRITICAL_SOURCES = frozenset({"stock_all_a"})
+OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
+    "flow_industry", "flow_concept", "hsgt_holdings", "hsgt_deals",
+    "industry_reports", "external_market", "indexes", "market_capital_flow",
+))
+CANDIDATE_FILTER_BATCH = 40
 
 
-def fnum(value: Any, default: float = 0.0) -> float:
+class CriticalSourceError(RuntimeError):
+    """Raised when a production-critical capture domain fails."""
+
+
+def fnum(value: Any, default: float | None = None) -> float | None:
+    if value in (None, "", "-"):
+        return default
     try:
         return float(str(value).replace(",", "").replace("%", ""))
     except (TypeError, ValueError):
         return default
+
+
+def _iso_now() -> str:
+    return datetime.now(MARKET_TIMEZONE).isoformat(timespec="seconds")
+
+
+def _secid(code: str | None) -> str | None:
+    normalized = normalize_stock_code(code)
+    if not normalized:
+        return None
+    prefix = "1" if normalized.startswith(("5", "6", "9")) else "0"
+    return f"{prefix}.{normalized}"
+
+
+def _code_filter(codes: Iterable[str], extra: str = "") -> str:
+    wanted = [normalize_stock_code(code) for code in codes]
+    wanted = [code for code in wanted if code]
+    clause = ""
+    if wanted:
+        inner = ",".join(f'"{code}"' for code in wanted)
+        clause = f"(SECURITY_CODE in ({inner}))"
+    parts = [part.strip() for part in (extra, clause) if part and part.strip()]
+    return " AND ".join(f"({part})" for part in parts)
 
 
 def _json_payload(text: str) -> Any:
@@ -114,6 +149,52 @@ def _store_diagnostic(diagnostics: Dict[str, Any] | None, **values: Any) -> None
         diagnostics.update(values)
 
 
+def fetch_ulist(
+    secids: Iterable[str],
+    fields: str,
+    diagnostics: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    """Fetch only the requested candidate quotes; never the full market table."""
+    wanted = [item for item in (_secid(code) for code in secids) if item]
+    rows: list[Dict[str, Any]] = []
+    requests = 0
+    for index in range(0, len(wanted), CANDIDATE_FILTER_BATCH):
+        batch = wanted[index:index + CANDIDATE_FILTER_BATCH]
+        payload = api_get("https://push2.eastmoney.com/api/qt/ulist.np/get?" + urlencode({
+            "fltt": 2, "invt": 2, "fields": fields, "secids": ",".join(batch),
+        }))
+        requests += 1
+        data = payload.get("data") or {}
+        batch_rows = data.get("diff") or []
+        if isinstance(batch_rows, list):
+            rows.extend(item for item in batch_rows if isinstance(item, dict))
+        time.sleep(0.03)
+    returned = []
+    unrelated = 0
+    wanted_codes = {normalize_stock_code(item.split(".", 1)[-1]) for item in wanted}
+    kept = []
+    for row in rows:
+        codes = stock_codes_from_row(row)
+        if any(code in wanted_codes for code in codes):
+            kept.append(row)
+            returned.extend(codes)
+        else:
+            unrelated += 1
+    _store_diagnostic(
+        diagnostics,
+        pages=requests,
+        reported_total=len(wanted),
+        row_count=len(kept),
+        requested_symbols=sorted(code for code in wanted_codes if code),
+        returned_symbols=sorted(set(returned)),
+        unrelated_rows=unrelated,
+        request_count=requests,
+        response_count=len(rows),
+        status="PASS" if kept or not wanted else "EMPTY",
+    )
+    return kept
+
+
 def fetch_paginated(
     fs: str,
     page_size: int = 100,
@@ -153,35 +234,69 @@ def fetch_datacenter(
     page_size: int = 500,
     extra_params: Dict[str, Any] | None = None,
     diagnostics: Dict[str, Any] | None = None,
+    candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, pages=0, reported_total=0, row_count=0, requested_symbols=[],
+            returned_symbols=[], unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
     rows = []
     total = None
     pages = 0
-    base = {
-        "reportName": report_name, "columns": "ALL", "pageSize": page_size,
-        "sortTypes": -1, "sortColumns": sort_column, "source": "WEB",
-        "client": "WEB", **(extra_params or {}),
-    }
-    for page in range(1, MAX_PAGES + 1):
-        payload = api_get("https://datacenter-web.eastmoney.com/api/data/v1/get?" + urlencode({
-            **base, "pageNumber": page,
-        }))
-        result = payload.get("result") or {}
-        if page == 1:
-            try:
-                total = int(result.get("count"))
-            except (TypeError, ValueError):
-                total = None
-        batch = result.get("data") or []
-        if not isinstance(batch, list) or not batch:
-            break
-        rows.extend(item for item in batch if isinstance(item, dict))
-        pages = page
-        if (total is not None and len(rows) >= total) or len(batch) < page_size:
-            break
-        time.sleep(0.03)
-    _store_diagnostic(diagnostics, pages=pages, reported_total=total, row_count=len(rows), status="PASS" if rows else "EMPTY")
-    return rows
+    requests = 0
+    batches = [wanted[index:index + CANDIDATE_FILTER_BATCH] for index in range(0, len(wanted), CANDIDATE_FILTER_BATCH)] or [None]
+    for batch in batches:
+        extra = dict(extra_params or {})
+        if batch:
+            extra["filter"] = _code_filter(batch, extra.get("filter") or "")
+        base = {
+            "reportName": report_name, "columns": "ALL", "pageSize": page_size,
+            "sortTypes": -1, "sortColumns": sort_column, "source": "WEB",
+            "client": "WEB", **extra,
+        }
+        batch_rows = []
+        for page in range(1, MAX_PAGES + 1):
+            payload = api_get("https://datacenter-web.eastmoney.com/api/data/v1/get?" + urlencode({
+                **base, "pageNumber": page,
+            }))
+            requests += 1
+            result = payload.get("result") or {}
+            if page == 1 and batch is batches[0]:
+                try:
+                    total = int(result.get("count"))
+                except (TypeError, ValueError):
+                    total = None
+            page_batch = result.get("data") or []
+            if not isinstance(page_batch, list) or not page_batch:
+                break
+            batch_rows.extend(item for item in page_batch if isinstance(item, dict))
+            pages += 1
+            if len(page_batch) < page_size:
+                break
+            time.sleep(0.03)
+        rows.extend(batch_rows)
+    returned = []
+    unrelated = 0
+    wanted_set = set(wanted)
+    kept = []
+    for row in rows:
+        codes = stock_codes_from_row(row)
+        if not wanted_set or any(code in wanted_set for code in codes):
+            kept.append(row)
+            returned.extend(codes)
+        else:
+            unrelated += 1
+    _store_diagnostic(
+        diagnostics, pages=pages, reported_total=total, row_count=len(kept),
+        requested_symbols=wanted, returned_symbols=sorted(set(returned)),
+        unrelated_rows=unrelated, request_count=requests, response_count=len(rows),
+        status="PASS" if kept else "EMPTY",
+    )
+    return kept
 
 
 def fetch_report_list(
@@ -190,76 +305,171 @@ def fetch_report_list(
     end_time: str,
     page_size: int = 500,
     diagnostics: Dict[str, Any] | None = None,
+    candidate_codes: Iterable[str] | None = None,
 ) -> list[Dict[str, Any]]:
     """Capture research reports as raw evidence, without rating or filtering."""
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, row_count=0, requested_symbols=[], returned_symbols=[],
+            unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
     rows = []
     seen = set()
-    for page in range(1, MAX_PAGES + 1):
-        payload = api_get("https://reportapi.eastmoney.com/report/list?" + urlencode({
-            "industryCode": "*", "pageSize": page_size, "industry": "*",
-            "rating": "*", "ratingChange": "*", "beginTime": begin_time,
-            "endTime": end_time, "pageNo": page, "qType": query_type,
+    requests = 0
+    codes = wanted or [None]
+    for code in codes:
+        for page in range(1, MAX_PAGES + 1):
+            params = {
+                "industryCode": "*", "pageSize": page_size, "industry": "*",
+                "rating": "*", "ratingChange": "*", "beginTime": begin_time,
+                "endTime": end_time, "pageNo": page, "qType": query_type,
+            }
+            if code:
+                params["code"] = code
+            payload = api_get("https://reportapi.eastmoney.com/report/list?" + urlencode(params))
+            requests += 1
+            result = payload.get("data") or payload.get("result") or {}
+            batch = result.get("data") if isinstance(result, dict) else result
+            if not isinstance(batch, list) or not batch:
+                break
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get("art_code") or row.get("infoCode") or json.dumps(row, sort_keys=True, default=str)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(row)
+            if len(batch) < page_size:
+                break
+            time.sleep(0.03)
+    returned = []
+    unrelated = 0
+    wanted_set = set(wanted)
+    kept = []
+    for row in rows:
+        codes_in_row = stock_codes_from_row(row)
+        if not wanted_set or any(code in wanted_set for code in codes_in_row):
+            kept.append(row)
+            returned.extend(codes_in_row)
+        else:
+            unrelated += 1
+    _store_diagnostic(
+        diagnostics, row_count=len(kept), requested_symbols=wanted,
+        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        request_count=requests, response_count=len(rows),
+        status="PASS" if kept else "EMPTY",
+    )
+    return kept
+
+
+def fetch_announcements(
+    page_size: int = 100,
+    diagnostics: Dict[str, Any] | None = None,
+    candidate_codes: Iterable[str] | None = None,
+) -> list[Dict[str, Any]]:
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, row_count=0, requested_symbols=[], returned_symbols=[],
+            unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
+    rows = []
+    seen = set()
+    requests = 0
+    codes = wanted or [None]
+    for code in codes:
+        for page in range(1, MAX_PAGES + 1):
+            params = {
+                "ann_type": "A", "client_source": "WEB", "f_node": 0,
+                "page_index": page, "page_size": page_size, "s_node": 0,
+            }
+            if code:
+                params["stock"] = code
+            payload = api_get("https://np-anotice-stock.eastmoney.com/api/security/ann?" + urlencode(params))
+            requests += 1
+            data = payload.get("data") or {}
+            batch = data.get("list") if isinstance(data, dict) else []
+            if not isinstance(batch, list) or not batch:
+                break
+            for row in batch:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get("art_code") or row.get("title") or json.dumps(row, sort_keys=True, default=str)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(row)
+            if len(batch) < page_size:
+                break
+    returned = []
+    unrelated = 0
+    wanted_set = set(wanted)
+    kept = []
+    for row in rows:
+        codes_in_row = stock_codes_from_row(row)
+        if not wanted_set or any(item in wanted_set for item in codes_in_row):
+            kept.append(row)
+            returned.extend(codes_in_row)
+        else:
+            unrelated += 1
+    _store_diagnostic(
+        diagnostics, row_count=len(kept), requested_symbols=wanted,
+        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        request_count=requests, response_count=len(rows),
+        status="PASS" if kept else "EMPTY",
+    )
+    return kept
+
+
+def fetch_news(
+    page_size: int = 50,
+    diagnostics: Dict[str, Any] | None = None,
+    candidate_codes: Iterable[str] | None = None,
+) -> list[Dict[str, Any]]:
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, row_count=0, requested_symbols=[], returned_symbols=[],
+            unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
+    rows = []
+    requests = 0
+    for code in wanted:
+        payload = api_get("https://searchapi.eastmoney.com/api/info/Search?" + urlencode({
+            "type": 301, "pageIndex": 1, "pageSize": page_size, "keyword": code,
         }))
-        result = payload.get("data") or payload.get("result") or {}
-        batch = result.get("data") if isinstance(result, dict) else result
-        if not isinstance(batch, list) or not batch:
-            break
-        for row in batch:
-            if not isinstance(row, dict):
-                continue
-            key = row.get("art_code") or row.get("infoCode") or json.dumps(row, sort_keys=True, default=str)
-            if key not in seen:
-                seen.add(key)
-                rows.append(row)
-        if len(batch) < page_size:
-            break
+        requests += 1
+        data = payload.get("data") or payload.get("result") or {}
+        batch = data.get("list") if isinstance(data, dict) else data
+        if isinstance(batch, list):
+            for item in batch:
+                if isinstance(item, dict):
+                    rows.append(item)
         time.sleep(0.03)
-    _store_diagnostic(diagnostics, row_count=len(rows), status="PASS" if rows else "EMPTY")
-    return rows
-
-
-def fetch_announcements(page_size: int = 100, diagnostics: Dict[str, Any] | None = None) -> list[Dict[str, Any]]:
-    rows = []
-    seen = set()
-    for page in range(1, MAX_PAGES + 1):
-        payload = api_get("https://np-anotice-stock.eastmoney.com/api/security/ann?" + urlencode({
-            "ann_type": "A", "client_source": "WEB", "f_node": 0,
-            "page_index": page, "page_size": page_size, "s_node": 0,
-        }))
-        data = payload.get("data") or {}
-        batch = data.get("list") if isinstance(data, dict) else []
-        if not isinstance(batch, list) or not batch:
-            break
-        for row in batch:
-            if not isinstance(row, dict):
-                continue
-            key = row.get("art_code") or row.get("title") or json.dumps(row, sort_keys=True, default=str)
-            if key not in seen:
-                seen.add(key)
-                rows.append(row)
-        if len(batch) < page_size:
-            break
-    _store_diagnostic(diagnostics, row_count=len(rows), status="PASS" if rows else "EMPTY")
-    return rows
-
-
-def fetch_news(page_size: int = 200, diagnostics: Dict[str, Any] | None = None) -> list[Dict[str, Any]]:
-    rows = []
-    for page in range(1, MAX_PAGES + 1):
-        payload = api_get("https://np-listapi.eastmoney.com/comm/web/getNewsByColumns?" + urlencode({
-            "client": "web", "biz": "web_724", "column": 350,
-            "order": 1, "needInteractData": 0, "page_index": page,
-            "page_size": page_size, "req_trace": int(time.time() * 1000),
-        }))
-        data = payload.get("data") or {}
-        batch = data.get("list") if isinstance(data, dict) else []
-        if not isinstance(batch, list) or not batch:
-            break
-        rows.extend(item for item in batch if isinstance(item, dict))
-        if len(batch) < page_size:
-            break
-    _store_diagnostic(diagnostics, row_count=len(rows), status="PASS" if rows else "EMPTY")
-    return rows
+    returned = []
+    unrelated = 0
+    wanted_set = set(wanted)
+    kept = []
+    for row in rows:
+        codes_in_row = stock_codes_from_row(row)
+        if any(item in wanted_set for item in codes_in_row):
+            kept.append(row)
+            returned.extend(codes_in_row)
+        else:
+            unrelated += 1
+    _store_diagnostic(
+        diagnostics, row_count=len(kept), requested_symbols=wanted,
+        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        request_count=requests, response_count=len(rows),
+        status="PASS" if kept else "EMPTY",
+    )
+    return kept
 
 
 def _by_symbol(rows: Iterable[Dict[str, Any]]) -> Dict[str, list[Dict[str, Any]]]:
@@ -302,24 +512,13 @@ def _trade_status(row: Dict[str, Any]) -> str:
     return "TRADING"
 
 
-def _filter_rows_to_symbols(rows: Iterable[Dict[str, Any]], codes: Iterable[str] | None) -> list[Dict[str, Any]]:
-    wanted = {normalize_stock_code(code) for code in (codes or [])}
-    wanted.discard(None)
-    if not wanted:
-        return []
-    return [
-        row for row in (rows or [])
-        if isinstance(row, dict) and any(code in wanted for code in stock_codes_from_row(row))
-    ]
-
-
 def detect_capital_candidates(
     stocks: Iterable[Dict[str, Any]],
     *,
     industry_rows: Iterable[Dict[str, Any]] | None = None,
     market: Dict[str, Any] | None = None,
 ) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
-    """Find cheap deep-fetch triggers; never ranks, scores, or recommends."""
+    """Route expensive deep-fetch budget. This is not ranking or selection."""
     stocks = [row for row in (stocks or []) if isinstance(row, dict)]
     industry_move = {
         str(row.get("f14") or "").strip(): _quote_number(row, "f3")
@@ -329,10 +528,21 @@ def detect_capital_candidates(
     market_breadth = None if not isinstance(market, dict) else market.get("breadth_up_pct")
     candidates = []
     rejected = []
+    routing = []
     for row in stocks or []:
+        symbol = row.get("f12") or row.get("symbol")
         blockers = cheap_eligibility_blockers(row)
+        route = {
+            "symbol": symbol,
+            "entered_l1": True,
+            "eligible_l1": not blockers,
+            "l2_triggered": False,
+            "l2_trigger_reasons": [],
+            "deep_fetch_requested": False,
+        }
         if blockers:
-            rejected.append({"symbol": row.get("f12") or row.get("symbol"), "blockers": blockers})
+            rejected.append({"symbol": symbol, "blockers": blockers, **route})
+            routing.append(route)
             continue
         pct_change = _quote_number(row, "f3", "pct_change")
         main_flow = _quote_number(row, "f62", "main_net_inflow")
@@ -345,9 +555,9 @@ def detect_capital_candidates(
         close_position = (price - low) / (high - low) if price is not None and high is not None and low is not None and high > low else None
         industry_pct = industry_move.get(str(row.get("f100") or row.get("industry") or "").strip())
         evidence = []
-        if main_flow is not None and main_flow > 0:
+        if main_flow is not None and main_flow != 0:
             evidence.append("basic_capital_flow")
-        if pct_change is not None and pct_change > 0:
+        if pct_change is not None and pct_change != 0:
             evidence.append("price_response")
         if turnover is not None and turnover >= 1.0:
             evidence.append("turnover")
@@ -355,26 +565,42 @@ def detect_capital_candidates(
             evidence.append("relative_volume")
         if close_position is not None and close_position >= 0.60:
             evidence.append("close_position")
-        if industry_pct is not None and industry_pct > 0:
+        if industry_pct is not None and industry_pct != 0:
             evidence.append("industry_movement")
-        if market_breadth is not None and float(market_breadth) > 50:
+        if amount is not None and amount > 0 and relative_volume is not None and relative_volume >= 1.5:
+            evidence.append("amount_activity")
+        if market_breadth is not None and float(market_breadth) > 50 and pct_change is not None and pct_change != 0:
             evidence.append("market_movement")
-        if main_flow is not None and main_flow > 0 and len(evidence) >= 2:
+        triggered = len(evidence) >= 2
+        route.update({
+            "l2_triggered": triggered,
+            "l2_trigger_reasons": evidence,
+            "deep_fetch_requested": triggered,
+        })
+        routing.append(route)
+        if triggered:
             item = dict(row)
             item["deep_fetch_trigger"] = True
             item["deep_fetch_reasons"] = evidence
+            item["l2_triggered"] = True
+            item["l2_trigger_reasons"] = evidence
+            item["deep_fetch_requested"] = True
             candidates.append(item)
         else:
-            rejected.append({"symbol": row.get("f12") or row.get("symbol"), "blockers": ["NO_DEEP_FETCH_TRIGGER"]})
+            rejected.append({"symbol": symbol, "blockers": ["NO_DEEP_FETCH_TRIGGER"], **route})
     return candidates, {
         "input_count": len(stocks),
+        "entered_l1": len(stocks),
+        "eligible_l1": sum(item["eligible_l1"] for item in routing),
+        "l2_triggered": sum(item["l2_triggered"] for item in routing),
         "candidate_count": len(candidates),
         "rejected_count": len(rejected),
         "rejected": rejected,
+        "routing": routing,
         "selection": False,
         "ranking": False,
         "alpha": False,
-        "purpose": "DEEP_FETCH_TRIGGER_ONLY",
+        "purpose": "RESOURCE_ROUTER",
     }
 
 
@@ -384,6 +610,7 @@ def build_canonical_snapshots(
     lineage_id: str = "",
     symbols: Iterable[str] | None = None,
     market: Dict[str, Any] | None = None,
+    available_at: str = "",
 ) -> list[Dict[str, Any]]:
     """Create canonical rows; deep observations are attached only for symbols."""
     stocks = [row for row in results.get("stock_all_a", []) if isinstance(row, dict)]
@@ -427,6 +654,8 @@ def build_canonical_snapshots(
         visible["market"] = _market_name(row)
         visible["industry"] = sector
         visible["basic_capital_flow"] = _quote_number(row, "f62", "main_net_inflow")
+        if available_at:
+            visible["available_at"] = available_at
         if isinstance(market, dict):
             visible["market_breadth"] = market.get("breadth_up_pct")
             visible["market_breadth_up_pct"] = market.get("breadth_up_pct")
@@ -458,7 +687,7 @@ def build_canonical_snapshots(
                 "L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
                 "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH",
             ]
-        snapshots.append(canonical_snapshot(
+        snapshots.append(validate_and_build_canonical_snapshot(
             visible,
             trade_date=source_time[:10],
             source="eastmoney_api_scan_v2",
@@ -493,14 +722,81 @@ def build_market_snapshot(stocks: list[Dict[str, Any]], source_time: str) -> Dic
     }
 
 
-def _collect(name: str, timings: Dict[str, Any], fetcher: Callable[[], Any], default: Any) -> Any:
+def _stamp_available_at(value: Any, available_at: str) -> Any:
+    if isinstance(value, list):
+        stamped = []
+        for row in value:
+            if isinstance(row, dict) and not row.get("available_at"):
+                item = dict(row)
+                item["available_at"] = available_at
+                stamped.append(item)
+            else:
+                stamped.append(row)
+        return stamped
+    if isinstance(value, dict) and value and not value.get("available_at"):
+        item = dict(value)
+        item["available_at"] = available_at
+        return item
+    return value
+
+
+def _collect(
+    name: str,
+    timings: Dict[str, Any],
+    fetcher: Callable[[], Any],
+    default: Any,
+    *,
+    critical: bool = False,
+) -> Any:
     started = time.monotonic()
+    domain_started_at = _iso_now()
     try:
         value = fetcher()
-        timings[name] = {"status": "PASS" if result_item_count(value) else "EMPTY", "item_count": result_item_count(value), "elapsed_seconds": round(time.monotonic() - started, 4)}
+        domain_finished_at = _iso_now()
+        item_count = result_item_count(value)
+        if critical and item_count == 0:
+            raise CriticalSourceError(f"CRITICAL_SOURCE_EMPTY:{name}")
+        if critical:
+            invalid = [
+                row for row in value
+                if isinstance(value, list)
+                and isinstance(row, dict)
+                and (
+                    not stock_codes_from_row(row)
+                    or _quote_number(row, "f2", "price") is None
+                    or _quote_number(row, "f5", "volume") is None
+                    or _quote_number(row, "f6", "amount") is None
+                    or _quote_number(row, "f62", "main_net_inflow") is None
+                )
+            ]
+            if invalid:
+                raise CriticalSourceError(f"CRITICAL_SOURCE_INCOMPLETE:{name}:{len(invalid)}")
+        value = _stamp_available_at(value, domain_finished_at)
+        timings[name] = {
+            "status": "PASS" if item_count else "EMPTY",
+            "item_count": item_count,
+            "elapsed_seconds": round(time.monotonic() - started, 4),
+            "domain_started_at": domain_started_at,
+            "domain_finished_at": domain_finished_at,
+            "available_at": domain_finished_at,
+            "critical": critical,
+        }
         return value
     except Exception as exc:
-        timings[name] = {"status": "ERROR", "item_count": result_item_count(default), "elapsed_seconds": round(time.monotonic() - started, 4), "error": repr(exc)}
+        domain_finished_at = _iso_now()
+        timings[name] = {
+            "status": "ERROR",
+            "item_count": 0,
+            "elapsed_seconds": round(time.monotonic() - started, 4),
+            "error": repr(exc),
+            "domain_started_at": domain_started_at,
+            "domain_finished_at": domain_finished_at,
+            "available_at": None,
+            "critical": critical,
+            "evidence_status": "UNKNOWN" if not critical else "BLOCKED",
+        }
+        if critical:
+            raise CriticalSourceError(f"CRITICAL_SOURCE_FAILURE:{name}:{exc}") from exc
         return default
 
 
@@ -513,52 +809,126 @@ def main() -> Dict[str, Any]:
         parser.error("--date is unsupported for live capture; use stored canonical snapshots for historical replay")
     started = time.monotonic()
     market_now = datetime.now(MARKET_TIMEZONE)
-    source_time = market_now.isoformat(timespec="seconds")
+    scan_started_at = market_now.isoformat(timespec="seconds")
+    source_time = scan_started_at
     output_dir = Path(args.output_dir) if args.output_dir else BASE / "data" / "live_scan" / source_time[:10] / "eastmoney_scan"
     output_dir.mkdir(parents=True, exist_ok=True)
     timings: Dict[str, Any] = {}
     diagnostics: Dict[str, Any] = {}
     results: Dict[str, Any] = {}
+    production_scan = "PASS"
+    block_reason = ""
+    snapshots: list[Dict[str, Any]] = []
+    scan_lineage_id = ""
+    candidate_codes: list[str] = []
+    level_2_audit: Dict[str, Any] = {}
+    market: Dict[str, Any] = {}
 
-    results["stock_all_a"] = _collect("stock_all_a", timings, lambda: fetch_paginated("m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048", 100, LIGHT_STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})), [])
-    results["flow_industry"] = _collect("flow_industry", timings, lambda: fetch_paginated("m:90+t:2", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_industry", {})), [])
-    results["flow_concept"] = _collect("flow_concept", timings, lambda: fetch_paginated("m:90+t:3", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_concept", {})), [])
-    recent = (market_now - timedelta(days=7)).strftime("%Y-%m-%d")
-    today = market_now.strftime("%Y-%m-%d")
-    market = build_market_snapshot(results["stock_all_a"], source_time)
-    level_2_candidates, level_2_audit = detect_capital_candidates(
-        results["stock_all_a"],
-        industry_rows=results.get("flow_industry") or [],
-        market=market,
-    )
-    candidate_codes = [normalize_stock_code(row.get("f12")) for row in level_2_candidates]
-    candidate_codes = [code for code in candidate_codes if code]
-    results["level_2_candidates"] = level_2_candidates
-    results["level_2_audit"] = level_2_audit
-    if candidate_codes:
-        results["stock_capital_flow"] = _filter_rows_to_symbols(_collect("stock_capital_flow", timings, lambda: fetch_paginated("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23", 100, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})), []), candidate_codes)
-        results["lhb"] = _filter_rows_to_symbols(_collect("lhb", timings, lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {})), []), candidate_codes)
-        results["earnings_preview"] = _filter_rows_to_symbols(_collect("earnings_preview", timings, lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {})), []), candidate_codes)
-        results["shareholder_changes"] = _filter_rows_to_symbols(_collect("shareholder_changes", timings, lambda: fetch_datacenter("RPT_SHARE_HOLDER_INCREASE", "END_DATE", diagnostics=diagnostics.setdefault("shareholder_changes", {})), []), candidate_codes)
-        results["lockup_expiry"] = _filter_rows_to_symbols(_collect("lockup_expiry", timings, lambda: fetch_datacenter("RPT_LIFT_STAGE", "FREE_DATE", diagnostics=diagnostics.setdefault("lockup_expiry", {})), []), candidate_codes)
-        results["org_survey"] = _filter_rows_to_symbols(_collect("org_survey", timings, lambda: fetch_datacenter("RPT_ORG_SURVEY", "NOTICE_DATE", extra_params={"filter": f"(NOTICE_DATE>='{recent}')"}, diagnostics=diagnostics.setdefault("org_survey", {})), []), candidate_codes)
-        results["hsgt_holdings"] = _filter_rows_to_symbols(_collect("hsgt_holdings", timings, lambda: fetch_datacenter("RPT_MUTUAL_HOLDSTOCKNORTH_STA", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_holdings", {})), []), candidate_codes)
-        results["hsgt_deals"] = _filter_rows_to_symbols(_collect("hsgt_deals", timings, lambda: fetch_datacenter("RPT_MUTUAL_DEAL_HISTORY", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_deals", {})), []), candidate_codes)
-        results["stock_reports"] = _filter_rows_to_symbols(_collect("stock_reports", timings, lambda: fetch_report_list("0", recent, today, diagnostics=diagnostics.setdefault("stock_reports", {})), []), candidate_codes)
-        results["industry_reports"] = _collect("industry_reports", timings, lambda: fetch_report_list("1", recent, today, diagnostics=diagnostics.setdefault("industry_reports", {})), [])
-        results["announcements"] = _filter_rows_to_symbols(_collect("announcements", timings, lambda: fetch_announcements(diagnostics=diagnostics.setdefault("announcements", {})), []), candidate_codes)
-        results["news_kuaixun"] = _filter_rows_to_symbols(_collect("news_kuaixun", timings, lambda: fetch_news(diagnostics=diagnostics.setdefault("news_kuaixun", {})), []), candidate_codes)
+    try:
+        results["stock_all_a"] = _collect(
+            "stock_all_a",
+            timings,
+            lambda: fetch_paginated("m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048", 100, LIGHT_STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})),
+            [],
+            critical=True,
+        )
+    except CriticalSourceError as exc:
+        production_scan = "BLOCKED"
+        block_reason = "CRITICAL_SOURCE_FAILURE"
+        timings.setdefault("stock_all_a", {"status": "ERROR", "error": repr(exc), "critical": True})
+        results["stock_all_a"] = []
+
+    if production_scan != "BLOCKED":
+        results["flow_industry"] = _collect("flow_industry", timings, lambda: fetch_paginated("m:90+t:2", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_industry", {})), [])
+        results["flow_concept"] = _collect("flow_concept", timings, lambda: fetch_paginated("m:90+t:3", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_concept", {})), [])
+        recent = (market_now - timedelta(days=7)).strftime("%Y-%m-%d")
+        today = market_now.strftime("%Y-%m-%d")
+        market = build_market_snapshot(results["stock_all_a"], source_time)
+        level_2_candidates, level_2_audit = detect_capital_candidates(
+            results["stock_all_a"],
+            industry_rows=results.get("flow_industry") or [],
+            market=market,
+        )
+        candidate_codes = [normalize_stock_code(row.get("f12")) for row in level_2_candidates]
+        candidate_codes = [code for code in candidate_codes if code]
+        results["level_2_candidates"] = level_2_candidates
+        results["level_2_audit"] = level_2_audit
+        if candidate_codes:
+            results["stock_capital_flow"] = _collect(
+                "stock_capital_flow", timings,
+                lambda: fetch_ulist(candidate_codes, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})),
+                [],
+            )
+            results["lhb"] = _collect(
+                "lhb", timings,
+                lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["earnings_preview"] = _collect(
+                "earnings_preview", timings,
+                lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["shareholder_changes"] = _collect(
+                "shareholder_changes", timings,
+                lambda: fetch_datacenter("RPT_SHARE_HOLDER_INCREASE", "END_DATE", diagnostics=diagnostics.setdefault("shareholder_changes", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["lockup_expiry"] = _collect(
+                "lockup_expiry", timings,
+                lambda: fetch_datacenter("RPT_LIFT_STAGE", "FREE_DATE", diagnostics=diagnostics.setdefault("lockup_expiry", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["org_survey"] = _collect(
+                "org_survey", timings,
+                lambda: fetch_datacenter("RPT_ORG_SURVEY", "NOTICE_DATE", extra_params={"filter": f"(NOTICE_DATE>='{recent}')"}, diagnostics=diagnostics.setdefault("org_survey", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["hsgt_holdings"] = _collect(
+                "hsgt_holdings", timings,
+                lambda: fetch_datacenter("RPT_MUTUAL_HOLDSTOCKNORTH_STA", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_holdings", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["hsgt_deals"] = _collect(
+                "hsgt_deals", timings,
+                lambda: fetch_datacenter("RPT_MUTUAL_DEAL_HISTORY", "TRADE_DATE", diagnostics=diagnostics.setdefault("hsgt_deals", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["stock_reports"] = _collect(
+                "stock_reports", timings,
+                lambda: fetch_report_list("0", recent, today, diagnostics=diagnostics.setdefault("stock_reports", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["industry_reports"] = _collect(
+                "industry_reports", timings,
+                lambda: fetch_report_list("1", recent, today, diagnostics=diagnostics.setdefault("industry_reports", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["announcements"] = _collect(
+                "announcements", timings,
+                lambda: fetch_announcements(diagnostics=diagnostics.setdefault("announcements", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["news_kuaixun"] = _collect(
+                "news_kuaixun", timings,
+                lambda: fetch_news(diagnostics=diagnostics.setdefault("news_kuaixun", {}), candidate_codes=candidate_codes),
+                [],
+            )
+        else:
+            for name in DEEP_DOMAINS:
+                results[name] = []
+        results["external_market"] = []
+        results["indexes"] = []
+        results["market_capital_flow"] = []
     else:
-        for name in DEEP_DOMAINS:
-            results[name] = []
-    results["external_market"] = []
-    results["indexes"] = []
-    results["market_capital_flow"] = []
+        for name in ("flow_industry", "flow_concept", *DEEP_DOMAINS, "external_market", "indexes", "market_capital_flow", "level_2_candidates"):
+            results.setdefault(name, [])
+        results["level_2_audit"] = {"purpose": "RESOURCE_ROUTER", "selection": False, "ranking": False, "alpha": False}
 
     files = {}
     for name, rows in results.items():
         files[name] = _write_jsonl(output_dir / f"{name}.jsonl", rows if isinstance(rows, list) else [rows])
-    stocks = results["stock_all_a"]
+    stocks = results.get("stock_all_a") or []
     scan_lineage_id = build_scan_lineage_id(
         source="eastmoney_api_scan_v2",
         source_time=source_time,
@@ -566,14 +936,22 @@ def main() -> Dict[str, Any]:
         trade_date=source_time[:10],
         scan_nonce=uuid.uuid4().hex,
     )
-    snapshots = build_canonical_snapshots(results, source_time, lineage_id=scan_lineage_id, symbols=candidate_codes, market=market)
+    if production_scan != "BLOCKED":
+        snapshots = build_canonical_snapshots(
+            results,
+            source_time,
+            lineage_id=scan_lineage_id,
+            symbols=candidate_codes,
+            market=market,
+            available_at=(timings.get("stock_all_a") or {}).get("available_at") or source_time,
+        )
     files["canonical_snapshots"] = _write_jsonl(output_dir / "canonical_snapshots.jsonl", snapshots)
     market_path = output_dir / "canonical_market_snapshot.json"
     market_path.write_text(json.dumps(market, ensure_ascii=False, indent=2), encoding="utf-8")
     files["canonical_market_snapshot"] = str(market_path)
 
-    persistence = {"status": "SKIPPED", "reason": "XIAOGU_PERSIST_DB_not_set"}
-    if os.environ.get("XIAOGU_PERSIST_DB") == "1":
+    persistence = {"status": "SKIPPED", "reason": "XIAOGU_PERSIST_DB_not_set" if production_scan != "BLOCKED" else "PRODUCTION_SCAN_BLOCKED"}
+    if production_scan != "BLOCKED" and os.environ.get("XIAOGU_PERSIST_DB") == "1":
         try:
             from xiaogu_db import insert_scan_session, record_snapshot, upsert_scan_market_data
             session_id = insert_scan_session(
@@ -590,18 +968,30 @@ def main() -> Dict[str, Any]:
         except Exception as exc:
             persistence = {"status": "FAILED", "error": repr(exc)}
 
+    scan_finished_at = datetime.now(MARKET_TIMEZONE).isoformat(timespec="seconds")
+    l1_eligible = int(level_2_audit.get("eligible_l1") or 0)
+    l2_routed = int(level_2_audit.get("l2_triggered") or len(candidate_codes))
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
+        "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
         "source_time": source_time, "raw_domain_counts": {name: result_item_count(value) for name, value in results.items()},
         "canonical_snapshot_count": len(snapshots), "canonical_market_snapshot": market,
+        "production_scan": production_scan, "block_reason": block_reason,
+        "critical_sources": sorted(CRITICAL_SOURCES), "optional_sources": sorted(OPTIONAL_SOURCES),
         "scanner_contract": {
             "owner": "scrapy_scanner.runner_v2", "responsibility": "DATA_CAPTURE_ONLY",
             "selection": False, "ranking": False, "strategy_score": False, "portfolio_action": False,
         },
+        "universes": {
+            "full_l0_universe": len(stocks),
+            "l1_eligible_universe": l1_eligible,
+            "l2_routed_universe": l2_routed,
+            "l3_researched_universe": len(candidate_codes) if production_scan != "BLOCKED" else 0,
+        },
         "levels": {
             "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": len(stocks), "fields": LIGHT_STOCK_FIELDS.split(",")},
-            "level_1": {"name": "CHEAP_ELIGIBILITY", "operational_only": True},
-            "level_2": {"name": "CAPITAL_CANDIDATE_DETECTION", **level_2_audit},
+            "level_1": {"name": "CHEAP_ELIGIBILITY", "operational_only": True, "eligible_count": l1_eligible},
+            "level_2": {"name": "RESOURCE_ROUTER", **level_2_audit},
             "level_3": {"name": "DEEP_CANDIDATE_FETCH", "candidate_count": len(candidate_codes), "domains": list(DEEP_DOMAINS)},
         },
         "lineage": {

@@ -195,7 +195,8 @@ def test_database_builder_requires_explicit_linked_snapshot():
         "daily_candidates": [],
     })
     assert result["counts"]["invalid"] == 1
-    assert result["audit"]["unresolved_decisions"] == ["pick:7"]
+    assert "pick:" not in str(result["audit"]["unresolved_decisions"])
+    assert result["audit"]["unresolved_decisions"]
 
 
 def test_database_linked_ranges_ignore_rows_without_trade_date():

@@ -8,19 +8,40 @@ from typing import Any, Dict
 from xiaogu_forward_features import FEATURE_GROUPS
 
 MODEL_ID = "profit_window_alpha_5d_v2"
+MODEL_VERSION = "v2"
 FEATURE_VERSION = "capital_behavior_measurements_v2"
+TARGET_VERSION = "PROFIT_WINDOW_5D"
+SCHEMA_VERSION = "alpha_artifact_v1"
 PROFIT_WINDOW_DAYS = 5
-CANONICAL_COST_MODEL = {"commission": 0.0005, "stamp_duty": 0.0005, "slippage": 0.0, "spread": 0.0, "transaction_cost": 0.003}
-DEFAULT_COST_RATE = CANONICAL_COST_MODEL["transaction_cost"]
+COST_MODEL_VERSION = "cost_model_v1"
+CANONICAL_COST_MODEL = {
+    "version": COST_MODEL_VERSION,
+    "commission": 0.0005,
+    "stamp_duty": 0.0005,
+    "slippage": 0.001,
+    "spread": 0.0005,
+    "market_impact": 0.0005,
+}
+CANONICAL_COST_MODEL["all_in_transaction_cost"] = round(sum(
+    CANONICAL_COST_MODEL[name] for name in ("commission", "stamp_duty", "slippage", "spread", "market_impact")
+), 8)
+DEFAULT_COST_RATE = CANONICAL_COST_MODEL["all_in_transaction_cost"]
 DEFAULT_PROFIT_TARGET = 0.02
 CALIBRATION_PATH = Path(__file__).resolve().parent / "data" / "research" / "profit_window_calibration.json"
+REQUIRED_ARTIFACT_FIELDS = (
+    "model_id", "model_version", "feature_version", "dataset_hash", "dataset_version",
+    "train_window", "validation_window", "oos_window", "cost_model_version",
+    "target_version", "horizon", "schema_version",
+)
 
 
-def _clip(value: Any) -> float:
+def _clip(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
     try:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 def _round_or_none(value: Any, digits: int = 8) -> float | None:
@@ -33,29 +54,31 @@ def _round_or_none(value: Any, digits: int = 8) -> float | None:
 
 
 def _mean(*values: Any) -> float | None:
-    numbers = [_clip(value) for value in values if value is not None]
+    numbers = [number for number in (_clip(value) for value in values if value is not None) if number is not None]
     return sum(numbers) / len(numbers) if numbers else None
 
 
-def _research_score(payload: Dict[str, Any], *keys: str) -> float:
+def _research_score(payload: Dict[str, Any], *keys: str) -> float | None:
     return _mean(*(payload.get(key) for key in keys))
 
 
 def _first_buyer_capacity(
     raw: Dict[str, Any],
     future_buyer_map: Dict[str, Any] | None = None,
-) -> float:
+) -> float | None:
     del raw
     if not isinstance(future_buyer_map, dict):
-        return 0.0
+        return None
     eligible = [
-        _clip(item.get("capacity"))
-        for item in future_buyer_map.get("potential_next_buyer") or []
-        if isinstance(item, dict)
-        and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
-        and item.get("evidence")
-        and item.get("source")
-        and item.get("observed_at")
+        value for value in (
+            _clip(item.get("capacity"))
+            for item in future_buyer_map.get("potential_next_buyer") or []
+            if isinstance(item, dict)
+            and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
+            and item.get("evidence")
+            and item.get("source")
+            and item.get("observed_at")
+        ) if value is not None
     ]
     return max(eligible) if eligible else None
 
@@ -81,11 +104,16 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         for name, behavior in behaviors.items()
     }
     levels = {
-        key: "HIGH" if (value or 0) >= 0.70 else "MEDIUM" if (value or 0) >= 0.40 else "LOW" if (value or 0) > 0 else "UNKNOWN"
+        key: (
+            "UNKNOWN" if value is None
+            else "HIGH" if value >= 0.70
+            else "MEDIUM" if value >= 0.40
+            else "LOW"
+        )
         for key, value in channels.items()
     }
-    confirmed = sum((value or 0) >= 0.50 for value in channels.values())
-    observed = sum((value or 0) > 0 for value in channels.values())
+    confirmed = sum(value >= 0.50 for value in channels.values() if value is not None)
+    observed = sum(value is not None for value in channels.values())
     evidence_items = [item for behavior in behaviors.values() for item in _direct_evidence_items(behavior)]
     independent_sources = {str(item.get("source_id") or item.get("source") or "") for item in evidence_items if item.get("source_id") or item.get("source")}
     independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
@@ -100,9 +128,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     distribution = None if capital.get("distribution_risk") is None else _clip(capital.get("distribution_risk"))
     conflict = (distribution or 0.0) >= 0.70 or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK"
     bullish_directions = {
-        "INSTITUTION_BUYING", "INSTITUTION_ACCUMULATING",
-        "MAIN_FORCE_LIKELY_ACCUMULATING",
-        "HOT_MONEY_BUYING", "HOT_MONEY_ACCELERATING",
+        "BUYING", "ACCUMULATING", "ACCELERATING",
     }
     directional = [
         name for name, behavior in behaviors.items()
@@ -189,14 +215,27 @@ def _repricing_state(capital: Dict[str, Any], supply: Dict[str, Any], market: Di
     }
 
 
+def _artifact_identity(model: Dict[str, Any]) -> tuple[bool, list[str]]:
+    missing = [field for field in REQUIRED_ARTIFACT_FIELDS if model.get(field) in (None, "")]
+    mismatches = []
+    if model.get("model_id") not in (None, "", MODEL_ID):
+        mismatches.append("model_id")
+    if model.get("model_version") not in (None, "", MODEL_VERSION):
+        mismatches.append("model_version")
+    if model.get("feature_version") not in (None, "", FEATURE_VERSION):
+        mismatches.append("feature_version")
+    if model.get("cost_model_version") not in (None, "", COST_MODEL_VERSION):
+        mismatches.append("cost_model_version")
+    if model.get("target_version") not in (None, "", TARGET_VERSION, "PROFIT_WINDOW_5D"):
+        mismatches.append("target_version")
+    if model.get("horizon") not in (None, "", PROFIT_WINDOW_DAYS, str(PROFIT_WINDOW_DAYS)):
+        mismatches.append("horizon")
+    if model.get("schema_version") not in (None, "", SCHEMA_VERSION):
+        mismatches.append("schema_version")
+    return not missing and not mismatches, missing + mismatches
+
+
 def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dict[str, Any]]:
-    if not CALIBRATION_PATH.exists():
-        return None, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_ARTIFACT_MISSING"}
-    try:
-        model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return None, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}"}
-    artifact_status = str(model.get("status") or "").upper()
     default_permissions = {
         "PRICE": "RESEARCH_ONLY",
         "CAPITAL": "RESEARCH_ONLY",
@@ -206,15 +245,39 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
         "FUTURE_BUYER": "RESEARCH_ONLY",
         "REFLEXIVITY": "RESEARCH_ONLY",
     }
+    if not CALIBRATION_PATH.exists():
+        return None, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_ARTIFACT_MISSING", "production_alpha_permissions": default_permissions, "collapsed_features": []}
+    try:
+        model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}", "production_alpha_permissions": default_permissions, "collapsed_features": []}
+    artifact_status = str(model.get("status") or "").upper()
+    identity_ok, identity_issues = _artifact_identity(model)
+    oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
+    production_gates = model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {}
+    permissions = model.get("production_alpha_permissions") or default_permissions
+    collapsed = model.get("collapsed_features") or []
+    if artifact_status == "VALIDATED" and (not identity_ok or collapsed or any(name in collapsed for name in model.get("feature_names") or [])):
+        if collapsed:
+            identity_issues = [*identity_issues, "collapsed_features"]
+        return None, {
+            "status": "MODEL_ARTIFACT_MISMATCH",
+            "validation_status": "MODEL_ARTIFACT_MISMATCH",
+            "reason": "MODEL_ARTIFACT_MISMATCH:" + ",".join(identity_issues),
+            "oos": oos,
+            "production_gates": production_gates,
+            "production_alpha_permissions": permissions,
+            "collapsed_features": collapsed,
+        }
     if artifact_status not in {"CALIBRATED", "EXPERIMENTAL", "VALIDATED"}:
         return None, {
             "status": "DATA_INSUFFICIENT",
             "reason": "CALIBRATION_STATUS_INVALID" if artifact_status not in {"DATA_INSUFFICIENT"} else str(model.get("reason") or "DATA_INSUFFICIENT"),
             "validation_status": "DATA_INSUFFICIENT",
-            "oos": model.get("oos") if isinstance(model.get("oos"), dict) else {},
-            "production_gates": model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {},
-            "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
-            "collapsed_features": model.get("collapsed_features") or [],
+            "oos": oos,
+            "production_gates": production_gates,
+            "production_alpha_permissions": permissions,
+            "collapsed_features": collapsed,
         }
     names = model.get("feature_names") or []
     coefficients = model.get("coefficients") or []
@@ -223,11 +286,9 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
             "status": "DATA_INSUFFICIENT",
             "reason": "CALIBRATION_CONTRACT_INVALID",
             "validation_status": "DATA_INSUFFICIENT",
-            "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
-            "collapsed_features": model.get("collapsed_features") or [],
+            "production_alpha_permissions": permissions,
+            "collapsed_features": collapsed,
         }
-    oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
-    production_gates = model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {}
     required_gates = (
         "data_quality",
         "oos_pass",
@@ -256,28 +317,27 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
                 "status": "DATA_INSUFFICIENT",
                 "reason": f"FEATURE_MISSING:{name}",
                 "validation_status": "DATA_INSUFFICIENT",
-                "production_alpha_permissions": model.get("production_alpha_permissions") or default_permissions,
-                "collapsed_features": model.get("collapsed_features") or [],
+                "production_alpha_permissions": permissions,
+                "collapsed_features": collapsed,
             }
         logit += float(weight) * float(value)
     probability = 1.0 / (1.0 + pow(2.718281828459045, -max(-30.0, min(30.0, logit))))
-    return _clip(probability), {
+    clipped = _clip(probability)
+    meta = {
         "status": artifact_status,
         "validation_status": validation_status,
         "model_id": model.get("model_id"),
+        "model_version": model.get("model_version"),
+        "feature_version": model.get("feature_version"),
+        "dataset_hash": model.get("dataset_hash"),
+        "cost_model_version": model.get("cost_model_version"),
         "oos": oos,
         "production_gates": production_gates,
-        "production_alpha_permissions": model.get("production_alpha_permissions") or {
-            "PRICE": "RESEARCH_ONLY",
-            "CAPITAL": "RESEARCH_ONLY",
-            "SUPPLY": "RESEARCH_ONLY",
-            "PRICING_GAP": "RESEARCH_ONLY",
-            "REPRICING": "RESEARCH_ONLY",
-            "FUTURE_BUYER": "RESEARCH_ONLY",
-            "REFLEXIVITY": "RESEARCH_ONLY",
-        },
-        "collapsed_features": model.get("collapsed_features") or [],
+        "production_alpha_permissions": permissions,
+        "collapsed_features": collapsed,
+        "imputer": imputer,
     }
+    return clipped, meta
 
 
 def build_core_alpha(
@@ -320,7 +380,7 @@ def build_core_alpha(
         "price_expanded": (market["price_strength"] or 0.0) >= 0.80,
         "valuation_expanded": gap.get("price_reflection") is not None and gap["price_reflection"] >= 0.80,
         "attention_extreme": (market["attention"] or 0.0) >= 0.85,
-        "institutional_saturated": _clip(capital_measure["institutional_flow"]) >= 0.90,
+        "institutional_saturated": (capital_measure["institutional_flow"] or 0.0) >= 0.90,
         "hot_money_crowded": (capital_measure["hot_money_flow"] or 0.0) >= 0.90,
     }
     completion["completed"] = bool(
@@ -345,7 +405,7 @@ def build_core_alpha(
         "execution_quality": execution_feasibility,
         "risk": risk["downside"],
     }
-    profit_window_probability, calibration = _calibrated_probability(probability_features)
+    research_probability, calibration = _calibrated_probability(probability_features)
     oos = calibration.get("oos") if isinstance(calibration.get("oos"), dict) else {}
     probability_std = oos.get("probability_std")
     if calibration.get("validation_status") == "VALIDATED" and (
@@ -353,6 +413,8 @@ def build_core_alpha(
     ):
         calibration["validation_status"] = "MODEL_NOT_DISCRIMINATIVE"
         calibration["reason"] = "PROBABILITY_COLLAPSE"
+    model_status = calibration.get("validation_status", calibration.get("status"))
+    profit_window_probability = research_probability if model_status == "VALIDATED" else None
     repricing_evidence_score = _mean(
         capital_measure.get("accumulation"),
         capital_measure.get("capital_flow_ratio"),
@@ -362,7 +424,6 @@ def build_core_alpha(
     )
     # No conditional expected-profit model exists. Do not copy OOS averages
     # onto each candidate; keep these fields unset so BUY stays fail-closed.
-    model_status = calibration.get("validation_status", calibration.get("status"))
     expected_max_profit_5d = None
     expected_mae_5d = None
     expected_time_to_profit = None
@@ -402,7 +463,7 @@ def build_core_alpha(
     ]
     thesis = {
         "why_future_buyers": [
-            f"{item.get('buyer', 'unknown')}: {item.get('trigger', 'trigger not supplied')}"
+            f"{item.get('buyer', 'UNKNOWN')}: {item.get('trigger', 'trigger not supplied')}"
             for item in buyers
         ] or ["future demand evidence and buyer triggers remain incomplete"],
         "who_is_buying": [
@@ -465,6 +526,7 @@ def build_core_alpha(
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
         "repricing_evidence_score": _round_or_none(repricing_evidence_score),
+        "research_probability": _round_or_none(research_probability),
         "profit_window_probability": _round_or_none(profit_window_probability),
         "profit_window_calibration": calibration,
         "profit_window_feature_values": probability_features,
@@ -478,8 +540,10 @@ def build_core_alpha(
         "execution_feasibility": _round_or_none(execution_feasibility),
         "execution_constraints": {
             **CANONICAL_COST_MODEL,
-            "market_impact": execution["market_impact"],
+            "market_impact": execution.get("market_impact"),
+            "all_in_transaction_cost": DEFAULT_COST_RATE,
             "cost_rate": DEFAULT_COST_RATE,
+            "cost_model_version": COST_MODEL_VERSION,
         },
         "thesis_score": _round_or_none(thesis_score),
         "downside_risk": _round_or_none(risk["downside"]),

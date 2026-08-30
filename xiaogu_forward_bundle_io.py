@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from xiaogu_forward_snapshot import canonical_snapshot
+from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
 
 BASE = Path(__file__).resolve().parent
 LIVE_SCAN_ROOT = BASE / "data" / "live_scan"
@@ -27,7 +27,7 @@ def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
 
 def canonical_rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     rows = payload.get("canonical_snapshots") or payload.get("stock_all_a") or payload.get("rows") or []
-    return [canonical_snapshot(row, trade_date=str(payload.get("date") or ""), source_time=str(payload.get("source_time") or "")) for row in rows if isinstance(row, dict)]
+    return [validate_and_build_canonical_snapshot(row, trade_date=str(payload.get("date") or ""), source_time=str(payload.get("source_time") or "")) for row in rows if isinstance(row, dict)]
 
 
 def load_latest_snapshot_bundle(trade_date: str) -> Dict[str, Any]:

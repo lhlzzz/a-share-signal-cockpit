@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Dict, Iterable, List
 
 from sqlalchemy import create_engine, text
@@ -14,10 +15,15 @@ engine = create_engine(
     os.environ.get("DATABASE_URL", "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"),
     connect_args={"connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))},
 )
+_ACTIVE_DB_CONNECTION: ContextVar[Any | None] = ContextVar("xiaogu_active_db_connection", default=None)
 
 
 @contextmanager
 def get_db():
+    active = _ACTIVE_DB_CONNECTION.get()
+    if active is not None:
+        yield active
+        return
     with engine.begin() as connection:
         yield connection
 
@@ -180,7 +186,7 @@ def audit_production_schema() -> Dict[str, Any]:
             "snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time",
             "payload_hash",
         ),
-        "picks": ("decision_id",),
+        "picks": ("decision_id", "position_state"),
         "returns": ("decision_id",),
         "canonical_historical_snapshots": (
             "snapshot_id", "lineage_id", "symbol", "trade_date", "signal_time",
@@ -291,6 +297,7 @@ def ensure_production_schema() -> None:
         "ALTER TABLE canonical_historical_snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
@@ -582,7 +589,8 @@ def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]
 
 
 def record_snapshot(snapshot: Dict[str, Any]) -> None:
-    ensure_production_schema()
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
     snapshot_id = str(snapshot.get("snapshot_id") or "")
     lineage_id = str(snapshot.get("lineage_id") or "")
     if not snapshot_id or not lineage_id:
@@ -645,16 +653,18 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
 
 
 def record_decision(decision: Dict[str, Any]) -> None:
-    ensure_production_schema()
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
     if not str(decision.get("decision_id") or "").strip():
         raise ValueError("DECISION_ID_REQUIRED")
     columns = _table_columns("picks")
-    fields = ["trade_date", "symbol", "state", "payload"]
+    fields = ["trade_date", "symbol", "state", "position_state", "payload"]
     canonical = decision.get("canonical_snapshot") or {}
     params = {
         "trade_date": canonical.get("trade_date") or decision.get("date") or decision.get("trade_date"),
         "symbol": decision.get("symbol") or canonical.get("symbol"),
         "state": decision.get("action") or decision["state"],
+        "position_state": decision.get("position_state"),
         "payload": json.dumps(decision, ensure_ascii=False, default=str),
         "decision_id": decision.get("decision_id"),
     }
@@ -665,6 +675,8 @@ def record_decision(decision: Dict[str, Any]) -> None:
         params["decision"] = params["state"]
     if "state" not in columns and "state" in fields:
         fields.remove("state")
+    if "position_state" not in columns and "position_state" in fields:
+        fields.remove("position_state")
     if "payload" not in columns and "payload" in fields:
         fields.remove("payload")
     with get_db() as db:
@@ -676,6 +688,18 @@ def record_decision(decision: Dict[str, Any]) -> None:
             ),
             params,
         )
+
+
+def record_snapshot_and_decision(snapshot: Dict[str, Any], decision: Dict[str, Any]) -> None:
+    """Persist one snapshot and its decision in the same PostgreSQL transaction."""
+    ensure_production_schema()
+    with engine.begin() as db:
+        token = _ACTIVE_DB_CONNECTION.set(db)
+        try:
+            record_snapshot(snapshot)
+            record_decision(decision)
+        finally:
+            _ACTIVE_DB_CONNECTION.reset(token)
 
 
 def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
@@ -850,13 +874,14 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
         select_state = "decision AS state"
     select_payload = ", payload" if "payload" in columns else ""
     select_decision_id = ", decision_id" if "decision_id" in columns else ""
+    select_position_state = ", position_state" if "position_state" in columns else ""
     with engine.connect() as db:
         rows = [
             dict(row)
             for row in db.execute(
                 text(
                     f"""
-                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}{select_decision_id}
+                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}{select_decision_id}{select_position_state}
                     FROM picks
                     ORDER BY symbol, id DESC
                     """
@@ -866,7 +891,8 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
     positions = []
     for row in rows:
         action = str(row.get("state") or row.get("decision") or "")
-        if action not in {"BUY", "HOLD", "REDUCE"}:
+        position_state = str(row.get("position_state") or "")
+        if position_state != "LONG":
             continue
         payload = row.get("payload")
         if isinstance(payload, str):
@@ -881,11 +907,38 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
             "state": action,
             "action": payload.get("action") or action,
             "previous_action": payload.get("action") or action,
-            "position_state": payload.get("position_state") or "LONG",
+            "position_state": position_state,
             "decision": payload.get("action") or action,
             "decision_id": payload.get("decision_id") or row.get("decision_id") or row.get("id"),
         })
     return positions
+
+
+def fetch_position_state(symbol: str) -> str:
+    """Read the latest explicit PostgreSQL position state for one symbol."""
+    wanted = str(symbol or "").strip()
+    if not wanted:
+        return "FLAT"
+    columns = _table_columns("picks")
+    if "position_state" not in columns:
+        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
+    with engine.connect() as db:
+        row = db.execute(
+            text(
+                """
+                SELECT position_state
+                FROM picks
+                WHERE symbol = :symbol
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ),
+            {"symbol": wanted},
+        ).mappings().first()
+    state = str((row or {}).get("position_state") or "FLAT").upper()
+    if state not in {"FLAT", "LONG"}:
+        raise ValueError(f"INVALID_POSITION_STATE:{state}")
+    return state
 
 
 def fetch_position_outcome(decision_id: str = "", *, symbol: str = "") -> Dict[str, Any]:

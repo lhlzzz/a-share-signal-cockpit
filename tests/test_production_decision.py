@@ -52,7 +52,7 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
     assert buy["future_buyer_map"]["potential_next_buyer"] == []
     assert buy["thesis"]["why_future_buyers"]
 
-    hold = evaluate_candidate_bundle(ready, portfolio_state="BUY", as_of=AS_OF)
+    hold = evaluate_candidate_bundle(ready, portfolio_state="BUY", position_state="LONG", as_of=AS_OF)
     assert hold["state"] == "HOLD"
 
     blocked = evaluate_candidate_bundle(
@@ -63,13 +63,13 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
     assert "TRADINGAGENTS_CONTRADICTION" in blocked["repricing_risk"]["blockers"]
 
     reduce = evaluate_candidate_bundle(
-        ready | {"f62": -1_000, "pct_chg": 1}, portfolio_state="BUY", as_of=AS_OF,
+        ready | {"f62": -1_000, "pct_chg": 1}, portfolio_state="BUY", position_state="LONG", as_of=AS_OF,
     )
     assert reduce["state"] == "REDUCE"
     assert reduce["reason"] == "CAPITAL_EXIT"
 
     sell = evaluate_candidate_bundle(
-        ready | {"thesis_invalidated": True}, portfolio_state="BUY", as_of=AS_OF,
+        ready | {"thesis_invalidated": True}, portfolio_state="BUY", position_state="LONG", as_of=AS_OF,
     )
     assert sell["state"] == "SELL"
     assert sell["reason"] == "BUSINESS_OR_INDUSTRY_THESIS_BROKEN"
@@ -82,7 +82,7 @@ def test_unverified_profit_window_cannot_enable_buy():
     assert decision["state"] == "READY"
     assert decision["core_alpha"]["expected_return_status"] in {"EXPERIMENTAL", "DATA_INSUFFICIENT"}
     assert decision["core_alpha"]["model_status"] != "VALIDATED"
-    assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
+    assert "ALPHA_NOT_VALIDATED" in decision["repricing_risk"]["blockers"]
     assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert not any(key.startswith("expected_") and key.endswith("_return") for key in decision["core_alpha"])
     assert decision["core_alpha"]["capital_convergence"]["state"] == "UNKNOWN"
@@ -109,10 +109,11 @@ def test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed(tmp_pa
     monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
 
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
-    assert decision["core_alpha"]["profit_window_probability"] == 0.5
+    assert decision["core_alpha"]["research_probability"] == 0.5
+    assert decision["core_alpha"]["profit_window_probability"] is None
     assert decision["core_alpha"]["profit_window_calibration"]["status"] == "CALIBRATED"
     assert decision["state"] == "READY"
-    assert "ALPHA_CALIBRATION_UNAVAILABLE" in decision["repricing_risk"]["blockers"]
+    assert "ALPHA_NOT_VALIDATED" in decision["repricing_risk"]["blockers"]
 
 
 def test_validated_label_without_all_production_gates_stays_experimental(tmp_path, monkeypatch):
@@ -120,7 +121,18 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
 
     calibration_path = tmp_path / "profit_window_calibration.json"
     calibration_path.write_text(json.dumps({
-        "model_id": "test-validated-without-gates",
+        "model_id": "profit_window_alpha_5d_v2",
+        "model_version": "v2",
+        "feature_version": "capital_behavior_measurements_v2",
+        "dataset_hash": "test",
+        "dataset_version": "test",
+        "train_window": {"count": 10},
+        "validation_window": {"count": 5},
+        "oos_window": {"count": 5},
+        "cost_model_version": "cost_model_v1",
+        "target_version": "PROFIT_WINDOW_5D",
+        "horizon": 5,
+        "schema_version": "alpha_artifact_v1",
         "target": "PROFIT_WINDOW_5D",
         "status": "VALIDATED",
         "intercept": 0.0,
@@ -152,7 +164,7 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
     assert decision["core_alpha"]["low_price"] is False
 
     one_event = evaluate_candidate_bundle(
-        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True}]},
+        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"}]},
         as_of=AS_OF,
     )
     assert one_event["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
@@ -160,8 +172,8 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
 
     evidenced = ready | {
         "lhb": [
-            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100},
-            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80},
+            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
         ],
     }
     evidenced_decision = evaluate_candidate_bundle(evidenced, as_of=AS_OF)
@@ -177,7 +189,7 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
 def test_profit_window_hit_reduces_held_position():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot(),
-        portfolio_state="BUY",
+        portfolio_state="BUY", position_state="LONG",
         account={"profit_window_hit": True},
         as_of=AS_OF,
     )
@@ -196,7 +208,7 @@ def test_climax_or_buyer_exhaustion_blocks_new_buy():
 def test_five_day_boundary_closes_trade():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot(),
-        portfolio_state="HOLD",
+        portfolio_state="HOLD", position_state="LONG",
         account={"holding_days": 5},
         as_of=AS_OF,
     )
@@ -208,7 +220,7 @@ def test_five_day_boundary_closes_trade():
 def test_five_day_boundary_closes_even_after_profit_window_hit():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot(),
-        portfolio_state="HOLD",
+        portfolio_state="HOLD", position_state="LONG",
         account={"holding_days": 5, "profit_window_hit": True},
         as_of=AS_OF,
     )
@@ -221,7 +233,7 @@ def test_same_lhb_event_is_one_independent_origin():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100},
+                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
             ],
         },
         as_of=AS_OF,
@@ -243,8 +255,8 @@ def test_duplicate_evidence_family_does_not_inflate_independent_channels():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入", "institution": True},
-                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True},
+                {"EXPLAIN": "1家机构买入", "institution": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
             ],
         },
         as_of=AS_OF,
@@ -258,7 +270,7 @@ def test_duplicate_evidence_family_does_not_inflate_independent_channels():
 def test_five_day_boundary_uses_sell_action_and_closed_trade():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot(),
-        portfolio_state="HOLD",
+        portfolio_state="HOLD", position_state="LONG",
         account={"holding_days": 5},
         as_of=AS_OF,
     )
@@ -309,7 +321,18 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
 
     calibration_path = tmp_path / "profit_window_calibration.json"
     calibration_path.write_text(json.dumps({
-        "model_id": "collapsed",
+        "model_id": "profit_window_alpha_5d_v2",
+        "model_version": "v2",
+        "feature_version": "capital_behavior_measurements_v2",
+        "dataset_hash": "test",
+        "dataset_version": "test",
+        "train_window": {"count": 10},
+        "validation_window": {"count": 5},
+        "oos_window": {"count": 5},
+        "cost_model_version": "cost_model_v1",
+        "target_version": "PROFIT_WINDOW_5D",
+        "horizon": 5,
+        "schema_version": "alpha_artifact_v1",
         "target": "PROFIT_WINDOW_5D",
         "status": "VALIDATED",
         "intercept": 0.0,
