@@ -17,7 +17,7 @@ Tier: structural
 | T10 | Historical truth classification | verified | 327 categorized; 92.61% canonical | D7 | no synthetic decision IDs; unresolved identity preserved |
 | T11 | Minimal alpha and OOS accounting | verified | v4 price-only; no incremental families | D7,D8 | FULL below PRICE; BUY remains blocked |
 | T12 | Regression and artifact rebuild | verified | 118 tests; artifacts rebuilt; 17/17 health | V5 | research artifacts use database facts only |
-| T13 | Graph, commit, and push | verified | af110db indexed; push pending | C:af110db,V6 | final graph refresh follows amend |
+| T13 | Graph, commit, and push | verified | dbc618e indexed; pushed main | C:dbc618e,V6 | final graph refresh follows amend |
 
 ## Decision Log
 
