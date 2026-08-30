@@ -16,7 +16,7 @@ Tier: structural
 | T9 | Validation, indexes, git | verified | 78 tests, compileall, health 16/16, graph refresh, pushed main | D3 | HEAD matches origin/main |
 | T10 | Historical truth classification | verified | 327 categorized; 92.61% canonical | D7 | no synthetic decision IDs; unresolved identity preserved |
 | T11 | Minimal alpha and OOS accounting | verified | v4 price-only; no incremental families | D7,D8 | FULL below PRICE; BUY remains blocked |
-| T12 | Regression and artifact rebuild | verified | 118 tests; artifacts rebuilt; 17/17 health | V5 | research artifacts use database facts only |
+| T12 | Regression and artifact rebuild | verified | 119 tests; artifacts rebuilt; 17/17 health | V5 | research artifacts use database facts only |
 | T13 | Graph, commit, and push | verified | dbc618e indexed; pushed main | C:dbc618e,V6 | final graph refresh follows amend |
 
 ## Decision Log
@@ -39,7 +39,7 @@ Tier: structural
 | V1 | pytest 76 passed; compileall 0; health 16/16 |
 | V2 | historical PK snapshot_id; 0 unresolved snapshot_ids |
 | V3 | dataset 0 CANONICAL / 3598 UNRESOLVED |
-| V5 | 118 tests; compileall; health 17/17; v4 artifacts rebuilt |
+| V5 | 119 tests; compileall; health 17/17; v4 artifacts rebuilt |
 | V6 | moderate graph index: 1003 nodes / 2612 edges |
 
 ## Reconciliation History

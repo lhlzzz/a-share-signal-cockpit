@@ -512,6 +512,7 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         return max(0.0, min(1.0, numeric))
     vector = _feature_payload(row)
     group_by_name = {
+        "capital_flow_ratio": ("CAPITAL", "capital_flow_ratio"),
         "capital_price_impact": ("CAPITAL", "capital_price_impact"),
         "real_pricing_gap": ("PRICING_GAP", "real_pricing_gap"),
     }

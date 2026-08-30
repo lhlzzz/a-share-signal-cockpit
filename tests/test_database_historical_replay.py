@@ -144,6 +144,15 @@ def test_feature_diagnostics_accepts_only_complete_future_buyer_evidence():
     assert diagnostics["features"]["future_buyer_evidence"]["missing_rate"] == 0.0
 
 
+def test_feature_diagnostics_reads_capital_measurement_from_feature_vector():
+    row = {
+        "profit_window": True,
+        "feature_vector": {"CAPITAL": {"capital_flow_ratio": 0.25}},
+    }
+    diagnostics = diagnose_features([row], feature_names=("capital_flow_ratio",))
+    assert diagnostics["features"]["capital_flow_ratio"]["missing_rate"] == 0.0
+
+
 def test_profit_window_uses_cost_adjusted_high_not_close():
     row = _return_row(
         t1_mfe=0.022,
