@@ -14,10 +14,10 @@ from urllib.parse import urlencode
 from xiaogu_core_alpha import CANONICAL_COST_MODEL, DEFAULT_COST_RATE
 from xiaogu_horizon_evaluation import HORIZONS
 from scrapy_scanner.runner_v2 import api_get
-from xiaogu_utils import append_jsonl, decision_record_id, has_decision_payload, load_jsonl, now_iso
+from xiaogu_utils import append_jsonl, now_iso
 
 BASE = Path(__file__).resolve().parent
-FORWARD_LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"
+FORWARD_LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"  # audit artifact only
 EASTMONEY_KLINE_ENDPOINT = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 EASTMONEY_KLINE_FIELDS = (
     "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
@@ -28,6 +28,18 @@ DEFAULT_EXECUTION_COST_RATE = DEFAULT_COST_RATE
 PROFIT_WINDOW_TARGET = 0.02
 EVALUATION_DAYS = (1, 2, 3, 4, 5)
 REALIZABILITY_LEVEL = "DAILY_BAR_APPROXIMATION"
+
+
+def _row_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    result = dict(payload) if isinstance(payload, dict) else {}
+    result.update({key: value for key, value in row.items() if key != "payload"})
+    return result
 
 
 @contextmanager
@@ -436,9 +448,12 @@ def append_result(
         if future_bars is not None
         else calculate_horizon_returns(entry, future_prices or {})
     )
+    decision_id = str(record.get("id") or record.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ValueError("DECISION_ID_REQUIRED")
     result = {
         "record_type": "RESULT",
-        "decision_id": record.get("id") or decision_record_id(record),
+        "decision_id": decision_id,
         "date": record.get("date"),
         "symbol": record.get("symbol"),
         "rule_version": record.get("rule_version"),
@@ -514,12 +529,13 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as exc:
         result["database_persistence"] = {"status": "FAILED", "error": repr(exc)}
         raise
+    append_jsonl(FORWARD_LEDGER, result)
+    result["audit_persistence"] = {"status": "PASS"}
     try:
         from xiaogu_forward_paper_recorder_v0_1 import update_trade_memory
         result["memory_path"] = update_trade_memory(result)
     except OSError as exc:
         result["memory_error"] = repr(exc)
-    append_jsonl(FORWARD_LEDGER, result)
     return result
 
 
@@ -529,19 +545,33 @@ def _has_new_outcome(result: Dict[str, Any], prior: Dict[str, Any] | None) -> bo
 
 
 def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
-    """Append only newly available five-day window outcomes for decisions."""
-    records = load_jsonl(FORWARD_LEDGER)
-    prior_results = {
-        str(record.get("decision_id") or decision_record_id(record)): record
-        for record in records
-        if record.get("record_type") == "RESULT"
-    }
+    """Fill DB decisions; JSONL receives only the resulting audit artifact."""
+    from xiaogu_db import fetch_picks, fetch_returns
+
+    records = []
+    for row in fetch_picks():
+        record = _row_payload(row)
+        action = str(record.get("action") or record.get("state") or record.get("decision") or "").upper()
+        if action not in {"BUY", "HOLD", "REDUCE", "SELL"}:
+            continue
+        record["record_type"] = "DECISION"
+        record["decision"] = action
+        record["id"] = str(record.get("decision_id") or record.get("id") or "")
+        record["date"] = str(record.get("date") or record.get("trade_date") or "")
+        records.append(record)
+    prior_results: Dict[str, Dict[str, Any]] = {}
+    for row in fetch_returns():
+        record = _row_payload(row)
+        decision_id = str(record.get("decision_id") or "").strip()
+        if decision_id and decision_id not in prior_results:
+            prior_results[decision_id] = record
     filled = []
     errors = []
     for record in records:
-        if not has_decision_payload(record):
+        decision_id = str(record.get("id") or record.get("decision_id") or "")
+        if not decision_id:
+            errors.append({"decision_id": "", "error": "DECISION_ID_REQUIRED"})
             continue
-        decision_id = str(record.get("id") or record.get("decision_id") or decision_record_id(record))
         try:
             bars = eastmoney_future_bars(
                 str(record["symbol"]), entry_date=str(record["date"]), end_date=end_date,

@@ -1326,10 +1326,18 @@ def historical_replay(
         isinstance((row.get("snapshot") or {}).get("source_layers"), list)
         for row in rows
     )
+    l2_count = sum(
+        "L2_CAPITAL_CANDIDATE" in ((row.get("snapshot") or {}).get("source_layers") or [])
+        for row in rows
+    ) if source_layers_present else None
     l3_count = sum(
         "L3_DEEP_CANDIDATE_FETCH" in ((row.get("snapshot") or {}).get("source_layers") or [])
         for row in rows
     ) if source_layers_present else None
+    quality_counts = {
+        quality.lower() + "_count": sum(1 for row in rows if row.get("target_quality") == quality)
+        for quality in ("PARTIAL", "CONFLICT", "INVALID", "UNRESOLVED")
+    }
     selection_audit = {
         "full_universe_count": full_universe,
         "l1_count": next(
@@ -1337,12 +1345,12 @@ def historical_replay(
              if audit.get("l1_eligible_universe") is not None),
             None,
         ),
-        "l2_count": l3_count,
+        "l2_count": l2_count,
         "l3_count": l3_count,
         "alpha_count": len(decisions),
         "decision_count": len(decisions),
         "canonical_count": sum(1 for row in rows if (row.get("snapshot") or {}).get("trusted_snapshot") is True),
-        "unresolved_count": sum(1 for row in rows if (row.get("target_quality") == "UNRESOLVED")),
+        **quality_counts,
         "selection_bias_warning": bool(
             full_universe is None
             or l3_count is None

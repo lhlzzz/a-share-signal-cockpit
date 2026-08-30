@@ -1,4 +1,4 @@
-"""Production query API with no retired strategy surfaces."""
+"""Production query API backed exclusively by PostgreSQL facts."""
 from __future__ import annotations
 
 import json
@@ -8,35 +8,47 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import FastAPI
-from xiaogu_utils import decision_record_id, has_decision_payload
 
-BASE = Path(__file__).resolve().parent
-LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 app = FastAPI(title="Xiaogu")
 
 
-def _records() -> List[Dict[str, Any]]:
-    if not LEDGER.exists():
-        return []
-    return [json.loads(line) for line in LEDGER.read_text(encoding="utf-8").splitlines() if line.strip()]
+def _payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {}
+    result = dict(payload) if isinstance(payload, dict) else {}
+    result.update({key: value for key, value in row.items() if key != "payload"})
+    return result
 
 
 def _decision_id(record: Dict[str, Any]) -> str:
-    return str(record.get("id") or record.get("decision_id") or decision_record_id(record))
+    return str(record.get("decision_id") or "").strip()
 
 
 def _decision_records() -> List[Dict[str, Any]]:
-    return [
-        record for record in _records()
-        if has_decision_payload(record)
-        and str(record.get("decision") or record.get("new_state") or "").upper()
-        in RECORDABLE_DECISIONS
-    ]
+    from xiaogu_db import fetch_picks
+
+    records = []
+    for row in fetch_picks():
+        record = _payload(row)
+        action = str(record.get("action") or record.get("state") or record.get("decision") or "").upper()
+        if action not in RECORDABLE_DECISIONS or not _decision_id(record):
+            continue
+        record["decision_id"] = _decision_id(record)
+        record["decision"] = action
+        record["new_state"] = action
+        records.append(record)
+    return records
 
 
 def _result_records() -> List[Dict[str, Any]]:
-    return [record for record in _records() if record.get("record_type") == "RESULT"]
+    from xiaogu_db import fetch_returns
+
+    return [_payload(row) for row in fetch_returns()]
 
 
 def _production_view(value: Any) -> Any:
@@ -59,30 +71,36 @@ def _production_view(value: Any) -> Any:
 
 @app.get("/health")
 def system_health() -> Dict[str, Any]:
-    return {"status": "ok", "paper_only": True, "ledger_available": LEDGER.exists()}
+    try:
+        from xiaogu_db import audit_production_schema
+
+        schema = audit_production_schema()
+        return {"status": "ok" if schema.get("ok") else "blocked", "paper_only": True, "database": schema}
+    except Exception as exc:
+        return {"status": "blocked", "paper_only": True, "database": {"ok": False, "error": repr(exc)}}
 
 
 @app.get("/state")
 def current_state() -> Dict[str, Any]:
+    from xiaogu_db import fetch_open_positions
+
     records = _decision_records()
-    latest = {}
-    for record in records:
-        latest[str(record.get("symbol") or "")] = record
+    positions = []
+    for row in fetch_open_positions():
+        position = _payload(row)
+        position.setdefault("decision", position.get("action") or position.get("state"))
+        positions.append(_production_view(position))
     return {
         "market_state": "UNKNOWN",
-        "positions": [
-            _production_view(record)
-            for record in latest.values()
-            if record.get("decision") in {"BUY", "HOLD", "REDUCE"}
-        ],
-        "latest": _production_view(records[-1]) if records else None,
+        "positions": positions,
+        "latest": _production_view(records[0]) if records else None,
     }
 
 
 @app.get("/decision")
 def current_decision() -> Dict[str, Any]:
     records = _decision_records()
-    return _production_view(records[-1]) if records else {"found": False}
+    return _production_view(records[0]) if records else {"found": False}
 
 
 @app.get("/trades")
@@ -90,7 +108,9 @@ def trades() -> List[Dict[str, Any]]:
     """Return one traceable trade view per production decision."""
     results = {}
     for result in _result_records():
-        results.setdefault(_decision_id(result), []).append(result)
+        decision_id = str(result.get("decision_id") or "").strip()
+        if decision_id:
+            results.setdefault(decision_id, []).append(result)
     return [_production_view({
         "decision_id": _decision_id(record),
         "symbol": record.get("symbol"),
@@ -109,7 +129,7 @@ def trades() -> List[Dict[str, Any]]:
         },
         "memory_path": record.get("memory_path"),
         "outcomes": results.get(_decision_id(record), []),
-    }) for record in _decision_records()]
+    }) for record in _decision_records() if _decision_id(record)]
 
 
 @app.get("/trade/{decision_id}")
@@ -149,7 +169,7 @@ def patterns() -> Dict[str, Any]:
         (successful if review.get("status") == "SUCCESS" else failed).append({
             "attribution": attribution,
             "symbol": result.get("symbol"),
-            "decision_id": _decision_id(result),
+            "decision_id": str(result.get("decision_id") or ""),
             "first_profit_day": review.get("profit_window_day"),
         })
     return {"success": successful, "failure": failed, "research_only": True}

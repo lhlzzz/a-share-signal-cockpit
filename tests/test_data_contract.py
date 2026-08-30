@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import sys
 import pytest
 
 from xiaogu_forward_eligibility import candidate_universe
@@ -268,19 +270,76 @@ def test_runner_bundle_loader_reads_scanner_canonical_jsonl(tmp_path, monkeypatc
 def test_api_exposes_current_state_and_trade_views(tmp_path, monkeypatch):
     import xiaogu_api
 
-    ledger = tmp_path / "ledger.jsonl"
-    ledger.write_text("\n".join([
-        '{"record_type":"DECISION","symbol":"600001","date":"2026-08-25","decision":"WATCH","features_used":{}}',
-        '{"record_type":"DECISION","symbol":"600001","date":"2026-08-26","decision":"BUY","features_used":{"repricing_readiness":{"CAPITAL_READY":true},"repricing_risk":{"blockers":[]},"future_buyer_map":{"potential_next_buyer":[{"buyer":"Institution"}]}}}',
-        '{"record_type":"RESULT","decision_id":"2026-08-26__DECISION_600001","future_5d_return":0.1}',
-    ]) + "\n", encoding="utf-8")
-    monkeypatch.setattr(xiaogu_api, "LEDGER", ledger)
+    monkeypatch.setattr("xiaogu_db.fetch_picks", lambda: [{
+        "decision_id": "decision-1", "symbol": "600001", "trade_date": "2026-08-26",
+        "state": "BUY", "position_state": "LONG", "payload": {
+            "decision_id": "decision-1", "decision": "BUY", "features_used": {},
+        },
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_returns", lambda: [{
+        "record_type": "RESULT", "decision_id": "decision-1", "payload": {
+            "decision_id": "decision-1", "future_5d_return": 0.1,
+        },
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "decision_id": "decision-1", "symbol": "600001", "state": "BUY",
+        "position_state": "LONG", "payload": {},
+    }])
     assert xiaogu_api.current_state()["positions"][0]["decision"] == "BUY"
     assert xiaogu_api.current_decision()["decision"] == "BUY"
     assert xiaogu_api.trades()[0]["new_state"] == "BUY"
     decision_id = xiaogu_api.trades()[0]["decision_id"]
     assert xiaogu_api.trade(decision_id)["decision_id"] == decision_id
     assert xiaogu_api.trade("missing-decision")["found"] is False
+
+
+def test_api_ignores_unresolved_pick_without_explicit_decision_id(monkeypatch):
+    import xiaogu_api
+
+    monkeypatch.setattr("xiaogu_db.fetch_picks", lambda: [{
+        "id": 99, "symbol": "600001", "state": "BUY", "payload": {},
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_returns", lambda: [])
+    assert xiaogu_api.current_decision() == {"found": False}
+    assert xiaogu_api.trades() == []
+
+
+def test_runner_sample_accounting_preserves_each_pipeline_layer(tmp_path, monkeypatch, capsys):
+    import xiaogu_forward_runner as runner
+
+    snapshots = [
+        {"symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+         "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
+                            "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH"]},
+        {"symbol": "600002", "price": 10, "volume": 100, "amount": 1000,
+         "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
+                            "L2_CAPITAL_CANDIDATE"]},
+        {"symbol": "600003", "price": 10, "volume": 100, "amount": 1000,
+         "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY"]},
+        {"symbol": "600004", "price": 10, "volume": 100, "amount": 1000,
+         "trade_date": "2026-08-26", "future_5d_return": 0.1},
+    ]
+    snapshot_path = tmp_path / "snapshots.json"
+    snapshot_path.write_text(json.dumps({"canonical_snapshots": snapshots}), encoding="utf-8")
+    monkeypatch.setattr(runner, "run_production_decision", lambda *args, **kwargs: {
+        "state": "WATCH", "action": "WATCH", "symbol": args[0]["symbol"],
+    })
+    monkeypatch.setattr(sys, "argv", [
+        "xiaogu_forward_runner.py", "--date", "2026-08-26", "--mode", "REPLAY",
+        "--snapshot-json", str(snapshot_path),
+    ])
+
+    runner.main()
+    output = json.loads(capsys.readouterr().out)
+    assert output["sample_accounting"] == {
+        "full_universe_count": 4, "l1_count": 3, "l2_count": 2, "l3_count": 1,
+        "alpha_count": 1, "decision_count": 1, "canonical_count": 3,
+        "partial_count": 0, "conflict_count": 0, "invalid_count": 1,
+        "unresolved_count": 0,
+    }
 
 
 def test_fake_canonical_snapshot_is_blocked_from_feature_engine():

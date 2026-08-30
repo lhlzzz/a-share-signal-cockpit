@@ -378,7 +378,7 @@ def _snapshot_and_record(
 
 
 def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
-    """Persist a production decision through the sole append-only ledger owner."""
+    """Persist DB truth, then append audit JSONL, then write memory."""
     rule = load_json(RULE_FREEZE)
     if str(decision.get("state") or "") not in RECORDABLE_DECISIONS:
         raise ValueError("RECORDER_ACCEPTS_PRODUCTION_EVENTS_ONLY")
@@ -403,6 +403,9 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
         raise
+    dump_json(snap, snapshot)
+    record['audit_persistence'] = {'status': 'PASS'}
+    append_jsonl(FORWARD_LEDGER, record)
     memory_error = None
     memory_path = None
     for _attempt in range(2):
@@ -424,8 +427,6 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
             'date': record.get('date'),
             'error': memory_error,
         })
-    dump_json(snap, snapshot)
-    append_jsonl(FORWARD_LEDGER, record)
     return snap, record
 
 
@@ -471,13 +472,20 @@ def main() -> None:
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return
 
-    dump_json(snap, snapshot)
-    try:
-        rec['memory_path'] = write_trade_memory(rec) or None
-    except OSError as exc:
-        rec['memory_path'] = None
-        rec['memory_error'] = repr(exc)
-    append_jsonl(FORWARD_LEDGER, rec)
+    canonical = features.get('canonical_snapshot')
+    if not isinstance(canonical, dict):
+        raise ValueError('CANONICAL_SNAPSHOT_REQUIRED')
+    persisted_decision = {
+        **features,
+        'state': args.decision,
+        'action': args.decision,
+        'decision_id': features.get('decision_id') or rec.get('id'),
+        'reason': args.decision_reason,
+        'canonical_snapshot': canonical,
+        'xiaochan_gate_status': args.xiaochan_gate_status,
+        'xiaoshuju_data_gate_status': args.xiaoshuju_data_gate_status,
+    }
+    _snap_path, rec = append_production_decision(persisted_decision)
     print(json.dumps({'appended': True, 'ledger': str(FORWARD_LEDGER), 'snapshot': str(snap), 'record': rec}, ensure_ascii=False, indent=2))
 
 if __name__ == '__main__':

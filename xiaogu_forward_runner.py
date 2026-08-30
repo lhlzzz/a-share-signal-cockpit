@@ -191,17 +191,37 @@ def main() -> None:
     if not rows:
         print(json.dumps({"state": "WATCH", "reason": "SNAPSHOT_NOT_FOUND", "date": args.date}))
         return
+    input_count = len(rows)
     trusted = []
     for row in rows:
         try:
             trusted.append(validate_and_build_canonical_snapshot(row, target_trade_date=args.date))
         except (TypeError, ValueError):
             continue
-    rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
+    canonical_rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
+    canonical_count = len(canonical_rows)
     if args.symbol:
-        selected = select_canonical_snapshot(rows, symbol=args.symbol, trade_date=args.date)
-        rows = [selected] if selected is not None else []
-    rows, universe = candidate_universe(rows)
+        selected = select_canonical_snapshot(canonical_rows, symbol=args.symbol, trade_date=args.date)
+        canonical_rows = [selected] if selected is not None else []
+    eligible_rows, universe = candidate_universe(canonical_rows)
+    routed_rows = [
+        row for row in eligible_rows
+        if "L3_DEEP_CANDIDATE_FETCH" in (row.get("source_layers") or [])
+    ]
+    # Replay fixtures may predate source_layers; only live scanner output is
+    # required to prove the L3 route before Alpha evaluation.
+    routing_metadata_present = any(row.get("source_layers") for row in eligible_rows)
+    if routing_metadata_present:
+        rows = routed_rows
+    else:
+        rows = eligible_rows
+    universe.update({
+        "l2_routed_count": (
+            sum("L2_CAPITAL_CANDIDATE" in (row.get("source_layers") or []) for row in eligible_rows)
+            if routing_metadata_present else None
+        ),
+        "l3_count": len(rows),
+    })
     decisions = []
     recorded = 0
     for row in rows:
@@ -223,6 +243,19 @@ def main() -> None:
         "count": len(decisions),
         "recorded": recorded,
         "candidate_universe": universe,
+        "sample_accounting": {
+            "full_universe_count": input_count,
+            "l1_count": universe.get("eligible_count", 0),
+            "l2_count": universe.get("l2_routed_count", 0),
+            "l3_count": universe.get("l3_count", 0),
+            "alpha_count": len(decisions),
+            "decision_count": len(decisions),
+            "canonical_count": canonical_count,
+            "partial_count": 0,
+            "conflict_count": 0,
+            "invalid_count": input_count - len(trusted),
+            "unresolved_count": 0,
+        },
         "decisions": decisions,
     }, ensure_ascii=False, default=str))
 

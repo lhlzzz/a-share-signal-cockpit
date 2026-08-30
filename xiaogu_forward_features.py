@@ -273,10 +273,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     pct_change = _optional_number(_first(raw, "pct_chg", "signal_pct", "f3"))
     main_flow = _optional_number(_first(flow, "main_net_inflow", "f62", default=_first(raw, "main_net_inflow", "f62")))
     main_flow_pct = _optional_number(_first(flow, "main_net_inflow_pct", "f184", "f18"))
-    amount_value = amount or 0.0
-    turnover_value = turnover or 0.0
-    main_flow_value = main_flow or 0.0
-    pct_change_value = pct_change or 0.0
+    amount_observed = amount is not None and amount > 0
+    turnover_observed = turnover is not None and turnover > 0
     close_position = _ratio(price - low, high - low) if price is not None and high is not None and low is not None and high > low else None
     turnover_velocity = _optional_clip(turnover / 20.0) if turnover is not None else None
     price_strength = _optional_clip((pct_change + 5.0) / 15.0) if pct_change is not None else None
@@ -588,8 +586,8 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     )
     capital["capital_flow_observation"] = capital_flow_observation
     capital["capital_flow_state"] = (
-        "CAPITAL_FLOW_POSITIVE" if main_flow_value > 0 and amount_value > 0
-        else "CAPITAL_FLOW_NEGATIVE" if main_flow_value < 0 and amount_value > 0
+        "CAPITAL_FLOW_POSITIVE" if main_flow is not None and main_flow > 0 and amount_observed
+        else "CAPITAL_FLOW_NEGATIVE" if main_flow is not None and main_flow < 0 and amount_observed
         else "UNKNOWN"
     )
     capital["hot_money_behavior"] = behavior(
@@ -680,7 +678,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             and amount > 0
         ),
         "turnover": turnover is not None and turnover >= 1.0,
-        "price_response": (capital["price_volume_confirmation"] or 0.0) > 0 and amount_value > 0,
+        "price_response": capital["price_volume_confirmation"] is not None and capital["price_volume_confirmation"] > 0 and amount_observed,
         "supply": supply["supply_evidence_count"] > 0,
         "stability": close_position is not None and close_position >= 0.45,
         "continuation": capital["fund_flow_acceleration"] is not None and capital["fund_flow_acceleration"] > 0,
@@ -717,8 +715,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     supply["supply_pressure"] = supply["effective_supply"]
     supply["distribution_pressure"] = supply["sell_pressure"]
     minimum_evidence = (
-        amount_value > 0
-        and turnover_value >= 1.0
+        amount_observed
+        and turnover is not None
+        and turnover >= 1.0
         and supply["absorption_evidence_count"] >= 4
         and all(absorption_components[key] for key in ("funds", "turnover", "price_response", "supply"))
         and supply["PRICE_RESPONSE_OBSERVED"]

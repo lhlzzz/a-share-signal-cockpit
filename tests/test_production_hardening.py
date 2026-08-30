@@ -105,6 +105,36 @@ def test_no_selection_bias_blindspot():
     assert replay["selection_audit"]["selection_bias_warning"] is True
 
 
+def test_replay_selection_audit_keeps_l2_and_l3_counts_separate(monkeypatch):
+    from xiaogu_backtest_v0_1 import historical_replay
+
+    snapshots = [
+        {
+            "symbol": "600001", "price": 10,
+            "source_time": "2026-08-26T14:50:00+00:00",
+            "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
+                               "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH"],
+            "selection_audit": {"full_l0_universe": 3, "l1_eligible_universe": 2},
+            "future_bars": [],
+        },
+        {
+            "symbol": "600002", "price": 10,
+            "source_time": "2026-08-26T14:50:00+00:00",
+            "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
+                               "L2_CAPITAL_CANDIDATE"],
+            "selection_audit": {"full_l0_universe": 3, "l1_eligible_universe": 2},
+            "future_bars": [],
+        },
+    ]
+    replay = historical_replay(snapshots)
+    assert replay["selection_audit"]["l2_count"] == 2
+    assert replay["selection_audit"]["l3_count"] == 1
+    assert replay["selection_audit"]["partial_count"] == 0
+    assert replay["selection_audit"]["conflict_count"] == 0
+    assert replay["selection_audit"]["invalid_count"] == 0
+    assert replay["selection_audit"]["unresolved_count"] == 0
+
+
 def test_critical_source_failure_blocks():
     assert "stock_all_a" in CRITICAL_SOURCES
     from scrapy_scanner.runner_v2 import CriticalSourceError, _collect

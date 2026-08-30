@@ -219,8 +219,8 @@ def evaluate_candidate_bundle(
         },
         "thesis": alpha["thesis"],
         "future_buyer_map": research["future_buyer_map"],
-        "supply_absorption": research["supply"],
-        "pricing_gap": research["pricing_gap"],
+        "supply": research["supply"],
+        "pricing_gap_context": research["pricing_gap"],
         "minimum_required_return": minimum_required_return,
         "signal_time": snapshot.get("signal_time") or snapshot.get("source_time") or "",
         "entry_price": snapshot.get("price"),
@@ -241,7 +241,6 @@ def evaluate_candidate_bundle(
         "expected_mae_5d": alpha.get("expected_mae_5d"),
         "downside_risk": alpha.get("downside_risk"),
         "confidence": alpha.get("confidence"),
-        "thesis": alpha.get("thesis"),
         "invalidation": (alpha.get("thesis") or {}).get("invalidation", []),
         "state_transition_timestamp": (as_of.isoformat() if as_of else snapshot.get("source_time") or ""),
         "state_transition": {

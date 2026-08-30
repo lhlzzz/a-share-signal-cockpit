@@ -85,7 +85,7 @@ def test_baostock_loader_normalizes_unadjusted_ohlcv(monkeypatch):
 
 def test_append_result_exposes_only_profit_window_target():
     result = append_result({
-        "date": "2026-08-26", "symbol": "600001", "rule_version": "repricing_production_v1",
+        "id": "decision-1", "date": "2026-08-26", "symbol": "600001", "rule_version": "repricing_production_v1",
         "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-26T14:50:00+08:00"}},
         "entry_contract": {
             "signal_time": "2026-08-26T14:50:00+00:00", "execution_time": "2026-08-26T14:50:00+00:00",
@@ -110,6 +110,51 @@ def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypa
     )
     monkeypatch.setattr(filler, "FORWARD_LEDGER", ledger)
     monkeypatch.setattr(filler, "eastmoney_future_bars", lambda *_args, **_kwargs: _bars())
-    monkeypatch.setattr(xiaogu_db, "record_returns", lambda *_args, **_kwargs: None)
+    stored_returns = []
+    monkeypatch.setattr(
+        xiaogu_db,
+        "record_returns",
+        lambda _date, _symbol, payload, decision_id="": stored_returns.append({
+            "decision_id": decision_id, "payload": payload,
+        }),
+    )
+    monkeypatch.setattr(xiaogu_db, "fetch_picks", lambda: [{
+        "decision_id": "2026-08-01_14:50:00_DECISION_600001",
+        "trade_date": "2026-08-01", "symbol": "600001", "state": "BUY",
+        "payload": {
+            "decision_id": "2026-08-01_14:50:00_DECISION_600001",
+            "date": "2026-08-01", "asof_time": "14:50:00", "symbol": "600001",
+            "decision": "BUY", "features_used": {
+                "canonical_snapshot": {"price": 10, "source_time": "2026-08-01T14:50:00+08:00"}
+            },
+            "entry_contract": {
+                "signal_time": "2026-08-01T06:50:00+00:00",
+                "execution_time": "2026-08-01T06:50:00+00:00",
+                "execution_mode": "SIGNAL_TIME_LAST_PRICE", "execution_price": 10,
+                "entry_price": 10, "price_basis": "UNADJUSTED",
+                "entry_price_source": "canonical_snapshot.price",
+            },
+        },
+    }])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: list(stored_returns))
     assert filler.fill_pending_results(end_date="2026-08-10")["filled"] == 1
     assert filler.fill_pending_results(end_date="2026-08-10")["filled"] == 0
+
+
+def test_outcome_persistence_orders_database_audit_then_memory(monkeypatch):
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    events = []
+    monkeypatch.setattr(filler, "FORWARD_LEDGER", __import__("pathlib").Path("/tmp/xiaogu-order-test.jsonl"))
+    monkeypatch.setattr(filler, "append_jsonl", lambda *_args, **_kwargs: events.append("audit"))
+    monkeypatch.setattr("xiaogu_db.record_returns", lambda *_args, **_kwargs: events.append("database"))
+    monkeypatch.setattr(
+        "xiaogu_forward_paper_recorder_v0_1.update_trade_memory",
+        lambda _result: events.append("memory") or "/tmp/memory.md",
+    )
+
+    result = filler._persist_and_append_result({
+        "date": "2026-08-26", "symbol": "600001", "decision_id": "decision-1",
+    })
+    assert events == ["database", "audit", "memory"]
+    assert result["audit_persistence"] == {"status": "PASS"}

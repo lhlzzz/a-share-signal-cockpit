@@ -21,7 +21,9 @@ PATHS = {
     "scheduler": os.path.join(WORKSPACE_ROOT, "xiaogu_scheduler.py"),
     "pipeline": os.path.join(WORKSPACE_ROOT, "daily_pipeline.sh"),
     "rule": os.path.join(WORKSPACE_ROOT, "rule_freeze_v0_1.json"),
-    "ledger": os.path.join(WORKSPACE_ROOT, "forward_paper_ledger_v0_1.jsonl"),
+    "audit_ledger": os.path.join(WORKSPACE_ROOT, "forward_paper_ledger_v0_1.jsonl"),
+    "api": os.path.join(WORKSPACE_ROOT, "xiaogu_api.py"),
+    "filler": os.path.join(WORKSPACE_ROOT, "xiaogu_forward_result_filler_v0_1.py"),
 }
 
 
@@ -98,16 +100,26 @@ def check_rule_freeze():
 
 
 def check_ledger_readable():
-    if not os.path.exists(PATHS["ledger"]):
+    if not os.path.exists(PATHS["audit_ledger"]):
         return True, "ledger not present - skipped"
     try:
-        with open(PATHS["ledger"], encoding="utf-8") as handle:
+        with open(PATHS["audit_ledger"], encoding="utf-8") as handle:
             for line in handle:
                 if line.strip():
                     json.loads(line)
         return True, "ok"
     except (OSError, json.JSONDecodeError) as exc:
         return False, repr(exc)
+
+
+def check_database_truth_boundaries():
+    api = _text("api")
+    filler = _text("filler")
+    if "forward_paper_ledger" in api or "fetch_picks" not in api or "fetch_returns" not in api:
+        return False, "API must read PostgreSQL picks/returns only"
+    if "fetch_picks" not in filler or "fetch_returns" not in filler:
+        return False, "outcome filler must read PostgreSQL decisions/outcomes"
+    return True, "ok"
 
 
 def check_schema_fail_closed():
@@ -159,6 +171,7 @@ CHECKS = [
     ("pipeline_chain", check_pipeline_chain),
     ("rule_freeze", check_rule_freeze),
     ("ledger_readable", check_ledger_readable),
+    ("database_truth_boundaries", check_database_truth_boundaries),
     ("schema_fail_closed", check_schema_fail_closed),
     ("production_schema_audit", check_production_schema_audit),
 ]
