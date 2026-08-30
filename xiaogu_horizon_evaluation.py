@@ -5,6 +5,8 @@ future features and it never emits a production portfolio state.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import random
 from itertools import combinations
@@ -25,6 +27,7 @@ MIN_TOP_DECILE_DELTA = 0.02
 
 CORE_ALPHA_FEATURES = (
     "capital_convergence",
+    "capital_flow_ratio",
     "capital_persistence",
     "capital_acceleration",
     "supply_absorption",
@@ -45,7 +48,7 @@ PRODUCTION_FEATURES = CORE_ALPHA_FEATURES + (
 )
 
 PRICE_MARKET_FEATURES = ("price_strength", "market_score")
-CAPITAL_FEATURES = ("capital_convergence", "capital_persistence", "capital_acceleration")
+CAPITAL_FEATURES = ("capital_flow_ratio", "capital_convergence", "capital_persistence", "capital_acceleration")
 CAPITAL_BEHAVIOR_FEATURES = ("capital_persistence", "capital_acceleration")
 FEATURE_FAMILIES = {
     "CAPITAL": CAPITAL_FEATURES,
@@ -73,6 +76,69 @@ SINGLE_FAMILY_ABLATION_FEATURES = {
     "PRICING GAP ONLY": ("pricing_gap",),
     "REPRICING ONLY": ("repricing_state",),
     "FUTURE BUYER ONLY": ("future_buyer_evidence",),
+}
+
+FEATURE_SOURCE_MATRIX = {
+    "price_strength": {
+        "raw_source": "L0 OHLCV/pct_change",
+        "scanner_level": "L0",
+        "snapshot_field": "price, raw.pct_chg",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "turnover": {
+        "raw_source": "L0 turnover",
+        "scanner_level": "L0",
+        "snapshot_field": "turnover",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_convergence": {
+        "raw_source": "L3 direct capital evidence",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.stock_capital_flow/raw.lhb",
+        "feature_function": "xiaogu_core_alpha._capital_convergence",
+    },
+    "capital_flow_ratio": {
+        "raw_source": "L0 basic capital flow / traded amount",
+        "scanner_level": "L0",
+        "snapshot_field": "raw.net_inflow_main/raw.signal_amount",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_persistence": {
+        "raw_source": "L2/L3 historical capital observations",
+        "scanner_level": "L2/L3",
+        "snapshot_field": "raw.fund_flow_persistence",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_acceleration": {
+        "raw_source": "L2/L3 historical capital observations",
+        "scanner_level": "L2/L3",
+        "snapshot_field": "raw.fund_flow_acceleration",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "supply_absorption": {
+        "raw_source": "L3 supply + capital + turnover + price response",
+        "scanner_level": "L3",
+        "snapshot_field": "raw supply fields + CAPITAL/SUPPLY",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "pricing_gap": {
+        "raw_source": "L3 evidence-backed valuation/pricing fields",
+        "scanner_level": "L3",
+        "snapshot_field": "raw fundamental_gap/industry_gap/earnings_gap",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "repricing_state": {
+        "raw_source": "L3 structural market/capital/supply state",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.repricing_state or derived market stage",
+        "feature_function": "xiaogu_core_alpha._repricing_state",
+    },
+    "future_buyer_evidence": {
+        "raw_source": "L3 evidence-backed buyer record",
+        "scanner_level": "L3",
+        "snapshot_field": "raw.future_buyers",
+        "feature_function": "xiaogu_core_alpha._first_buyer_capacity",
+    },
 }
 
 REPRICING_ENCODING = {
@@ -149,11 +215,17 @@ def _outcome_profit(row: Dict[str, Any]) -> float | None:
 
 
 def _mfe(row: Dict[str, Any]) -> float | None:
-    return _number(_label(row, "mfe_5d") or _label(row, "future_5d_mfe"))
+    value = _label(row, "mfe_5d")
+    if value is None:
+        value = _label(row, "future_5d_mfe")
+    return _number(value)
 
 
 def _mae(row: Dict[str, Any]) -> float | None:
-    return _number(_label(row, "max_mae_5d") or _label(row, "mae_5d"))
+    value = _label(row, "max_mae_5d")
+    if value is None:
+        value = _label(row, "mae_5d")
+    return _number(value)
 
 
 def _time_to_profit(row: Dict[str, Any]) -> float | None:
@@ -311,13 +383,18 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         if value is None:
             return None
         if isinstance(value, dict):
-            value = value.get("score") or value.get("value")
+            value = value.get("score") if value.get("score") is not None else value.get("value")
         numeric = _number(value)
         if numeric is not None:
             return max(0.0, min(1.0, numeric))
     direct = row.get(name, alpha.get(name))
     if isinstance(direct, dict):
-        direct = direct.get("score") or direct.get("state") or direct.get("value")
+        if direct.get("score") is not None:
+            direct = direct["score"]
+        elif direct.get("state") is not None:
+            direct = direct["state"]
+        else:
+            direct = direct.get("value")
     numeric = _number(direct)
     if numeric is not None:
         return max(0.0, min(1.0, numeric))
@@ -338,9 +415,18 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
             return None
         return REPRICING_ENCODING.get(str(raw).upper())
     if name == "market_state":
-        raw = row.get(name) or alpha.get(name) or row.get("market_regime")
+        raw = row.get(name)
+        if raw in (None, ""):
+            raw = alpha.get(name)
+        if raw in (None, ""):
+            raw = row.get("market_regime")
         if isinstance(raw, dict):
-            raw = raw.get("regime") or raw.get("state") or raw.get("score")
+            if raw.get("regime") is not None:
+                raw = raw["regime"]
+            elif raw.get("state") is not None:
+                raw = raw["state"]
+            else:
+                raw = raw.get("score")
         numeric = _number(raw)
         if numeric is not None:
             return max(0.0, min(1.0, numeric))
@@ -404,7 +490,9 @@ def _feature_vector(
         value = _raw_feature_value(row, name)
         if value is None:
             value = filled.get(name)
-        values.append(0.0 if value is None else float(value))
+        if value is None:
+            raise ValueError(f"FEATURE_MISSING_AFTER_TRAIN_IMPUTATION:{name}")
+        values.append(float(value))
     return values
 
 
@@ -463,7 +551,7 @@ def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
             and any(key in raw for key in ("main_net_inflow", "f62", "amount", "signal_amount"))
         )
     if name in {"capital_persistence", "capital_acceleration"}:
-        return any(key in raw for key in (name, name.replace("capital_", "fund_flow_"))) or value != 0.0
+        return any(key in raw for key in (name, name.replace("capital_", "fund_flow_")))
     if name == "supply_absorption":
         return (
             isinstance(supply, dict)
@@ -515,7 +603,7 @@ def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
             "downside_risk", "event_risk", "risk_notice_penalty", "regulatory_hard_block",
             "risk_hard_block", "thesis_invalidated", "halted", "is_suspended",
         ))
-    return value != 0.0
+    return value is not None
 
 
 def diagnose_features(
@@ -553,6 +641,9 @@ def diagnose_features(
             "p90": _percentile(values, 0.90),
             "max": max(values) if values else None,
             "missing_rate": 1.0 - (sum(observed_flags) / len(observed_flags) if observed_flags else 0.0),
+            "observed_count": sum(observed_flags),
+            "available_count": len(observed_flags),
+            "valid_rate": sum(observed_flags) / len(observed_flags) if observed_flags else None,
             "zero_rate": sum(value == 0.0 for value in raw_values if value is not None) / len(raw_values) if raw_values else None,
             "variance": (
                 sum((value - (sum(values) / len(values))) ** 2 for value in values) / len(values)
@@ -581,9 +672,14 @@ def diagnose_features(
         report[name]["status"] = "FEATURE_COLLAPSED" if collapsed else "OK"
     collinearity = []
     for left, right in combinations(feature_names, 2):
+        paired = [
+            (_raw_feature_value(row, left), _raw_feature_value(row, right))
+            for row in rows
+        ]
+        paired = [(left_value, right_value) for left_value, right_value in paired if left_value is not None and right_value is not None]
         correlation = _correlation(
-            [_raw_feature_value(row, left) or 0.0 for row in rows],
-            [_raw_feature_value(row, right) or 0.0 for row in rows],
+            [left_value for left_value, _ in paired],
+            [right_value for _, right_value in paired],
         )
         if correlation is not None and abs(correlation) >= 0.95:
             collinearity.append({"left": left, "right": right, "correlation": correlation})
@@ -599,6 +695,25 @@ def diagnose_features(
         "high_missing_features": [name for name, item in report.items() if (item["missing_rate"] or 0.0) >= 0.95],
         "high_collinearity_pairs": collinearity,
     }
+
+
+def build_feature_source_matrix(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Join source ownership to observed/missing feature evidence."""
+    rows = list(rows)
+    diagnostics = diagnose_features(rows, feature_names=tuple(FEATURE_SOURCE_MATRIX))
+    result = {}
+    for name, source in FEATURE_SOURCE_MATRIX.items():
+        item = diagnostics["features"].get(name, {})
+        result[name] = {
+            **source,
+            "observed_count": item.get("observed_count", 0),
+            "available_count": item.get("available_count", len(rows)),
+            "missing_rate": item.get("missing_rate"),
+            "valid_rate": item.get("valid_rate"),
+            "status": item.get("status", "FEATURE_COLLAPSED"),
+            "production_allowed": item.get("status") == "OK",
+        }
+    return result
 
 
 def _correlation(left: Sequence[float], right: Sequence[float]) -> float | None:
@@ -672,15 +787,24 @@ def _sigmoid(value: float) -> float:
 def _fit_logistic(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[str, Any] | None:
     if not rows or len({_label_value(row) for row in rows}) < 2:
         return None
-    imputer = _imputer_for(rows, names)
-    x = [_feature_vector(row, names, imputer) for row in rows]
+    usable_names = [
+        name for name in names
+        if any(_raw_feature_value(row, name) is not None for row in rows)
+    ]
+    if names and not usable_names:
+        return None
+    imputer = _imputer_for(rows, usable_names)
+    try:
+        x = [_feature_vector(row, usable_names, imputer) for row in rows]
+    except ValueError:
+        return None
     y = [float(_label_value(row)) for row in rows]
     rate = sum(y) / len(y)
     intercept = math.log(max(1e-6, min(1.0 - 1e-6, rate)) / max(1e-6, 1.0 - rate))
-    weights = [0.0] * len(names)
+    weights = [0.0] * len(usable_names)
     for _ in range(800):
         gradient_b = 0.0
-        gradient_w = [0.0] * len(names)
+        gradient_w = [0.0] * len(usable_names)
         for values, target in zip(x, y):
             error = _sigmoid(intercept + sum(weight * value for weight, value in zip(weights, values))) - target
             gradient_b += error
@@ -693,7 +817,7 @@ def _fit_logistic(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Dict[
     return {
         "intercept": intercept,
         "coefficients": weights,
-        "feature_names": list(names),
+        "feature_names": list(usable_names),
         "imputer": imputer,
     }
 
@@ -797,6 +921,12 @@ def _prediction_metrics(rows: Sequence[Dict[str, Any]], predictions: Sequence[fl
         "mean_selected_profit": sum(selected) / len(selected) if selected else None,
         "mean_mae": sum(value for value in maes if value is not None) / len([value for value in maes if value is not None])
         if any(value is not None for value in maes) else None,
+        "mae": min(maes) if maes else None,
+        "mfe": max(value for value in (_mfe(row) for row in rows) if value is not None)
+        if any(_mfe(row) is not None for row in rows) else None,
+        "mean_mfe": sum(value for value in (_mfe(row) for row in rows) if value is not None)
+        / len([value for value in (_mfe(row) for row in rows) if value is not None])
+        if any(_mfe(row) is not None for row in rows) else None,
         "profit_factor": portfolio["profit_factor"],
         "max_drawdown": portfolio["max_drawdown"],
         "average_time_to_profit": sum(value for value in times if value is not None) / len([value for value in times if value is not None])
@@ -1054,17 +1184,41 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         and baseline_delta["pr_auc"] > 0.0
     )
     from xiaogu_core_alpha import FEATURE_VERSION, MODEL_ID, MODEL_VERSION, SCHEMA_VERSION, TARGET_VERSION
-    dates = [str(row.get("trade_date") or row.get("signal_date") or "") for row in complete]
+    dataset_identity = [
+        {
+            "decision_id": row.get("decision_id"),
+            "snapshot_id": row.get("snapshot_id"),
+            "trade_date": row.get("trade_date") or row.get("signal_date"),
+            "target": _label_value(row),
+            "profit": _outcome_profit(row),
+        }
+        for row in complete
+    ]
+    dataset_hash = hashlib.sha256(
+        json.dumps(dataset_identity, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
     result = {
         **model,
         "model_id": MODEL_ID,
         "model_version": MODEL_VERSION,
         "feature_version": FEATURE_VERSION,
-        "dataset_hash": str(len(complete)) + ":" + str(len(usable)),
-        "dataset_version": "historical_profit_window_v1",
-        "train_window": {"count": len(train), "start": dates[0] if dates else "", "end": dates[len(train)-1] if dates and train else ""},
-        "validation_window": {"count": len(validation)},
-        "oos_window": {"count": len(oos)},
+        "dataset_hash": dataset_hash,
+        "dataset_version": "historical_profit_window_v2",
+        "train_window": {
+            "count": len(train),
+            "start": str(train[0].get("trade_date") or train[0].get("signal_date") or "") if train else "",
+            "end": str(train[-1].get("trade_date") or train[-1].get("signal_date") or "") if train else "",
+        },
+        "validation_window": {
+            "count": len(validation),
+            "start": str(validation[0].get("trade_date") or validation[0].get("signal_date") or "") if validation else "",
+            "end": str(validation[-1].get("trade_date") or validation[-1].get("signal_date") or "") if validation else "",
+        },
+        "oos_window": {
+            "count": len(oos),
+            "start": str(oos[0].get("trade_date") or oos[0].get("signal_date") or "") if oos else "",
+            "end": str(oos[-1].get("trade_date") or oos[-1].get("signal_date") or "") if oos else "",
+        },
         "cost_model_version": COST_MODEL_VERSION,
         "target_version": TARGET_VERSION,
         "horizon": 5,
@@ -1180,6 +1334,7 @@ def build_alpha_report(
         }
     ablation = _ablation_report(train, validation, oos)
     feature_groups = evaluate_feature_groups(rows)
+    feature_source_matrix = build_feature_source_matrix(rows)
     full_alpha = ablation["cumulative"]["FULL"]
     full_oos = full_alpha.get("oos") or {}
     baseline_oos = ablation["cumulative"]["PRICE"].get("oos") or {}
@@ -1235,6 +1390,11 @@ def build_alpha_report(
         family: _family_increment(family_models[family])
         for family in family_features
     }
+    production_permission = (
+        "PRODUCTION"
+        if validation_status == "VALIDATED" and all(family_oos_increment.values())
+        else "NONE"
+    )
     return {
         "data_status": "READY" if gate.get("status") == "PASS" else "BLOCKED",
         "status": validation_status,
@@ -1248,6 +1408,17 @@ def build_alpha_report(
         "capital_convergence": feature_groups["capital_convergence"],
         "supply_absorption": feature_groups["supply_absorption"],
         "repricing_state": feature_groups["repricing_state"],
+        "feature_source_matrix": feature_source_matrix,
+        "feature_coverage": {
+            name: {
+                "observed_count": item.get("observed_count"),
+                "available_count": item.get("available_count"),
+                "missing_rate": item.get("missing_rate"),
+                "valid_rate": item.get("valid_rate"),
+                "status": item.get("status"),
+            }
+            for name, item in feature_source_matrix.items()
+        },
         "feature_groups": feature_groups,
         "feature_diagnostics": diagnose_features(rows),
         "ablation": ablation,
@@ -1265,6 +1436,7 @@ def build_alpha_report(
         },
         "production_alpha_permissions": production_alpha_permissions,
         "family_oos_increment": family_oos_increment,
+        "production_permission": production_permission,
         "calibration": calibration,
         "core_alpha_status": validation_status,
     }

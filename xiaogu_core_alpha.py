@@ -256,6 +256,10 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
     oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
     production_gates = model.get("production_gates") if isinstance(model.get("production_gates"), dict) else {}
     permissions = model.get("production_alpha_permissions") or default_permissions
+    # Non-validated artifacts may inform research diagnostics but cannot carry
+    # family-level production permissions into a live decision.
+    if str(model.get("status") or "").upper() != "VALIDATED":
+        permissions = dict(default_permissions)
     collapsed = model.get("collapsed_features") or []
     if artifact_status == "VALIDATED" and (not identity_ok or collapsed or any(name in collapsed for name in model.get("feature_names") or [])):
         if collapsed:
@@ -394,6 +398,7 @@ def build_core_alpha(
     )
     probability_features = {
         "capital_convergence": None if convergence["status"] == "UNKNOWN" else convergence["score"],
+        "capital_flow_ratio": capital_measure.get("capital_flow_ratio"),
         "capital_persistence": capital_measure["fund_flow_persistence"],
         "capital_acceleration": capital_measure["fund_flow_acceleration"],
         "supply_absorption": supply["supply_absorption"],

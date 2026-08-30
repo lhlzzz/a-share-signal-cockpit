@@ -268,10 +268,16 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     price = _optional_number(snap.get("price"))
     high = _optional_number(snap.get("high"))
     low = _optional_number(snap.get("low"))
-    amount = _optional_number(snap.get("amount"))
+    amount = _optional_number(_first(
+        snap, "amount", "signal_amount", "amount_value",
+        default=_first(raw, "amount", "signal_amount", "amount_value"),
+    ))
     turnover = _optional_number(snap.get("turnover"))
     pct_change = _optional_number(_first(raw, "pct_chg", "signal_pct", "f3"))
-    main_flow = _optional_number(_first(flow, "main_net_inflow", "f62", default=_first(raw, "main_net_inflow", "f62")))
+    main_flow = _optional_number(_first(
+        flow, "main_net_inflow", "net_inflow_main", "f62",
+        default=_first(raw, "main_net_inflow", "net_inflow_main", "f62"),
+    ))
     main_flow_pct = _optional_number(_first(flow, "main_net_inflow_pct", "f184", "f18"))
     amount_observed = amount is not None and amount > 0
     turnover_observed = turnover is not None and turnover > 0

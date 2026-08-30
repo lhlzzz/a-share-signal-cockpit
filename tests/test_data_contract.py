@@ -47,6 +47,17 @@ def test_eastmoney_quote_fields_feed_existing_measurements():
     assert vector["execution"]["short_term_overheat"] == 0.4
 
 
+def test_nested_capital_aliases_feed_ratio_without_inventing_persistence():
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "high": 10.5, "low": 9.5,
+        "raw": {"signal_amount": 1_000, "net_inflow_main": 400},
+        "source_time": "2026-08-26T14:50:00+08:00",
+    }))
+    assert vector["CAPITAL"]["capital_flow_ratio"] == 0.4
+    assert vector["CAPITAL"]["fund_flow_persistence"] is None
+    assert vector["CAPITAL"]["fund_flow_acceleration"] is None
+
+
 def test_eastmoney_capital_flow_reaches_core_alpha():
     decision = evaluate_candidate_bundle({
         "f12": "600001", "f2": 10, "f3": 4, "f5": 100, "f6": 1_000,

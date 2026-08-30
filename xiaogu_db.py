@@ -1019,6 +1019,86 @@ def fetch_trade_records() -> List[Dict[str, Any]]:
     ]
 
 
+def database_identity_coverage() -> Dict[str, Any]:
+    """Read-only identity and outcome coverage for the historical audit."""
+    requested = {
+        "picks": ("decision_id", "snapshot_id", "lineage_id", "trade_date", "symbol"),
+        "returns": (
+            "decision_id", "candidate_snapshot_id", "production_run_id", "trade_date",
+            "symbol", "entry_price", "entry_time",
+        ),
+        "daily_candidates": (
+            "candidate_snapshot_id", "production_run_id", "trade_date", "symbol",
+            "open_price", "high_price", "low_price", "close_price",
+        ),
+        "production_runs": ("production_run_id", "trade_date"),
+        "snapshots": ("snapshot_id", "lineage_id", "trade_date", "symbol"),
+        "canonical_historical_snapshots": (
+            "snapshot_id", "lineage_id", "trade_date", "signal_time", "available_at",
+        ),
+    }
+    report: Dict[str, Any] = {}
+    with engine.connect() as db:
+        for table, fields in requested.items():
+            columns = {
+                str(row["column_name"])
+                for row in db.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = :table
+                        """
+                    ),
+                    {"table": table},
+                ).mappings()
+            }
+            if not columns:
+                continue
+            total = int(db.execute(text(f'SELECT count(*) FROM "{table}"')).scalar_one())
+            coverage: Dict[str, Any] = {}
+            for field in fields:
+                if field not in columns:
+                    coverage[field] = {"present": 0, "total": total, "coverage": None}
+                    continue
+                present = int(
+                    db.execute(
+                        text(
+                            f'''SELECT count(*) FROM "{table}"
+                                WHERE "{field}" IS NOT NULL
+                                  AND BTRIM(CAST("{field}" AS text)) <> '' '''
+                        )
+                    ).scalar_one()
+                )
+                coverage[field] = {
+                    "present": present,
+                    "total": total,
+                    "coverage": present / total if total else None,
+                }
+            if table == "returns":
+                for day in range(1, 6):
+                    field = f"t{day}_return"
+                    if field in columns:
+                        present = int(
+                            db.execute(
+                                text(
+                                    f'''SELECT count(*) FROM "{table}"
+                                        WHERE "{field}" IS NOT NULL'''
+                                )
+                            ).scalar_one()
+                        )
+                    else:
+                        present = 0
+                    coverage[f"T+{day}"] = {
+                        "present": present,
+                        "total": total,
+                        "coverage": present / total if total else None,
+                        "basis": field if field in columns else "NOT_PERSISTED_AS_SCALAR",
+                    }
+            report[table] = {"row_count": total, "coverage": coverage}
+    return report
+
+
 def database_asset_report() -> Dict[str, Any]:
     """Read-only inventory of the live production schema and its assets."""
     relevant = {
@@ -1107,7 +1187,12 @@ def database_asset_report() -> Dict[str, Any]:
                 "table": name, "purpose": purpose, "row_count": count,
                 "date_range": date_range, "symbol_count": symbol_count,
             })
-    return {"read_only": True, "tables": report, "schema_audit": audit_production_schema()}
+    return {
+        "read_only": True,
+        "tables": report,
+        "schema_audit": audit_production_schema(),
+        "identity_coverage": database_identity_coverage(),
+    }
 
 
 def fetch_historical_replay_assets(

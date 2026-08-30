@@ -20,7 +20,11 @@ from xiaogu_forward_result_filler_v0_1 import (
     historical_entry_contract,
 )
 from xiaogu_forward_snapshot import build_scan_lineage_id, build_snapshot_id
-from xiaogu_core_alpha import CANONICAL_COST_MODEL
+from xiaogu_core_alpha import (
+    CANONICAL_COST_MODEL,
+    FEATURE_VERSION as CURRENT_FEATURE_VERSION,
+    MODEL_ID as CURRENT_ALPHA_VERSION,
+)
 from xiaogu_horizon_evaluation import (
     HORIZONS,
     HISTORICAL_VALIDATION_HORIZONS,
@@ -121,11 +125,142 @@ def _historical_decision_id(*, pick: Dict[str, Any] | None = None, candidate: Di
     return ""
 
 
+def _identity_signal_time(row: Dict[str, Any], companion: Dict[str, Any] | None = None) -> str:
+    """Return a proven signal timestamp without using a row id as identity."""
+    companion = companion or {}
+    evidence = _json_row(row, "settlement_evidence")
+    contract = _json_row(evidence, "execution_contract")
+    row_raw = _json_row(row, "raw_json")
+    companion_raw = _json_row(companion, "raw_json")
+    value = _first_value(
+        row.get("signal_time"),
+        contract.get("signal_time"),
+        row_raw.get("signal_time"),
+        row_raw.get("source_time"),
+        companion.get("signal_time"),
+        companion_raw.get("signal_time"),
+        companion.get("source_time"),
+        companion_raw.get("source_time"),
+    )
+    if value in (None, ""):
+        return ""
+    value = str(value).strip()
+    if re.fullmatch(r"\d{2}:\d{2}(?::\d{2})?", value):
+        trade_date = str(row.get("trade_date") or companion.get("trade_date") or "")
+        if trade_date:
+            value = f"{trade_date}T{value}"
+    return value
+
+
+def _historical_decision_identity(
+    *,
+    pick: Dict[str, Any] | None = None,
+    candidate: Dict[str, Any] | None = None,
+    return_rows: Sequence[Dict[str, Any]] = (),
+) -> Dict[str, Any]:
+    """Resolve only explicit identities; never use a database row id as one."""
+    pick = pick or {}
+    candidate = candidate or {}
+    explicit = _historical_decision_id(pick=pick, candidate=candidate)
+    if not explicit:
+        explicit = next(
+            str(row.get("decision_id") or (row.get("payload") or {}).get("decision_id") or "").strip()
+            for row in return_rows
+            if str(row.get("decision_id") or (row.get("payload") or {}).get("decision_id") or "").strip()
+        ) if any(
+            str(row.get("decision_id") or (row.get("payload") or {}).get("decision_id") or "").strip()
+            for row in return_rows
+        ) else ""
+    if explicit:
+        return {
+            "decision_id": explicit,
+            "status": "EXPLICIT",
+            "source": "EXPLICIT_DECISION_ID",
+            "original_decision_id": explicit,
+            "evidence": {"decision_id": explicit},
+        }
+
+    rows = list(return_rows)
+    if not candidate or not rows:
+        return {"decision_id": None, "status": "UNRESOLVED", "source": "NO_EXPLICIT_RELATION", "evidence": {}}
+    run_id = str(candidate.get("production_run_id") or "").strip()
+    snapshot_id = str(candidate.get("candidate_snapshot_id") or "").strip()
+    symbol = str(candidate.get("symbol") or "").zfill(6)
+    trade_date = str(candidate.get("trade_date") or "").strip()
+    candidate_time = _identity_signal_time(candidate)
+    return_times = {_identity_signal_time(row, candidate) for row in rows}
+    return_times.discard("")
+    if not run_id or not snapshot_id or not symbol or not trade_date:
+        return {
+            "decision_id": None,
+            "status": "UNRESOLVED",
+            "source": "INCOMPLETE_EXPLICIT_RELATION",
+            "evidence": {
+                "production_run_id": run_id,
+                "candidate_snapshot_id": snapshot_id,
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "candidate_signal_time": candidate_time,
+                "return_signal_times": sorted(return_times),
+            },
+        }
+    if len(return_times) > 1 or (candidate_time and return_times and return_times != {candidate_time}):
+        return {
+            "decision_id": None,
+            "status": "CONFLICT",
+            "source": "EXPLICIT_RELATION_SIGNAL_TIME_CONFLICT",
+            "evidence": {
+                "production_run_id": run_id,
+                "candidate_snapshot_id": snapshot_id,
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "candidate_signal_time": candidate_time,
+                "return_signal_times": sorted(return_times),
+            },
+        }
+    signal_time = candidate_time or next(iter(return_times), "")
+    if not signal_time:
+        return {
+            "decision_id": None,
+            "status": "UNRESOLVED",
+            "source": "MISSING_EXPLICIT_RELATION_SIGNAL_TIME",
+            "evidence": {
+                "production_run_id": run_id,
+                "candidate_snapshot_id": snapshot_id,
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "return_signal_times": sorted(return_times),
+            },
+        }
+    # This is a transparent recovery key, not an original decision id. It is
+    # permitted only after the complete production relation is unique.
+    recovered = "RECOVERED|{}|{}|{}|{}|{}".format(
+        run_id, snapshot_id, symbol, trade_date, signal_time,
+    )
+    return {
+        "decision_id": recovered,
+        "status": "RECOVERED_EXPLICIT_RELATION",
+        "source": "PRODUCTION_RUN_CANDIDATE_SIGNAL_RELATION",
+        "original_decision_id": None,
+        "evidence": {
+            "production_run_id": run_id,
+            "candidate_snapshot_id": snapshot_id,
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "signal_time": signal_time,
+            "return_count": len(rows),
+        },
+    }
+
+
 def _relation_key(row: Dict[str, Any]) -> tuple[Any, ...] | None:
     run = row.get("production_run_id")
     snapshot = row.get("candidate_snapshot_id")
     if run and snapshot:
-        return (str(run), str(snapshot), str(row.get("symbol") or "").zfill(6))
+        return (
+            str(run), str(snapshot), str(row.get("symbol") or "").zfill(6),
+            str(row.get("trade_date") or ""),
+        )
     return None
 
 
@@ -208,6 +343,7 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     metadata = {
         "signal_date": return_rows[0].get("trade_date") if return_rows else None,
         "signal_time": None,
+        "entry_time": None,
         "symbol": return_rows[0].get("symbol") if return_rows else None,
         "entry_price": None,
         "execution_price": None,
@@ -251,6 +387,10 @@ def _entry_audit(return_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "price_basis": _first_value(return_rows[0].get("entry_price_basis"), evidence.get("price_basis")),
         "source": _first_value(return_rows[0].get("entry_price_source"), evidence.get("price_source")),
         "signal_time": _first_value(contract.get("signal_time"), return_rows[0].get("entry_time")),
+        "entry_time": _first_value(
+            return_rows[0].get("entry_time"),
+            contract.get("execution_time"),
+        ),
     })
     required = (metadata["signal_date"], metadata["signal_time"], metadata["price_basis"], metadata["source"])
     if any(value in (None, "") for value in required):
@@ -964,14 +1104,54 @@ def build_historical_5d_profit_window_dataset(
         "unresolved_returns": [row.get("id") for row in returns if row.get("id") not in resolved_return_ids],
         "unresolved_decisions": [],
         "entry_audits": [],
+        "identity_recovery": {
+            "explicit_decision_id": 0,
+            "recovered_explicit_relation": 0,
+            "unresolved": 0,
+            "conflict": 0,
+        },
+        "relationship_graph": {
+            "production_run": {"rows": len(production_runs), "linked": 0},
+            "lineage": {"rows": len({str(row.get("production_run_id") or "") for row in returns if row.get("production_run_id")}), "linked": 0},
+            "snapshot": {"rows": len({str(row.get("candidate_snapshot_id") or "") for row in returns if row.get("candidate_snapshot_id")}), "linked": 0},
+            "decision": {"rows": 0, "explicit": 0, "recovered": 0, "unresolved": 0, "conflict": 0},
+            "outcome": {"rows": len(returns), "linked": 0, "unresolved": 0},
+        },
     }
     for pick, candidate, linked in source_decisions:
-        decision_id = _historical_decision_id(pick=pick, candidate=candidate)
+        identity = _historical_decision_identity(
+            pick=pick,
+            candidate=candidate,
+            return_rows=linked,
+        )
+        decision_id = identity.get("decision_id")
+        identity_status = str(identity.get("status") or "UNRESOLVED")
+        identity_bucket = identity_status.lower().replace("-", "_")
+        if identity_bucket not in audit["identity_recovery"]:
+            identity_bucket = "unresolved"
+        audit["identity_recovery"][identity_bucket] += 1
+        audit["relationship_graph"]["decision"]["rows"] += 1
+        if identity_status == "EXPLICIT":
+            audit["relationship_graph"]["decision"]["explicit"] += 1
+        elif identity_status == "RECOVERED_EXPLICIT_RELATION":
+            audit["relationship_graph"]["decision"]["recovered"] += 1
+        elif identity_status == "CONFLICT":
+            audit["relationship_graph"]["decision"]["conflict"] += 1
+        else:
+            audit["relationship_graph"]["decision"]["unresolved"] += 1
+        if linked:
+            audit["relationship_graph"]["outcome"]["linked"] += len(linked)
+        else:
+            audit["relationship_graph"]["outcome"]["unresolved"] += 1
         if not linked:
             dataset.append({
-                "historical_decision_id": decision_id,
+                "historical_decision_id": None,
                 "symbol": str((pick or candidate).get("symbol") or "").zfill(6),
                 "signal_date": str((pick or candidate).get("trade_date") or ""),
+                "trade_date": str((pick or candidate).get("trade_date") or ""),
+                "decision_id": None,
+                "decision_identity_status": "UNRESOLVED",
+                "decision_identity_source": identity.get("source"),
                 "historical_original_decision": pick.get("decision") if pick else candidate.get("selection_outcome"),
                 "current_decision": None,
                 "canonical_entry_price": None,
@@ -999,8 +1179,8 @@ def build_historical_5d_profit_window_dataset(
                 "target_quality": "INVALID",
                 "quality_issues": ["MISSING_HISTORICAL_RETURN_RELATION"],
                 "entry_audit": None,
-                "feature_version": "price_formation_measurements_v1",
-                "alpha_version": MODEL_VERSION,
+                "feature_version": CURRENT_FEATURE_VERSION,
+                "alpha_version": CURRENT_ALPHA_VERSION,
                 "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
                 "target_version": HISTORICAL_TARGET_VERSION,
                 "production_run_id": (pick or candidate).get("production_run_id"),
@@ -1024,10 +1204,13 @@ def build_historical_5d_profit_window_dataset(
             targets = _merge_missing_future_targets(targets, persisted_future, entry.get("entry_price"))
         relation_keys = {_relation_key(item) for item in linked if _relation_key(item)}
         quality, issues = _quality(entry, targets, relation_conflict=len(relation_keys) > 1)
-        if not (pick or {}).get("_decision_id_bound") and not str((pick or {}).get("decision_id") or (candidate or {}).get("decision_id") or ""):
+        if identity_status == "UNRESOLVED":
             issues.append("MISSING_DECISION_ID")
             if quality == "CANONICAL":
                 quality = "UNRESOLVED"
+        elif identity_status == "CONFLICT":
+            issues.append("DECISION_IDENTITY_CONFLICT")
+            quality = "CONFLICT"
         snapshot_source = _pick_snapshot(pick or {}, candidate)
         if not snapshot_source.get("source_time"):
             snapshot_source["source_time"] = f"{snapshot_source.get('trade_date')}T15:00:00+08:00"
@@ -1054,18 +1237,25 @@ def build_historical_5d_profit_window_dataset(
                 issues.append("CURRENT_REPLAY_FAILED")
         alpha = (current or {}).get("core_alpha") or {}
         compact_current = _compact_current_decision(current)
+        snapshot_payload = snapshot or {}
         dataset.append({
             "historical_decision_id": decision_id,
             "decision_id": decision_id,
+            "decision_identity_status": identity_status,
+            "decision_identity_source": identity.get("source"),
+            "decision_identity_evidence": identity.get("evidence") or {},
             "symbol": symbol,
             "signal_date": trade_date,
-            "signal_time": entry.get("signal_time"),
+            "trade_date": trade_date,
+            "signal_time": snapshot_payload.get("signal_time") or identity.get("evidence", {}).get("signal_time") or entry.get("signal_time"),
+            "entry_time": entry.get("entry_time") or entry.get("signal_time"),
             "historical_original_decision": (pick or candidate).get("decision") if pick else candidate.get("selection_outcome"),
             "current_decision": (current or {}).get("state"),
             "current_decision_payload": compact_current,
             "canonical_entry_price": entry.get("entry_price"),
             "entry_price": entry.get("entry_price"),
             "entry_price_source": entry.get("source"),
+            "price_basis": entry.get("price_basis"),
             **targets,
             "capital_convergence": alpha.get("capital_convergence"),
             "capital_convergence_level": _capital_convergence_level(alpha.get("capital_convergence")),
@@ -1081,15 +1271,23 @@ def build_historical_5d_profit_window_dataset(
                 or run_payload.get("runner_version")
                 or (pick or candidate).get("rule_version")
             ),
-            "feature_version": "price_formation_measurements_v1",
-            "alpha_version": MODEL_VERSION,
+            "feature_version": CURRENT_FEATURE_VERSION,
+            "alpha_version": CURRENT_ALPHA_VERSION,
             "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
             "target_version": HISTORICAL_TARGET_VERSION,
             "production_run_id": entry.get("production_run_id"),
             "pick_id": (pick or {}).get("id"),
             "candidate_id": candidate.get("id"),
             "replay_error": replay_error,
+            "cost_model_version": CANONICAL_COST_MODEL["version"],
+            "cost_model": dict(CANONICAL_COST_MODEL),
+            "profit_window_semantics": "DAILY_BAR_PROFIT_OPPORTUNITY",
+            "snapshot_id": snapshot_payload.get("snapshot_id") if snapshot else None,
         })
+        if snapshot:
+            audit["relationship_graph"]["production_run"]["linked"] += bool(snapshot.get("lineage_id"))
+            audit["relationship_graph"]["lineage"]["linked"] += bool(snapshot.get("lineage_id"))
+            audit["relationship_graph"]["snapshot"]["linked"] += bool(snapshot.get("snapshot_id"))
         audit["entry_audits"].append({"historical_decision_id": decision_id, **entry, "quality": quality, "issues": issues})
 
     canonical = [row for row in dataset if row["target_quality"] == "CANONICAL"]
@@ -1102,6 +1300,53 @@ def build_historical_5d_profit_window_dataset(
     diagnostic = [row for row in dataset if row["target_quality"] in {"CANONICAL", "PARTIAL"}]
     report["diagnostic_sample_count"] = len(diagnostic)
     report["diagnostic_feature_groups"] = evaluate_feature_groups(diagnostic)
+    def source_layers(row: Dict[str, Any]) -> list[str]:
+        value = row.get("source_layers")
+        if not isinstance(value, list):
+            raw = _as_dict(row.get("raw_json"))
+            value = raw.get("source_layers")
+        return [str(item) for item in value or [] if str(item)]
+
+    layer_counts = {
+        "L0": sum(any(layer.startswith("L0") for layer in source_layers(row)) for row in candidates),
+        "L1": sum(any(layer.startswith("L1") for layer in source_layers(row)) for row in candidates),
+        "L2": sum(any(layer.startswith("L2") for layer in source_layers(row)) for row in candidates),
+        "L3": sum(any(layer.startswith("L3") for layer in source_layers(row)) for row in candidates),
+    }
+    candidate_layers_by_id = {
+        candidate.get("id"): source_layers(candidate)
+        for candidate in candidates
+        if candidate.get("id") is not None
+    }
+    layer_profit_rates = {}
+    for layer in ("L0", "L1", "L2", "L3"):
+        layer_rows = [
+            row for row in dataset
+            if layer in {
+                item.split("_", 1)[0]
+                for item in candidate_layers_by_id.get(row.get("candidate_id"), [])
+            }
+        ]
+        labels = [row.get("profit_window") for row in layer_rows if row.get("profit_window") is not None]
+        layer_profit_rates[layer] = {
+            "samples": len(layer_rows),
+            "labeled_samples": len(labels),
+            "profit_window_rate": sum(bool(label) for label in labels) / len(labels) if labels else None,
+        }
+    selection_audit = {
+        "full_market_count": None,
+        "l0_count": layer_counts["L0"],
+        "l1_count": layer_counts["L1"],
+        "l2_count": layer_counts["L2"],
+        "l3_count": layer_counts["L3"],
+        "alpha_count": sum(row.get("current_decision") is not None for row in dataset),
+        "decision_count": len(dataset),
+        "profit_window_rate_by_layer": layer_profit_rates,
+        "selection_audit_status": "PARTIAL_OBSERVED",
+        "selection_bias_warning": True,
+        "selection_bias_reason": "DATABASE_ASSETS_START_AT_CANDIDATE_LAYER;_FULL_MARKET_AND_L3_ACCOUNTING_NOT_PROVEN",
+    }
+    report["selection_audit"] = selection_audit
     return {
         "dataset_name": "historical_5d_profit_window_dataset",
         "read_only": True,
@@ -1109,6 +1354,7 @@ def build_historical_5d_profit_window_dataset(
         "canonical_historical_snapshots": canonical_snapshots,
         "database_asset_report": None,
         "audit": audit,
+        "selection_audit": selection_audit,
         "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid), "unresolved": len(unresolved)},
         "target_quality_gate": gate,
         "alpha_report": report,
@@ -1146,8 +1392,9 @@ def canonical_historical_snapshot(
     if available_dt > signal_dt:
         raise ValueError("PIT_AVAILABLE_AT_AFTER_SIGNAL_TIME")
     def number(*keys: str) -> float | None:
+        raw = clean.get("raw") if isinstance(clean.get("raw"), dict) else {}
         for key in keys:
-            value = clean.get(key)
+            value = _first_value(clean.get(key), raw.get(key))
             if value not in (None, "", "-"):
                 try:
                     return float(str(value).replace(",", "").replace("%", ""))
