@@ -193,7 +193,7 @@ def audit_production_schema() -> Dict[str, Any]:
             "source", "source_timestamp", "snapshot_version", "point_in_time",
             "available_at", "price_basis", "payload", "created_at",
         ),
-        "canonical_future_prices": ("symbol", "date", "source", "price_basis"),
+        "canonical_future_prices": ("symbol", "date", "source", "price_basis", "price_fact_hash"),
     }
     required_unique = {
         "snapshots": ("snapshot_id",),
@@ -301,6 +301,7 @@ def ensure_production_schema() -> None:
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
+        "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
@@ -311,6 +312,25 @@ def ensure_production_schema() -> None:
     ]
     for statement in statements:
         _exec_schema(statement)
+    with engine.begin() as db:
+        legacy_rows = [
+            dict(row) for row in db.execute(
+                text(
+                    "SELECT symbol, date, open, high, low, close, volume, amount, "
+                    "source, source_timestamp, price_basis, price_fact_hash "
+                    "FROM canonical_future_prices WHERE price_fact_hash IS NULL OR BTRIM(price_fact_hash) = ''"
+                )
+            ).mappings()
+        ]
+        for row in legacy_rows:
+            fact = canonical_future_price_fact(row)
+            db.execute(
+                text(
+                    "UPDATE canonical_future_prices SET price_fact_hash = :price_fact_hash "
+                    "WHERE symbol = :symbol AND date = :date"
+                ),
+                fact,
+            )
     _ensure_snapshot_primary_key("snapshots")
     try:
         _exec_schema("CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)")
@@ -375,6 +395,37 @@ def snapshot_payload_identity(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
+
+
+def canonical_future_price_fact(bar: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize one immutable future OHLC fact before persistence."""
+    required = ("symbol", "date", "open", "high", "low", "close", "source", "price_basis")
+    missing = [field for field in required if bar.get(field) in (None, "")]
+    if missing:
+        raise ValueError("PRICE_FACT_REQUIRED:" + ",".join(missing))
+    if str(bar["price_basis"]) != "UNADJUSTED":
+        raise ValueError(f"UNSUPPORTED_PRICE_BASIS:{bar['price_basis']}")
+    normalized = {
+        "symbol": str(bar["symbol"]).zfill(6),
+        "date": str(bar["date"])[:10],
+        "open": float(bar["open"]),
+        "high": float(bar["high"]),
+        "low": float(bar["low"]),
+        "close": float(bar["close"]),
+        "volume": None if bar.get("volume") in (None, "") else float(bar["volume"]),
+        "amount": None if bar.get("amount") in (None, "") else float(bar["amount"]),
+        "source": str(bar["source"]),
+        "source_timestamp": str(bar.get("source_timestamp") or ""),
+        "price_basis": str(bar["price_basis"]),
+    }
+    identity = {
+        key: normalized[key]
+        for key in ("symbol", "date", "open", "high", "low", "close", "volume", "amount", "price_basis", "source")
+    }
+    normalized["price_fact_hash"] = hashlib.sha256(
+        json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return normalized
 
 
 def _recover_historical_snapshot_id(row: Dict[str, Any]) -> str:
@@ -794,27 +845,47 @@ def record_canonical_historical_snapshots(snapshots: Iterable[Dict[str, Any]]) -
 
 
 def record_canonical_future_prices(bars: Iterable[Dict[str, Any]]) -> None:
-    """Upsert source OHLC facts; target calculations remain in Python owners."""
+    """Persist immutable OHLC facts; conflicts are production-data failures."""
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
     with get_db() as db:
         for bar in bars:
-            db.execute(
+            fact = canonical_future_price_fact(bar)
+            existing = db.execute(
+                text(
+                    "SELECT price_fact_hash FROM canonical_future_prices "
+                    "WHERE symbol = :symbol AND date = CAST(:date AS date)"
+                ),
+                fact,
+            ).mappings().first()
+            if existing:
+                if str(existing["price_fact_hash"] or "") != fact["price_fact_hash"]:
+                    raise ValueError("PRICE_FACT_CONFLICT")
+                continue
+            result = db.execute(
                 text(
                     """
                     INSERT INTO canonical_future_prices
                         (symbol, date, open, high, low, close, volume, amount,
-                         source, source_timestamp, price_basis, payload)
+                         source, source_timestamp, price_basis, price_fact_hash, payload)
                     VALUES (:symbol, :date, :open, :high, :low, :close, :volume,
                             :amount, :source, CAST(NULLIF(:source_timestamp, '') AS timestamptz),
-                            :price_basis, CAST(:payload AS jsonb))
-                    ON CONFLICT (symbol, date) DO UPDATE SET
-                        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-                        close = EXCLUDED.close, volume = EXCLUDED.volume, amount = EXCLUDED.amount,
-                        source = EXCLUDED.source, source_timestamp = EXCLUDED.source_timestamp,
-                        price_basis = EXCLUDED.price_basis, payload = EXCLUDED.payload
+                            :price_basis, :price_fact_hash, CAST(:payload AS jsonb))
+                    ON CONFLICT (symbol, date) DO NOTHING
                     """
                 ),
-                {**bar, "payload": json.dumps(bar, ensure_ascii=False, default=str)},
+                {**fact, "payload": json.dumps({**bar, **fact}, ensure_ascii=False, default=str)},
             )
+            if result.rowcount == 0:
+                concurrent = db.execute(
+                    text(
+                        "SELECT price_fact_hash FROM canonical_future_prices "
+                        "WHERE symbol = :symbol AND date = CAST(:date AS date)"
+                    ),
+                    fact,
+                ).mappings().first()
+                if not concurrent or str(concurrent["price_fact_hash"] or "") != fact["price_fact_hash"]:
+                    raise ValueError("PRICE_FACT_CONFLICT")
 
 
 def insert_scan_session(**payload: Any) -> int:
@@ -842,6 +913,25 @@ def upsert_scan_market_data(scan_session_id: int, trade_date: Any, scan_time: An
 def fetch_picks() -> List[Dict[str, Any]]:
     with engine.connect() as db:
         return [dict(row) for row in db.execute(text("SELECT * FROM picks ORDER BY id DESC")).mappings()]
+
+
+def fetch_production_model(model_id: str) -> Dict[str, Any] | None:
+    """Return the sole registry-backed production model, never a research artifact."""
+    if not model_id:
+        return None
+    with engine.connect() as db:
+        row = db.execute(
+            text("SELECT model_id, payload FROM model_registry WHERE model_id = :model_id"),
+            {"model_id": model_id},
+        ).mappings().first()
+    if not row:
+        return None
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        return None
+    return {**payload, "model_id": payload.get("model_id") or row["model_id"]}
 
 
 
@@ -1243,7 +1333,7 @@ def fetch_historical_replay_assets(
         },
         "canonical_future_prices": {
             "symbol", "date", "open", "high", "low", "close", "volume", "amount",
-            "source", "source_timestamp", "price_basis", "payload", "created_at",
+            "source", "source_timestamp", "price_basis", "price_fact_hash", "payload", "created_at",
         },
     }
     json_columns = {

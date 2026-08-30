@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from statistics import median
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from xiaogu_forward_bundle_io import load_snapshot as _load_snapshot
@@ -994,7 +995,7 @@ def _compact_current_decision(decision: Dict[str, Any] | None) -> Dict[str, Any]
         "core_alpha": {
             key: alpha.get(key)
             for key in (
-                "thesis_score", "profit_window_probability", "expected_net_profit_window",
+                "profit_window_probability", "expected_net_profit_window",
                 "expected_time_to_profit", "expected_mae_5d", "repricing_state",
                 "accumulation_phase", "capital_convergence",
                 "profit_window_feature_values", "axes", "supply_absorption",
@@ -1333,6 +1334,29 @@ def build_historical_5d_profit_window_dataset(
             "labeled_samples": len(labels),
             "profit_window_rate": sum(bool(label) for label in labels) / len(labels) if labels else None,
         }
+    def selection_metrics(layer_rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+        profit = [row.get("profit_window") for row in layer_rows if row.get("profit_window") is not None]
+        net = [row.get("net_profit_window") for row in layer_rows if row.get("net_profit_window") is not None]
+        mae = [row.get("max_mae_5d") for row in layer_rows if row.get("max_mae_5d") is not None]
+        return {
+            "count": len(layer_rows),
+            "profit_window_rate": sum(bool(value) for value in profit) / len(profit) if profit else None,
+            "mean_net_profit": sum(net) / len(net) if net else None,
+            "median_net_profit": median(net) if net else None,
+            "MAE": sum(mae) / len(mae) if mae else None,
+        }
+    rows_for_layer = {
+        "ALL": dataset,
+        **{
+            layer: [
+                row for row in dataset
+                if any(item.split("_", 1)[0] == layer for item in candidate_layers_by_id.get(row.get("candidate_id"), []))
+            ]
+            for layer in ("L1", "L2", "L3")
+        },
+    }
+    selection_bias_report = {layer: selection_metrics(layer_rows) for layer, layer_rows in rows_for_layer.items()}
+    selection_bias_report["L2 changes sample distribution"] = True
     selection_audit = {
         "full_market_count": None,
         "l0_count": layer_counts["L0"],
@@ -1345,7 +1369,9 @@ def build_historical_5d_profit_window_dataset(
         "selection_audit_status": "PARTIAL_OBSERVED",
         "selection_bias_warning": True,
         "selection_bias_reason": "DATABASE_ASSETS_START_AT_CANDIDATE_LAYER;_FULL_MARKET_AND_L3_ACCOUNTING_NOT_PROVEN",
+        "selection_bias_report": selection_bias_report,
     }
+    report["selection_bias_report"] = selection_bias_report
     report["selection_audit"] = selection_audit
     return {
         "dataset_name": "historical_5d_profit_window_dataset",
@@ -1493,7 +1519,6 @@ def _decision_record(snapshot: Dict[str, Any], decision: Dict[str, Any], entry: 
         "future_buyer_capacity": alpha.get("future_buyer_capacity"),
         "reflexivity_strength": alpha.get("reflexivity_strength"),
         "reflexivity_break_risk": alpha.get("reflexivity_break_risk"),
-        "thesis_score": alpha.get("thesis_score"),
         "profit_window_probability": alpha.get("profit_window_probability"),
         "expected_max_profit_5d": alpha.get("expected_max_profit_5d"),
         "expected_time_to_profit": alpha.get("expected_time_to_profit"),
@@ -1574,7 +1599,7 @@ def historical_replay(
         for row in rows
     )
     l2_count = sum(
-        "L2_CAPITAL_CANDIDATE" in ((row.get("snapshot") or {}).get("source_layers") or [])
+        any(layer.startswith("L2_") for layer in ((row.get("snapshot") or {}).get("source_layers") or []))
         for row in rows
     ) if source_layers_present else None
     l3_count = sum(
@@ -1584,6 +1609,27 @@ def historical_replay(
     quality_counts = {
         quality.lower() + "_count": sum(1 for row in rows if row.get("target_quality") == quality)
         for quality in ("PARTIAL", "CONFLICT", "INVALID", "UNRESOLVED")
+    }
+    def selection_metrics(layer_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        labels = [row.get("forward_window") or row.get("labels") or {} for row in layer_rows]
+        profit = [item.get("profit_window") for item in labels if item.get("profit_window") is not None]
+        net = [item.get("net_profit_window") for item in labels if item.get("net_profit_window") is not None]
+        mae = [item.get("max_mae_5d") for item in labels if item.get("max_mae_5d") is not None]
+        return {
+            "count": len(layer_rows),
+            "profit_window_rate": sum(bool(value) for value in profit) / len(profit) if profit else None,
+            "mean_net_profit": sum(net) / len(net) if net else None,
+            "median_net_profit": median(net) if net else None,
+            "MAE": sum(mae) / len(mae) if mae else None,
+        }
+
+    selection_bias_report = {
+        "ALL": selection_metrics(rows),
+        "L1": selection_metrics([row for row in rows if any(layer.startswith("L1_") for layer in (row["snapshot"].get("source_layers") or []))]),
+        "L2": selection_metrics([row for row in rows if any(layer.startswith("L2_") for layer in (row["snapshot"].get("source_layers") or []))]),
+        "L3": selection_metrics([row for row in rows if "L3_DEEP_CANDIDATE_FETCH" in (row["snapshot"].get("source_layers") or [])]),
+        "ALPHA": selection_metrics(rows),
+        "L2 changes sample distribution": True,
     }
     selection_audit = {
         "full_universe_count": full_universe,
@@ -1605,6 +1651,7 @@ def historical_replay(
             or len(decisions) < full_universe
         ),
         "selection_audit_status": "OBSERVED" if full_universe is not None else "UNOBSERVED",
+        "selection_bias_report": selection_bias_report,
     }
     result = {
         "decisions": decisions, "decision_records": decision_records, "rows": rows,
@@ -1613,6 +1660,7 @@ def historical_replay(
         "alpha_validation": "BLOCKED" if gate["status"] != "PASS" else "ELIGIBLE",
         "outcome_boundary": "OUTCOMES_ENTER_AFTER_PRODUCTION_DECISION",
         "selection_audit": selection_audit,
+        "selection_bias_report": selection_bias_report,
         **selection_audit,
     }
     result["alpha_report"] = build_alpha_report(rows, quality_gate=gate, horizons=HISTORICAL_VALIDATION_HORIZONS)

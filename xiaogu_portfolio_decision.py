@@ -16,6 +16,11 @@ TRADE_ACTIONS = ("BUY", "HOLD", "REDUCE", "SELL")
 POSITION_STATES = ("FLAT", "LONG")
 HELD_ACTIONS = {"BUY", "HOLD", "REDUCE"}
 MAX_HOLDING_DAYS = 5
+DECISION_HARD_GATES = (
+    "TRUSTED_CANONICAL", "DB_VERIFIED", "FRESH_DATA", "DATA_VALID", "TRADABLE",
+    "RISK_PASS", "EXECUTION_PASS", "ALPHA_VALIDATED", "OOS_PASS",
+    "PROBABILITY_SEPARATION_PASS", "MONOTONICITY_PASS", "BASELINE_INCREMENT_PASS",
+)
 
 
 def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -> str:
@@ -184,10 +189,10 @@ def evaluate_candidate_bundle(
         state, reason = "WATCH", "HARD_CONSTRAINT:" + ";".join(hard_blockers)
     elif not repricing_blockers:
         state, reason = "BUY", "REPRICING_READINESS_CONFIRMED"
-    elif (alpha.get("thesis_score") or 0.0) >= 0.45 and (alpha.get("repricing_evidence_score") or alpha.get("repricing_readiness_score") or 0.0) >= 0.35:
-        state, reason = "READY", "THESIS_VALID_BUT_CONFIRMATION_PENDING:" + ";".join(repricing_blockers)
     else:
-        state, reason = "WATCH", "REPRICING_THESIS_INCOMPLETE:" + ";".join(repricing_blockers)
+        # Diagnostic research measurements may explain a candidate, but they
+        # never decide readiness or stand in for model probability.
+        state, reason = "READY", "BUY_BLOCKED_PENDING_HARD_GATE:" + ";".join(repricing_blockers)
 
     position_state_after = "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
     return {
@@ -235,7 +240,6 @@ def evaluate_candidate_bundle(
         "future_buyer_capacity": alpha.get("future_buyer_capacity"),
         "repricing_state": alpha.get("repricing_state"),
         "repricing_evidence_score": alpha.get("repricing_evidence_score"),
-        "repricing_readiness_score": alpha.get("repricing_readiness_score"),
         "profit_window_probability": alpha.get("profit_window_probability"),
         "expected_max_profit_5d": alpha.get("expected_max_profit_5d"),
         "expected_mae_5d": alpha.get("expected_mae_5d"),

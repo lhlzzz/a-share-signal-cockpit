@@ -119,7 +119,7 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 - Pricing gap: {_markdown(alpha.get('pricing_gap'))}
 - Future buyer capacity: {_markdown(alpha.get('future_buyer_capacity'))}
 - Repricing state: {_markdown(alpha.get('repricing_state'))}
-- Repricing evidence score: {_markdown(alpha.get('repricing_evidence_score'))}
+- Repricing evidence score (diagnostic only): {_markdown(alpha.get('repricing_evidence_score'))}
 - Thesis: {_markdown(thesis)}
 
 ## 5D Risk Contract

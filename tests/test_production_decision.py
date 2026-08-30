@@ -106,7 +106,7 @@ def test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed(tmp_pa
         ],
         "oos": {"passed": False},
     }), encoding="utf-8")
-    monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
+    monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
 
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
     assert decision["core_alpha"]["research_probability"] == 0.5
@@ -133,8 +133,9 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
         "target_version": "PROFIT_WINDOW_5D",
         "horizon": 5,
         "schema_version": "alpha_artifact_v1",
-        "target": "PROFIT_WINDOW_5D",
-        "status": "VALIDATED",
+            "target": "PROFIT_WINDOW_5D",
+            "status": "VALIDATED",
+            "production_permission": "NONE",
         "intercept": 0.0,
         "coefficients": [0.0] * 11,
         "feature_names": [
@@ -145,7 +146,7 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
         ],
         "oos": {"passed": True, "mean_profit": 0.03},
     }), encoding="utf-8")
-    monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
+    monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
 
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
     assert decision["core_alpha"]["model_status"] == "EXPERIMENTAL"
@@ -164,7 +165,7 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
     assert decision["core_alpha"]["low_price"] is False
 
     one_event = evaluate_candidate_bundle(
-        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"}]},
+        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}]},
         as_of=AS_OF,
     )
     assert one_event["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
@@ -172,8 +173,8 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
 
     evidenced = ready | {
         "lhb": [
-            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
-            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
         ],
     }
     evidenced_decision = evaluate_candidate_bundle(evidenced, as_of=AS_OF)
@@ -233,7 +234,7 @@ def test_same_lhb_event_is_one_independent_origin():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
             ],
         },
         as_of=AS_OF,
@@ -255,8 +256,8 @@ def test_duplicate_evidence_family_does_not_inflate_independent_channels():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入", "institution": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
-                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
             ],
         },
         as_of=AS_OF,
@@ -311,7 +312,7 @@ def test_collapsed_and_unvalidated_families_have_no_production_alpha_permission(
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
     permissions = decision["core_alpha"]["production_alpha_permissions"]
     assert permissions
-    assert all(value == "RESEARCH_ONLY" for value in permissions.values())
+    assert all(value == "NONE" for value in permissions.values())
     assert decision["state"] != "BUY"
     assert decision["core_alpha"]["model_status"] != "VALIDATED"
 
@@ -335,6 +336,7 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
         "schema_version": "alpha_artifact_v1",
         "target": "PROFIT_WINDOW_5D",
         "status": "VALIDATED",
+        "production_permission": "PRODUCTION",
         "intercept": 0.0,
         "coefficients": [0.0] * 11,
         "feature_names": [
@@ -357,7 +359,7 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
             "capital_supply_repricing_increment": True,
         },
     }), encoding="utf-8")
-    monkeypatch.setattr(alpha, "CALIBRATION_PATH", calibration_path)
+    monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
     decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
     assert decision["core_alpha"]["model_status"] == "MODEL_NOT_DISCRIMINATIVE"
     assert decision["state"] != "BUY"

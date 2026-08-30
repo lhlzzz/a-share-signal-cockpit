@@ -84,6 +84,8 @@ def check_rule_freeze():
         rule = json.load(handle)
     decisions = set(rule.get("allowed_decisions") or [])
     required = {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"}
+    from xiaogu_portfolio_decision import DECISION_HARD_GATES
+    alpha_contract = rule.get("alpha_contract", {})
     ok = (
         rule.get("rule_version") == "repricing_production_v1"
         and rule.get("production_owner") == "xiaogu_portfolio_decision.evaluate_candidate_bundle"
@@ -91,7 +93,12 @@ def check_rule_freeze():
         and rule.get("evaluation", {}).get("horizons_days") == [1, 2, 3, 4, 5]
         and rule.get("evaluation", {}).get("evaluation_window_days") == [1, 2, 3, 4, 5]
         and rule.get("evaluation", {}).get("max_holding_boundary") == 5
-        and rule.get("alpha_contract", {}).get("target") == "PROFIT_WINDOW_5D"
+        and alpha_contract.get("target") == "PROFIT_WINDOW_5D"
+        and tuple(alpha_contract.get("required_hard_gates") or ()) == tuple(DECISION_HARD_GATES)
+        and "required_buy_evidence" not in alpha_contract
+        and set(alpha_contract.get("model_inputs") or ()) == {
+            "BUSINESS", "FUTURE_DEMAND", "CAPITAL", "SUPPLY", "PRICING_GAP", "REFLEXIVITY", "MARKET"
+        }
         and rule.get("paper_only") is True
         and rule.get("auto_order") is False
         and rule.get("broker_connected") is False

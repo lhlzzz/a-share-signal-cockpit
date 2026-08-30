@@ -92,14 +92,14 @@ def test_same_day_research_observations_feed_existing_contexts():
             "f7": 3, "f15": 10.5, "f16": 9.5, "f17": 9.8, "f62": 100,
             "source_time": "2026-08-26T14:50:00+08:00",
         },
-        stock_capital_flow={"f62": 400, "available_at": "2026-08-26T14:50:00+08:00"},
-        earnings_preview={"WEIGHTAVG_ROE": 20, "NOTICE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"},
-        industry_flow={"f3": 5, "available_at": "2026-08-26T14:50:00+08:00"},
-        stock_reports=[{"title": "公司研究"}],
-        industry_reports=[{"title": "行业研究"}],
+            stock_capital_flow={"f62": 400, "observed_at": "2026-08-26T14:49:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+            earnings_preview={"WEIGHTAVG_ROE": 20, "publication_time": "2026-08-26T14:40:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+            industry_flow={"f3": 5, "observed_at": "2026-08-26T14:49:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+            stock_reports=[{"title": "公司研究", "publication_time": "2026-08-26T14:40:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}],
+            industry_reports=[{"title": "行业研究", "publication_time": "2026-08-26T14:40:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}],
         lhb=[{
             "EXPLAIN": "1家机构买入", "NET_BS_AMT": -100,
-            "ACCUM_AMOUNT": 100, "TRADE_DATE": "2026-08-26",
+            "ACCUM_AMOUNT": 100, "event_time": "2026-08-26T14:45:00+08:00",
             "available_at": "2026-08-26T14:50:00+08:00",
         }],
     ))
@@ -517,6 +517,45 @@ def test_schema_migration_failure_is_fail_closed(monkeypatch):
     monkeypatch.setattr(db.engine, "begin", lambda: Boom())
     with pytest.raises(RuntimeError, match="ALTER TABLE failed"):
         db.ensure_production_schema()
+
+
+def test_canonical_future_prices_are_immutable_facts():
+    from sqlalchemy import text
+    from xiaogu_db import canonical_future_price_fact, engine, ensure_production_schema, record_canonical_future_prices
+
+    ensure_production_schema()
+    fact = {
+        "symbol": "699991", "date": "2026-08-26", "open": 10.0, "high": 10.5,
+        "low": 9.8, "close": 10.2, "volume": 100.0, "amount": 1000.0,
+        "source": "eastmoney_daily_kline", "price_basis": "UNADJUSTED",
+    }
+    with engine.begin() as db:
+        db.execute(text("DELETE FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'"))
+    try:
+        record_canonical_future_prices([fact])
+        record_canonical_future_prices([dict(fact)])
+        with engine.connect() as db:
+            stored = dict(db.execute(text("SELECT * FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'")).mappings().one())
+        assert stored["close"] == pytest.approx(10.2)
+        assert stored["price_fact_hash"] == canonical_future_price_fact(fact)["price_fact_hash"]
+        with pytest.raises(ValueError, match="PRICE_FACT_CONFLICT"):
+            record_canonical_future_prices([{**fact, "close": 10.3}])
+        with pytest.raises(ValueError, match="PRICE_FACT_CONFLICT"):
+            record_canonical_future_prices([{**fact, "source": "baostock_daily_kline"}])
+        with engine.connect() as db:
+            unchanged = dict(db.execute(text("SELECT close, source FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'")).mappings().one())
+        assert unchanged == {"close": 10.2, "source": "eastmoney_daily_kline"}
+    finally:
+        with engine.begin() as db:
+            db.execute(text("DELETE FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'"))
+
+
+def test_rule_freeze_hard_gates_match_decision_owner():
+    from xiaogu_portfolio_decision import DECISION_HARD_GATES
+
+    rule = json.loads(open("rule_freeze_v0_1.json", encoding="utf-8").read())
+    assert tuple(rule["alpha_contract"]["required_hard_gates"]) == DECISION_HARD_GATES
+    assert "required_buy_evidence" not in rule["alpha_contract"]
 
 
 def test_scan_lineage_is_shared_and_snapshot_id_is_unique():

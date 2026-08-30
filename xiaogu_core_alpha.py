@@ -1,8 +1,6 @@
 """Five-day profit-window alpha; it measures evidence and never emits states."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Dict
 
 from xiaogu_forward_features import FEATURE_GROUPS
@@ -27,11 +25,10 @@ CANONICAL_COST_MODEL["all_in_transaction_cost"] = round(sum(
 ), 8)
 DEFAULT_COST_RATE = CANONICAL_COST_MODEL["all_in_transaction_cost"]
 DEFAULT_PROFIT_TARGET = 0.02
-CALIBRATION_PATH = Path(__file__).resolve().parent / "data" / "research" / "profit_window_calibration.json"
 REQUIRED_ARTIFACT_FIELDS = (
     "model_id", "model_version", "feature_version", "dataset_hash", "dataset_version",
     "train_window", "validation_window", "oos_window", "cost_model_version",
-    "target_version", "horizon", "schema_version",
+    "target_version", "horizon", "schema_version", "status", "production_permission",
 )
 
 
@@ -118,9 +115,9 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     independent_sources = {str(item.get("source_id") or item.get("source") or "") for item in evidence_items if item.get("source_id") or item.get("source")}
     independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
     independent_origins = {
-        (str(item.get("source_id") or item.get("source") or ""), str(item.get("event_id") or ""))
+        str(item.get("economic_origin_id") or item.get("event_id") or "")
         for item in evidence_items
-        if item.get("source_id") or item.get("source")
+        if item.get("economic_origin_id") or item.get("event_id")
     }
     independent_mechanisms = {str(item.get("mechanism") or item.get("evidence_family") or "") for item in evidence_items if item.get("mechanism") or item.get("evidence_family")}
     independent_channel_count = len(independent_origins)
@@ -164,7 +161,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "evidence_count": len(evidence_items),
         "independent_channel_count": independent_channel_count,
         "independent_evidence_count": independent_channel_count,
-        "independent_origins": sorted(f"{source}|{event}" for source, event in independent_origins),
+        "independent_origins": sorted(independent_origins),
         "independent_mechanisms": sorted(independent_mechanisms),
         "independent_sources": sorted(independent_sources),
         "independent_families": sorted(independent_families),
@@ -237,20 +234,16 @@ def _artifact_identity(model: Dict[str, Any]) -> tuple[bool, list[str]]:
 
 def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dict[str, Any]]:
     default_permissions = {
-        "PRICE": "RESEARCH_ONLY",
-        "CAPITAL": "RESEARCH_ONLY",
-        "SUPPLY": "RESEARCH_ONLY",
-        "PRICING_GAP": "RESEARCH_ONLY",
-        "REPRICING": "RESEARCH_ONLY",
-        "FUTURE_BUYER": "RESEARCH_ONLY",
-        "REFLEXIVITY": "RESEARCH_ONLY",
+        "PRICE": "NONE", "CAPITAL": "NONE", "SUPPLY": "NONE", "PRICING_GAP": "NONE",
+        "REPRICING": "NONE", "FUTURE_BUYER": "NONE", "REFLEXIVITY": "NONE",
     }
-    if not CALIBRATION_PATH.exists():
-        return None, {"status": "DATA_INSUFFICIENT", "reason": "CALIBRATION_ARTIFACT_MISSING", "production_alpha_permissions": default_permissions, "collapsed_features": []}
     try:
-        model = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        return None, {"status": "DATA_INSUFFICIENT", "reason": f"CALIBRATION_ARTIFACT_INVALID:{type(exc).__name__}", "production_alpha_permissions": default_permissions, "collapsed_features": []}
+        from xiaogu_db import fetch_production_model
+        model = fetch_production_model(MODEL_ID)
+    except Exception as exc:
+        return None, {"status": "DATA_INSUFFICIENT", "reason": f"MODEL_REGISTRY_UNAVAILABLE:{type(exc).__name__}", "production_alpha_permissions": default_permissions, "collapsed_features": []}
+    if not model:
+        return None, {"status": "DATA_INSUFFICIENT", "reason": "MODEL_REGISTRY_MISSING", "production_alpha_permissions": default_permissions, "collapsed_features": []}
     artifact_status = str(model.get("status") or "").upper()
     identity_ok, identity_issues = _artifact_identity(model)
     oos = model.get("oos") if isinstance(model.get("oos"), dict) else {}
@@ -258,7 +251,7 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
     permissions = model.get("production_alpha_permissions") or default_permissions
     # Non-validated artifacts may inform research diagnostics but cannot carry
     # family-level production permissions into a live decision.
-    if str(model.get("status") or "").upper() != "VALIDATED":
+    if str(model.get("status") or "").upper() != "VALIDATED" or model.get("production_permission") != "PRODUCTION":
         permissions = dict(default_permissions)
     collapsed = model.get("collapsed_features") or []
     if artifact_status == "VALIDATED" and (not identity_ok or collapsed or any(name in collapsed for name in model.get("feature_names") or [])):
@@ -302,7 +295,7 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
         "capital_supply_repricing_increment",
     )
     gates_pass = all(production_gates.get(name) is True for name in required_gates)
-    if artifact_status == "VALIDATED" and oos.get("passed") is True and gates_pass:
+    if artifact_status == "VALIDATED" and model.get("production_permission") == "PRODUCTION" and oos.get("passed") is True and gates_pass:
         validation_status = "VALIDATED"
     elif artifact_status == "CALIBRATED":
         validation_status = "CALIBRATED_ONLY"
@@ -334,6 +327,11 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
         "model_version": model.get("model_version"),
         "feature_version": model.get("feature_version"),
         "dataset_hash": model.get("dataset_hash"),
+        "dataset_version": model.get("dataset_version"),
+        "target_version": model.get("target_version"),
+        "horizon": model.get("horizon"),
+        "schema_version": model.get("schema_version"),
+        "production_permission": model.get("production_permission"),
         "cost_model_version": model.get("cost_model_version"),
         "oos": oos,
         "production_gates": production_gates,
@@ -454,10 +452,6 @@ def build_core_alpha(
             and expected_net_profit_window > 0
         ),
     }
-    thesis_inputs = list(axes.values()) + [risk["score"], execution_feasibility]
-    if buyer_observed:
-        thesis_inputs.append(buyer_capacity)
-    thesis_score = _mean(*thesis_inputs)
     core_alpha_status = model_status
     contradiction = integrated.get("contradiction") if isinstance(integrated.get("contradiction"), dict) else integrated
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
@@ -501,7 +495,6 @@ def build_core_alpha(
         "readiness": readiness,
         "repricing_readiness": readiness,
         "REPRICING_READINESS": readiness,
-        "repricing_readiness_score": _round_or_none(_mean(*([axes["FUTURE_DEMAND"], convergence["score"], axes["SUPPLY"], gap["real_pricing_gap"], axes["REFLEXIVITY"]] + ([buyer_capacity] if buyer_observed else [])))),
         "repricing_state_evidence": repricing,
         "business_quality": _round_or_none(axes["BUSINESS"]),
         "future_demand": _round_or_none(axes["FUTURE_DEMAND"]),
@@ -531,6 +524,7 @@ def build_core_alpha(
         "repricing_state": repricing_state,
         "REPRICING_STATE": repricing_state,
         "repricing_evidence_score": _round_or_none(repricing_evidence_score),
+        "repricing_evidence_score_role": "DIAGNOSTIC_ONLY",
         "research_probability": _round_or_none(research_probability),
         "profit_window_probability": _round_or_none(profit_window_probability),
         "profit_window_calibration": calibration,
@@ -550,9 +544,8 @@ def build_core_alpha(
             "cost_rate": DEFAULT_COST_RATE,
             "cost_model_version": COST_MODEL_VERSION,
         },
-        "thesis_score": _round_or_none(thesis_score),
         "downside_risk": _round_or_none(risk["downside"]),
-        "confidence": _round_or_none(_mean(thesis_score, demand["evidence_strength"], execution_feasibility, convergence["score"])),
+        "confidence": _round_or_none(_mean(demand["evidence_strength"], execution_feasibility, convergence["score"])),
         "market_stage": market["stage"],
         "reflexivity_break": _round_or_none(reflexivity["break"]),
         "repricing_completion": completion,

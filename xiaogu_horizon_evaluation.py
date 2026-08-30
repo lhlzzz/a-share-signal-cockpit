@@ -44,7 +44,6 @@ PRODUCTION_FEATURES = CORE_ALPHA_FEATURES + (
     "capital_price_impact",
     "real_pricing_gap",
     "future_buyer_capacity",
-    "repricing_evidence_score",
 )
 
 PRICE_MARKET_FEATURES = ("price_strength", "market_score")

@@ -5,7 +5,7 @@ import hashlib
 import json
 from typing import Any, Dict, Iterable
 
-from xiaogu_forward_snapshot import CanonicalSnapshot, assert_point_in_time_evidence, filter_point_in_time_records
+from xiaogu_forward_snapshot import CanonicalSnapshot, assert_point_in_time_evidence, filter_point_in_time_records, pit_record_audit
 
 FEATURE_GROUPS = (
     "BUSINESS",
@@ -48,6 +48,7 @@ def _evidence(
     source_id = str(source_id or source or "")
     event_id = str(event_id or source_id)
     mechanism = str(mechanism or evidence_family)
+    economic_origin_id = str(extra.pop("economic_origin_id", "") or event_id)
     observed_at = str(observed_at or available_at or "")
     identity = f"{source_id}|{event_id}|{mechanism}"
     return {
@@ -55,11 +56,16 @@ def _evidence(
         "source": source,
         "source_id": source_id,
         "event_id": event_id,
+        "economic_origin_id": economic_origin_id,
         "mechanism": mechanism,
         "evidence_id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16],
         "evidence_family": evidence_family,
         "observed_at": observed_at,
         "available_at": available_at,
+        "pit_status": "OK" if available_at else "UNKNOWN",
+        "time_basis": "observed_at/available_at" if observed_at or available_at else "UNKNOWN",
+        "source_time": observed_at or None,
+        "exclusion_reason": None,
         "lineage_id": lineage_id,
         "interpretation": interpretation,
         **extra,
@@ -161,6 +167,14 @@ def _record_available_at(record: Dict[str, Any], fallback: str) -> str:
     )
 
 
+def _source_records(raw: Dict[str, Any], key: str, source_id: str) -> list[Dict[str, Any]]:
+    records = raw.get(key) if isinstance(raw.get(key), list) else []
+    return [
+        {**record, "source_id": record.get("source_id") or source_id}
+        for record in records if isinstance(record, dict)
+    ]
+
+
 _COVERAGE_SKIP = {
     "lineage_id", "source", "available_at", "evidence", "evidence_count", "score",
     "coverage", "observed_count", "available_count", "missing_rate", "valid_rate",
@@ -229,20 +243,35 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     raw = _raw(snap)
     as_of = snap.get("as_of") or snap.get("source_time") or snap.get("available_at")
     flow_raw = raw.get("stock_capital_flow") if isinstance(raw.get("stock_capital_flow"), dict) else {}
+    flow_raw = {**flow_raw, "source_id": flow_raw.get("source_id") or "stock_capital_flow"}
     flow = flow_raw if assert_point_in_time_evidence(flow_raw, as_of) else {}
     industry_raw = raw.get("industry_flow") if isinstance(raw.get("industry_flow"), dict) else {}
+    industry_raw = {**industry_raw, "source_id": industry_raw.get("source_id") or "industry_flow"}
     industry_flow = industry_raw if assert_point_in_time_evidence(industry_raw, as_of) else {}
     earnings_raw = raw.get("earnings_preview") if isinstance(raw.get("earnings_preview"), dict) else {}
+    earnings_raw = {**earnings_raw, "source_id": earnings_raw.get("source_id") or "research_report"}
     earnings = earnings_raw if assert_point_in_time_evidence(earnings_raw, as_of) else {}
-    shareholder, shareholder_excluded = filter_point_in_time_records(raw.get("shareholder_changes") if isinstance(raw.get("shareholder_changes"), list) else [], as_of)
-    lhb_kept, lhb_excluded = filter_point_in_time_records(raw.get("lhb") if isinstance(raw.get("lhb"), list) else [], as_of)
-    announcements_kept, announcements_excluded = filter_point_in_time_records(raw.get("announcements") if isinstance(raw.get("announcements"), list) else [], as_of)
-    news_kept, news_excluded = filter_point_in_time_records(raw.get("news") if isinstance(raw.get("news"), list) else [], as_of)
-    org_surveys_kept, org_surveys_excluded = filter_point_in_time_records(raw.get("org_surveys") if isinstance(raw.get("org_surveys"), list) else [], as_of)
-    reports_kept, reports_excluded = filter_point_in_time_records(raw.get("stock_reports") if isinstance(raw.get("stock_reports"), list) else [], as_of)
-    lockup_kept, lockup_excluded = filter_point_in_time_records(raw.get("lockup_expiry") if isinstance(raw.get("lockup_expiry"), list) else [], as_of)
-    industry_reports_kept, industry_reports_excluded = filter_point_in_time_records(raw.get("industry_reports") if isinstance(raw.get("industry_reports"), list) else [], as_of)
-    future_buyers_kept, future_buyers_excluded = filter_point_in_time_records(raw.get("future_buyers") if isinstance(raw.get("future_buyers"), list) else [], as_of)
+    pit_inputs = {
+        "shareholder_changes": _source_records(raw, "shareholder_changes", "shareholder_changes"),
+        "lhb": _source_records(raw, "lhb", "lhb"),
+        "announcements": _source_records(raw, "announcements", "announcements"),
+        "news": _source_records(raw, "news", "news"),
+        "org_surveys": _source_records(raw, "org_surveys", "research_report"),
+        "stock_reports": _source_records(raw, "stock_reports", "research_report"),
+        "lockup_expiry": _source_records(raw, "lockup_expiry", "announcements"),
+        "industry_reports": _source_records(raw, "industry_reports", "research_report"),
+        "future_buyers": _source_records(raw, "future_buyers", "research_report"),
+    }
+    pit_results = {key: filter_point_in_time_records(value, as_of) for key, value in pit_inputs.items()}
+    shareholder, shareholder_excluded = pit_results["shareholder_changes"]
+    lhb_kept, lhb_excluded = pit_results["lhb"]
+    announcements_kept, announcements_excluded = pit_results["announcements"]
+    news_kept, news_excluded = pit_results["news"]
+    org_surveys_kept, org_surveys_excluded = pit_results["org_surveys"]
+    reports_kept, reports_excluded = pit_results["stock_reports"]
+    lockup_kept, lockup_excluded = pit_results["lockup_expiry"]
+    industry_reports_kept, industry_reports_excluded = pit_results["industry_reports"]
+    future_buyers_kept, future_buyers_excluded = pit_results["future_buyers"]
     raw = dict(raw)
     raw["lhb"] = lhb_kept
     raw["announcements"] = announcements_kept
@@ -420,20 +449,26 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         event_id = _event_id("lhb", row, index)
         record_available_at = _record_available_at(row, available_at)
         if _institution_row(row):
+            pit = row.get("pit_audit") if isinstance(row.get("pit_audit"), dict) else {}
             institution_direct.append(_evidence(
                 observed=True, source="lhb", available_at=record_available_at,
                 evidence_family="DIRECT_INSTITUTION", detail="lhb_institution",
                 source_id="lhb", event_id=event_id, mechanism="lhb_event",
                 observed_at=record_available_at, lineage_id=lineage_id,
                 interpretation="INSTITUTION",
+                pit_status=pit.get("pit_status"), time_basis=pit.get("time_basis"),
+                source_time=pit.get("source_time"), exclusion_reason=pit.get("exclusion_reason"),
             ))
         if _hot_money_row(row):
+            pit = row.get("pit_audit") if isinstance(row.get("pit_audit"), dict) else {}
             hot_money_direct.append(_evidence(
                 observed=True, source="lhb", available_at=record_available_at,
                 evidence_family="DIRECT_HOT_MONEY", detail="lhb_hot_money",
                 source_id="lhb", event_id=event_id, mechanism="lhb_event",
                 observed_at=record_available_at, lineage_id=lineage_id,
                 interpretation="HOT_MONEY",
+                pit_status=pit.get("pit_status"), time_basis=pit.get("time_basis"),
+                source_time=pit.get("source_time"), exclusion_reason=pit.get("exclusion_reason"),
             ))
     for key in ("institution_position_change", "institution_holding_change", "institution_flow_evidence", "institution_trade_evidence"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
@@ -894,6 +929,18 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 "lockup_expiry": len(lockup_excluded),
                 "industry_reports": len(industry_reports_excluded),
                 "future_buyers": len(future_buyers_excluded),
+            },
+            "records": {
+                key: [
+                    {"pit_status": pit_record_audit(row, as_of)["pit_status"],
+                     "time_basis": pit_record_audit(row, as_of)["time_basis"],
+                     "source_time": pit_record_audit(row, as_of)["source_time"],
+                     "available_at": pit_record_audit(row, as_of)["available_at"],
+                     "as_of": pit_record_audit(row, as_of)["as_of"],
+                     "exclusion_reason": pit_record_audit(row, as_of)["exclusion_reason"]}
+                    for row in (*pit_results[key][0], *pit_results[key][1])
+                ]
+                for key in pit_results
             },
         },
     }

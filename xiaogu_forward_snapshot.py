@@ -21,27 +21,15 @@ SCHEMA_VERSION = "canonical_snapshot_trusted_v1"
 SOURCE_VERSION = "canonical_snapshot_v2"
 MAX_STALENESS = timedelta(minutes=120)
 STALE_DATA = "STALE_DATA"
-PIT_DATETIME_FIELDS = (
-    "event_time",
-    "publication_time",
-    "observed_at",
-    "available_at",
-    "NOTICE_DATE",
-    "notice_date",
-    "datetime",
-    "publish_time",
-    "showTime",
-    "SHOWTIME",
-)
-PIT_DATE_FIELDS = (
-    "trade_date",
-    "TRADE_DATE",
-    "END_DATE",
-    "FREE_DATE",
-    "NOTICE_DATE",
-    "notice_date",
-    "date",
-)
+SOURCE_TIMESTAMP_CONTRACTS = {
+    "lhb": {"PRIMARY_TIME_FIELD": "event_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "news": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "announcements": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "research_report": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "stock_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "industry_reports": {"PRIMARY_TIME_FIELD": "publication_time", "AVAILABILITY_TIME_FIELD": "available_at"},
+    "default": {"PRIMARY_TIME_FIELD": "observed_at", "AVAILABILITY_TIME_FIELD": "available_at"},
+}
 REQUIRED_CANONICAL_FIELDS = (
     "symbol",
     "trade_date",
@@ -117,40 +105,54 @@ def _parse_date(value: Any) -> date | None:
         return None
 
 
-def pit_record_status(record: Any, as_of: str | datetime | None) -> str:
-    """Return OK only when a record can prove it was available at as_of."""
+def _source_contract(record: Mapping[str, Any]) -> tuple[str, Dict[str, str]]:
+    source_id = str(record.get("source_id") or record.get("source") or "default").lower()
+    contract = SOURCE_TIMESTAMP_CONTRACTS.get(source_id, SOURCE_TIMESTAMP_CONTRACTS["default"])
+    return source_id, contract
+
+
+def pit_record_audit(record: Any, as_of: str | datetime | None) -> Dict[str, Any]:
+    """Audit one evidence row under its declared source timestamp contract."""
     if not isinstance(record, dict):
-        return "EXCLUDED_FROM_FEATURES"
+        return {"pit_status": "EXCLUDED_FROM_FEATURES", "time_basis": "invalid_record", "source_time": None,
+                "available_at": None, "as_of": str(as_of or ""), "exclusion_reason": "INVALID_RECORD"}
     as_of_ts = as_of if isinstance(as_of, datetime) else _parse_timestamp(as_of)
     if as_of_ts is None:
-        return "EXCLUDED_FROM_FEATURES"
+        return {"pit_status": "EXCLUDED_FROM_FEATURES", "time_basis": "invalid_as_of", "source_time": None,
+                "available_at": None, "as_of": str(as_of or ""), "exclusion_reason": "INVALID_AS_OF"}
     if as_of_ts.tzinfo is None:
         as_of_ts = as_of_ts.replace(tzinfo=timezone.utc)
-    found = False
-    for key in PIT_DATETIME_FIELDS:
-        if record.get(key) in (None, "", "-"):
-            continue
-        found = True
-        stamp = _parse_timestamp(record.get(key))
-        if stamp is None:
-            day = _parse_date(record.get(key))
-            if day is None or day > as_of_ts.date():
-                return "EXCLUDED_FROM_FEATURES"
-            continue
-        if stamp.tzinfo is None:
-            stamp = stamp.replace(tzinfo=timezone.utc)
-        if stamp > as_of_ts:
-            return "EXCLUDED_FROM_FEATURES"
-    for key in PIT_DATE_FIELDS:
-        if record.get(key) in (None, "", "-"):
-            continue
-        found = True
-        day = _parse_date(record.get(key))
-        if day is None or day > as_of_ts.date():
-            return "EXCLUDED_FROM_FEATURES"
-    if not found:
-        return "EXCLUDED_FROM_FEATURES"
-    return "OK"
+    source_id, contract = _source_contract(record)
+    primary_field = contract["PRIMARY_TIME_FIELD"]
+    available_field = contract["AVAILABILITY_TIME_FIELD"]
+    source_value = record.get(primary_field)
+    available_value = record.get(available_field)
+    audit = {
+        "pit_status": "OK", "time_basis": f"{source_id}:{primary_field}/{available_field}",
+        "source_time": source_value, "available_at": available_value, "as_of": as_of_ts.isoformat(),
+        "exclusion_reason": None,
+    }
+    if not source_value or not available_value:
+        audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="TIMESTAMP_CONTRACT_INCOMPLETE")
+        return audit
+    source_ts = _parse_timestamp(source_value)
+    available_ts = _parse_timestamp(available_value)
+    if source_ts is None or available_ts is None:
+        audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="TIMESTAMP_INVALID")
+        return audit
+    if source_ts.tzinfo is None:
+        source_ts = source_ts.replace(tzinfo=timezone.utc)
+    if available_ts.tzinfo is None:
+        available_ts = available_ts.replace(tzinfo=timezone.utc)
+    if source_ts > as_of_ts or available_ts > as_of_ts:
+        audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TIMESTAMP")
+    elif available_ts < source_ts:
+        audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="AVAILABILITY_BEFORE_EVENT")
+    return audit
+
+
+def pit_record_status(record: Any, as_of: str | datetime | None) -> str:
+    return pit_record_audit(record, as_of)["pit_status"]
 
 
 def assert_point_in_time_evidence(
@@ -160,10 +162,12 @@ def assert_point_in_time_evidence(
     location: str = "EVIDENCE",
 ) -> Dict[str, Any] | None:
     """Keep a record only when event/publication/observation time is proven PIT."""
-    del location
-    if pit_record_status(record, as_of) != "OK":
+    audit = pit_record_audit(record, as_of)
+    if audit["pit_status"] != "OK":
         return None
-    return record
+    enriched = dict(record)
+    enriched["pit_audit"] = {**audit, "location": location}
+    return enriched
 
 
 def filter_point_in_time_records(

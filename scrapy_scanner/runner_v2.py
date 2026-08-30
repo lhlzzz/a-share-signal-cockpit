@@ -532,14 +532,7 @@ def detect_capital_candidates(
     for row in stocks or []:
         symbol = row.get("f12") or row.get("symbol")
         blockers = cheap_eligibility_blockers(row)
-        route = {
-            "symbol": symbol,
-            "entered_l1": True,
-            "eligible_l1": not blockers,
-            "l2_triggered": False,
-            "l2_trigger_reasons": [],
-            "deep_fetch_requested": False,
-        }
+        route = {"symbol": symbol, "deep_fetch_required": False, "routing_reasons": []}
         if blockers:
             rejected.append({"symbol": symbol, "blockers": blockers, **route})
             routing.append(route)
@@ -572,29 +565,31 @@ def detect_capital_candidates(
         if market_breadth is not None and float(market_breadth) > 50 and pct_change is not None and pct_change != 0:
             evidence.append("market_movement")
         triggered = len(evidence) >= 2
-        route.update({
-            "l2_triggered": triggered,
-            "l2_trigger_reasons": evidence,
-            "deep_fetch_requested": triggered,
-        })
+        route.update({"deep_fetch_required": triggered, "routing_reasons": evidence})
         routing.append(route)
         if triggered:
             item = dict(row)
-            item["deep_fetch_trigger"] = True
-            item["deep_fetch_reasons"] = evidence
-            item["l2_triggered"] = True
-            item["l2_trigger_reasons"] = evidence
-            item["deep_fetch_requested"] = True
+            item["deep_fetch_required"] = True
+            item["routing_reasons"] = evidence
             candidates.append(item)
         else:
             rejected.append({"symbol": symbol, "blockers": ["NO_DEEP_FETCH_TRIGGER"], **route})
+    l1_eligible_count = sum(not cheap_eligibility_blockers(row) for row in stocks)
     return candidates, {
         "input_count": len(stocks),
-        "entered_l1": len(stocks),
-        "eligible_l1": sum(item["eligible_l1"] for item in routing),
-        "l2_triggered": sum(item["l2_triggered"] for item in routing),
-        "candidate_count": len(candidates),
-        "rejected_count": len(rejected),
+        "full_universe_count": len(stocks),
+        "l1_eligible_count": l1_eligible_count,
+        "l1_rejected_count": len(stocks) - l1_eligible_count,
+        "l2_routed_count": len(candidates),
+        "l2_not_routed_count": l1_eligible_count - len(candidates),
+        "l3_fetched_count": None,
+        "l3_fetch_failed_count": None,
+        "alpha_evaluated_count": None,
+        "decision_count": None,
+        "L2_SELECTION_FEATURES": [
+            "basic_capital_flow", "price_response", "turnover", "relative_volume",
+            "close_position", "industry_movement", "amount_activity", "market_movement",
+        ],
         "rejected": rejected,
         "routing": routing,
         "selection": False,
@@ -685,7 +680,7 @@ def build_canonical_snapshots(
             )
             visible["source_layers"] = [
                 "L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
-                "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH",
+                "L2_RESOURCE_ROUTER", "L3_DEEP_CANDIDATE_FETCH",
             ]
         snapshots.append(validate_and_build_canonical_snapshot(
             visible,
@@ -975,8 +970,8 @@ def main() -> Dict[str, Any]:
             persistence = {"status": "FAILED", "error": repr(exc)}
 
     scan_finished_at = datetime.now(MARKET_TIMEZONE).isoformat(timespec="seconds")
-    l1_eligible = int(level_2_audit.get("eligible_l1") or 0)
-    l2_routed = int(level_2_audit.get("l2_triggered") or len(candidate_codes))
+    l1_eligible = int(level_2_audit.get("l1_eligible_count") or 0)
+    l2_routed = int(level_2_audit.get("l2_routed_count") or len(candidate_codes))
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
         "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
@@ -993,6 +988,13 @@ def main() -> Dict[str, Any]:
             "l1_eligible_universe": l1_eligible,
             "l2_routed_universe": l2_routed,
             "l3_researched_universe": len(candidate_codes) if production_scan != "BLOCKED" else 0,
+        },
+        "sample_accounting": {
+            **level_2_audit,
+            "l3_fetched_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
+            "l3_fetch_failed_count": 0 if production_scan != "BLOCKED" else len(candidate_codes),
+            "alpha_evaluated_count": None,
+            "decision_count": None,
         },
         "levels": {
             "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": len(stocks), "fields": LIGHT_STOCK_FIELDS.split(",")},

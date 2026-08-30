@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS canonical_future_prices (
     source TEXT NOT NULL,
     source_timestamp TIMESTAMPTZ,
     price_basis TEXT NOT NULL,
+    price_fact_hash TEXT NOT NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (symbol, date),

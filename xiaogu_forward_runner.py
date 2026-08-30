@@ -217,7 +217,7 @@ def main() -> None:
         rows = eligible_rows
     universe.update({
         "l2_routed_count": (
-            sum("L2_CAPITAL_CANDIDATE" in (row.get("source_layers") or []) for row in eligible_rows)
+            sum(any(layer.startswith("L2_") for layer in (row.get("source_layers") or [])) for row in eligible_rows)
             if routing_metadata_present else None
         ),
         "l3_count": len(rows),

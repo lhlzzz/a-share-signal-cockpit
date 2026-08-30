@@ -80,11 +80,9 @@ def test_l2_is_resource_router():
     assert "alpha_score" not in audit
     assert [row["f12"] for row in candidates] == ["600001"]
     routed = {item["symbol"]: item for item in audit["routing"]}
-    assert routed["600001"]["entered_l1"] is True
-    assert routed["600001"]["eligible_l1"] is True
-    assert routed["600001"]["l2_triggered"] is True
-    assert routed["600001"]["deep_fetch_requested"] is True
-    assert routed["600002"]["l2_triggered"] is False
+    assert routed["600001"]["deep_fetch_required"] is True
+    assert routed["600001"]["routing_reasons"]
+    assert routed["600002"]["deep_fetch_required"] is False
 
 
 def test_no_selection_bias_blindspot():
@@ -160,7 +158,7 @@ def test_optional_source_failure_is_unknown():
 
 def test_record_level_pit():
     kept = assert_point_in_time_evidence(
-        {"TRADE_DATE": "2026-08-26", "EXPLAIN": "机构买入"},
+        {"event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "EXPLAIN": "机构买入", "source_id": "lhb"},
         "2026-08-26T15:00:00+08:00",
     )
     assert kept is not None
@@ -174,7 +172,7 @@ def test_record_level_pit_preserves_provider_timestamp_in_features():
         "source_time": "2026-08-26T15:00:00+08:00",
         "lhb": [{
             "EXPLAIN": "机构买入", "institution": True,
-            "TRADE_DATE": "2026-08-26",
+            "event_time": "2026-08-26T14:45:00+08:00",
             "available_at": "2026-08-26T14:45:00+08:00",
         }],
     })
@@ -185,7 +183,7 @@ def test_record_level_pit_preserves_provider_timestamp_in_features():
 
 def test_future_event_rejected():
     future = assert_point_in_time_evidence(
-        {"TRADE_DATE": "2026-08-27", "available_at": "2026-08-27T09:00:00+08:00"},
+        {"event_time": "2026-08-27T09:00:00+08:00", "available_at": "2026-08-27T09:00:00+08:00", "source_id": "lhb"},
         "2026-08-26T15:00:00+08:00",
     )
     assert future is None
@@ -243,7 +241,7 @@ def test_partial_capital_not_blocker():
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00",
         "institutional_flow": 0.8,
-        "lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "TRADE_DATE": "2026-08-26", "available_at": "2026-08-26T14:50:00+08:00"}],
+        "lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}],
     }, as_of=AS_OF)
     assert decision["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
     assert "CAPITAL_CONVERGENCE_INCOMPLETE" not in decision["repricing_risk"]["blockers"]
@@ -294,7 +292,7 @@ def test_artifact_version_mismatch_blocks(tmp_path, monkeypatch):
             "capital_supply_repricing_increment": True,
         },
     }), encoding="utf-8")
-    monkeypatch.setattr(alpha, "CALIBRATION_PATH", path)
+    monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(path.read_text(encoding="utf-8")))
     decision = evaluate_candidate_bundle({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00",

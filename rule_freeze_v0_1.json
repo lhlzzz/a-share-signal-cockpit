@@ -1,7 +1,7 @@
 {
   "rule_version": "repricing_production_v1",
   "frozen_at": "2026-08-29T00:00:00+08:00",
-  "change_reason": "Lock fail-closed schema, snapshot identity, decision_id outcomes, and EXPERIMENTAL 5D alpha.",
+  "change_reason": "Lock immutable facts, timestamp contracts, scanner accounting, and fail-closed 5D alpha.",
   "production_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
   "allowed_decisions": [
     "WATCH",
@@ -31,15 +31,28 @@
       "RISK",
       "EXECUTION"
     ],
-    "required_buy_evidence": [
-      "BUSINESS_READY",
-      "FUTURE_DEMAND_READY",
-      "CAPITAL_CONVERGENCE_READY",
-      "SUPPLY_ABSORPTION_READY",
-      "MARKET_READY",
-      "PRICING_GAP_READY",
-      "FUTURE_BUYERS_READY",
-      "PROFIT_WINDOW_READY"
+    "required_hard_gates": [
+      "TRUSTED_CANONICAL",
+      "DB_VERIFIED",
+      "FRESH_DATA",
+      "DATA_VALID",
+      "TRADABLE",
+      "RISK_PASS",
+      "EXECUTION_PASS",
+      "ALPHA_VALIDATED",
+      "OOS_PASS",
+      "PROBABILITY_SEPARATION_PASS",
+      "MONOTONICITY_PASS",
+      "BASELINE_INCREMENT_PASS"
+    ],
+    "model_inputs": [
+      "BUSINESS",
+      "FUTURE_DEMAND",
+      "CAPITAL",
+      "SUPPLY",
+      "PRICING_GAP",
+      "REFLEXIVITY",
+      "MARKET"
     ]
   },
   "evaluation": {
