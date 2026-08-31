@@ -249,8 +249,8 @@ def test_capital_ablation_keeps_price_baseline_and_selectivity_metrics():
     capital = report["cumulative"]["PRICE + CAPITAL"]
     assert price["oos"]["samples"] > 0
     assert capital["price_baseline_delta"]["pr_auc"] is not None
-    assert "Top5" in capital["selectivity"]
-    assert "Top10" in capital["selectivity"]
+    assert "TOP_5_PERCENT" in capital["selectivity"]
+    assert "TOP_10_PERCENT" in capital["selectivity"]
     assert "probability_std" in capital["oos"]
 
 

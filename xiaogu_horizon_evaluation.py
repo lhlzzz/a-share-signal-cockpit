@@ -1391,14 +1391,14 @@ def _selectivity(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -
     return {
         "status": "PASS" if selective else "MODEL_NOT_SELECTIVE",
         "base_rate": base_rate,
-        "Top5": top5,
-        "Top10": top10,
-        "Top20": band(0.20),
-        "Top30": band(0.30),
+        "TOP_5_PERCENT": top5,
+        "TOP_10_PERCENT": top10,
+        "TOP_20_PERCENT": band(0.20),
+        "TOP_30_PERCENT": band(0.30),
         "All": band(None),
-        "top10": top10,
-        "top20": band(0.20),
-        "top30": band(0.30),
+        "top_10_percent": top10,
+        "top_20_percent": band(0.20),
+        "top_30_percent": band(0.30),
         "all": band(None),
     }
 

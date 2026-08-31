@@ -84,7 +84,7 @@ Memory
 | Outcome | `xiaogu_forward_result_filler_v0_1.py` | T+1..T+5 truth |
 | DB | `xiaogu_db.py` | Production persistence |
 | API | `xiaogu_api.py` | Query only |
-| Memory | Obsidian | Trade notes only |
+| Memory | Memory Adapter → Obsidian | Trade notes only |
 
 Sole alpha target: `PROFIT_WINDOW_5D`. Maximum holding: 5 trading days.
 

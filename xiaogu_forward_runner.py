@@ -116,7 +116,8 @@ def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
 def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
     output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
               "scan_status": scan_status, "scan_reason": reason,
-              "canonical_count": 0, "alpha_count": 0,
+              "l0_count": 0, "l1_count": 0, "l2_count": 0, "l3_count": 0,
+              "canonical_count": 0, "feature_count": 0, "alpha_count": 0, "decision_count": 0,
               "paper_observation_count": 0, "paper_observations": [],
               "state": "WATCH", "reason": reason}
     from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
@@ -155,9 +156,10 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             holding_days = count_trading_days(start, end)
         except (TypeError, ValueError):
             holding_days = 0
-        previous_action = prior.get("action") or prior.get("previous_action") or prior.get("decision")
+        previous_action = prior.get("action") or prior.get("decision")
+        previous_state = prior.get("state") or prior.get("previous_state")
         position_state = prior.get("position_state")
-        if not previous_action or not position_state:
+        if not previous_action or previous_state not in {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"} or not position_state:
             continue
         account = {
             "decision_id": prior_id,
@@ -171,7 +173,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         }
         decision = run_production_decision(
             snapshot,
-            portfolio_state=previous_action if previous_action in {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"} else "HOLD",
+            portfolio_state=previous_state,
             account=account,
             mode="PRODUCTION",
             trade_date=trade_date,
@@ -335,8 +337,14 @@ def main() -> None:
         "recorded": recorded,
         "scan_status": "SIGNAL_AVAILABLE" if paper_observations else "NO_SIGNAL",
         "scan_reason": "PAPER_OBSERVATION_RECORDED" if paper_observations else "NO_PAPER_OBSERVATION",
+        "l0_count": input_count,
+        "l1_count": universe.get("eligible_count", 0),
+        "l2_count": universe.get("l2_routed_count", 0),
+        "l3_count": universe.get("l3_count", 0),
         "canonical_count": canonical_count,
+        "feature_count": len(decisions),
         "alpha_count": len(decisions),
+        "decision_count": len(decisions),
         "paper_observation_count": len(paper_observations),
         "paper_observations": paper_observations,
         "candidate_universe": universe,

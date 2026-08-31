@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS production_runs (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
     status TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -46,9 +46,11 @@ CREATE TABLE IF NOT EXISTS paper_observations (
     paper_observation_contract_version TEXT NOT NULL,
     paper_only BOOLEAN NOT NULL DEFAULT TRUE,
     live_order BOOLEAN NOT NULL DEFAULT FALSE,
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (decision_id)
+    UNIQUE (decision_id),
+    CHECK (paper_only),
+    CHECK (NOT live_order)
 );
 CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time
     ON paper_observations(signal_time);
@@ -113,7 +115,7 @@ CREATE TABLE IF NOT EXISTS canonical_future_prices (
     source_timestamp TIMESTAMPTZ,
     price_basis TEXT NOT NULL,
     price_fact_hash TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (symbol, date),
     CHECK (price_basis = 'UNADJUSTED')

@@ -379,7 +379,7 @@ def test_paper_performance(monkeypatch):
     }])
     payload = xiaogu_api.paper_performance()
     assert payload["status"] == "PAPER_OBSERVATION_ONLY"
-    assert payload["groups"]["Top5"]["profit_window_rate"] == 1
+    assert payload["groups"]["DAILY_TOP_N_5"]["profit_window_rate"] == 1
     assert payload["groups"]["All"]["horizon_metrics"]["T+5"]["mean_net_return"] == 0.03
 
 
@@ -408,13 +408,13 @@ def test_recorder_accepts_trade_events_but_rejects_watch_memory(tmp_path, monkey
     assert not list((tmp_path / "memory").glob("**/*.md"))
 
 
-def test_recorder_persists_buy_without_watch_memory(tmp_path, monkeypatch):
+def test_recorder_persists_buy_and_queues_memory_without_bridge(tmp_path, monkeypatch):
     import xiaogu_db
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
     monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "ledger.jsonl")
     monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
-    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    monkeypatch.setattr(recorder, "MEMORY_RETRY_QUEUE", tmp_path / "memory_retry.jsonl")
     monkeypatch.setattr(xiaogu_db, "record_snapshot", lambda _snapshot: None)
     monkeypatch.setattr(xiaogu_db, "record_decision", lambda _decision: None)
     decision = {
@@ -432,16 +432,17 @@ def test_recorder_persists_buy_without_watch_memory(tmp_path, monkeypatch):
     assert record["max_daily_bar_profit_opportunity_5d"] is None
     assert record["future_1d_return"] is None
     assert record["auto_order"] is False
-    assert record["memory_path"].endswith("BUY/2026-08-26_600001.md")
-    assert (tmp_path / "memory" / "decisions" / "BUY" / "2026-08-26_600001.md").exists()
+    assert record["memory_path"] is None
+    assert record["memory_status"] == "RETRY_QUEUED"
+    assert (tmp_path / "memory_retry.jsonl").exists()
 
 
-def test_post_trade_review_and_memory_are_written_for_complete_window(tmp_path, monkeypatch):
+def test_post_trade_review_queues_memory_without_bridge(tmp_path, monkeypatch):
     import xiaogu_db
     import xiaogu_forward_paper_recorder_v0_1 as recorder
     from xiaogu_forward_result_filler_v0_1 import append_result
 
-    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    monkeypatch.setattr(recorder, "MEMORY_RETRY_QUEUE", tmp_path / "memory_retry.jsonl")
     monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "ledger.jsonl")
     monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
     monkeypatch.setattr(xiaogu_db, "record_snapshot", lambda _snapshot: None)
@@ -465,7 +466,74 @@ def test_post_trade_review_and_memory_are_written_for_complete_window(tmp_path, 
     assert result["result_status"] == "SETTLED"
     assert result["post_trade_review"]["status"] == "SUCCESS"
     path = recorder.update_trade_memory(result)
-    assert path and (tmp_path / "memory" / "post_trade_review" / "2026-08-26_600001.md").exists()
+    assert path is None
+    assert (tmp_path / "memory_retry.jsonl").exists()
+
+
+def test_memory_api_uses_bridge_query_not_vault_scan(monkeypatch):
+    import xiaogu_api
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"notes":[{"decision_id":"decision-1"}]}'
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        return Response()
+
+    monkeypatch.setenv("XIAOGU_OBSIDIAN_BRIDGE_URL", "http://bridge.local")
+    monkeypatch.setattr(xiaogu_api, "urlopen", fake_urlopen)
+    payload = xiaogu_api.memory(
+        date="2026-08-26",
+        decision_id="decision-1",
+        paper_signal_id="paper-signal-1",
+        limit=5,
+    )
+    assert payload == {"status": "OK", "notes": [{"decision_id": "decision-1"}]}
+    assert "date=2026-08-26" in captured["url"]
+    assert "decision_id=decision-1" in captured["url"]
+    assert "paper_signal_id=paper-signal-1" in captured["url"]
+
+
+def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    seen = {}
+    monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "symbol": "600001",
+        "trade_date": "2026-08-25",
+        "state": "HOLD",
+        "action": "BUY",
+        "decision_id": "d1",
+        "position_state": "LONG",
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        "xiaogu_db.fetch_persisted_canonical_snapshots",
+        lambda *_args, **_kwargs: [validate_and_build_canonical_snapshot({
+            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        })],
+    )
+    monkeypatch.setattr(
+        runner,
+        "run_production_decision",
+        lambda *args, **kwargs: seen.update(kwargs) or {
+            "state": "HOLD", "action": "HOLD", "trade_status": "NOT_OPEN",
+        },
+    )
+    monkeypatch.setattr(runner, "_write_ledger_record", lambda _decision: Path("/tmp/unused"))
+    runner.daily_position_review("2026-08-26")
+    assert seen["portfolio_state"] == "HOLD"
+    assert seen["previous_action"] == "BUY"
 
 
 def test_runner_bundle_loader_reads_scanner_canonical_jsonl(tmp_path, monkeypatch):
@@ -759,6 +827,15 @@ def test_canonical_future_prices_are_immutable_facts():
     finally:
         with engine.begin() as db:
             db.execute(text("DELETE FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'"))
+
+
+def test_paper_observation_db_checks_enforce_paper_only_and_no_live_order():
+    from xiaogu_db import audit_production_schema, ensure_production_schema
+
+    ensure_production_schema()
+    checks = audit_production_schema()["tables"]["paper_observations"]["checks"]
+    assert checks["paper_observations_paper_only_check"] == "CHECK (paper_only)"
+    assert "NOT live_order" in checks["paper_observations_live_order_check"]
 
 
 def test_rule_freeze_hard_gates_match_decision_owner():

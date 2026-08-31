@@ -44,7 +44,7 @@
 
 ### Task 7: Recorder ownership A:I5
 - [ ] DB transaction then JSONL; DB failure is not success
-- [ ] Obsidian failure logs a retry without a second memory
+- [x] Obsidian failure logs a retry without a second memory
 - Verification: recorder tests
 
 ### Task 8: Historical dataset and docs A:I5

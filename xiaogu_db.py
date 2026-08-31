@@ -66,6 +66,26 @@ def _constraint_columns(table_name: str, constraint_type: str) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
+def _check_constraints(table_name: str) -> dict[str, str]:
+    with engine.connect() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT con.conname, pg_get_constraintdef(con.oid)
+                FROM pg_constraint con
+                JOIN pg_class rel ON rel.oid = con.conrelid
+                JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+                WHERE nsp.nspname = 'public'
+                  AND rel.relname = :table_name
+                  AND con.contype = 'c'
+                ORDER BY con.conname
+                """
+            ),
+            {"table_name": table_name},
+        ).fetchall()
+    return {str(row[0]): str(row[1]) for row in rows}
+
+
 def _unique_index_columns(table_name: str) -> set[str]:
     columns: set[str] = set()
     with engine.connect() as db:
@@ -230,6 +250,7 @@ def audit_production_schema() -> Dict[str, Any]:
     ok = True
     for table_name, columns in required_columns.items():
         present_columns = _table_columns(table_name)
+        checks = _check_constraints(table_name)
         unique_cols = set(_constraint_columns(table_name, "UNIQUE")) | set(
             _constraint_columns(table_name, "PRIMARY KEY")
         ) | _unique_index_columns(table_name)
@@ -276,6 +297,7 @@ def audit_production_schema() -> Dict[str, Any]:
             "columns": column_audit,
             "indexes": index_audit,
             "unique": unique_audit,
+            "checks": checks,
             "primary_key": {"columns": list(primary_key), "status": pk_status},
             "foreign_keys": fk_audit,
         }
@@ -287,6 +309,8 @@ def audit_production_schema() -> Dict[str, Any]:
             ok = ok and fk_audit.get("decision_id->picks.decision_id") in {"EXISTS", "CONFLICT"}
         if table_name == "paper_observations":
             ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
+            ok = ok and checks.get("paper_observations_paper_only_check") == "CHECK (paper_only)"
+            ok = ok and checks.get("paper_observations_live_order_check") == "CHECK (NOT live_order)"
     anomalies = {
         "picks_missing_decision_id": _count_unbound_decision_ids("picks"),
         "returns_missing_decision_id": _count_unbound_decision_ids("returns"),
@@ -333,7 +357,7 @@ def ensure_production_schema() -> None:
             paper_observation_contract_version TEXT NOT NULL,
             paper_only BOOLEAN NOT NULL DEFAULT TRUE,
             live_order BOOLEAN NOT NULL DEFAULT FALSE,
-            payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (decision_id)
         )""",
@@ -399,6 +423,17 @@ def ensure_production_schema() -> None:
     except SQLAlchemyError as exc:
         if not _schema_error_already_exists(exc):
             raise
+    for statement in (
+        "ALTER TABLE paper_observations ADD CONSTRAINT "
+        "paper_observations_paper_only_check CHECK (paper_only)",
+        "ALTER TABLE paper_observations ADD CONSTRAINT "
+        "paper_observations_live_order_check CHECK (NOT live_order)",
+    ):
+        try:
+            _exec_schema(statement)
+        except SQLAlchemyError as exc:
+            if not _schema_error_already_exists(exc):
+                raise
     try:
         _exec_schema(
             "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
@@ -1238,7 +1273,7 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
             "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
             "state": action,
             "action": payload.get("action") or action,
-            "previous_action": payload.get("action") or action,
+            "previous_action": payload.get("action"),
             "position_state": position_state,
             "decision": payload.get("action") or action,
             "decision_id": payload.get("decision_id") or row.get("decision_id") or row.get("id"),
@@ -1674,12 +1709,12 @@ def fetch_historical_replay_assets(
         return f"""(
             CASE
                 WHEN jsonb_typeof("{column}") = 'object' THEN (
-                    SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{{}}'::jsonb)
+                    SELECT COALESCE(jsonb_object_agg(item.key, item.value), CAST('{{}}' AS jsonb))
                     FROM jsonb_each("{column}") AS item
                     WHERE jsonb_typeof(item.value) NOT IN ('object', 'array')
                        OR item.key IN ({keys})
                 )
-                ELSE COALESCE("{column}", '{{}}'::jsonb)
+                ELSE COALESCE("{column}", CAST('{{}}' AS jsonb))
             END
         )"""
 

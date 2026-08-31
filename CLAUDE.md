@@ -64,4 +64,4 @@
 - AgentMemory 存储决策（任务收口必更新）
 - Codebase-Memory **主索引**（定位/调用链/架构）+ Understand-Anything（架构交叉校验与当前图谱维护）
 - Plan Enforcer discuss：实现有歧义时先 discuss 再 draft
-- Obsidian：A股证据 → Project/A股；跨域 → 神临
+- Obsidian：仅由 Memory Adapter 写入；A股证据 → Project/A股；跨域 → 神临

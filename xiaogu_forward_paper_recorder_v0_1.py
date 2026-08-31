@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
+from urllib.request import Request, urlopen
 from xiaogu_utils import (
     PRODUCTION_TRADE_MODE,
     append_jsonl,
@@ -24,6 +25,7 @@ BASE = Path(__file__).resolve().parent
 RULE_FREEZE = BASE / 'rule_freeze_v0_1.json'
 FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
+MEMORY_RETRY_QUEUE = BASE / 'logs' / 'obsidian_retry_queue.jsonl'
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 PAPER_OBSERVATION_STATUS = "PAPER_OBSERVATION"
 PAPER_OBSERVATION_STATES = {"OBSERVED", "CLOSED"}
@@ -59,20 +61,50 @@ def dump_json(path: Path, obj: Dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def memory_root() -> Path:
-    configured = os.environ.get("XIAOGU_MEMORY_ROOT")
-    if configured:
-        return Path(configured)
-    return Path("/mnt/d/obisidian/Obsidian/Project/A股") / "xiaogu_memory"
-
-
 def _memory_symbol(value: Any) -> str:
     return "".join(char for char in str(value or "UNKNOWN").zfill(6) if char.isalnum() or char in "._-")
 
 
-def _memory_note_path(state: str, record: Dict[str, Any]) -> Path:
+def _memory_note_path(state: str, record: Dict[str, Any]) -> str:
     section = "EXIT" if state in {"SELL", "REDUCE"} else state
-    return memory_root() / "decisions" / section / f"{record.get('date')}_{_memory_symbol(record.get('symbol'))}.md"
+    return f"xiaogu_memory/decisions/{section}/{record.get('date')}_{_memory_symbol(record.get('symbol'))}.md"
+
+
+def _memory_bridge_url() -> str:
+    return str(os.environ.get("XIAOGU_OBSIDIAN_BRIDGE_URL") or "").rstrip("/")
+
+
+def _queue_memory_retry(operation: str, payload: Dict[str, Any], error: str) -> None:
+    append_jsonl(MEMORY_RETRY_QUEUE, {
+        "record_type": "MEMORY_RETRY",
+        "operation": operation,
+        "decision_id": payload.get("decision_id"),
+        "paper_signal_id": payload.get("paper_signal_id"),
+        "symbol": payload.get("symbol"),
+        "date": payload.get("date"),
+        "error": error,
+        "payload": payload,
+    })
+
+
+def _send_memory(operation: str, payload: Dict[str, Any]) -> str | None:
+    bridge = _memory_bridge_url()
+    if not bridge:
+        _queue_memory_retry(operation, payload, "OBSIDIAN_BRIDGE_UNAVAILABLE")
+        return None
+    request = Request(
+        f"{bridge}/memory",
+        data=json.dumps({"operation": operation, **payload}, ensure_ascii=False, default=str).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            response.read()
+    except OSError as exc:
+        _queue_memory_retry(operation, payload, repr(exc))
+        return None
+    return str(payload.get("path") or "")
 
 
 def _markdown(value: Any) -> str:
@@ -81,8 +113,8 @@ def _markdown(value: Any) -> str:
     return str(value if value not in (None, "") else "UNKNOWN")
 
 
-def write_trade_memory(record: Dict[str, Any]) -> str:
-    """Write the single human-readable trade note for this decision."""
+def write_trade_memory(record: Dict[str, Any]) -> str | None:
+    """Send one decision note through the Obsidian memory adapter."""
     state = str(record.get("decision") or "WATCH").upper()
     if state not in RECORDABLE_DECISIONS | {PAPER_OBSERVATION_STATUS}:
         return ""
@@ -92,6 +124,7 @@ def write_trade_memory(record: Dict[str, Any]) -> str:
     thesis = record.get("thesis") or alpha.get("thesis") or {}
     note = f"""---
 decision_id: {record.get('id') or record.get('decision_id') or 'UNKNOWN'}
+paper_signal_id: {record.get('paper_signal_id') or 'NONE'}
 symbol: {_memory_symbol(record.get('symbol'))}
 decision: {state}
 date: {record.get('date')}
@@ -139,21 +172,20 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 Pending T+1..T+5 outcome update.
 """
     path = _memory_note_path(state, record)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(note, encoding="utf-8")
-    os.replace(tmp, path)
-    return str(path)
+    return _send_memory("UPSERT_NOTE", {
+        "path": path,
+        "decision_id": record.get("id") or record.get("decision_id"),
+        "paper_signal_id": record.get("paper_signal_id"),
+        "symbol": _memory_symbol(record.get("symbol")),
+        "date": record.get("date"),
+        "content": note,
+    })
 
 
 def update_trade_memory(result: Dict[str, Any]) -> str | None:
-    """Append outcome/review facts to the existing decision note."""
+    """Send outcome/review facts through the Obsidian memory adapter."""
     symbol = _memory_symbol(result.get("symbol"))
     date = result.get("date")
-    candidates = list((memory_root() / "decisions").glob(f"*/{date}_{symbol}.md"))
-    if not candidates:
-        return None
-    path = candidates[-1]
     outcome = result.get("daily_outcomes") or []
     review = "SUCCESS" if result.get("profit_window") else "FAILURE" if result.get("outcome_complete") else "PENDING"
     block = f"""
@@ -168,38 +200,15 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
 - Capital/repricing states: `{_markdown([(item.get('day'), item.get('capital_state'), item.get('repricing_state')) for item in outcome])}`
 - Daily outcomes: `{_markdown(outcome)}`
 """
-    existing = path.read_text(encoding="utf-8")
-    marker = "\n## T+1..T+5 Outcome"
-    content = existing.split(marker, 1)[0] + block if marker in existing else existing + block
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, path)
-    if result.get("outcome_complete"):
-        review_path = memory_root() / "post_trade_review" / f"{date}_{symbol}.md"
-        review_path.parent.mkdir(parents=True, exist_ok=True)
-        review = result.get("post_trade_review") or {}
-        review_path.write_text(
-            "# POST TRADE REVIEW\n\n"
-            f"- Decision ID: `{result.get('decision_id')}`\n"
-            f"- Status: `{review.get('status', 'UNKNOWN')}`\n"
-            f"- Attribution: `{review.get('attribution', 'UNKNOWN')}`\n"
-            f"- Profit window day: `{review.get('profit_window_day') or 'NONE'}`\n"
-            f"- Maximum favorable excursion: `{review.get('maximum_favorable_excursion') or 'UNKNOWN'}`\n"
-            f"- Maximum adverse excursion: `{review.get('maximum_adverse_excursion') or 'UNKNOWN'}`\n"
-            f"- Exit reason: `{review.get('exit_reason', 'UNKNOWN')}`\n\n"
-            "## BUY Thesis\n"
-            f"{_markdown(review.get('thesis'))}\n",
-            encoding="utf-8",
-        )
-        pattern_dir = memory_root() / "patterns" / ("success" if review.get("status") == "SUCCESS" else "failure")
-        pattern_dir.mkdir(parents=True, exist_ok=True)
-        pattern_path = pattern_dir / f"{review.get('attribution', 'UNKNOWN')}.md"
-        with pattern_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                f"- {date} `{symbol}` decision `{result.get('decision_id')}` "
-                f"window_day={review.get('profit_window_day') or 'NONE'}\n"
-            )
-    return str(path)
+    return _send_memory("UPDATE_OUTCOME", {
+        "path": f"xiaogu_memory/decisions/{date}_{symbol}.md",
+        "decision_id": result.get("decision_id"),
+        "paper_signal_id": result.get("paper_signal_id"),
+        "symbol": symbol,
+        "date": date,
+        "outcome": block,
+        "post_trade_review": result.get("post_trade_review") if result.get("outcome_complete") else None,
+    })
 
 
 def write_daily_paper_memory(
@@ -210,8 +219,8 @@ def write_daily_paper_memory(
     scan_reason: str = "",
     canonical_count: int = 0,
     alpha_count: int = 0,
-) -> str:
-    """Write one compact daily observation note; PostgreSQL remains the fact source."""
+) -> str | None:
+    """Send one compact daily observation note through the memory adapter."""
     rows = []
     for signal in signals:
         paper = signal.get("paper_observation") if isinstance(signal.get("paper_observation"), dict) else signal
@@ -222,9 +231,7 @@ def write_daily_paper_memory(
             f"state={paper.get('paper_observation_state') or 'OBSERVED'} "
             f"reason={paper.get('signal_reason') or 'CURRENT_PRODUCTION_DECISION'}"
         )
-    path = memory_root() / "daily" / f"{trade_date}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    content = (
         f"# {trade_date}\n\n"
         "## Xiaogu Paper Production\n\n"
         f"- Scan status: `{scan_status}`\n"
@@ -240,9 +247,12 @@ def write_daily_paper_memory(
         "## Signals\n"
         + ("\n".join(rows) if rows else "- `NO PAPER OBSERVATION`")
         + "\n\n## Outcome\n- T+1..T+5 are filled from PostgreSQL future-price facts.\n",
-        encoding="utf-8",
     )
-    return str(path)
+    return _send_memory("UPSERT_DAILY", {
+        "path": f"xiaogu_memory/daily/{trade_date}.md",
+        "date": trade_date,
+        "content": content,
+    })
 
 
 def read_features_arg(s: str) -> Dict[str, Any]:
@@ -506,27 +516,9 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     dump_json(snap, snapshot)
     record['audit_persistence'] = {'status': 'PASS'}
     append_jsonl(FORWARD_LEDGER, record)
-    memory_error = None
-    memory_path = None
-    for _attempt in range(2):
-        try:
-            memory_path = write_trade_memory(record) or None
-            memory_error = None
-            break
-        except OSError as exc:
-            memory_error = repr(exc)
+    memory_path = write_trade_memory(record)
     record['memory_path'] = memory_path
-    if memory_error:
-        record['memory_error'] = memory_error
-        retry_path = BASE / 'logs' / 'obsidian_retry_queue.jsonl'
-        retry_path.parent.mkdir(parents=True, exist_ok=True)
-        append_jsonl(retry_path, {
-            'record_type': 'MEMORY_RETRY',
-            'decision_id': record.get('id') or decision.get('decision_id'),
-            'symbol': record.get('symbol'),
-            'date': record.get('date'),
-            'error': memory_error,
-        })
+    record['memory_status'] = 'SYNCED' if memory_path else 'RETRY_QUEUED'
     return snap, record
 
 
@@ -568,7 +560,8 @@ def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, 
     dump_json(snap, snapshot)
     record["audit_persistence"] = {"status": "PASS"}
     append_jsonl(FORWARD_LEDGER, record)
-    record["memory_path"] = write_trade_memory(record) or None
+    record["memory_path"] = write_trade_memory(record)
+    record["memory_status"] = "SYNCED" if record["memory_path"] else "RETRY_QUEUED"
     return snap, record
 
 

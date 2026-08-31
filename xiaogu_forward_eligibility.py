@@ -64,7 +64,7 @@ def candidate_universe(snapshots: List[Dict[str, Any]]) -> tuple[List[Dict[str, 
     }
 
 
-def paper_pick_buyability_block_reason(row: Dict[str, Any], account: Dict[str, Any] | None = None) -> str:
+def execution_block_reason(row: Dict[str, Any], account: Dict[str, Any] | None = None) -> str:
     account = account or {}
     symbol = str(row.get("symbol") or row.get("code") or row.get("f12") or "").strip()
     price = None
@@ -100,7 +100,7 @@ def eligibility_blockers(
     as_of: datetime | None = None,
 ) -> List[str]:
     blockers = list(cheap_eligibility_blockers(snapshot))
-    blockers.append(paper_pick_buyability_block_reason(snapshot, account))
+    blockers.append(execution_block_reason(snapshot, account))
     source_time = str(snapshot.get("source_time") or "")
     if not source_time:
         blockers.append("MISSING_DATA")

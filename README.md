@@ -38,7 +38,7 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Alpha owner: `xiaogu_core_alpha.build_core_alpha()`.
 - Decision owner: `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
-- Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit. Obsidian is memory only.
+- Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit, then sends memory through the optional Obsidian REST bridge. Bridge failure queues a retry; it never affects PostgreSQL.
 - Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.
 - Position state lives in PostgreSQL. JSONL is an audit artifact. Obsidian is memory only.
 
@@ -53,7 +53,7 @@ The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. 
 - `GET /decision`
 - `GET /trades`
 - `GET /trade/{decision_id}`
-- `GET /memory`
+- `GET /memory?date=...&decision_id=...&paper_signal_id=...&limit=...`
 - `GET /patterns`
 - `GET /paper/signals`
 - `GET /paper/signal/{paper_signal_id}` (optional `decision_id` query filter)

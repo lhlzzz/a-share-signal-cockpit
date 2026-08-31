@@ -5,8 +5,9 @@ import json
 import re
 import os
 from statistics import median
-from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI
 
@@ -160,7 +161,7 @@ def _paper_grouped_performance(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_date: Dict[str, List[Dict[str, Any]]] = {}
     for row in rows:
         by_date.setdefault(str(row.get("signal_time") or "")[:10], []).append(row)
-    selected = {"All": rows, "Top5": [], "Top10": []}
+    selected = {"All": rows, "DAILY_TOP_N_5": [], "DAILY_TOP_N_10": []}
     for date_rows in by_date.values():
         ordered = sorted(
             date_rows,
@@ -171,8 +172,8 @@ def _paper_grouped_performance(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             ),
             reverse=True,
         )
-        selected["Top5"].extend(ordered[:5])
-        selected["Top10"].extend(ordered[:10])
+        selected["DAILY_TOP_N_5"].extend(ordered[:5])
+        selected["DAILY_TOP_N_10"].extend(ordered[:10])
     return {name: _paper_metric(group) for name, group in selected.items()}
 
 
@@ -263,24 +264,37 @@ def trade(decision_id: str) -> Dict[str, Any]:
     return matches[0] if matches else {"decision_id": decision_id, "found": False}
 
 
-def _memory_root() -> Path:
-    configured = os.environ.get("XIAOGU_MEMORY_ROOT")
-    if configured:
-        return Path(configured)
-    return Path("/mnt/d/obisidian/Obsidian/Project/A股") / "xiaogu_memory"
+def _memory_bridge_url() -> str:
+    return str(os.environ.get("XIAOGU_OBSIDIAN_BRIDGE_URL") or "").rstrip("/")
 
 
 @app.get("/memory")
-def memory() -> List[Dict[str, Any]]:
-    root = _memory_root()
-    if not root.exists():
-        return []
-    return [{
-        "path": str(path),
-        "category": path.parent.name,
-        "symbol": path.stem.rsplit("_", 1)[-1],
-        "content": path.read_text(encoding="utf-8"),
-    } for path in sorted(root.glob("**/*.md"))]
+def memory(
+    date: str = "",
+    decision_id: str = "",
+    paper_signal_id: str = "",
+    limit: int = 50,
+) -> Dict[str, Any]:
+    """Query the Obsidian memory adapter without scanning the vault."""
+    bridge = _memory_bridge_url()
+    if not bridge:
+        return {"status": "MEMORY_BRIDGE_UNAVAILABLE", "notes": []}
+    query = urlencode({
+        "date": date,
+        "decision_id": decision_id,
+        "paper_signal_id": paper_signal_id,
+        "limit": max(1, min(int(limit), 200)),
+    })
+    try:
+        with urlopen(Request(f"{bridge}/memory?{query}"), timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"status": "MEMORY_BRIDGE_UNAVAILABLE", "notes": [], "error": repr(exc)}
+    notes = payload.get("notes", payload) if isinstance(payload, dict) else payload
+    return {
+        "status": "OK",
+        "notes": notes if isinstance(notes, list) else [],
+    }
 
 
 @app.get("/patterns")
