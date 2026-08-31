@@ -157,5 +157,17 @@
     "live_trading": false,
     "model_version_frozen": true,
     "contract_version": "paper_observation_v1"
+  },
+  "trading_calendar": {
+    "owner": "xiaogu_db",
+    "table": "trading_calendar",
+    "market": "ASHARE",
+    "source": "sse_official_2026_trading_calendar",
+    "calendar_version": "CN_A_SHARE_2026_V1",
+    "missing_status": "UNKNOWN",
+    "missing_reason": "CALENDAR_DATA_UNAVAILABLE",
+    "t_plus_n_resolver": "xiaogu_db.resolve_t_plus_n",
+    "future_prices_are_calendar_truth": false,
+    "weekday_logic_is_production_truth": false
   }
 }

@@ -634,6 +634,7 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
         "position_state": "LONG",
     }])
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(
         "xiaogu_db.fetch_decision_snapshot",
         lambda *_args, **_kwargs: validate_and_build_canonical_snapshot({
@@ -667,6 +668,7 @@ def test_position_review_exact_snapshot_identity(monkeypatch):
         lambda decision_id: seen.setdefault("decision_id", decision_id) and snapshot,
     )
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda _decision_id: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(
         runner,
         "run_production_decision",
@@ -873,6 +875,7 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
         "reason": "MAX_HOLDING_BOUNDARY_CLOSED", "trade_status": "CLOSED",
         "canonical_snapshot": {"trade_date": "2026-08-26", "symbol": "600001", "source_time": "2026-08-26T14:50:00+08:00"},
     })
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(runner, "_write_ledger_record", lambda decision: Path("/tmp/unused"))
     monkeypatch.setattr("xiaogu_utils.load_jsonl", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("JSONL_IS_NOT_POSITION_STATE")))
     reviewed = runner.daily_position_review("2026-08-26")
@@ -1040,6 +1043,130 @@ def test_real_a_share_calendar(monkeypatch):
         {"trade_date": "2024-10-08", "is_trading_day": True, "source": "baostock_trade_dates"},
         {"trade_date": "2024-10-12", "is_trading_day": False, "source": "baostock_trade_dates"},
     ]
+
+
+def test_2026_authoritative_calendar_regressions():
+    from xiaogu_db import authoritative_calendar_records
+
+    rows = {
+        row["trade_date"]: row["is_trading_day"]
+        for row in authoritative_calendar_records("2026-08-28", "2026-09-28")
+    }
+    assert rows["2026-08-28"] is True
+    assert rows["2026-08-31"] is True
+    assert rows["2026-09-01"] is True
+    assert rows["2026-09-25"] is False
+    assert rows["2026-09-26"] is False
+    assert rows["2026-09-27"] is False
+    assert rows["2026-09-28"] is True
+
+
+def test_calendar_unknown_fails_closed(monkeypatch):
+    import xiaogu_db as db
+
+    class BrokenEngine:
+        def connect(self):
+            raise RuntimeError("calendar database unavailable")
+
+    monkeypatch.setattr(db, "engine", BrokenEngine())
+    assert db.is_trading_date("2026-08-31") == db.CALENDAR_UNKNOWN
+
+
+def test_authoritative_calendar_records_include_provenance():
+    from xiaogu_db import authoritative_calendar_records
+
+    row = authoritative_calendar_records("2026-08-31", "2026-08-31")[0]
+    assert row["market"] == "ASHARE"
+    assert row["source"] == "sse_official_2026_trading_calendar"
+    assert row["calendar_version"] == "CN_A_SHARE_2026_V1"
+    assert row["source_timestamp"] == "2025-12-22T00:00:00+08:00"
+
+
+def test_calendar_audit_uses_requested_current_date():
+    from xiaogu_db import audit_trading_calendar
+
+    report = audit_trading_calendar(today="2026-08-31")
+    assert report["today"] == "2026-08-31"
+    assert report["today_status"] == "TRUE"
+    assert report["today_available"] is True
+
+
+def test_calendar_missing_row_is_unknown_not_non_trading(monkeypatch):
+    import xiaogu_db as db
+
+    class Result:
+        def first(self):
+            return None
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            return Result()
+
+    class MissingEngine:
+        def connect(self):
+            return Connection()
+
+    monkeypatch.setattr(db, "engine", MissingEngine())
+    assert db.is_trading_date("2026-08-31") == db.CALENDAR_UNKNOWN
+
+
+def test_t5_resolver_skips_mid_autumn_closure():
+    from xiaogu_db import resolve_t_plus_n
+
+    assert [resolve_t_plus_n("2026-09-21", offset).isoformat() for offset in range(1, 6)] == [
+        "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-28", "2026-09-29",
+    ]
+
+
+def test_calendar_dataset_rejects_duplicate_or_unidentified_rows(tmp_path, monkeypatch):
+    import json
+    import xiaogu_db as db
+
+    calendar_path = tmp_path / "calendar.json"
+    calendar_path.write_text(json.dumps({
+        "source": "official",
+        "source_timestamp": "2025-12-22T00:00:00+08:00",
+        "calendar_version": "test-v1",
+        "rows": [
+            {"trade_date": "2026-08-31", "market": "ASHARE", "is_trading_day": True},
+            {"trade_date": "2026-08-31", "market": "ASHARE", "is_trading_day": True},
+        ],
+    }), encoding="utf-8")
+    monkeypatch.setattr(db, "CALENDAR_DATASET_PATH", calendar_path)
+    with pytest.raises(RuntimeError, match="CALENDAR_DATA_UNAVAILABLE"):
+        db.authoritative_calendar_records("2026-08-31", "2026-08-31")
+
+
+def test_scheduler_blocks_unknown_calendar_and_skips_closure(monkeypatch):
+    import xiaogu_scheduler as scheduler
+
+    monkeypatch.setattr("xiaogu_db.is_trading_date", lambda _value: "FALSE")
+    assert scheduler.is_trading_day("2026-09-25") is False
+    monkeypatch.setattr("xiaogu_db.is_trading_date", lambda _value: "UNKNOWN")
+    with pytest.raises(RuntimeError, match="CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE"):
+        scheduler.is_trading_day("2026-09-01")
+
+
+def test_production_calendar_consumers_have_no_weekday_or_price_calendar_logic():
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    for relative in (
+        "xiaogu_scheduler.py",
+        "xiaogu_forward_runner.py",
+        "xiaogu_forward_result_filler_v0_1.py",
+        "xiaogu_horizon_evaluation.py",
+    ):
+        source = (root / relative).read_text(encoding="utf-8")
+        assert "week" + "day()" not in source
+        assert "canonical_" + "future_prices" + ".*" + "trading" not in source
+        assert "trading" + ".*" + "canonical_" + "future_prices" not in source
 
 
 def test_scheduler_uses_single_calendar_owner(monkeypatch):

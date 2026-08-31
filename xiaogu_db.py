@@ -6,7 +6,10 @@ import json
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, List
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,6 +19,15 @@ engine = create_engine(
     connect_args={"connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))},
 )
 _ACTIVE_DB_CONNECTION: ContextVar[Any | None] = ContextVar("xiaogu_active_db_connection", default=None)
+
+TRADING_CALENDAR_MARKET = "ASHARE"
+TRADING_CALENDAR_VERSION = "CN_A_SHARE_2026_V1"
+TRADING_DAY = "TRUE"
+NON_TRADING_DAY = "FALSE"
+CALENDAR_UNKNOWN = "UNKNOWN"
+CALENDAR_DATA_UNAVAILABLE = "CALENDAR_DATA_UNAVAILABLE"
+CALENDAR_SOURCE = "sse_official_2026_trading_calendar"
+CALENDAR_DATASET_PATH = Path(__file__).resolve().parent / "data" / "trading_calendar" / "ashare_2026.json"
 
 
 @contextmanager
@@ -33,6 +45,7 @@ def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
         connection.execute(text(open(sql_path, encoding="utf-8").read()))
     ensure_production_schema()
     migrate_historical_snapshot_identity()
+    seed_authoritative_a_share_calendar()
 
 
 def _exec_schema(statement: str) -> None:
@@ -222,7 +235,8 @@ def audit_production_schema() -> Dict[str, Any]:
         ),
         "canonical_future_prices": ("symbol", "date", "source", "price_basis", "price_fact_hash"),
         "trading_calendar": (
-            "trade_date", "is_trading_day", "source", "source_timestamp", "payload", "created_at",
+            "trade_date", "market", "is_trading_day", "source", "source_timestamp",
+            "calendar_version", "payload", "created_at",
         ),
     }
     required_unique = {
@@ -372,11 +386,28 @@ def ensure_production_schema() -> None:
         )""",
         """CREATE TABLE IF NOT EXISTS trading_calendar (
             trade_date DATE PRIMARY KEY,
+            market TEXT NOT NULL DEFAULT 'ASHARE',
             is_trading_day BOOLEAN NOT NULL,
             source TEXT NOT NULL,
-            source_timestamp TIMESTAMPTZ,
+            source_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1',
             payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS trading_calendar_migrations (
+            id BIGSERIAL PRIMARY KEY,
+            migration_id TEXT NOT NULL,
+            trade_date DATE NOT NULL,
+            market TEXT NOT NULL,
+            previous_is_trading_day BOOLEAN,
+            previous_source TEXT,
+            previous_calendar_version TEXT,
+            new_is_trading_day BOOLEAN NOT NULL,
+            new_source TEXT NOT NULL,
+            new_calendar_version TEXT NOT NULL,
+            source_timestamp TIMESTAMPTZ NOT NULL,
+            reason TEXT NOT NULL,
+            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
         "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_signal_id TEXT",
         "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_id TEXT",
@@ -397,11 +428,17 @@ def ensure_production_schema() -> None:
         "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS live_order BOOLEAN",
         "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS trade_date DATE",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS market TEXT NOT NULL DEFAULT 'ASHARE'",
         "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS is_trading_day BOOLEAN",
         "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source TEXT",
         "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source_timestamp TIMESTAMPTZ",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1'",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        "UPDATE trading_calendar SET market = 'ASHARE' WHERE market IS NULL OR BTRIM(market) = ''",
+        "UPDATE trading_calendar SET calendar_version = 'CN_A_SHARE_2026_V1' WHERE calendar_version IS NULL OR BTRIM(calendar_version) = ''",
+        "UPDATE trading_calendar SET source_timestamp = COALESCE(source_timestamp, created_at, NOW()) WHERE source_timestamp IS NULL",
+        "ALTER TABLE trading_calendar ALTER COLUMN source_timestamp SET NOT NULL",
         "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS payload JSONB",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
@@ -1498,38 +1535,141 @@ def fetch_position_state(symbol: str) -> str | None:
     return state
 
 
-def count_trading_days(start: Any, end: Any) -> int:
-    """Count only independently persisted A-share calendar facts."""
-    start_date = start.isoformat() if hasattr(start, "isoformat") else str(start)
-    end_date = end.isoformat() if hasattr(end, "isoformat") else str(end)
-    if start_date >= end_date:
-        return 0
-    with engine.connect() as db:
-        return int(db.execute(
-            text(
-                """
-                SELECT count(*)
-                FROM trading_calendar
-                WHERE trade_date > CAST(:start_date AS date)
-                  AND trade_date <= CAST(:end_date AS date)
-                  AND is_trading_day
-                """
-            ),
-            {"start_date": start_date, "end_date": end_date},
-        ).scalar_one())
-
-
-def is_trading_date(value: Any) -> bool:
-    """Read the independently persisted A-share calendar owner."""
+def _calendar_date(value: Any) -> date:
     wanted = value.isoformat() if hasattr(value, "isoformat") else str(value)
-    with engine.connect() as db:
-        return bool(db.execute(
-            text(
-                "SELECT 1 FROM trading_calendar "
-                "WHERE trade_date = CAST(:trade_date AS date) AND is_trading_day LIMIT 1"
-            ),
-            {"trade_date": wanted},
-        ).scalar())
+    try:
+        return date.fromisoformat(str(wanted)[:10])
+    except ValueError as exc:
+        raise ValueError(f"INVALID_TRADE_DATE:{wanted}") from exc
+
+
+def is_trading_date(value: Any) -> str:
+    """Return TRUE, FALSE, or UNKNOWN from the persisted calendar fact."""
+    wanted = _calendar_date(value)
+    try:
+        with engine.connect() as db:
+            row = db.execute(
+                text(
+                    "SELECT is_trading_day, source, source_timestamp, calendar_version FROM trading_calendar "
+                    "WHERE trade_date = CAST(:trade_date AS date) "
+                    "AND market = :market LIMIT 1"
+                ),
+                {"trade_date": wanted.isoformat(), "market": TRADING_CALENDAR_MARKET},
+            ).first()
+    except Exception:
+        return CALENDAR_UNKNOWN
+    if row is None or not row[1] or row[2] is None or not row[3]:
+        return CALENDAR_UNKNOWN
+    return TRADING_DAY if bool(row[0]) else NON_TRADING_DAY
+
+
+def _calendar_rows(start: date, end: date) -> list[Dict[str, Any]]:
+    if end < start:
+        return []
+    try:
+        with engine.connect() as db:
+            rows = [
+                dict(row)
+                for row in db.execute(
+                    text(
+                        "SELECT trade_date, market, is_trading_day, source, "
+                        "source_timestamp, calendar_version "
+                        "FROM trading_calendar WHERE trade_date >= CAST(:start_date AS date) "
+                        "AND trade_date <= CAST(:end_date AS date) "
+                        "AND market = :market ORDER BY trade_date"
+                    ),
+                    {
+                        "start_date": start.isoformat(),
+                        "end_date": end.isoformat(),
+                        "market": TRADING_CALENDAR_MARKET,
+                    },
+                ).mappings()
+            ]
+    except Exception as exc:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE) from exc
+    expected = (end - start).days + 1
+    if len(rows) != expected:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    for expected_date, row in zip(
+        (start + timedelta(days=offset) for offset in range(expected)), rows
+    ):
+        if row.get("trade_date") != expected_date:
+            raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+        if not row.get("source") or not row.get("calendar_version"):
+            raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    return rows
+
+
+def trading_days_between(start: Any, end: Any) -> int:
+    """Count trading days after start and through end; missing facts block."""
+    start_date = _calendar_date(start)
+    end_date = _calendar_date(end)
+    if end_date < start_date:
+        return 0
+    rows = _calendar_rows(start_date, end_date)
+    return sum(
+        1 for row in rows
+        if row["trade_date"] > start_date and bool(row["is_trading_day"])
+    )
+
+
+def _resolve_direction(trade_date: date, offset: int, direction: str) -> date:
+    if offset < 0:
+        raise ValueError("TRADING_DAY_OFFSET_MUST_BE_NON_NEGATIVE")
+    if offset == 0:
+        if is_trading_date(trade_date) != TRADING_DAY:
+            raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+        return trade_date
+    try:
+        with engine.connect() as db:
+            query = (
+                "SELECT trade_date FROM trading_calendar "
+                "WHERE trade_date {operator} CAST(:trade_date AS date) "
+                "AND market = :market AND is_trading_day "
+            "ORDER BY trade_date {order}"
+            ).format(
+                operator=">" if direction == "next" else "<",
+                order="ASC" if direction == "next" else "DESC",
+            )
+            candidates = db.execute(
+                text(query),
+                {"trade_date": trade_date.isoformat(), "market": TRADING_CALENDAR_MARKET},
+            ).fetchall()
+    except Exception as exc:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE) from exc
+    if len(candidates) < offset:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    target = candidates[offset - 1][0]
+    # Fetch a bounded interval so an omitted calendar row cannot be skipped.
+    if direction == "next":
+        rows = _calendar_rows(trade_date, target)
+        trading = [row["trade_date"] for row in rows if row["is_trading_day"] and row["trade_date"] > trade_date]
+    else:
+        rows = _calendar_rows(target, trade_date)
+        trading = [row["trade_date"] for row in rows if row["is_trading_day"] and row["trade_date"] < trade_date]
+        trading.reverse()
+    if len(trading) < offset:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    return trading[offset - 1]
+
+
+def next_trading_date(value: Any) -> date:
+    return _resolve_direction(_calendar_date(value), 1, "next")
+
+
+def previous_trading_date(value: Any) -> date:
+    return _resolve_direction(_calendar_date(value), 1, "previous")
+
+
+def resolve_trading_date(trade_date: Any, offset: int) -> date:
+    """Resolve T+offset strictly from the sole persisted calendar."""
+    return _resolve_direction(_calendar_date(trade_date), int(offset), "next")
+
+
+def resolve_t_plus_n(trade_date: Any, offset: int) -> date:
+    if int(offset) not in {0, 1, 2, 3, 4, 5}:
+        raise ValueError("T_PLUS_OFFSET_OUT_OF_RANGE")
+    return resolve_trading_date(trade_date, int(offset))
 
 
 def record_trading_calendar(records: Iterable[Dict[str, Any]]) -> None:
@@ -1541,15 +1681,30 @@ def record_trading_calendar(records: Iterable[Dict[str, Any]]) -> None:
             source = str(record.get("source") or "").strip()
             if not trade_date or not source or record.get("is_trading_day") is None:
                 raise ValueError("TRADING_CALENDAR_IDENTITY_REQUIRED")
+            market = str(record.get("market") or TRADING_CALENDAR_MARKET).strip().upper()
+            default_version = (
+                "BAOSTOCK_TRADE_DATES_V1"
+                if source == "baostock_trade_dates"
+                else TRADING_CALENDAR_VERSION
+            )
+            calendar_version = str(record.get("calendar_version") or default_version).strip()
+            source_timestamp = str(record.get("source_timestamp") or "").strip()
+            if not market or not calendar_version:
+                raise ValueError("TRADING_CALENDAR_IDENTITY_REQUIRED")
+            if not source_timestamp:
+                source_timestamp = datetime.now(timezone.utc).isoformat()
             payload = {
                 **record,
                 "trade_date": trade_date,
+                "market": market,
                 "is_trading_day": bool(record["is_trading_day"]),
                 "source": source,
+                "source_timestamp": source_timestamp,
+                "calendar_version": calendar_version,
             }
             existing = db.execute(
                 text(
-                    "SELECT is_trading_day, source FROM trading_calendar "
+                    "SELECT is_trading_day, market, source, calendar_version FROM trading_calendar "
                     "WHERE trade_date = CAST(:trade_date AS date)"
                 ),
                 {"trade_date": trade_date},
@@ -1557,7 +1712,9 @@ def record_trading_calendar(records: Iterable[Dict[str, Any]]) -> None:
             if existing:
                 if (
                     bool(existing["is_trading_day"]) != payload["is_trading_day"]
+                    or str(existing["market"]) != market
                     or str(existing["source"]) != source
+                    or str(existing["calendar_version"]) != calendar_version
                 ):
                     raise ValueError("TRADING_CALENDAR_CONFLICT")
                 continue
@@ -1565,24 +1722,294 @@ def record_trading_calendar(records: Iterable[Dict[str, Any]]) -> None:
                 text(
                     """
                     INSERT INTO trading_calendar
-                        (trade_date, is_trading_day, source, source_timestamp, payload)
+                        (trade_date, market, is_trading_day, source, source_timestamp,
+                         calendar_version, payload)
                     VALUES (
-                        CAST(:trade_date AS date), :is_trading_day, :source,
+                        CAST(:trade_date AS date), :market, :is_trading_day, :source,
                         CAST(NULLIF(:source_timestamp, '') AS timestamptz),
-                        CAST(:payload AS jsonb)
+                        :calendar_version, CAST(:payload AS jsonb)
                     )
                     """
                 ),
                 {
                     **payload,
-                    "source_timestamp": str(record.get("source_timestamp") or ""),
+                    "source_timestamp": payload["source_timestamp"],
                     "payload": json.dumps(payload, ensure_ascii=False, default=str),
                 },
             )
 
 
+def authoritative_calendar_records(start_date: str, end_date: str) -> list[Dict[str, Any]]:
+    """Load the checked-in official calendar dataset, never infer from prices."""
+    if not CALENDAR_DATASET_PATH.exists():
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    payload = json.loads(CALENDAR_DATASET_PATH.read_text(encoding="utf-8"))
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    start = _calendar_date(start_date)
+    end = _calendar_date(end_date)
+    selected = []
+    source = str(payload.get("source") or CALENDAR_SOURCE)
+    version = str(payload.get("calendar_version") or TRADING_CALENDAR_VERSION)
+    source_timestamp = str(payload.get("source_timestamp") or "").strip()
+    if not source or not version or not source_timestamp:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    seen_dates: set[date] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+        current = _calendar_date(row.get("trade_date"))
+        market = str(row.get("market") or "").strip().upper()
+        if (
+            current in seen_dates
+            or market != TRADING_CALENDAR_MARKET
+            or not isinstance(row.get("is_trading_day"), bool)
+        ):
+            raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+        seen_dates.add(current)
+    if len(seen_dates) != len(rows):
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    for row in rows:
+        current = _calendar_date(row.get("trade_date"))
+        if start <= current <= end:
+            selected.append({
+                "trade_date": current.isoformat(),
+                "market": str(row.get("market") or TRADING_CALENDAR_MARKET),
+                "is_trading_day": row.get("is_trading_day"),
+                "source": source,
+                "source_timestamp": source_timestamp,
+                "calendar_version": version,
+                "payload": {"dataset": str(CALENDAR_DATASET_PATH.name)},
+            })
+    expected = (end - start).days + 1
+    if end < start or len(selected) != expected:
+        raise RuntimeError(CALENDAR_DATA_UNAVAILABLE)
+    return selected
+
+
+def migrate_trading_calendar(
+    records: Iterable[Dict[str, Any]],
+    *,
+    migration_id: str,
+    reason: str,
+) -> Dict[str, Any]:
+    """Audit then apply an authoritative calendar version in one transaction."""
+    ensure_production_schema()
+    normalized = []
+    for record in records:
+        trade_date = _calendar_date(record.get("trade_date") or record.get("date"))
+        source = str(record.get("source") or "").strip()
+        version = str(record.get("calendar_version") or "").strip()
+        if not source or not version or record.get("is_trading_day") is None:
+            raise ValueError("TRADING_CALENDAR_IDENTITY_REQUIRED")
+        source_timestamp = str(record.get("source_timestamp") or "").strip()
+        if not source_timestamp:
+            source_timestamp = datetime.now(timezone.utc).isoformat()
+        normalized.append({
+            **record,
+            "trade_date": trade_date.isoformat(),
+            "market": str(record.get("market") or TRADING_CALENDAR_MARKET).upper(),
+            "is_trading_day": bool(record["is_trading_day"]),
+            "source": source,
+            "source_timestamp": source_timestamp,
+            "calendar_version": version,
+        })
+    with engine.begin() as db:
+        for record in normalized:
+            previous = db.execute(
+                text(
+                    "SELECT is_trading_day, source, calendar_version FROM trading_calendar "
+                    "WHERE trade_date = CAST(:trade_date AS date)"
+                ),
+                {"trade_date": record["trade_date"]},
+            ).mappings().first()
+            applied = db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM trading_calendar_migrations
+                    WHERE migration_id = :migration_id
+                      AND trade_date = CAST(:trade_date AS date)
+                      AND new_is_trading_day = :new_is_trading_day
+                      AND new_source = :new_source
+                      AND source_timestamp = CAST(:source_timestamp AS timestamptz)
+                      AND new_calendar_version = :new_calendar_version
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "migration_id": migration_id,
+                    "trade_date": record["trade_date"],
+                    "new_is_trading_day": record["is_trading_day"],
+                    "new_source": record["source"],
+                    "source_timestamp": record["source_timestamp"],
+                    "new_calendar_version": record["calendar_version"],
+                },
+            ).first()
+            if applied:
+                continue
+            db.execute(
+                text(
+                    """
+                    INSERT INTO trading_calendar_migrations (
+                        migration_id, trade_date, market, previous_is_trading_day,
+                        previous_source, previous_calendar_version, new_is_trading_day,
+                        new_source, new_calendar_version, source_timestamp, reason
+                    ) VALUES (
+                        :migration_id, CAST(:trade_date AS date), :market,
+                        :previous_is_trading_day, :previous_source,
+                        :previous_calendar_version, :new_is_trading_day,
+                        :new_source, :new_calendar_version,
+                        CAST(:source_timestamp AS timestamptz), :reason
+                    )
+                    """
+                ),
+                {
+                    "migration_id": migration_id,
+                    "trade_date": record["trade_date"],
+                    "market": record["market"],
+                    "previous_is_trading_day": previous["is_trading_day"] if previous else None,
+                    "previous_source": previous["source"] if previous else None,
+                    "previous_calendar_version": previous["calendar_version"] if previous else None,
+                    "new_is_trading_day": record["is_trading_day"],
+                    "new_source": record["source"],
+                    "new_calendar_version": record["calendar_version"],
+                    "source_timestamp": record["source_timestamp"],
+                    "reason": reason,
+                },
+            )
+            db.execute(
+                text(
+                    """
+                    INSERT INTO trading_calendar (
+                        trade_date, market, is_trading_day, source, source_timestamp,
+                        calendar_version, payload
+                    ) VALUES (
+                        CAST(:trade_date AS date), :market, :is_trading_day, :source,
+                        CAST(:source_timestamp AS timestamptz), :calendar_version,
+                        CAST(:payload AS jsonb)
+                    )
+                    ON CONFLICT (trade_date) DO UPDATE SET
+                        market = EXCLUDED.market,
+                        is_trading_day = EXCLUDED.is_trading_day,
+                        source = EXCLUDED.source,
+                        source_timestamp = EXCLUDED.source_timestamp,
+                        calendar_version = EXCLUDED.calendar_version,
+                        payload = EXCLUDED.payload
+                    """
+                ),
+                {
+                    **record,
+                    "payload": json.dumps(record.get("payload") or {}, ensure_ascii=False, default=str),
+                },
+            )
+    return {
+        "migration_id": migration_id,
+        "calendar_version": normalized[0]["calendar_version"] if normalized else "",
+        "rows": len(normalized),
+        "status": "PASS",
+    }
+
+
+def seed_authoritative_a_share_calendar(
+    start_date: str = "2026-01-01",
+    end_date: str = "2026-12-31",
+) -> Dict[str, Any]:
+    records = authoritative_calendar_records(start_date, end_date)
+    return migrate_trading_calendar(
+        records,
+        migration_id=f"calendar-{start_date}-{end_date}-v1",
+        reason="Load SSE official A-share 2026 trading calendar dataset",
+    )
+
+
+def audit_trading_calendar(
+    start_date: str = "2026-01-01",
+    end_date: str = "2026-12-31",
+    *,
+    today: Any | None = None,
+) -> Dict[str, Any]:
+    """Check coverage, provenance, gaps, and the checked-in 2026 source facts."""
+    start = _calendar_date(start_date)
+    end = _calendar_date(end_date)
+    report: Dict[str, Any] = {
+        "market": TRADING_CALENDAR_MARKET,
+        "calendar_version": TRADING_CALENDAR_VERSION,
+        "coverage_start": start.isoformat(),
+        "coverage_end": end.isoformat(),
+        "status": "BLOCKED",
+        "calendar_gap": False,
+        "unexpected_weekend_trading": [],
+        "unexpected_weekday_closure": [],
+    }
+    try:
+        rows = _calendar_rows(start, end)
+    except RuntimeError as exc:
+        report["reason"] = str(exc)
+        return report
+    report["row_count"] = len(rows)
+    report["source"] = sorted({str(row["source"]) for row in rows})
+    report["versions"] = sorted({str(row["calendar_version"]) for row in rows})
+    try:
+        expected = {
+            row["trade_date"]: row["is_trading_day"]
+            for row in authoritative_calendar_records(start_date, end_date)
+        }
+    except RuntimeError:
+        expected = {}
+    if expected:
+        report["unexpected_weekend_trading"] = [
+            row["trade_date"].isoformat()
+            for row in rows
+            if row["trade_date"] in expected and bool(row["is_trading_day"]) != bool(expected[row["trade_date"]])
+            and not bool(expected[row["trade_date"]])
+        ]
+        report["unexpected_weekday_closure"] = [
+            row["trade_date"].isoformat()
+            for row in rows
+            if row["trade_date"] in expected and bool(row["is_trading_day"]) != bool(expected[row["trade_date"]])
+            and bool(expected[row["trade_date"]])
+        ]
+    current_date = _calendar_date(today) if today is not None else datetime.now(
+        timezone.utc
+    ).astimezone(ZoneInfo("Asia/Shanghai")).date()
+    report["today"] = current_date.isoformat()
+    report["today_status"] = is_trading_date(current_date)
+    report["today_available"] = report["today_status"] != CALENDAR_UNKNOWN
+    report["regressions"] = {
+        "2026-08-31": is_trading_date(date(2026, 8, 31)),
+        "2026-09-25": is_trading_date(date(2026, 9, 25)),
+        "2026-09-28": is_trading_date(date(2026, 9, 28)),
+    }
+    try:
+        report["t5"] = resolve_t_plus_n("2026-09-21", 5).isoformat()
+    except RuntimeError:
+        report["t5"] = None
+    report["status"] = "PASS" if (
+        not report["unexpected_weekend_trading"]
+        and not report["unexpected_weekday_closure"]
+        and report["today_available"]
+        and report["regressions"] == {
+            "2026-08-31": TRADING_DAY,
+            "2026-09-25": NON_TRADING_DAY,
+            "2026-09-28": TRADING_DAY,
+        }
+        and report["t5"] == "2026-09-29"
+    ) else "BLOCKED"
+    return report
+
+
 def refresh_a_share_trading_calendar(start_date: str, end_date: str) -> int:
-    """Load Baostock's official A-share trading-day feed into the DB owner."""
+    """Load the versioned official dataset, with Baostock only for uncovered history."""
+    try:
+        rows = authoritative_calendar_records(start_date, end_date)
+    except RuntimeError:
+        rows = None
+    if rows is not None:
+        record_trading_calendar(rows)
+        return len(rows)
+
     import baostock as bs
 
     login = bs.login()

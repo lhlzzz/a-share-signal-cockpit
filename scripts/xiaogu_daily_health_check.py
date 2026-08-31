@@ -196,6 +196,21 @@ def check_production_schema_audit():
     return required, "ok" if required else json.dumps(audit, ensure_ascii=False, default=str)
 
 
+def check_calendar_truth():
+    from xiaogu_db import audit_trading_calendar
+
+    report = audit_trading_calendar()
+    required = (
+        report.get("status") == "PASS"
+        and report.get("calendar_version") == "CN_A_SHARE_2026_V1"
+        and report.get("regressions", {}).get("2026-08-31") == "TRUE"
+        and report.get("regressions", {}).get("2026-09-25") == "FALSE"
+        and report.get("regressions", {}).get("2026-09-28") == "TRUE"
+        and report.get("t5") == "2026-09-29"
+    )
+    return required, "ok" if required else json.dumps(report, ensure_ascii=False, default=str)
+
+
 CHECKS = [
     *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
     ("scanner_contract", check_scanner_contract),
@@ -209,6 +224,7 @@ CHECKS = [
     ("database_truth_boundaries", check_database_truth_boundaries),
     ("schema_fail_closed", check_schema_fail_closed),
     ("production_schema_audit", check_production_schema_audit),
+    ("calendar_truth", check_calendar_truth),
 ]
 
 

@@ -2,7 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
-data/
+data/*
+!data/trading_calendar/
+!data/trading_calendar/ashare_2026.json
 *.egg-info/
 dist/
 build/

@@ -20,9 +20,9 @@
       "APScheduler",
       "SQLAlchemy"
     ],
-    "description": "Paper-only A-share 5D capital-behavior system. One production chain: Eastmoney → Level0 Light Capture → Level1 Cheap Eligibility → Level2 Deep-Fetch Trigger → Level3 Deep Candidate Fetch → Canonical → Features → Research → Core Alpha → Decision → Recorder → PostgreSQL → 5D Outcome → Position Review → Obsidian. UNKNOWN is missing evidence, not a hard BUY block. BUY stays blocked until Alpha is OOS-validated.",
-    "analyzedAt": "2026-08-31T15:27:00Z",
-    "gitCommitHash": "e0e137eb87eb841b8544714f991d77bcf30d6c55"
+    "description": "Paper-only A-share 5D capital-behavior system with one PostgreSQL-backed, versioned Trading Calendar owner.",
+    "analyzedAt": "2026-08-31T19:58:01.349Z",
+    "gitCommitHash": "37b5e0cbc78a80c762feea1dfe845ee1a4c5965b"
   },
   "nodes": [
     {
@@ -6145,643 +6145,6 @@
       "complexity": "simple"
     },
     {
-      "id": "function:xiaogu_db.py:get_db",
-      "type": "function",
-      "name": "get_db",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:init_db",
-      "type": "function",
-      "name": "init_db",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_exec_schema",
-      "type": "function",
-      "name": "_exec_schema",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_schema_error_already_exists",
-      "type": "function",
-      "name": "_schema_error_already_exists",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_constraint_columns",
-      "type": "function",
-      "name": "_constraint_columns",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_check_constraints",
-      "type": "function",
-      "name": "_check_constraints",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_unique_index_columns",
-      "type": "function",
-      "name": "_unique_index_columns",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_foreign_keys",
-      "type": "function",
-      "name": "_foreign_keys",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_exists_label",
-      "type": "function",
-      "name": "_exists_label",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_count_unbound_decision_ids",
-      "type": "function",
-      "name": "_count_unbound_decision_ids",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
-      "type": "function",
-      "name": "_count_returns_decision_fk_conflicts",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
-      "type": "function",
-      "name": "_count_unresolved_snapshot_ids",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:audit_production_schema",
-      "type": "function",
-      "name": "audit_production_schema",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "function",
-      "name": "ensure_production_schema",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "type": "function",
-      "name": "_ensure_snapshot_primary_key",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:snapshot_payload_identity",
-      "type": "function",
-      "name": "snapshot_payload_identity",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:canonical_future_price_fact",
-      "type": "function",
-      "name": "canonical_future_price_fact",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_recover_historical_snapshot_id",
-      "type": "function",
-      "name": "_recover_historical_snapshot_id",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "type": "function",
-      "name": "migrate_historical_snapshot_identity",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:verify_persisted_snapshot",
-      "type": "function",
-      "name": "verify_persisted_snapshot",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
-      "type": "function",
-      "name": "fetch_persisted_canonical_snapshots",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_snapshot",
-      "type": "function",
-      "name": "record_snapshot",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_decision",
-      "type": "function",
-      "name": "record_decision",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "type": "function",
-      "name": "record_snapshot_and_decision",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_returns",
-      "type": "function",
-      "name": "record_returns",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_canonical_historical_snapshot",
-      "type": "function",
-      "name": "record_canonical_historical_snapshot",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "type": "function",
-      "name": "record_canonical_historical_snapshots",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_canonical_future_prices",
-      "type": "function",
-      "name": "record_canonical_future_prices",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:insert_scan_session",
-      "type": "function",
-      "name": "insert_scan_session",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:upsert_scan_market_data",
-      "type": "function",
-      "name": "upsert_scan_market_data",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_picks",
-      "type": "function",
-      "name": "fetch_picks",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:record_paper_observation",
-      "type": "function",
-      "name": "record_paper_observation",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_paper_observations",
-      "type": "function",
-      "name": "fetch_paper_observations",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:paper_observation_exists",
-      "type": "function",
-      "name": "paper_observation_exists",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:update_paper_observation_state",
-      "type": "function",
-      "name": "update_paper_observation_state",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_open_paper_positions",
-      "type": "function",
-      "name": "fetch_open_paper_positions",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_production_model",
-      "type": "function",
-      "name": "fetch_production_model",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:_table_columns",
-      "type": "function",
-      "name": "_table_columns",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_open_positions",
-      "type": "function",
-      "name": "fetch_open_positions",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_position_state",
-      "type": "function",
-      "name": "fetch_position_state",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:count_trading_days",
-      "type": "function",
-      "name": "count_trading_days",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:is_trading_date",
-      "type": "function",
-      "name": "is_trading_date",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_canonical_future_bars",
-      "type": "function",
-      "name": "fetch_canonical_future_bars",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_position_outcome",
-      "type": "function",
-      "name": "fetch_position_outcome",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_returns",
-      "type": "function",
-      "name": "fetch_returns",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_trade_records",
-      "type": "function",
-      "name": "fetch_trade_records",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:database_identity_coverage",
-      "type": "function",
-      "name": "database_identity_coverage",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:database_asset_report",
-      "type": "function",
-      "name": "database_asset_report",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
-      "id": "function:xiaogu_db.py:fetch_historical_replay_assets",
-      "type": "function",
-      "name": "fetch_historical_replay_assets",
-      "filePath": "xiaogu_db.py",
-      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
-      "tags": [
-        "xiaogu",
-        "python",
-        "function"
-      ],
-      "complexity": "moderate"
-    },
-    {
       "id": "file:xiaogu_forward_eligibility.py",
       "type": "file",
       "name": "xiaogu_forward_eligibility.py",
@@ -8688,6 +8051,865 @@
         130,
         184
       ]
+    },
+    {
+      "id": "function:xiaogu_db.py:get_db",
+      "type": "function",
+      "name": "get_db",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:init_db",
+      "type": "function",
+      "name": "init_db",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_exec_schema",
+      "type": "function",
+      "name": "_exec_schema",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_schema_error_already_exists",
+      "type": "function",
+      "name": "_schema_error_already_exists",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_constraint_columns",
+      "type": "function",
+      "name": "_constraint_columns",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_check_constraints",
+      "type": "function",
+      "name": "_check_constraints",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_unique_index_columns",
+      "type": "function",
+      "name": "_unique_index_columns",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_foreign_keys",
+      "type": "function",
+      "name": "_foreign_keys",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_exists_label",
+      "type": "function",
+      "name": "_exists_label",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_count_unbound_decision_ids",
+      "type": "function",
+      "name": "_count_unbound_decision_ids",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
+      "type": "function",
+      "name": "_count_returns_decision_fk_conflicts",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
+      "type": "function",
+      "name": "_count_unresolved_snapshot_ids",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:audit_production_schema",
+      "type": "function",
+      "name": "audit_production_schema",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:ensure_production_schema",
+      "type": "function",
+      "name": "ensure_production_schema",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_ensure_table_primary_key",
+      "type": "function",
+      "name": "_ensure_table_primary_key",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
+      "type": "function",
+      "name": "_ensure_snapshot_primary_key",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:snapshot_payload_identity",
+      "type": "function",
+      "name": "snapshot_payload_identity",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:canonical_future_price_fact",
+      "type": "function",
+      "name": "canonical_future_price_fact",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_recover_historical_snapshot_id",
+      "type": "function",
+      "name": "_recover_historical_snapshot_id",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
+      "type": "function",
+      "name": "migrate_historical_snapshot_identity",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:verify_persisted_snapshot",
+      "type": "function",
+      "name": "verify_persisted_snapshot",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
+      "type": "function",
+      "name": "fetch_persisted_canonical_snapshots",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_snapshot",
+      "type": "function",
+      "name": "record_snapshot",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_decision",
+      "type": "function",
+      "name": "record_decision",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_snapshot_and_decision",
+      "type": "function",
+      "name": "record_snapshot_and_decision",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_returns",
+      "type": "function",
+      "name": "record_returns",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_canonical_historical_snapshot",
+      "type": "function",
+      "name": "record_canonical_historical_snapshot",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_canonical_historical_snapshots",
+      "type": "function",
+      "name": "record_canonical_historical_snapshots",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_canonical_future_prices",
+      "type": "function",
+      "name": "record_canonical_future_prices",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:insert_scan_session",
+      "type": "function",
+      "name": "insert_scan_session",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:upsert_scan_market_data",
+      "type": "function",
+      "name": "upsert_scan_market_data",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_picks",
+      "type": "function",
+      "name": "fetch_picks",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_paper_observation",
+      "type": "function",
+      "name": "record_paper_observation",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_paper_observations",
+      "type": "function",
+      "name": "fetch_paper_observations",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_decision_snapshot",
+      "type": "function",
+      "name": "fetch_decision_snapshot",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:get_snapshot_by_id",
+      "type": "function",
+      "name": "get_snapshot_by_id",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:paper_observation_exists",
+      "type": "function",
+      "name": "paper_observation_exists",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:update_paper_observation_state",
+      "type": "function",
+      "name": "update_paper_observation_state",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_open_paper_positions",
+      "type": "function",
+      "name": "fetch_open_paper_positions",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_production_model",
+      "type": "function",
+      "name": "fetch_production_model",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_table_columns",
+      "type": "function",
+      "name": "_table_columns",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_open_positions",
+      "type": "function",
+      "name": "fetch_open_positions",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_position_state",
+      "type": "function",
+      "name": "fetch_position_state",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_calendar_date",
+      "type": "function",
+      "name": "_calendar_date",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:is_trading_date",
+      "type": "function",
+      "name": "is_trading_date",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_calendar_rows",
+      "type": "function",
+      "name": "_calendar_rows",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:trading_days_between",
+      "type": "function",
+      "name": "trading_days_between",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:_resolve_direction",
+      "type": "function",
+      "name": "_resolve_direction",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:next_trading_date",
+      "type": "function",
+      "name": "next_trading_date",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:previous_trading_date",
+      "type": "function",
+      "name": "previous_trading_date",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:resolve_trading_date",
+      "type": "function",
+      "name": "resolve_trading_date",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:resolve_t_plus_n",
+      "type": "function",
+      "name": "resolve_t_plus_n",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:record_trading_calendar",
+      "type": "function",
+      "name": "record_trading_calendar",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:authoritative_calendar_records",
+      "type": "function",
+      "name": "authoritative_calendar_records",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:migrate_trading_calendar",
+      "type": "function",
+      "name": "migrate_trading_calendar",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:seed_authoritative_a_share_calendar",
+      "type": "function",
+      "name": "seed_authoritative_a_share_calendar",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:audit_trading_calendar",
+      "type": "function",
+      "name": "audit_trading_calendar",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:refresh_a_share_trading_calendar",
+      "type": "function",
+      "name": "refresh_a_share_trading_calendar",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_canonical_future_bars",
+      "type": "function",
+      "name": "fetch_canonical_future_bars",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_position_outcome",
+      "type": "function",
+      "name": "fetch_position_outcome",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_returns",
+      "type": "function",
+      "name": "fetch_returns",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_trade_records",
+      "type": "function",
+      "name": "fetch_trade_records",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:database_identity_coverage",
+      "type": "function",
+      "name": "database_identity_coverage",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:database_asset_report",
+      "type": "function",
+      "name": "database_asset_report",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:xiaogu_db.py:fetch_historical_replay_assets",
+      "type": "function",
+      "name": "fetch_historical_replay_assets",
+      "filePath": "xiaogu_db.py",
+      "summary": "Function declared in xiaogu_db.py; relationship evidence is limited to static source analysis.",
+      "tags": [
+        "xiaogu",
+        "python",
+        "function"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:data/trading_calendar/ashare_2026.json",
+      "type": "file",
+      "name": "ashare_2026.json",
+      "filePath": "data/trading_calendar/ashare_2026.json",
+      "summary": "Versioned authoritative 2026 A-share trading calendar dataset for SSE and SZSE under ASHARE.",
+      "tags": [
+        "xiaogu",
+        "json",
+        "calendar",
+        "authoritative-source"
+      ],
+      "complexity": "moderate"
     }
   ],
   "edges": [
@@ -12766,349 +12988,6 @@
       "weight": 1
     },
     {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:init_db",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_exec_schema",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_schema_error_already_exists",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_constraint_columns",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_check_constraints",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_unique_index_columns",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_foreign_keys",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_exists_label",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_count_unbound_decision_ids",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:audit_production_schema",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:snapshot_payload_identity",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:canonical_future_price_fact",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_recover_historical_snapshot_id",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:verify_persisted_snapshot",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_snapshot",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_decision",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_returns",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_canonical_historical_snapshot",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_canonical_future_prices",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:insert_scan_session",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:upsert_scan_market_data",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_picks",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:record_paper_observation",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_paper_observations",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:paper_observation_exists",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:update_paper_observation_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_open_paper_positions",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_production_model",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_open_positions",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_position_state",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:count_trading_days",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:is_trading_date",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_canonical_future_bars",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_position_outcome",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_returns",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_trade_records",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:database_identity_coverage",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:database_asset_report",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
-      "source": "file:xiaogu_db.py",
-      "target": "function:xiaogu_db.py:fetch_historical_replay_assets",
-      "type": "contains",
-      "direction": "forward",
-      "weight": 1
-    },
-    {
       "source": "file:scripts/xiaogu_ensure_database.py",
       "target": "file:xiaogu_db.py",
       "type": "imports",
@@ -13600,20 +13479,6 @@
     },
     {
       "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:xiaogu_db.py:insert_scan_session",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:xiaogu_db.py:upsert_scan_market_data",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:scrapy_scanner/runner_v2.py:result_item_count",
       "type": "calls",
       "direction": "forward",
@@ -13622,13 +13487,6 @@
     {
       "source": "function:scrapy_scanner/runner_v2.py:main",
       "target": "function:scrapy_scanner/runner_v2.py:fetch_paginated",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scrapy_scanner/runner_v2.py:main",
-      "target": "function:xiaogu_db.py:record_snapshot",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -13688,20 +13546,6 @@
       "type": "imports",
       "direction": "forward",
       "weight": 0.7
-    },
-    {
-      "source": "function:scripts/xiaogu_daily_health_check.py:check_production_schema_audit",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:scripts/xiaogu_daily_health_check.py:check_production_schema_audit",
-      "target": "function:xiaogu_db.py:audit_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
     },
     {
       "source": "function:tests/test_data_contract.py:test_scanner_fixture_only_emits_canonical_market_observations",
@@ -13893,62 +13737,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:tests/test_data_contract.py:test_same_symbol_outcomes_are_bound_to_decision_id",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_same_symbol_outcomes_are_bound_to_decision_id",
-      "target": "function:xiaogu_db.py:fetch_position_outcome",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_schema_migration_failure_is_fail_closed",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_canonical_future_prices_are_immutable_facts",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_canonical_future_prices_are_immutable_facts",
-      "target": "function:xiaogu_db.py:record_canonical_future_prices",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_canonical_future_prices_are_immutable_facts",
-      "target": "function:xiaogu_db.py:canonical_future_price_fact",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_paper_observation_db_checks_enforce_paper_only_and_no_live_order",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_paper_observation_db_checks_enforce_paper_only_and_no_live_order",
-      "target": "function:xiaogu_db.py:audit_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:tests/test_data_contract.py:test_scan_lineage_is_shared_and_snapshot_id_is_unique",
       "target": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
       "type": "calls",
@@ -13963,36 +13751,8 @@
       "weight": 0.8
     },
     {
-      "source": "function:tests/test_data_contract.py:test_record_snapshot_conflicts_on_snapshot_id_not_lineage",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_record_snapshot_conflicts_on_snapshot_id_not_lineage",
-      "target": "function:xiaogu_db.py:record_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:tests/test_data_contract.py:test_record_snapshot_rejects_payload_identity_conflict",
       "target": "function:scrapy_scanner/runner_v2.py:build_canonical_snapshots",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_record_snapshot_rejects_payload_identity_conflict",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:tests/test_data_contract.py:test_record_snapshot_rejects_payload_identity_conflict",
-      "target": "function:xiaogu_db.py:record_snapshot",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -14355,13 +14115,6 @@
       "weight": 0.7
     },
     {
-      "source": "function:tests/test_production_hardening.py:test_snapshot_and_decision_share_one_transaction",
-      "target": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:tests/test_production_hardening.py:test_historical_unresolved_not_rewritten",
       "target": "function:xiaogu_backtest_v0_1.py:_historical_decision_id",
       "type": "calls",
@@ -14398,13 +14151,6 @@
     },
     {
       "source": "function:xiaogu_api.py:_decision_records",
-      "target": "function:xiaogu_db.py:fetch_picks",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_api.py:_decision_records",
       "target": "function:xiaogu_api.py:_payload",
       "type": "calls",
       "direction": "forward",
@@ -14420,20 +14166,6 @@
     {
       "source": "function:xiaogu_api.py:_result_records",
       "target": "function:xiaogu_api.py:_payload",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_api.py:_result_records",
-      "target": "function:xiaogu_db.py:fetch_returns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_api.py:_paper_observation_records",
-      "target": "function:xiaogu_db.py:fetch_paper_observations",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -14474,22 +14206,8 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_api.py:system_health",
-      "target": "function:xiaogu_db.py:audit_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_api.py:current_state",
       "target": "function:xiaogu_api.py:_decision_records",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_api.py:current_state",
-      "target": "function:xiaogu_db.py:fetch_open_positions",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -14705,20 +14423,6 @@
       "weight": 0.7
     },
     {
-      "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
-      "target": "function:xiaogu_db.py:record_canonical_future_prices",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:supplement_database_future_prices",
-      "target": "function:xiaogu_db.py:init_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_backtest_v0_1.py:_capital_convergence_level",
       "target": "function:xiaogu_backtest_v0_1.py:_number",
       "type": "calls",
@@ -14777,34 +14481,6 @@
     {
       "source": "function:xiaogu_backtest_v0_1.py:canonical_historical_snapshot",
       "target": "function:xiaogu_backtest_v0_1.py:_first_value",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:replay_database_history",
-      "target": "function:xiaogu_db.py:fetch_historical_replay_assets",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:replay_database_history",
-      "target": "function:xiaogu_db.py:database_asset_report",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:replay_database_history",
-      "target": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_backtest_v0_1.py:replay_database_history",
-      "target": "function:xiaogu_db.py:record_canonical_historical_snapshots",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -14908,13 +14584,6 @@
       "weight": 0.8
     },
     {
-      "source": "function:xiaogu_core_alpha.py:_calibrated_probability",
-      "target": "function:xiaogu_db.py:fetch_production_model",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
       "source": "function:xiaogu_core_alpha.py:build_core_alpha",
       "target": "function:xiaogu_core_alpha.py:_mean",
       "type": "calls",
@@ -14945,475 +14614,6 @@
     {
       "source": "function:xiaogu_core_alpha.py:build_core_alpha",
       "target": "function:xiaogu_core_alpha.py:_below",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:init_db",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:init_db",
-      "target": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_count_unbound_decision_ids",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_check_constraints",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_count_unbound_decision_ids",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_unique_index_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_constraint_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_exists_label",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:audit_production_schema",
-      "target": "function:xiaogu_db.py:_foreign_keys",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:ensure_production_schema",
-      "target": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:ensure_production_schema",
-      "target": "function:xiaogu_db.py:_exec_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:ensure_production_schema",
-      "target": "function:xiaogu_db.py:canonical_future_price_fact",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:ensure_production_schema",
-      "target": "function:xiaogu_db.py:_schema_error_already_exists",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "target": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "target": "function:xiaogu_db.py:_constraint_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "target": "function:xiaogu_db.py:_exec_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:_recover_historical_snapshot_id",
-      "target": "function:xiaogu_db.py:snapshot_payload_identity",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:_constraint_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:_recover_historical_snapshot_id",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
-      "target": "function:xiaogu_db.py:snapshot_payload_identity",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:verify_persisted_snapshot",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:verify_persisted_snapshot",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_decision",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_decision",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_decision",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "target": "function:xiaogu_db.py:record_snapshot",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_snapshot_and_decision",
-      "target": "function:xiaogu_db.py:record_decision",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_returns",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_returns",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_returns",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_historical_snapshot",
-      "target": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_historical_snapshots",
-      "target": "function:xiaogu_db.py:snapshot_payload_identity",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_future_prices",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_future_prices",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_canonical_future_prices",
-      "target": "function:xiaogu_db.py:canonical_future_price_fact",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:insert_scan_session",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:upsert_scan_market_data",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_paper_observation",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:record_paper_observation",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:paper_observation_exists",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:update_paper_observation_state",
-      "target": "function:xiaogu_db.py:ensure_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:update_paper_observation_state",
-      "target": "function:xiaogu_db.py:get_db",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_open_paper_positions",
-      "target": "function:xiaogu_db.py:fetch_paper_observations",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_open_paper_positions",
-      "target": "function:xiaogu_db.py:fetch_returns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_production_model",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_open_positions",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_position_state",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:fetch_position_outcome",
-      "target": "function:xiaogu_db.py:_table_columns",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:database_asset_report",
-      "target": "function:xiaogu_db.py:audit_production_schema",
-      "type": "calls",
-      "direction": "forward",
-      "weight": 0.8
-    },
-    {
-      "source": "function:xiaogu_db.py:database_asset_report",
-      "target": "function:xiaogu_db.py:database_identity_coverage",
       "type": "calls",
       "direction": "forward",
       "weight": 0.8
@@ -18217,6 +17417,461 @@
       "type": "calls",
       "direction": "forward",
       "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:get_db",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:init_db",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_exec_schema",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_schema_error_already_exists",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_constraint_columns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_check_constraints",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_unique_index_columns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_foreign_keys",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_exists_label",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_count_unbound_decision_ids",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_count_returns_decision_fk_conflicts",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_count_unresolved_snapshot_ids",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:audit_production_schema",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:ensure_production_schema",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_ensure_table_primary_key",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_ensure_snapshot_primary_key",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:snapshot_payload_identity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:canonical_future_price_fact",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_recover_historical_snapshot_id",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:migrate_historical_snapshot_identity",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:verify_persisted_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_persisted_canonical_snapshots",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_decision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_snapshot_and_decision",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_returns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_canonical_historical_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_canonical_historical_snapshots",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_canonical_future_prices",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:insert_scan_session",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:upsert_scan_market_data",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_picks",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_paper_observation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_paper_observations",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_decision_snapshot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:get_snapshot_by_id",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:paper_observation_exists",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:update_paper_observation_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_open_paper_positions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_production_model",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_table_columns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_open_positions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_position_state",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_calendar_date",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:is_trading_date",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_calendar_rows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:trading_days_between",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:_resolve_direction",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:next_trading_date",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:previous_trading_date",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:resolve_trading_date",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:resolve_t_plus_n",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:record_trading_calendar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:authoritative_calendar_records",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:migrate_trading_calendar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:seed_authoritative_a_share_calendar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:audit_trading_calendar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:refresh_a_share_trading_calendar",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_canonical_future_bars",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_position_outcome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_returns",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_trade_records",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:database_identity_coverage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:database_asset_report",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:xiaogu_db.py",
+      "target": "function:xiaogu_db.py:fetch_historical_replay_assets",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
     }
   ],
   "layers": [
@@ -18246,7 +17901,8 @@
         "file:xiaogu_forward_paper_recorder_v0_1.py",
         "file:xiaogu_forward_result_filler_v0_1.py",
         "file:xiaogu_forward_snapshot.py",
-        "file:xiaogu_utils.py"
+        "file:xiaogu_utils.py",
+        "file:data/trading_calendar/ashare_2026.json"
       ]
     },
     {

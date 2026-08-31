@@ -54,6 +54,7 @@ CONFIG_PATH = Path(__file__).resolve().parent / "rule_freeze_v0_1.json"
 CONFIG_HASH = hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest()
 DEFAULT_FUTURE_BAR_CACHE = Path("/tmp/xiaogu-historical-future-bars.json")
 DEFAULT_CALIBRATION_ARTIFACT = Path(__file__).resolve().parent / "data" / "research" / "profit_window_calibration.json"
+HISTORICAL_PROVIDER_LOOKAHEAD_DAYS = 14
 
 
 def load_snapshot(path: str | Path) -> Dict[str, Any]:
@@ -831,7 +832,7 @@ def _bars_cover_five_days(
 def _future_request_end(trade_date: str, requested_end: str) -> str:
     """Bound a provider query to the first five post-signal sessions."""
     try:
-        bounded = date.fromisoformat(str(trade_date)) + timedelta(days=14)
+        bounded = date.fromisoformat(str(trade_date)) + timedelta(days=HISTORICAL_PROVIDER_LOOKAHEAD_DAYS)
         return min(str(requested_end), bounded.isoformat())
     except ValueError:
         return str(requested_end)
@@ -1837,8 +1838,12 @@ def historical_replay(
     *,
     min_coverage: float = 0.95,
     persist_path: str | Path | None = None,
+    calendar_resolver: Any | None = None,
 ) -> Dict[str, Any]:
     """Freeze T-day decisions, then attach independent future labels."""
+    if calendar_resolver is None:
+        from xiaogu_forward_result_filler_v0_1 import calendar_future_bars
+        calendar_resolver = calendar_future_bars
     decisions: List[Dict[str, Any]] = []
     decision_records: List[Dict[str, Any]] = []
     rows: List[Dict[str, Any]] = []
@@ -1859,7 +1864,7 @@ def historical_replay(
         decisions.append(decision_summary)
         decision_records.append(record)
         bars = canonical_future_prices(
-            future_bars,
+            calendar_resolver(str(snapshot.get("trade_date") or snapshot.get("date") or ""), future_bars),
             symbol=snapshot["symbol"],
             price_basis=entry["price_basis"],
             require_volume=True,

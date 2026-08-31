@@ -27,6 +27,10 @@ from xiaogu_portfolio_decision import evaluate_candidate_bundle
 AS_OF = datetime.fromisoformat("2026-08-26T15:00:00+08:00")
 
 
+def _fixture_calendar(_entry_date, bars):
+    return bars[:5]
+
+
 def test_scanner_is_capture_only():
     import scrapy_scanner.runner_v2 as scanner
     source = Path_text = open(scanner.__file__, encoding="utf-8").read()
@@ -238,7 +242,7 @@ def test_no_selection_bias_blindspot():
         "symbol": "600001", "price": 10,
         "source_time": "2026-08-26T14:50:00+00:00",
         "future_bars": [],
-    }])
+    }], calendar_resolver=_fixture_calendar)
     assert "full_universe_count" in replay["selection_audit"]
     assert "l1_count" in replay["selection_audit"]
     assert "l2_count" in replay["selection_audit"]
@@ -271,7 +275,7 @@ def test_replay_selection_audit_keeps_l2_and_l3_counts_separate(monkeypatch):
             "future_bars": [],
         },
     ]
-    replay = historical_replay(snapshots)
+    replay = historical_replay(snapshots, calendar_resolver=_fixture_calendar)
     assert replay["selection_audit"]["l2_count"] == 2
     assert replay["selection_audit"]["l3_count"] == 1
     assert replay["selection_audit"]["partial_count"] == 0

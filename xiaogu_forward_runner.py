@@ -140,9 +140,13 @@ def _holding_days_since(opened_on: Any, reviewed_on: str) -> int:
         end = date.fromisoformat(str(reviewed_on))
     except (TypeError, ValueError) as exc:
         raise RuntimeError("POSITION_REVIEW_BLOCKED:TRADING_CALENDAR_UNAVAILABLE") from exc
-    from xiaogu_db import count_trading_days
-
-    return count_trading_days(start, end)
+    try:
+        from xiaogu_db import trading_days_between
+        return trading_days_between(start, end)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"POSITION_REVIEW_BLOCKED:TRADING_CALENDAR_UNAVAILABLE:{exc}"
+        ) from exc
 
 
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
@@ -257,6 +261,19 @@ def main() -> None:
     parser.add_argument("--position-review", action="store_true")
     args = parser.parse_args()
     mode = "DRY_RUN" if args.dry_run and args.mode == "PRODUCTION" else args.mode
+    if mode == "PRODUCTION":
+        from xiaogu_db import CALENDAR_UNKNOWN, TRADING_DAY, is_trading_date
+        calendar_status = is_trading_date(args.date)
+        if calendar_status == CALENDAR_UNKNOWN:
+            print(json.dumps(_empty_observation_output(
+                args.date, "CALENDAR_DATA_UNAVAILABLE", scan_status="SCAN_BLOCKED"
+            ), ensure_ascii=False, default=str))
+            return
+        if calendar_status != TRADING_DAY:
+            print(json.dumps(_empty_observation_output(
+                args.date, "NON_TRADING_DAY", scan_status="SCAN_BLOCKED"
+            ), ensure_ascii=False, default=str))
+            return
     if args.position_review:
         print(json.dumps({"date": args.date, "reviewed": daily_position_review(args.date)}, ensure_ascii=False, default=str))
         return

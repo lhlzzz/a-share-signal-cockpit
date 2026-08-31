@@ -40,6 +40,7 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
 - Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit, then sends memory through the optional Obsidian REST bridge. Bridge failure queues a retry; it never affects PostgreSQL.
 - Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.
+- Calendar owner: `xiaogu_db.py` owns the versioned `trading_calendar` facts and all trading-day/T+N resolution. The checked-in `data/trading_calendar/ashare_2026.json` is the authoritative 2026 A-share dataset for SSE/SZSE under the unified `ASHARE` market. Missing Calendar facts return `UNKNOWN` and block production; they are never treated as non-trading days. Future prices, snapshots, scanner availability, and weekday logic are not Calendar truth.
 - Position state lives in PostgreSQL. JSONL is an audit artifact. Obsidian is memory only.
 
 The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. T+5 closes the trade. `WATCH` and `READY` are analysis states. `PAPER_OBSERVATION` is a wrapper around the current Production Decision, persisted in PostgreSQL with a distinct `paper_signal_id` and linked `decision_id`; it never becomes a real `BUY` or real `LONG`. Production BUY is hard-blocked in the current paper-observation mode.
@@ -69,4 +70,10 @@ All paper endpoints read PostgreSQL. `data/research/paper_production_5d_dataset.
 pytest tests/ -x -q
 python -m compileall -q .
 python scripts/xiaogu_daily_health_check.py
+```
+
+Initialize or migrate the database Calendar with an audit trail:
+
+```bash
+python scripts/xiaogu_ensure_database.py
 ```

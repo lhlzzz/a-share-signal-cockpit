@@ -1,12 +1,16 @@
 from xiaogu_backtest_v0_1 import HISTORICAL_VALIDATION_HORIZONS, historical_replay
 
 
+def _fixture_calendar(_entry_date, bars):
+    return bars[:5]
+
+
 def test_replay_uses_production_decision():
     replay = historical_replay([{
         "symbol": "600001", "price": 10,
         "source_time": "2026-08-26T14:50:00+00:00",
         "future_bars": [],
-    }])
+    }], calendar_resolver=_fixture_calendar)
     assert replay["decisions"][0]["decision_owner"].endswith("evaluate_candidate_bundle")
     assert replay["horizons"] == HISTORICAL_VALIDATION_HORIZONS
 
@@ -32,7 +36,7 @@ def test_replay_strips_future_labels_before_calling_production_owner(monkeypatch
             for _ in range(10)
         ],
         "outcomes": {"labels": {"future_5d_return": 0.3}},
-    }])
+    }], calendar_resolver=_fixture_calendar)
     assert seen[0]["symbol"] == "600001"
     assert "future_bars" not in seen[0]
     assert "outcomes" not in seen[0]
@@ -57,6 +61,6 @@ def test_historical_label_coverage_gate_requires_five_day_window():
             "source": "test", "price_basis": "UNADJUSTED",
         },
         "future_bars": bars,
-    }])
+    }], calendar_resolver=_fixture_calendar)
     assert replay["target_quality_gate"]["status"] == "PASS"
     assert replay["alpha_report"]["core_alpha_status"] == "DATA_INSUFFICIENT"

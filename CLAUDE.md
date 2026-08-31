@@ -67,3 +67,10 @@
 - Codebase-Memory **主索引**（定位/调用链/架构）+ Understand-Anything（架构交叉校验与当前图谱维护）
 - Plan Enforcer discuss：实现有歧义时先 discuss 再 draft
 - Obsidian：仅由 Memory Adapter 写入；A股证据 → Project/A股；跨域 → 神临
+
+### Trading Calendar Truth
+- 唯一 Calendar Owner 是 `xiaogu_db.py`。
+- `trading_calendar` 使用版本化权威数据；`ASHARE` 统一覆盖 SSE/SZSE。
+- `is_trading_date()` 只返回 `TRUE`、`FALSE`、`UNKNOWN`；缺失必须 `CALENDAR_DATA_UNAVAILABLE` 并 fail closed。
+- 不得使用 future prices、scanner 是否有数据、snapshot、paper outcome 或 weekday 推断交易日。
+- Scheduler、Runner、Outcome、Horizon、Position Review 只能调用 Calendar Owner。

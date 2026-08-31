@@ -86,6 +86,17 @@ Memory
 | API | `xiaogu_api.py` | Query only |
 | Memory | Memory Adapter → Obsidian | Trade notes only |
 
+Trading Calendar owner: `xiaogu_db.py`. The sole truth is the versioned
+`trading_calendar` table, populated from an authoritative dataset and audited
+through `trading_calendar_migrations`. `is_trading_date()` returns `TRUE`,
+`FALSE`, or `UNKNOWN`; missing data is `CALENDAR_DATA_UNAVAILABLE` and blocks
+production. Future prices, scanner row availability, snapshots, paper
+observations, and weekday arithmetic cannot determine a trading date.
+
+The unified `ASHARE` Calendar covers SSE and SZSE. T+N resolution is owned by
+`resolve_trading_date()` / `resolve_t_plus_n()` in `xiaogu_db.py`; Scheduler,
+Runner, Outcome Filler, Horizon evaluation, and Position Review are consumers.
+
 Sole alpha target: `PROFIT_WINDOW_5D`. Maximum holding: 5 trading days.
 
 Scanner = capture. Cheap Eligibility = operational constraints. Feature = measurement. Research = evidence/context. Alpha = model. Decision = state/action. Recorder = production event. DB = truth. Outcome = T+1..T+5. Obsidian = memory.

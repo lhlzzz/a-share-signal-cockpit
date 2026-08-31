@@ -12,7 +12,7 @@ from typing import Any, Dict
 from urllib.parse import urlencode
 
 from xiaogu_core_alpha import CANONICAL_COST_MODEL, DEFAULT_COST_RATE
-from xiaogu_horizon_evaluation import HORIZONS
+from xiaogu_horizon_evaluation import HORIZONS, resolve_horizon_dates
 from scrapy_scanner.runner_v2 import api_get
 from xiaogu_utils import append_jsonl, now_iso
 
@@ -294,12 +294,10 @@ def eastmoney_future_close_prices(
     entry_date: str,
     end_date: str | None = None,
 ) -> Dict[int, float | None]:
-    bars = [
-        bar for bar in fetch_eastmoney_daily_bars(
-            symbol, start_date=entry_date, end_date=end_date,
-        )
-        if bar["trade_date"] > entry_date
-    ]
+    bars = calendar_future_bars(
+        entry_date,
+        fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date),
+    )
     return {5: bars[4]["close"] if len(bars) >= 5 else None}
 
 
@@ -453,6 +451,20 @@ def eastmoney_future_bars(
         for bar in fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date)
         if bar["trade_date"] > entry_date
     ]
+
+
+def calendar_future_bars(entry_date: str, bars: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Select exactly T+1..T+5 using the persisted Calendar Owner."""
+    dates = list(resolve_horizon_dates(entry_date, EVALUATION_DAYS).values())
+    by_date = {
+        str(bar.get("trade_date") or bar.get("date"))[:10]: bar
+        for bar in bars or []
+        if isinstance(bar, dict)
+    }
+    selected = [by_date[trade_date] for trade_date in dates if trade_date in by_date]
+    if len(selected) != len(dates):
+        raise RuntimeError("SOURCE_UNAVAILABLE:CALENDAR_HORIZON_PRICE_MISSING")
+    return selected
 
 
 def append_result(
@@ -743,6 +755,7 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
                     bars = fetch_canonical_future_bars(
                         str(record["symbol"]), start_date=str(record["date"]), end_date=end_date or "",
                     )
+            bars = calendar_future_bars(str(record["date"]), bars)
             result = append_result(record, future_bars=bars)
             if _has_new_outcome(result, prior_results.get(decision_id)):
                 filled.append(_persist_and_append_result(result))
@@ -772,6 +785,7 @@ def main() -> None:
         entry_date=str(record["date"]),
         end_date=args.end_date or None,
     )
+    bars = calendar_future_bars(str(record["date"]), bars)
     result = append_result(record, future_bars=bars)
     _persist_and_append_result(result)
     print(json.dumps(result, ensure_ascii=False))

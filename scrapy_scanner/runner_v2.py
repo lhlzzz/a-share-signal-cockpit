@@ -52,6 +52,8 @@ OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
     "industry_reports", "external_market", "indexes", "market_capital_flow",
 ))
 CANDIDATE_FILTER_BATCH = 40
+RECENT_NEWS_LOOKBACK_DAYS = 7
+CAPITAL_HISTORY_LOOKBACK_DAYS = 12
 
 
 class CriticalSourceError(RuntimeError):
@@ -946,6 +948,21 @@ def main() -> Dict[str, Any]:
     market: Dict[str, Any] = {}
 
     try:
+        from xiaogu_db import CALENDAR_UNKNOWN, TRADING_DAY, is_trading_date
+        calendar_status = is_trading_date(source_time[:10])
+        if calendar_status == CALENDAR_UNKNOWN:
+            production_scan = "BLOCKED"
+            block_reason = "CALENDAR_DATA_UNAVAILABLE"
+        elif calendar_status != TRADING_DAY:
+            production_scan = "BLOCKED"
+            block_reason = "NON_TRADING_DAY"
+    except Exception:
+        production_scan = "BLOCKED"
+        block_reason = "CALENDAR_DATA_UNAVAILABLE"
+
+    try:
+        if production_scan == "BLOCKED":
+            raise CriticalSourceError(block_reason)
         results["stock_all_a"] = _collect(
             "stock_all_a",
             timings,
@@ -955,14 +972,14 @@ def main() -> Dict[str, Any]:
         )
     except CriticalSourceError as exc:
         production_scan = "BLOCKED"
-        block_reason = "CRITICAL_SOURCE_FAILURE"
+        block_reason = block_reason or "CRITICAL_SOURCE_FAILURE"
         timings.setdefault("stock_all_a", {"status": "ERROR", "error": repr(exc), "critical": True})
         results["stock_all_a"] = []
 
     if production_scan != "BLOCKED":
         results["flow_industry"] = _collect("flow_industry", timings, lambda: fetch_paginated("m:90+t:2", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_industry", {})), [])
         results["flow_concept"] = _collect("flow_concept", timings, lambda: fetch_paginated("m:90+t:3", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_concept", {})), [])
-        recent = (market_now - timedelta(days=7)).strftime("%Y-%m-%d")
+        recent = (market_now - timedelta(days=RECENT_NEWS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
         today = market_now.strftime("%Y-%m-%d")
         market = build_market_snapshot(results["stock_all_a"], source_time)
         level_2_candidates, level_2_audit = detect_capital_candidates(
@@ -984,7 +1001,7 @@ def main() -> Dict[str, Any]:
                 "capital_history", timings,
                 lambda: fetch_capital_history(
                     candidate_codes,
-                    begin_date=(market_now - timedelta(days=12)).strftime("%Y-%m-%d"),
+                    begin_date=(market_now - timedelta(days=CAPITAL_HISTORY_LOOKBACK_DAYS)).strftime("%Y-%m-%d"),
                     end_date=source_time[:10],
                     diagnostics=diagnostics.setdefault("capital_history", {}),
                 ),

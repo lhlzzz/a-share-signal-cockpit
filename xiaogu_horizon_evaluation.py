@@ -25,6 +25,14 @@ MIN_PROBABILITY_STD = 0.01
 MIN_PROBABILITY_RANGE = 0.05
 MIN_TOP_DECILE_DELTA = 0.02
 
+
+def resolve_horizon_dates(trade_date: Any, horizons: Iterable[int] = HORIZONS) -> Dict[int, str]:
+    """Resolve research T+N dates through the production Calendar owner."""
+    from xiaogu_db import resolve_t_plus_n
+
+    validated = validate_horizons(horizons)
+    return {day: resolve_t_plus_n(trade_date, day).isoformat() for day in validated}
+
 MINIMAL_ALPHA_FEATURES = ("price_strength",)
 CORE_ALPHA_FEATURES = MINIMAL_ALPHA_FEATURES
 

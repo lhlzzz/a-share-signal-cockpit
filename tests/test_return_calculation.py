@@ -42,6 +42,10 @@ def test_eastmoney_loader_counts_only_five_future_trading_days(monkeypatch):
         "xiaogu_forward_result_filler_v0_1.api_get",
         lambda *_args, **_kwargs: {"rc": 0, "data": {"klines": rows}},
     )
+    monkeypatch.setattr(
+        "xiaogu_forward_result_filler_v0_1.calendar_future_bars",
+        lambda entry_date, bars: [bar for bar in bars if bar["trade_date"] > entry_date][:5],
+    )
     assert eastmoney_future_close_prices("600001", entry_date="2026-08-01", end_date="2026-10-30") == {5: 6.0}
     assert calculate_horizon_returns(10, {5: 11}) == {"future_5d_return": 0.1}
 
@@ -147,6 +151,7 @@ def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypa
     )
     monkeypatch.setattr(filler, "FORWARD_LEDGER", ledger)
     monkeypatch.setattr(filler, "eastmoney_future_bars", lambda *_args, **_kwargs: _bars())
+    monkeypatch.setattr(filler, "calendar_future_bars", lambda _entry_date, bars: bars[:5])
     monkeypatch.setattr(xiaogu_db, "fetch_canonical_future_bars", lambda *_args, **_kwargs: _bars())
     monkeypatch.setattr(xiaogu_db, "record_canonical_future_prices", lambda _bars: None)
     stored_returns = []

@@ -15,8 +15,13 @@ TZ = ZoneInfo("Asia/Shanghai")
 
 
 def is_trading_day(check_date=None) -> bool:
-    from xiaogu_db import is_trading_date
-    return is_trading_date(check_date or datetime.now(TZ).date())
+    from xiaogu_db import CALENDAR_UNKNOWN, TRADING_DAY, is_trading_date
+    status = is_trading_date(check_date or datetime.now(TZ).date())
+    if isinstance(status, bool):
+        return status
+    if status == CALENDAR_UNKNOWN:
+        raise RuntimeError("CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE")
+    return status == TRADING_DAY
 
 
 def _run(*args: str) -> None:
@@ -34,12 +39,14 @@ def job_afternoon_scan_and_pick() -> None:
 
 
 def job_horizon_evaluation() -> None:
+    if not is_trading_day():
+        return
     _run("xiaogu_forward_result_filler_v0_1.py", "--pending", "--refresh-dataset")
-    if is_trading_day():
-        _run("xiaogu_forward_runner.py", "--date", f"{datetime.now(TZ):%F}", "--position-review")
+    _run("xiaogu_forward_runner.py", "--date", f"{datetime.now(TZ):%F}", "--position-review")
 
 
 def main() -> None:
+    is_trading_day()
     scheduler = BlockingScheduler(timezone=TZ)
     scheduler.add_job(job_morning_scan, CronTrigger(hour=9, minute=25, timezone=TZ))
     scheduler.add_job(job_afternoon_scan_and_pick, CronTrigger(hour=14, minute=30, timezone=TZ))

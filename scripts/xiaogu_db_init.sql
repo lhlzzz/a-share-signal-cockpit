@@ -59,14 +59,31 @@ CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time
     ON paper_observations(signal_time);
 CREATE TABLE IF NOT EXISTS trading_calendar (
     trade_date DATE PRIMARY KEY,
+    market TEXT NOT NULL DEFAULT 'ASHARE',
     is_trading_day BOOLEAN NOT NULL,
     source TEXT NOT NULL,
-    source_timestamp TIMESTAMPTZ,
+    source_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1',
     payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_trading_calendar_open_days
     ON trading_calendar(trade_date) WHERE is_trading_day;
+CREATE TABLE IF NOT EXISTS trading_calendar_migrations (
+    id BIGSERIAL PRIMARY KEY,
+    migration_id TEXT NOT NULL,
+    trade_date DATE NOT NULL,
+    market TEXT NOT NULL,
+    previous_is_trading_day BOOLEAN,
+    previous_source TEXT,
+    previous_calendar_version TEXT,
+    new_is_trading_day BOOLEAN NOT NULL,
+    new_source TEXT NOT NULL,
+    new_calendar_version TEXT NOT NULL,
+    source_timestamp TIMESTAMPTZ NOT NULL,
+    reason TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
