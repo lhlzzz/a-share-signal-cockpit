@@ -193,6 +193,44 @@ def test_capital_history_window_enforces_available_at_pit_and_deduplicates_dates
     assert window[-1]["capital_flow"] == 100.0
 
 
+def test_capital_history_historical_pit_exclusion():
+    history = [{
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "capital_flow": 100.0,
+        "amount": 1_000.0,
+        "source": "eastmoney_capital_history",
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "available_at": "2026-08-31T15:00:00+08:00",
+        "observation_class": "FORWARD_OBSERVATION_ONLY",
+    }]
+    assets = {"canonical_historical_snapshots": [{
+        "snapshot_id": "snapshot-26",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "available_at": "2026-08-26T15:00:00+08:00",
+        "payload": {"raw": {"capital_history": history}},
+    }]}
+    indexed = _capital_history_index(assets)
+    assert indexed.get("600001") == [{
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "capital_flow": None,
+        "amount": None,
+        "volume": None,
+        "turnover": None,
+        "pct_change": None,
+        "close": None,
+        "relative_volume": None,
+        "source": "canonical_historical_snapshots",
+        "source_id": "canonical_historical_snapshots",
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "available_at": "2026-08-26T15:00:00+08:00",
+        "snapshot_id": "snapshot-26",
+    }]
+
+
 def test_capital_research_dataset_is_explicitly_non_production():
     dataset = build_capital_behavior_research_dataset([{
         "decision_id": None,

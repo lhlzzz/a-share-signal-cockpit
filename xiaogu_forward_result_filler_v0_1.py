@@ -270,6 +270,24 @@ def entry_contract_from_record(record: Dict[str, Any]) -> Dict[str, Any]:
     return historical_entry_contract(canonical, execution_time=signal_time)
 
 
+def observation_contract_from_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Read an observation reference without inventing a paper execution."""
+    price = record.get("reference_price")
+    if price in (None, ""):
+        price = ((record.get("features_used") or {}).get("canonical_snapshot") or {}).get("price")
+    signal_time = record.get("signal_time") or (
+        (record.get("features_used") or {}).get("canonical_snapshot") or {}
+    ).get("source_time")
+    if price in (None, "") or float(price) <= 0 or not signal_time:
+        raise ValueError("OBSERVATION_REFERENCE_REQUIRED")
+    return {
+        "signal_time": _parse_timestamp(signal_time).isoformat(),
+        "reference_price": float(price),
+        "reference_price_source": "canonical_snapshot.price",
+        "price_basis": PRICE_BASIS,
+    }
+
+
 def eastmoney_future_close_prices(
     symbol: str,
     *,
@@ -443,8 +461,18 @@ def append_result(
     future_bars: list[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     canonical = (record.get("features_used") or {}).get("canonical_snapshot", {})
-    contract = entry_contract_from_record(record)
-    entry = float(contract["entry_price"])
+    is_paper_observation = (
+        record.get("paper_observation_status") == PAPER_OBSERVATION_STATUS
+        or record.get("status") == PAPER_OBSERVATION_STATUS
+        or bool(record.get("paper_signal_id"))
+    )
+    is_paper_position = is_paper_observation and record.get("paper_position_state") == "PAPER_LONG"
+    contract = (
+        entry_contract_from_record(record)
+        if not is_paper_observation or is_paper_position
+        else observation_contract_from_record(record)
+    )
+    reference = float(contract.get("entry_price", contract.get("reference_price")))
     if future_bars is not None:
         future_bars = canonical_future_prices(
             future_bars,
@@ -452,18 +480,13 @@ def append_result(
             price_basis=str(contract["price_basis"]),
         )
     outcomes = (
-        calculate_horizon_outcomes(entry, future_bars)
+        calculate_horizon_outcomes(reference, future_bars)
         if future_bars is not None
-        else calculate_horizon_returns(entry, future_prices or {})
+        else calculate_horizon_returns(reference, future_prices or {})
     )
     decision_id = str(record.get("id") or record.get("decision_id") or "").strip()
     if not decision_id:
         raise ValueError("DECISION_ID_REQUIRED")
-    is_paper_observation = (
-        record.get("paper_observation_status") == PAPER_OBSERVATION_STATUS
-        or record.get("status") == PAPER_OBSERVATION_STATUS
-        or bool(record.get("paper_signal_id"))
-    )
     result = {
         "record_type": "RESULT",
         "decision_id": decision_id,
@@ -471,9 +494,12 @@ def append_result(
         "symbol": record.get("symbol"),
         "rule_version": record.get("rule_version"),
         "production_run_id": record.get("production_run_id"),
-        "entry_price": entry,
-        "entry_price_source": contract["entry_price_source"],
-        "entry_contract": contract,
+        "reference_price": reference,
+        "reference_price_source": contract.get("reference_price_source", "canonical_snapshot.price"),
+        "entry_price": contract.get("entry_price") if is_paper_position or not is_paper_observation else None,
+        "entry_price_source": contract.get("entry_price_source") if is_paper_position or not is_paper_observation else None,
+        "entry_contract": contract if is_paper_position or not is_paper_observation else None,
+        "observation_contract": contract if is_paper_observation and not is_paper_position else None,
         "price_basis": contract["price_basis"],
         "outcome_boundary": "OUTCOMES_ENTER_AFTER_PRODUCTION_DECISION",
         **outcomes,
@@ -484,9 +510,9 @@ def append_result(
         "result_filled_at": now_iso(),
         "paper_signal_id": record.get("paper_signal_id"),
         "paper_observation_status": PAPER_OBSERVATION_STATUS if is_paper_observation else None,
-        "paper_observation_state": "CLOSED" if outcomes.get("outcome_complete") and is_paper_observation else record.get("paper_observation_state"),
-        "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and is_paper_observation else record.get("paper_position_state"),
-        "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and is_paper_observation else None,
+        "paper_observation_state": "CLOSED" if outcomes.get("outcome_complete") and is_paper_position else record.get("paper_observation_state"),
+        "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and is_paper_position else record.get("paper_position_state"),
+        "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and is_paper_position else None,
     }
     if outcomes.get("outcome_complete"):
         result["post_trade_review"] = build_post_trade_review(record, outcomes)
@@ -548,7 +574,11 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
             result,
             decision_id=str(result.get("decision_id") or result.get("id") or ""),
         )
-        if result.get("paper_signal_id") and result.get("paper_observation_state") == "CLOSED":
+        if (
+            result.get("paper_signal_id")
+            and result.get("paper_observation_state") == "CLOSED"
+            and result.get("paper_position_state") == "PAPER_FLAT"
+        ):
             update_paper_observation_state(
                 str(result["paper_signal_id"]),
                 state="CLOSED",
@@ -602,7 +632,7 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
             "alpha_status": paper.get("alpha_status") or alpha.get("model_status") or "DATA_INSUFFICIENT",
             "paper_observation": PAPER_OBSERVATION_STATUS,
             "paper_observation_state": outcome.get("paper_observation_state") or record.get("paper_observation_state") or "OBSERVED",
-            "paper_position_state": outcome.get("paper_position_state") or record.get("paper_position_state") or "PAPER_LONG",
+            "paper_position_state": outcome.get("paper_position_state") or record.get("paper_position_state") or "PAPER_FLAT",
             "signal_reason": record.get("signal_reason") or record.get("decision_reason"),
             "research_overlay": paper.get("research_overlay") or record.get("research_overlay") or {},
             "capital_flow_ratio": (paper.get("research_overlay") or {}).get("capital_flow_ratio"),

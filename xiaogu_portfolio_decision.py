@@ -172,7 +172,7 @@ def _paper_observation(
         "production_decision_state": decision_state,
         "production_buy": "BLOCKED",
         "position_state": position_state,
-        "paper_position_state": "PAPER_LONG",
+        "paper_position_state": "PAPER_FLAT",
         "research_overlay": research,
         "paper_only": True,
         "live_order": False,
@@ -222,11 +222,11 @@ def evaluate_candidate_bundle(
     research = build_integrated_research_context(snapshot, features)
     alpha = build_core_alpha(
         features,
-        industry=research["industry"],
-        company=research["company"],
-        capital=research["capital"],
-        integrated=research["integrated"],
-        future_buyer_map=research["future_buyer_map"],
+        industry={},
+        company={},
+        capital={},
+        integrated={},
+        future_buyer_map=None,
     )
     hard_blockers = eligibility_blockers(snapshot, account=account, as_of=as_of)
     repricing_blockers = _blockers(alpha, features, research)
@@ -311,6 +311,9 @@ def evaluate_candidate_bundle(
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
         "buy_status": "BUY_ALLOWED" if state == "BUY" else "BUY_BLOCKED",
         "symbol": snapshot["symbol"],
+        "snapshot_id": snapshot["snapshot_id"],
+        "lineage_id": snapshot["lineage_id"],
+        "trade_date": snapshot["trade_date"],
         "reason": reason,
         "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
         "allowed_states": list(PORTFOLIO_STATES),

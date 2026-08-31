@@ -191,19 +191,17 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
 
 
 def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
-    """Review paper positions without changing real FLAT/LONG state."""
-    from xiaogu_db import fetch_open_paper_positions, fetch_persisted_canonical_snapshots, fetch_position_outcome
+    """Review only explicit PAPER_LONG positions bound to their original snapshot."""
+    from xiaogu_db import fetch_decision_snapshot, fetch_open_paper_positions, fetch_position_outcome
 
     positions = fetch_open_paper_positions()
-    rows = list(fetch_persisted_canonical_snapshots(trade_date) or [])
     reviewed = []
     for prior in positions:
-        symbol = str(prior.get("symbol") or "").zfill(6)
-        snapshot = select_canonical_snapshot(rows, symbol=symbol, trade_date=trade_date)
-        if snapshot is None:
-            continue
         prior_id = str(prior.get("decision_id") or "")
-        result = fetch_position_outcome(prior_id, symbol=symbol)
+        if not prior_id:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+        snapshot = fetch_decision_snapshot(prior_id)
+        result = fetch_position_outcome(prior_id)
         try:
             from xiaogu_db import count_trading_days
             start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
@@ -222,8 +220,7 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
                 "mae": result.get("max_mae_5d"),
                 "mfe": result.get("future_5d_mfe"),
             },
-            mode="PRODUCTION",
-            trade_date=trade_date,
+            mode="REPLAY",
             position_state="LONG",
             previous_action="HOLD",
         )
@@ -323,7 +320,9 @@ def main() -> None:
             mode=mode,
             trade_date=args.date,
         )
-        if mode == "PRODUCTION" and not args.dry_run and decision["state"] in RECORDABLE_ACTIONS:
+        if mode == "PRODUCTION" and not args.dry_run and (
+            decision["state"] in RECORDABLE_ACTIONS or decision.get("paper_observation")
+        ):
             decision["ledger_path"] = str(_write_ledger_record(decision))
             recorded += 1
         if mode == "PRODUCTION" and not args.dry_run and decision.get("paper_observation"):

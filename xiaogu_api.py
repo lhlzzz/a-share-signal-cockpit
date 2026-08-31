@@ -76,7 +76,7 @@ def _paper_views() -> List[Dict[str, Any]]:
     for record in _paper_observation_records():
         key = record["paper_signal_id"]
         outcome = outcomes.get(key) or outcomes.get(str(record.get("decision_id") or "")) or {}
-        closed = outcome.get("outcome_complete") is True or record.get("paper_observation_state") == "CLOSED"
+        closed = outcome.get("outcome_complete") is True and record.get("paper_position_state") == "PAPER_LONG"
         view = {
             "paper_signal_id": key,
             "decision_id": record["decision_id"],
@@ -88,8 +88,8 @@ def _paper_views() -> List[Dict[str, Any]]:
             "price_strength": record.get("price_strength"),
             "alpha_status": record.get("alpha_status"),
             "paper_observation": "PAPER_OBSERVATION",
-            "paper_observation_state": "CLOSED" if closed else "OBSERVED",
-            "paper_position_state": "PAPER_FLAT" if closed else "PAPER_LONG",
+            "paper_observation_state": "CLOSED" if closed else record.get("paper_observation_state") or "OBSERVED",
+            "paper_position_state": "PAPER_FLAT" if closed else record.get("paper_position_state") or "PAPER_FLAT",
             "signal_reason": record.get("signal_reason"),
             "research_overlay": record.get("research_overlay") or {},
             "model_version": record.get("model_version"),
@@ -155,26 +155,6 @@ def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "drawdown": drawdown,
         "paper_status": "PAPER_OBSERVATION_ONLY",
     }
-
-
-def _paper_grouped_performance(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    by_date: Dict[str, List[Dict[str, Any]]] = {}
-    for row in rows:
-        by_date.setdefault(str(row.get("signal_time") or "")[:10], []).append(row)
-    selected = {"All": rows, "DAILY_TOP_N_5": [], "DAILY_TOP_N_10": []}
-    for date_rows in by_date.values():
-        ordered = sorted(
-            date_rows,
-            key=lambda row: float(
-                row.get("validated_probability")
-                if row.get("validated_probability") is not None
-                else row.get("price_strength") or -1
-            ),
-            reverse=True,
-        )
-        selected["DAILY_TOP_N_5"].extend(ordered[:5])
-        selected["DAILY_TOP_N_10"].extend(ordered[:10])
-    return {name: _paper_metric(group) for name, group in selected.items()}
 
 
 def _production_view(value: Any) -> Any:
@@ -334,13 +314,16 @@ def paper_performance() -> Dict[str, Any]:
     return {
         "status": "PAPER_OBSERVATION_ONLY",
         "performance": _paper_metric(rows),
-        "groups": _paper_grouped_performance(rows),
     }
 
 
 @app.get("/paper/open")
 def paper_open() -> Dict[str, Any]:
-    rows = [row for row in _paper_views() if row["paper_observation_state"] == "OBSERVED"]
+    rows = [
+        row for row in _paper_views()
+        if row["paper_observation_state"] == "OBSERVED"
+        and row["paper_position_state"] == "PAPER_LONG"
+    ]
     return {"status": "PAPER_OBSERVATION_ONLY", "signals": rows, "count": len(rows)}
 
 

@@ -99,22 +99,22 @@ def test_append_result_exposes_only_profit_window_target():
     assert result["future_1d_net_return"] == pytest.approx(0.017)
 
 
-def test_paper_outcome_decision_id():
+def test_reference_price_not_execution_price():
     result = append_result({
         "id": "paper-1", "date": "2026-08-26", "symbol": "600001",
         "paper_observation_status": "PAPER_OBSERVATION", "paper_observation_state": "OBSERVED",
-        "paper_position_state": "PAPER_LONG",
+        "paper_position_state": "PAPER_FLAT",
         "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-26T14:50:00+08:00"}},
-        "entry_contract": {
-            "signal_time": "2026-08-26T14:50:00+00:00", "execution_time": "2026-08-26T14:50:00+00:00",
-            "execution_mode": "SIGNAL_TIME_LAST_PRICE", "execution_price": 10, "entry_price": 10,
-            "price_basis": "UNADJUSTED", "entry_price_source": "canonical_snapshot.price",
-        },
+        "reference_price": 10,
+        "signal_time": "2026-08-26T14:50:00+00:00",
     }, future_bars=_bars())
     assert result["decision_id"] == "paper-1"
-    assert result["paper_observation_state"] == "CLOSED"
+    assert result["paper_observation_state"] == "OBSERVED"
     assert result["paper_position_state"] == "PAPER_FLAT"
-    assert result["paper_exit_reason"] == "T5_EXPIRY"
+    assert result["paper_exit_reason"] is None
+    assert result["reference_price"] == 10
+    assert result["entry_price"] is None
+    assert result["entry_contract"] is None
     assert result["days"]["5"]["close"] == 10.2
     assert result["profit_window"] is True
 
@@ -221,9 +221,10 @@ def test_settled_paper_observation_updates_postgres_lifecycle(monkeypatch):
         "date": "2026-08-26",
         "symbol": "600001",
         "decision_id": "decision-1",
-        "paper_signal_id": "paper-signal-1",
-        "paper_observation_state": "CLOSED",
-        "paper_exit_reason": "T5_EXPIRY",
+            "paper_signal_id": "paper-signal-1",
+            "paper_observation_state": "CLOSED",
+            "paper_position_state": "PAPER_FLAT",
+            "paper_exit_reason": "T5_EXPIRY",
     })
     assert result["database_persistence"] == {"status": "PASS"}
     assert updates == [

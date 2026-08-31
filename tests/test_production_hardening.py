@@ -214,6 +214,22 @@ def test_capital_history_scanner_accounts_for_l3_requests(monkeypatch):
     assert diagnostics["response_count"] == 2
 
 
+def test_capital_history_forward_only(monkeypatch):
+    import scrapy_scanner.runner_v2 as scanner
+
+    monkeypatch.setattr(
+        scanner,
+        "api_get",
+        lambda *_args, **_kwargs: {
+            "data": {"klines": [["2026-08-26", "100", "0", "0", "0", "0", "0.1"]]}
+        },
+    )
+    rows = scanner.fetch_capital_history(["600001"], begin_date="2026-08-26", end_date="2026-08-26")
+    assert rows[0]["observation_class"] == "FORWARD_OBSERVATION_ONLY"
+    assert rows[0]["historical_training_eligible"] is False
+    assert rows[0]["availability_provenance"] == "FETCH_TIME_ONLY"
+
+
 def test_no_selection_bias_blindspot():
     from xiaogu_backtest_v0_1 import historical_replay
     replay = historical_replay([{

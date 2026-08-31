@@ -1129,6 +1129,8 @@ def _capital_history_index(assets: Dict[str, List[Dict[str, Any]]]) -> Dict[str,
         for history_row in history_rows:
             if not isinstance(history_row, dict):
                 continue
+            if history_row.get("observation_class") == "FORWARD_OBSERVATION_ONLY":
+                continue
             observed = {**base, **history_row}
             observed["symbol"] = str(observed.get("symbol") or symbol).zfill(6)
             observed["trade_date"] = str(observed.get("trade_date") or observed.get("date") or "")[:10]

@@ -221,12 +221,14 @@ def audit_production_schema() -> Dict[str, Any]:
             "available_at", "price_basis", "payload", "created_at",
         ),
         "canonical_future_prices": ("symbol", "date", "source", "price_basis", "price_fact_hash"),
+        "trading_calendar": ("trade_date", "is_trading_day", "source", "payload"),
     }
     required_unique = {
         "snapshots": ("snapshot_id",),
         "picks": ("decision_id",),
         "paper_observations": ("paper_signal_id", "decision_id"),
         "canonical_historical_snapshots": ("snapshot_id",),
+        "trading_calendar": ("trade_date",),
     }
     required_indexes = {
         "snapshots": ("idx_snapshots_trade_date", "idx_snapshots_lineage_id"),
@@ -237,6 +239,7 @@ def audit_production_schema() -> Dict[str, Any]:
             "idx_canonical_historical_snapshots_lineage_id",
             "idx_canonical_historical_snapshots_date",
         ),
+        "trading_calendar": ("idx_trading_calendar_open_days",),
     }
     required_primary_key = {
         "snapshots": ("snapshot_id",),
@@ -245,6 +248,7 @@ def audit_production_schema() -> Dict[str, Any]:
         "picks": ("id",),
         "returns": ("id",),
         "canonical_future_prices": ("symbol", "date"),
+        "trading_calendar": ("trade_date",),
     }
     tables = {}
     ok = True
@@ -306,11 +310,13 @@ def audit_production_schema() -> Dict[str, Any]:
         ok = ok and all(value == "EXISTS" for value in index_audit.values())
         ok = ok and pk_status == "EXISTS"
         if table_name == "returns":
-            ok = ok and fk_audit.get("decision_id->picks.decision_id") in {"EXISTS", "CONFLICT"}
+            ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
         if table_name == "paper_observations":
             ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
-            ok = ok and checks.get("paper_observations_paper_only_check") == "CHECK (paper_only)"
-            ok = ok and checks.get("paper_observations_live_order_check") == "CHECK (NOT live_order)"
+            paper_only_check = str(checks.get("paper_observations_paper_only_check") or "").replace("(", "").replace(")", "").strip()
+            live_order_check = str(checks.get("paper_observations_live_order_check") or "").replace("(", "").replace(")", "").strip()
+            ok = ok and paper_only_check == "CHECK paper_only"
+            ok = ok and live_order_check == "CHECK NOT live_order"
     anomalies = {
         "picks_missing_decision_id": _count_unbound_decision_ids("picks"),
         "returns_missing_decision_id": _count_unbound_decision_ids("returns"),
@@ -319,6 +325,7 @@ def audit_production_schema() -> Dict[str, Any]:
     }
     if anomalies["returns_decision_fk_conflicts"] > 0:
         tables["returns"]["foreign_keys"]["decision_id->picks.decision_id"] = "CONFLICT"
+        ok = False
     return {
         "ok": ok,
         "tables": tables,
@@ -361,6 +368,14 @@ def ensure_production_schema() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             UNIQUE (decision_id)
         )""",
+        """CREATE TABLE IF NOT EXISTS trading_calendar (
+            trade_date DATE PRIMARY KEY,
+            is_trading_day BOOLEAN NOT NULL,
+            source TEXT NOT NULL,
+            source_timestamp TIMESTAMPTZ,
+            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
@@ -368,6 +383,7 @@ def ensure_production_schema() -> None:
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time ON paper_observations(signal_time)",
+        "CREATE INDEX IF NOT EXISTS idx_trading_calendar_open_days ON trading_calendar(trade_date) WHERE is_trading_day",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)",
@@ -441,8 +457,12 @@ def ensure_production_schema() -> None:
         )
     except SQLAlchemyError as exc:
         if _schema_error_already_exists(exc):
-            return
-        raise
+            pass
+        else:
+            raise
+    audit = audit_production_schema()
+    if not audit["ok"]:
+        raise RuntimeError("PRODUCTION_SCHEMA_CONTRACT_FAILED")
 
 
 def _ensure_snapshot_primary_key(table_name: str) -> None:
@@ -795,9 +815,22 @@ def record_decision(decision: Dict[str, Any]) -> None:
     columns = _table_columns("picks")
     fields = ["trade_date", "symbol", "state", "position_state", "payload"]
     canonical = decision.get("canonical_snapshot") or {}
-    params = {
-        "trade_date": canonical.get("trade_date") or decision.get("date") or decision.get("trade_date"),
+    identity = {
+        "snapshot_id": decision.get("snapshot_id") or canonical.get("snapshot_id"),
+        "lineage_id": decision.get("lineage_id") or canonical.get("lineage_id"),
         "symbol": decision.get("symbol") or canonical.get("symbol"),
+        "trade_date": canonical.get("trade_date") or decision.get("trade_date") or decision.get("date"),
+    }
+    if any(not str(value or "").strip() for value in identity.values()):
+        raise ValueError("SNAPSHOT_IDENTITY_UNAVAILABLE")
+    decision = {
+        **decision,
+        **identity,
+        "canonical_snapshot": canonical,
+    }
+    params = {
+        "trade_date": identity["trade_date"],
+        "symbol": identity["symbol"],
         "state": decision.get("action") or decision["state"],
         "position_state": decision.get("position_state"),
         "payload": json.dumps(decision, ensure_ascii=False, default=str),
@@ -858,6 +891,12 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decisi
         if "decision_id" in columns else ""
     )
     with get_db() as db:
+        decision = db.execute(
+            text("SELECT 1 FROM picks WHERE decision_id = :decision_id"),
+            {"decision_id": decision_id},
+        ).first()
+        if not decision:
+            raise ValueError("DECISION_ID_NOT_FOUND")
         if "decision_id" in columns:
             existing = db.execute(
                 text(
@@ -1027,16 +1066,28 @@ def record_paper_observation(observation: Dict[str, Any]) -> None:
     required = (
         "paper_signal_id", "decision_id", "snapshot_id", "lineage_id", "symbol",
         "signal_time", "reference_price", "paper_observation_state",
-        "paper_position_state", "alpha_name", "decision_version",
+        "paper_position_state", "alpha_name", "alpha_version", "feature_version", "decision_version",
         "cost_model_version", "paper_observation_contract_version",
     )
     if any(str(observation.get(field) or "").strip() == "" for field in required):
         raise ValueError("PAPER_OBSERVATION_IDENTITY_REQUIRED")
+    if observation.get("paper_observation_state") != "OBSERVED":
+        raise ValueError("PAPER_OBSERVATION_STATE_INVALID")
+    if observation.get("paper_position_state") != "PAPER_FLAT":
+        raise ValueError("PAPER_ENTRY_OWNER_UNAVAILABLE")
+    if observation.get("paper_only") is not True or observation.get("live_order") is not False:
+        raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")
     params = {
         **observation,
         "payload": json.dumps(observation, ensure_ascii=False, default=str),
     }
     with get_db() as db:
+        decision = db.execute(
+            text("SELECT 1 FROM picks WHERE decision_id = :decision_id"),
+            {"decision_id": observation["decision_id"]},
+        ).first()
+        if not decision:
+            raise ValueError("DECISION_ID_NOT_FOUND")
         existing = db.execute(
             text(
                 "SELECT payload FROM paper_observations "
@@ -1085,6 +1136,51 @@ def fetch_paper_observations() -> List[Dict[str, Any]]:
         return [dict(row) for row in db.execute(
             text("SELECT * FROM paper_observations ORDER BY signal_time DESC, paper_signal_id")
         ).mappings()]
+
+
+def fetch_decision_snapshot(decision_id: str) -> Dict[str, Any]:
+    """Return the exact canonical snapshot immutable-bound to one decision."""
+    wanted = str(decision_id or "").strip()
+    if not wanted:
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+    with engine.connect() as db:
+        pick = db.execute(
+            text("SELECT payload FROM picks WHERE decision_id = :decision_id"),
+            {"decision_id": wanted},
+        ).mappings().first()
+        if not pick:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+        payload = pick.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        payload = payload if isinstance(payload, dict) else {}
+        canonical = payload.get("canonical_snapshot") if isinstance(payload.get("canonical_snapshot"), dict) else {}
+        identity = {
+            "snapshot_id": payload.get("snapshot_id") or canonical.get("snapshot_id"),
+            "lineage_id": payload.get("lineage_id") or canonical.get("lineage_id"),
+            "symbol": payload.get("symbol") or canonical.get("symbol"),
+            "trade_date": payload.get("trade_date") or canonical.get("trade_date"),
+        }
+        if any(not str(value or "").strip() for value in identity.values()):
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+        row = db.execute(
+            text("SELECT payload FROM snapshots WHERE snapshot_id = :snapshot_id"),
+            {"snapshot_id": identity["snapshot_id"]},
+        ).mappings().first()
+    if not row:
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+    snapshot = row.get("payload")
+    if isinstance(snapshot, str):
+        snapshot = json.loads(snapshot)
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    if any(
+        str(snapshot.get(field) or "") != str(expected)
+        for field, expected in identity.items()
+    ):
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_CONFLICT")
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+
+    return validate_and_build_canonical_snapshot(snapshot)
 
 
 def paper_observation_exists(paper_signal_id: str) -> bool:
@@ -1151,32 +1247,19 @@ def update_paper_observation_state(
 
 
 def fetch_open_paper_positions() -> List[Dict[str, Any]]:
-    """Return effective open paper positions, excluding settled outcomes."""
+    """Return only explicit Paper Entry records that remain PAPER_LONG."""
     from xiaogu_forward_result_filler_v0_1 import _row_payload
 
-    signals = fetch_paper_observations()
-    outcomes = {}
-    for row in fetch_returns():
-        payload = row.get("payload")
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        payload = payload if isinstance(payload, dict) else {}
-        payload.update({key: value for key, value in row.items() if key != "payload"})
-        outcomes[str(payload.get("decision_id") or "")] = payload
     open_rows = []
-    seen_symbols: set[str] = set()
-    for row in signals:
+    for row in fetch_paper_observations():
         record = _row_payload(row)
-        paper_signal_id = str(record.get("paper_signal_id") or row.get("paper_signal_id") or "")
-        decision_id = str(record.get("decision_id") or row.get("decision_id") or "")
-        symbol = str(record.get("symbol") or row.get("symbol") or "")
-        if not paper_signal_id or not decision_id or symbol in seen_symbols:
+        if (
+            record.get("paper_position_state") != "PAPER_LONG"
+            or record.get("paper_observation_state") == "CLOSED"
+            or not isinstance(record.get("paper_entry_contract"), dict)
+        ):
             continue
-        outcome = outcomes.get(paper_signal_id) or outcomes.get(decision_id) or {}
-        if outcome.get("outcome_complete") is True or record.get("paper_observation_state") == "CLOSED":
-            continue
-        seen_symbols.add(symbol)
-        open_rows.append({**record, "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_LONG"})
+        open_rows.append(record)
     return open_rows
 
 
@@ -1311,7 +1394,7 @@ def fetch_position_state(symbol: str) -> str | None:
 
 
 def count_trading_days(start: Any, end: Any) -> int:
-    """Count dates present in the existing canonical A-share date source."""
+    """Count only independently persisted A-share calendar facts."""
     start_date = start.isoformat() if hasattr(start, "isoformat") else str(start)
     end_date = end.isoformat() if hasattr(end, "isoformat") else str(end)
     if start_date >= end_date:
@@ -1320,10 +1403,11 @@ def count_trading_days(start: Any, end: Any) -> int:
         return int(db.execute(
             text(
                 """
-                SELECT count(DISTINCT date)
-                FROM canonical_future_prices
-                WHERE date > CAST(:start_date AS date)
-                  AND date <= CAST(:end_date AS date)
+                SELECT count(*)
+                FROM trading_calendar
+                WHERE trade_date > CAST(:start_date AS date)
+                  AND trade_date <= CAST(:end_date AS date)
+                  AND is_trading_day
                 """
             ),
             {"start_date": start_date, "end_date": end_date},
@@ -1331,15 +1415,90 @@ def count_trading_days(start: Any, end: Any) -> int:
 
 
 def is_trading_date(value: Any) -> bool:
+    """Read the independently persisted A-share calendar owner."""
     wanted = value.isoformat() if hasattr(value, "isoformat") else str(value)
     with engine.connect() as db:
         return bool(db.execute(
             text(
-                "SELECT 1 FROM canonical_future_prices "
-                "WHERE date = CAST(:trade_date AS date) LIMIT 1"
+                "SELECT 1 FROM trading_calendar "
+                "WHERE trade_date = CAST(:trade_date AS date) AND is_trading_day LIMIT 1"
             ),
             {"trade_date": wanted},
         ).scalar())
+
+
+def record_trading_calendar(records: Iterable[Dict[str, Any]]) -> None:
+    """Persist immutable A-share trade-date facts from the calendar source."""
+    ensure_production_schema()
+    with get_db() as db:
+        for record in records:
+            trade_date = str(record.get("trade_date") or record.get("date") or "")[:10]
+            source = str(record.get("source") or "").strip()
+            if not trade_date or not source or record.get("is_trading_day") is None:
+                raise ValueError("TRADING_CALENDAR_IDENTITY_REQUIRED")
+            payload = {
+                **record,
+                "trade_date": trade_date,
+                "is_trading_day": bool(record["is_trading_day"]),
+                "source": source,
+            }
+            existing = db.execute(
+                text(
+                    "SELECT is_trading_day, source FROM trading_calendar "
+                    "WHERE trade_date = CAST(:trade_date AS date)"
+                ),
+                {"trade_date": trade_date},
+            ).mappings().first()
+            if existing:
+                if (
+                    bool(existing["is_trading_day"]) != payload["is_trading_day"]
+                    or str(existing["source"]) != source
+                ):
+                    raise ValueError("TRADING_CALENDAR_CONFLICT")
+                continue
+            db.execute(
+                text(
+                    """
+                    INSERT INTO trading_calendar
+                        (trade_date, is_trading_day, source, source_timestamp, payload)
+                    VALUES (
+                        CAST(:trade_date AS date), :is_trading_day, :source,
+                        CAST(NULLIF(:source_timestamp, '') AS timestamptz),
+                        CAST(:payload AS jsonb)
+                    )
+                    """
+                ),
+                {
+                    **payload,
+                    "source_timestamp": str(record.get("source_timestamp") or ""),
+                    "payload": json.dumps(payload, ensure_ascii=False, default=str),
+                },
+            )
+
+
+def refresh_a_share_trading_calendar(start_date: str, end_date: str) -> int:
+    """Load Baostock's official A-share trading-day feed into the DB owner."""
+    import baostock as bs
+
+    login = bs.login()
+    if str(getattr(login, "error_code", "")) != "0":
+        raise RuntimeError(f"TRADING_CALENDAR_SOURCE_UNAVAILABLE:{getattr(login, 'error_msg', '')}")
+    try:
+        result = bs.query_trade_dates(start_date=start_date, end_date=end_date)
+        if str(getattr(result, "error_code", "")) != "0":
+            raise RuntimeError(f"TRADING_CALENDAR_SOURCE_UNAVAILABLE:{getattr(result, 'error_msg', '')}")
+        rows = []
+        while result.next():
+            values = result.get_row_data()
+            rows.append({
+                "trade_date": values[0],
+                "is_trading_day": str(values[1]) == "1",
+                "source": "baostock_trade_dates",
+            })
+        record_trading_calendar(rows)
+        return len(rows)
+    finally:
+        bs.logout()
 
 
 def fetch_canonical_future_bars(
@@ -1586,7 +1745,7 @@ def database_asset_report() -> Dict[str, Any]:
             )
             symbol_count = int(db.execute(text(f'SELECT {symbol_expr} FROM "{name}"')).scalar_one())
             purpose = {
-                "picks": "Historical decisions and paper picks",
+                "picks": "Production decision truth",
                 "returns": "Historical T+1..T+5 result records",
                 "daily_candidates": "T-day candidate snapshots and rationale",
                 "production_runs": "Production run identity and configuration",

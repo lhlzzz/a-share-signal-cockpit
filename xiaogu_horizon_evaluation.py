@@ -110,19 +110,19 @@ FEATURE_SOURCE_MATRIX = {
         "feature_function": "xiaogu_forward_features.build_feature_vector",
     },
     "capital_persistence": {
-        "raw_source": "L2/L3 historical capital observations",
+        "raw_source": "PIT-proven historical capital observations only",
         "scanner_level": "L2/L3",
         "snapshot_field": "raw.fund_flow_persistence",
         "feature_function": "xiaogu_forward_features.build_feature_vector",
     },
     "capital_acceleration": {
-        "raw_source": "L2/L3 historical capital observations",
+        "raw_source": "PIT-proven historical capital observations only",
         "scanner_level": "L2/L3",
         "snapshot_field": "raw.fund_flow_acceleration",
         "feature_function": "xiaogu_forward_features.build_feature_vector",
     },
     "capital_inflection": {
-        "raw_source": "L2/L3 historical capital observations",
+        "raw_source": "PIT-proven historical capital observations only",
         "scanner_level": "L2/L3",
         "snapshot_field": "raw.capital_history",
         "historical_source": "PostgreSQL.canonical_historical_snapshots",

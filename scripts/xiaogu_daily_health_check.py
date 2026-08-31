@@ -157,6 +157,9 @@ def check_production_schema_audit():
     audit = audit_production_schema()
     snapshots = audit["tables"]["snapshots"]
     historical = audit["tables"]["canonical_historical_snapshots"]
+    checks = audit["tables"]["paper_observations"]["checks"]
+    paper_only_check = str(checks.get("paper_observations_paper_only_check") or "").replace("(", "").replace(")", "").strip()
+    live_order_check = str(checks.get("paper_observations_live_order_check") or "").replace("(", "").replace(")", "").strip()
     required = (
         snapshots["columns"]["snapshot_id"] == "EXISTS"
         and snapshots["columns"]["lineage_id"] == "EXISTS"
@@ -173,8 +176,18 @@ def check_production_schema_audit():
         and historical["unique"]["snapshot_id"] == "EXISTS"
         and historical["primary_key"]["status"] == "EXISTS"
     )
-    fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
-    required = required and fk in {"EXISTS", "CONFLICT"}
+    returns_fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
+    paper_fk = audit["tables"]["paper_observations"]["foreign_keys"].get("decision_id->picks.decision_id")
+    calendar = audit["tables"]["trading_calendar"]
+    required = (
+        required
+        and returns_fk == "EXISTS"
+        and paper_fk == "EXISTS"
+        and calendar["primary_key"]["status"] == "EXISTS"
+        and calendar["indexes"]["idx_trading_calendar_open_days"] == "EXISTS"
+        and paper_only_check == "CHECK paper_only"
+        and live_order_check == "CHECK NOT live_order"
+    )
     return required, "ok" if required else json.dumps(audit, ensure_ascii=False, default=str)
 
 

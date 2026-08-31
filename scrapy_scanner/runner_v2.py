@@ -274,6 +274,9 @@ def fetch_capital_history(
                 "source_id": "eastmoney_capital_history",
                 "source_time": f"{trade_date}T15:00:00+08:00",
                 "available_at": fetched_at,
+                "observation_class": "FORWARD_OBSERVATION_ONLY",
+                "historical_training_eligible": False,
+                "availability_provenance": "FETCH_TIME_ONLY",
                 "provider_fields": CAPITAL_HISTORY_FIELDS.split(","),
             })
     returned = sorted({str(row["symbol"]) for row in rows})

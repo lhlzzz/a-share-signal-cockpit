@@ -27,6 +27,7 @@ FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
 MEMORY_RETRY_QUEUE = BASE / 'logs' / 'obsidian_retry_queue.jsonl'
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
+PRODUCTION_DECISION_STATES = RECORDABLE_DECISIONS | {"WATCH", "READY"}
 PAPER_OBSERVATION_STATUS = "PAPER_OBSERVATION"
 PAPER_OBSERVATION_STATES = {"OBSERVED", "CLOSED"}
 PAPER_POSITION_STATES = {"PAPER_FLAT", "PAPER_LONG"}
@@ -305,6 +306,8 @@ def validate_paper_observation(decision: Dict[str, Any], rule: Dict[str, Any]) -
         raise ValueError("PAPER_OBSERVATION_STATE_REQUIRED")
     if observation.get("paper_position_state") not in PAPER_POSITION_STATES:
         raise ValueError("PAPER_POSITION_STATE_REQUIRED")
+    if observation.get("paper_position_state") != "PAPER_FLAT":
+        raise ValueError("PAPER_ENTRY_OWNER_UNAVAILABLE")
     if not rule.get("paper_only") or not rule.get("no_trade") or rule.get("production_ready"):
         raise ValueError("PAPER_OBSERVATION_SAFETY_FLAGS_INVALID")
     if rule.get("auto_order") or rule.get("broker_connected"):
@@ -401,7 +404,7 @@ def _snapshot_and_record(
         "price_basis": "UNADJUSTED",
     }
     entry_contract = None
-    if decision != PAPER_OBSERVATION_STATUS:
+    if decision in RECORDABLE_DECISIONS:
         entry_contract = historical_entry_contract({
             'signal_time': asof_time if 'T' in asof_time else f'{date}T{asof_time}+08:00',
             'execution_price': features.get('canonical_snapshot', {}).get('price')
@@ -490,15 +493,19 @@ def _snapshot_and_record(
 def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
     """Persist DB truth, then append audit JSONL, then write memory."""
     rule = load_json(RULE_FREEZE)
-    if str(decision.get("state") or "") not in RECORDABLE_DECISIONS:
+    state = str(decision.get("state") or "")
+    if state not in PRODUCTION_DECISION_STATES:
         raise ValueError("RECORDER_ACCEPTS_PRODUCTION_EVENTS_ONLY")
-    validate_generation(str(decision['state']), rule)
-    canonical = decision['canonical_snapshot']
+    if state in RECORDABLE_DECISIONS:
+        validate_generation(state, rule)
+    canonical = decision.get('canonical_snapshot')
+    if not isinstance(canonical, dict):
+        raise ValueError("CANONICAL_SNAPSHOT_REQUIRED")
     snap, snapshot, record = _snapshot_and_record(
         date=str(canonical['trade_date']),
         asof_time=str(canonical.get('source_time') or '000000'),
         symbol=str(canonical['symbol']),
-        decision=str(decision['state']),
+        decision=state,
         features=decision,
         decision_reason=str(decision['reason']),
         generated_at=now_iso(),
@@ -513,6 +520,10 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     except Exception as exc:
         record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
         raise
+    if state not in RECORDABLE_DECISIONS:
+        record['audit_persistence'] = {'status': 'SKIPPED'}
+        record['memory_status'] = 'SKIPPED'
+        return Path(""), record
     dump_json(snap, snapshot)
     record['audit_persistence'] = {'status': 'PASS'}
     append_jsonl(FORWARD_LEDGER, record)
@@ -534,7 +545,7 @@ def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, 
         "trade_date": canonical["trade_date"],
         "generated_at": now_iso(),
     }
-    from xiaogu_db import paper_observation_exists, record_decision, record_paper_observation
+    from xiaogu_db import paper_observation_exists, record_paper_observation
     if paper_observation_exists(str(observation["paper_signal_id"])):
         return Path(""), {
             "paper_signal_id": observation["paper_signal_id"],
@@ -542,7 +553,6 @@ def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, 
             "database_persistence": {"status": "ALREADY_EXISTS"},
             "audit_persistence": {"status": "SKIPPED"},
         }
-    record_decision(decision)
     record_paper_observation(paper_record)
     snap, snapshot, record = _snapshot_and_record(
         date=str(canonical["trade_date"]),

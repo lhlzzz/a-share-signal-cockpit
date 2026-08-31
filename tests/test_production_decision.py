@@ -60,7 +60,7 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
         as_of=AS_OF,
     )
     assert blocked["state"] == "READY"
-    assert "TRADINGAGENTS_CONTRADICTION" in blocked["repricing_risk"]["blockers"]
+    assert "TRADINGAGENTS_CONTRADICTION" not in blocked["repricing_risk"]["blockers"]
 
     reduce = evaluate_candidate_bundle(
         ready | {"f62": -1_000, "pct_chg": 1}, portfolio_state="BUY", position_state="LONG", as_of=AS_OF,

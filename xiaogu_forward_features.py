@@ -267,12 +267,16 @@ def _capital_history_features(
             "source_time": source_time,
             "available_at": available_at,
             "snapshot_id": row.get("snapshot_id"),
+            "observation_class": row.get("observation_class") or "PIT_ELIGIBILITY_UNVERIFIED",
+            "historical_training_eligible": row.get("historical_training_eligible"),
         }
         row_ts = _capital_history_timestamp(source_time)
         available_ts = _capital_history_timestamp(available_at)
         if not row_date or not row_source or row_ts is None or available_ts is None:
             excluded.append({**audit, "reason": "CAPITAL_IDENTITY_INCOMPLETE"})
             continue
+        if row.get("observation_class") == "FORWARD_OBSERVATION_ONLY":
+            audit["historical_training_status"] = "EXCLUDED_FROM_HISTORICAL_TRAINING"
         if trade_date and row_date > trade_date:
             excluded.append({**audit, "reason": "FUTURE_TRADE_DATE"})
             continue
@@ -360,6 +364,11 @@ def _capital_history_features(
         "price_efficiency": efficiency,
         "divergence": divergence,
         "source_status": "OBSERVED" if observations else "SOURCE_UNAVAILABLE",
+        "historical_training_status": (
+            "EXCLUDED_FROM_HISTORICAL_TRAINING"
+            if any(row.get("observation_class") == "FORWARD_OBSERVATION_ONLY" for row in observations)
+            else "PIT_ELIGIBILITY_UNVERIFIED"
+        ),
         "excluded": excluded,
         "excluded_count": len(excluded),
         "pit_rate": len(observations) / len(candidates) if candidates else 0.0,

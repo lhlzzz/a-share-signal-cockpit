@@ -219,6 +219,14 @@ def test_paper_observation_identity():
     assert paper["cost_model_version"] == "cost_model_v1"
 
 
+def test_paper_observation_defaults_flat():
+    paper = evaluate_candidate_bundle(
+        _paper_observation_snapshot(), position_state="FLAT",
+    )["paper_observation"]
+    assert paper["paper_observation_state"] == "OBSERVED"
+    assert paper["paper_position_state"] == "PAPER_FLAT"
+
+
 def test_paper_observation_has_no_second_selection_threshold():
     decision = evaluate_candidate_bundle(
         _paper_observation_snapshot() | {"pct_chg": 0.1},
@@ -252,6 +260,37 @@ def test_research_only_capital_does_not_change_production_decision():
     assert research_only["state"] == baseline["state"]
     assert research_only["action"] == baseline["action"]
     assert research_only["paper_observation"]["research_overlay"]["research_only"] is True
+
+
+def test_research_cannot_grant_production_permission(monkeypatch):
+    import xiaogu_portfolio_decision as decision_module
+
+    baseline = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    original = decision_module.build_integrated_research_context
+
+    def elevated_research(snapshot, features):
+        context = original(snapshot, features)
+        return {
+            **context,
+            "integrated": {"contradiction_status": "BULLISH", "veto": False},
+            "future_buyer_map": {
+                "potential_next_buyer": [{
+                    "buyer": "institution",
+                    "evidence_status": "EVIDENCE_BACKED",
+                    "evidence": "research-only",
+                    "source": "research",
+                    "observed_at": "2026-08-26T14:50:00+08:00",
+                }],
+            },
+        }
+
+    monkeypatch.setattr(decision_module, "build_integrated_research_context", elevated_research)
+    candidate = decision_module.evaluate_candidate_bundle(
+        _paper_observation_snapshot(), position_state="FLAT",
+    )
+    assert candidate["state"] == baseline["state"]
+    assert candidate["buy_status"] == "BUY_BLOCKED"
+    assert candidate["core_alpha"]["profit_window_feature_values"] == {"price_strength": baseline["core_alpha"]["profit_window_feature_values"]["price_strength"]}
 
 
 def test_production_position_state_unavailable_blocks_before_decision(monkeypatch):
@@ -308,17 +347,83 @@ def test_paper_observation_no_live_order(tmp_path, monkeypatch):
     monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
     monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
     stored = []
-    monkeypatch.setattr(xiaogu_db, "record_decision", lambda item: stored.append(item))
     monkeypatch.setattr(xiaogu_db, "record_paper_observation", lambda item: stored.append(item))
     _path, record = recorder.append_paper_observation(decision)
-    assert stored[1]["status"] == "PAPER_OBSERVATION"
-    assert stored[1]["paper_observation_state"] == "OBSERVED"
-    assert stored[1]["paper_position_state"] == "PAPER_LONG"
+    assert len(stored) == 1
+    assert stored[0]["status"] == "PAPER_OBSERVATION"
+    assert stored[0]["paper_observation_state"] == "OBSERVED"
+    assert stored[0]["paper_position_state"] == "PAPER_FLAT"
     assert record["decision"] == "PAPER_OBSERVATION"
     assert record["manual_paper_execution_allowed"] is False
     assert record["auto_order"] is False
     assert record["broker_connected"] is False
     assert record["future_5d_return"] is None
+
+
+def test_observation_does_not_create_production_decision(tmp_path, monkeypatch):
+    import xiaogu_db
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    calls = []
+    monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
+    monkeypatch.setattr(xiaogu_db, "paper_observation_exists", lambda _value: False)
+    monkeypatch.setattr(xiaogu_db, "record_decision", lambda _value: calls.append("decision"))
+    monkeypatch.setattr(xiaogu_db, "record_paper_observation", lambda _value: calls.append("observation"))
+    recorder.append_paper_observation(decision)
+    assert calls == ["observation"]
+
+
+def test_paper_requires_existing_decision():
+    import xiaogu_db
+
+    paper = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")["paper_observation"]
+    with pytest.raises(ValueError, match="DECISION_ID_NOT_FOUND"):
+        xiaogu_db.record_paper_observation(paper)
+
+
+def test_paper_fk_to_decision():
+    import xiaogu_db
+
+    xiaogu_db.ensure_production_schema()
+    audit = xiaogu_db.audit_production_schema()
+    assert audit["tables"]["paper_observations"]["foreign_keys"]["decision_id->picks.decision_id"] == "EXISTS"
+
+
+def test_paper_observation_not_open_position(monkeypatch):
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [{
+        "paper_signal_id": "paper-1", "decision_id": "decision-1",
+        "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_FLAT",
+        "payload": {"paper_signal_id": "paper-1", "decision_id": "decision-1",
+                    "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_FLAT"},
+    }])
+    assert xiaogu_db.fetch_open_paper_positions() == []
+
+
+def test_real_paper_entry_only_is_open(monkeypatch):
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [
+        {
+            "paper_signal_id": "observation", "decision_id": "decision-1",
+            "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_FLAT",
+            "payload": {"paper_signal_id": "observation", "decision_id": "decision-1",
+                        "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_FLAT"},
+        },
+        {
+            "paper_signal_id": "entry", "decision_id": "decision-2",
+            "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_LONG",
+            "payload": {
+                "paper_signal_id": "entry", "decision_id": "decision-2",
+                "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_LONG",
+                "paper_entry_contract": {"entry_price": 10},
+            },
+        },
+    ])
+    assert [row["paper_signal_id"] for row in xiaogu_db.fetch_open_paper_positions()] == ["entry"]
 
 
 def test_paper_observation_db_truth(monkeypatch):
@@ -329,7 +434,7 @@ def test_paper_observation_db_truth(monkeypatch):
         "paper_signal_id": "paper-signal-1", "decision_id": "decision-1",
         "symbol": "600001", "reference_price": 10,
         "signal_time": "2026-08-26T14:50:00+08:00",
-        "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_LONG",
+        "paper_observation_state": "OBSERVED", "paper_position_state": "PAPER_FLAT",
         "payload": {"paper_signal_id": "paper-signal-1", "decision_id": "decision-1",
                     "status": "PAPER_OBSERVATION", "price_strength": 0.6,
                     "signal_reason": "CURRENT_PRODUCTION_DECISION"},
@@ -340,7 +445,7 @@ def test_paper_observation_db_truth(monkeypatch):
     assert payload["count"] == 1
     assert payload["signals"][0]["paper_signal_id"] == "paper-signal-1"
     assert payload["signals"][0]["paper_observation_state"] == "OBSERVED"
-    assert xiaogu_api.paper_open()["count"] == 1
+    assert xiaogu_api.paper_open()["count"] == 0
 
 
 def test_paper_no_future_leakage():
@@ -379,8 +484,19 @@ def test_paper_performance(monkeypatch):
     }])
     payload = xiaogu_api.paper_performance()
     assert payload["status"] == "PAPER_OBSERVATION_ONLY"
-    assert payload["groups"]["DAILY_TOP_N_5"]["profit_window_rate"] == 1
-    assert payload["groups"]["All"]["horizon_metrics"]["T+5"]["mean_net_return"] == 0.03
+    assert payload["performance"]["profit_window_rate"] == 1
+    assert payload["performance"]["horizon_metrics"]["T+5"]["mean_net_return"] == 0.03
+
+
+def test_paper_performance_is_read_only(monkeypatch):
+    import xiaogu_api
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: [])
+    monkeypatch.setattr(xiaogu_db, "record_decision", lambda _value: pytest.fail("unexpected decision write"))
+    monkeypatch.setattr(xiaogu_db, "record_paper_observation", lambda _value: pytest.fail("unexpected paper write"))
+    assert xiaogu_api.paper_performance()["performance"]["count"] == 0
 
 
 def test_paper_research_overlay():
@@ -399,11 +515,11 @@ def test_shadow_not_production():
     assert decision["paper_observation"].get("shadow") is None
 
 
-def test_recorder_accepts_trade_events_but_rejects_watch_memory(tmp_path, monkeypatch):
+def test_recorder_requires_canonical_snapshot_for_production_decision(tmp_path, monkeypatch):
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
     monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
-    with pytest.raises(ValueError, match="RECORDER_ACCEPTS_PRODUCTION_EVENTS_ONLY"):
+    with pytest.raises(ValueError, match="CANONICAL_SNAPSHOT_REQUIRED"):
         recorder.append_production_decision({"state": "WATCH"})
     assert not list((tmp_path / "memory").glob("**/*.md"))
 
@@ -534,6 +650,49 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
     runner.daily_position_review("2026-08-26")
     assert seen["portfolio_state"] == "HOLD"
     assert seen["previous_action"] == "BUY"
+
+
+def test_position_review_exact_snapshot_identity(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    snapshot = validate_and_build_canonical_snapshot(_paper_observation_snapshot())
+    seen = {}
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26",
+    }])
+    monkeypatch.setattr(
+        "xiaogu_db.fetch_decision_snapshot",
+        lambda decision_id: seen.setdefault("decision_id", decision_id) and snapshot,
+    )
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda _decision_id: {})
+    monkeypatch.setattr(
+        runner,
+        "run_production_decision",
+        lambda received, **kwargs: seen.update({"snapshot_id": received["snapshot_id"], **kwargs}) or {
+            "state": "HOLD", "action": "HOLD", "reason": "THESIS_INTACT",
+        },
+    )
+    reviewed = runner.daily_paper_position_review("2026-08-27")
+    assert len(reviewed) == 1
+    assert seen["decision_id"] == "decision-1"
+    assert seen["snapshot_id"] == snapshot["snapshot_id"]
+    assert seen["mode"] == "REPLAY"
+
+
+def test_missing_snapshot_id_blocks_review(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26",
+    }])
+    monkeypatch.setattr(
+        "xiaogu_db.fetch_decision_snapshot",
+        lambda _decision_id: (_ for _ in ()).throw(
+            RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+        ),
+    )
+    with pytest.raises(RuntimeError, match="SNAPSHOT_IDENTITY_UNAVAILABLE"):
+        runner.daily_paper_position_review("2026-08-27")
 
 
 def test_runner_bundle_loader_reads_scanner_canonical_jsonl(tmp_path, monkeypatch):
@@ -796,6 +955,75 @@ def test_schema_migration_failure_is_fail_closed(monkeypatch):
     monkeypatch.setattr(db.engine, "begin", lambda: Boom())
     with pytest.raises(RuntimeError, match="ALTER TABLE failed"):
         db.ensure_production_schema()
+
+
+def test_returns_fk_conflict_fails_schema(monkeypatch):
+    import xiaogu_db as db
+
+    monkeypatch.setattr(db, "_count_returns_decision_fk_conflicts", lambda: 1)
+    audit = db.audit_production_schema()
+    assert audit["ok"] is False
+    assert audit["tables"]["returns"]["foreign_keys"]["decision_id->picks.decision_id"] == "CONFLICT"
+
+
+def test_schema_migration_final_contract():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    assert db.audit_production_schema()["ok"] is True
+
+
+def test_real_a_share_calendar(monkeypatch):
+    import sys
+    import types
+    import xiaogu_db as db
+
+    recorded = []
+
+    class Result:
+        error_code = "0"
+        error_msg = ""
+
+        def __init__(self):
+            self.rows = iter((
+                ["2024-10-01", "0"],
+                ["2024-10-08", "1"],
+                ["2024-10-12", "0"],
+            ))
+            self.current = None
+
+        def next(self):
+            try:
+                self.current = next(self.rows)
+                return True
+            except StopIteration:
+                return False
+
+        def get_row_data(self):
+            return self.current
+
+    fake = types.SimpleNamespace(
+        login=lambda: types.SimpleNamespace(error_code="0", error_msg=""),
+        logout=lambda: None,
+        query_trade_dates=lambda **_kwargs: Result(),
+    )
+    monkeypatch.setitem(sys.modules, "baostock", fake)
+    monkeypatch.setattr(db, "record_trading_calendar", lambda rows: recorded.extend(rows))
+    assert db.refresh_a_share_trading_calendar("2024-10-01", "2024-10-12") == 3
+    assert recorded == [
+        {"trade_date": "2024-10-01", "is_trading_day": False, "source": "baostock_trade_dates"},
+        {"trade_date": "2024-10-08", "is_trading_day": True, "source": "baostock_trade_dates"},
+        {"trade_date": "2024-10-12", "is_trading_day": False, "source": "baostock_trade_dates"},
+    ]
+
+
+def test_scheduler_uses_single_calendar_owner(monkeypatch):
+    import xiaogu_scheduler as scheduler
+
+    calls = []
+    monkeypatch.setattr("xiaogu_db.is_trading_date", lambda value: calls.append(value) or True)
+    assert scheduler.is_trading_day(__import__("datetime").date(2024, 10, 8)) is True
+    assert calls == [__import__("datetime").date(2024, 10, 8)]
 
 
 def test_canonical_future_prices_are_immutable_facts():

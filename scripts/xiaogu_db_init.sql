@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS picks (
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS paper_observations (
     paper_signal_id TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL,
@@ -49,11 +51,22 @@ CREATE TABLE IF NOT EXISTS paper_observations (
     payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (decision_id),
+    FOREIGN KEY (decision_id) REFERENCES picks (decision_id),
     CHECK (paper_only),
     CHECK (NOT live_order)
 );
 CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time
     ON paper_observations(signal_time);
+CREATE TABLE IF NOT EXISTS trading_calendar (
+    trade_date DATE PRIMARY KEY,
+    is_trading_day BOOLEAN NOT NULL,
+    source TEXT NOT NULL,
+    source_timestamp TIMESTAMPTZ,
+    payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trading_calendar_open_days
+    ON trading_calendar(trade_date) WHERE is_trading_day;
 CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
