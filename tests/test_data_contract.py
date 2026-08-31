@@ -697,6 +697,29 @@ def test_missing_snapshot_id_blocks_review(monkeypatch):
         runner.daily_paper_position_review("2026-08-27")
 
 
+def test_position_review_blocks_when_calendar_input_is_unavailable(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "symbol": "600001",
+        "trade_date": "",
+        "state": "HOLD",
+        "action": "HOLD",
+        "decision_id": "decision-1",
+        "position_state": "LONG",
+    }])
+    monkeypatch.setattr(
+        "xiaogu_db.fetch_decision_snapshot",
+        lambda _decision_id: validate_and_build_canonical_snapshot({
+            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        }),
+    )
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda _decision_id: {})
+    with pytest.raises(RuntimeError, match="TRADING_CALENDAR_UNAVAILABLE"):
+        runner.daily_position_review("2026-08-27")
+
+
 def test_runner_bundle_loader_reads_scanner_canonical_jsonl(tmp_path, monkeypatch):
     import xiaogu_forward_bundle_io as bundles
 

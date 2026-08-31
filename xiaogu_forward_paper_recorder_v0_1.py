@@ -216,10 +216,11 @@ def write_daily_paper_memory(
     trade_date: str,
     signals: list[Dict[str, Any]],
     *,
-    scan_status: str = "NO_SIGNAL",
+    scan_status: str = "SCAN_BLOCKED",
     scan_reason: str = "",
-    canonical_count: int = 0,
-    alpha_count: int = 0,
+    canonical_count: int | None = None,
+    alpha_count: int | None = None,
+    paper_observation_count: int | None = None,
 ) -> str | None:
     """Send one compact daily observation note through the memory adapter."""
     rows = []
@@ -239,7 +240,7 @@ def write_daily_paper_memory(
         f"- Scan reason: `{scan_reason or 'NONE'}`\n"
         f"- Canonical count: `{canonical_count}`\n"
         f"- Alpha count: `{alpha_count}`\n"
-        f"- Paper observation count: `{len(signals)}`\n"
+        f"- Paper observation count: `{paper_observation_count}`\n"
         "- Status: `PAPER_OBSERVATION_ONLY`\n"
         "- Production alpha: `price_strength`\n"
         "- Capital alpha: `RESEARCH_ONLY`\n"

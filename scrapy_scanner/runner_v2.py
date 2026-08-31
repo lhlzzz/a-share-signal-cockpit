@@ -1114,7 +1114,9 @@ def main() -> Dict[str, Any]:
         for name, item in diagnostics.items()
         if name in DEEP_DOMAINS and isinstance(item, dict)
     )
-    scan_status = "SCAN_BLOCKED" if production_scan == "BLOCKED" or not snapshots else "NO_SIGNAL"
+    # Scanner is capture-only. It cannot truthfully emit NO_SIGNAL until the
+    # downstream Decision and Paper Observation stages have completed.
+    scan_status = "SCAN_BLOCKED" if production_scan == "BLOCKED" or not snapshots else None
     scan_reason = (
         block_reason or "CANONICAL_SNAPSHOT_UNAVAILABLE"
         if scan_status == "SCAN_BLOCKED"
@@ -1132,7 +1134,7 @@ def main() -> Dict[str, Any]:
         "l2_count": l2_routed,
         "l3_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
         "canonical_count": len(snapshots), "feature_count": None, "alpha_count": None,
-        "decision_count": None, "paper_observation_count": 0,
+        "decision_count": None, "paper_observation_count": None,
         "critical_sources": sorted(CRITICAL_SOURCES), "optional_sources": sorted(OPTIONAL_SOURCES),
         "scanner_contract": {
             "owner": "scrapy_scanner.runner_v2", "responsibility": "DATA_CAPTURE_ONLY",

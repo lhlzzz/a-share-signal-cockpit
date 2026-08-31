@@ -35,6 +35,8 @@ def test_scanner_is_capture_only():
     assert "RESOURCE_ROUTER" in source
     assert "alpha_score" not in source
     assert "buy_score" not in source
+    assert 'scan_status = "SCAN_BLOCKED" if production_scan == "BLOCKED" or not snapshots else None' in source
+    assert '"decision_count": None, "paper_observation_count": None' in source
 
 
 def test_scanner_l3_filters_before_fetch(monkeypatch):

@@ -123,6 +123,7 @@ def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str 
     from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
     output["daily_memory_path"] = write_daily_paper_memory(
         trade_date, [], scan_status=scan_status, scan_reason=reason,
+        paper_observation_count=None,
     )
     try:
         from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
@@ -130,6 +131,18 @@ def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str 
     except Exception as exc:
         output["paper_dataset"] = {"status": "FAILED", "error": repr(exc)}
     return output
+
+
+def _holding_days_since(opened_on: Any, reviewed_on: str) -> int:
+    """Count the review horizon from the sole persisted trading calendar."""
+    try:
+        start = date.fromisoformat(str(opened_on))
+        end = date.fromisoformat(str(reviewed_on))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:TRADING_CALENDAR_UNAVAILABLE") from exc
+    from xiaogu_db import count_trading_days
+
+    return count_trading_days(start, end)
 
 
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
@@ -147,13 +160,10 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_ID_UNAVAILABLE")
         snapshot = fetch_decision_snapshot(prior_id)
         result = fetch_position_outcome(prior_id)
-        try:
-            from xiaogu_db import count_trading_days
-            start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
-            end = date.fromisoformat(str(trade_date))
-            holding_days = count_trading_days(start, end)
-        except (TypeError, ValueError):
-            holding_days = 0
+        holding_days = _holding_days_since(
+            prior.get("trade_date") or prior.get("date"),
+            trade_date,
+        )
         previous_action = prior.get("action")
         previous_state = prior.get("state") or prior.get("previous_state")
         position_state = prior.get("position_state")
@@ -203,13 +213,10 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
         snapshot = fetch_decision_snapshot(prior_id)
         result = fetch_position_outcome(prior_id)
-        try:
-            from xiaogu_db import count_trading_days
-            start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
-            end = date.fromisoformat(str(trade_date))
-            holding_days = count_trading_days(start, end)
-        except (TypeError, ValueError):
-            holding_days = 0
+        holding_days = _holding_days_since(
+            prior.get("trade_date") or prior.get("date"),
+            trade_date,
+        )
         decision = run_production_decision(
             snapshot,
             portfolio_state="HOLD",
@@ -371,6 +378,7 @@ def main() -> None:
             scan_reason=output["scan_reason"],
             canonical_count=canonical_count,
             alpha_count=len(decisions),
+            paper_observation_count=len(paper_observations),
         )
         try:
             from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
