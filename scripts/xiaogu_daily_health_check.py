@@ -76,7 +76,12 @@ def check_scheduler_outcome_job():
 
 
 def check_pipeline_chain():
-    return _contains("pipeline", "scrapy_scanner/runner_v2.py", "xiaogu_forward_runner.py")
+    return _contains(
+        "pipeline",
+        "XIAOGU_PERSIST_DB=1",
+        "scrapy_scanner/runner_v2.py",
+        "xiaogu_forward_runner.py",
+    )
 
 
 def check_rule_freeze():

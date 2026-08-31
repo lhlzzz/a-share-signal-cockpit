@@ -1051,6 +1051,16 @@ def test_scheduler_uses_single_calendar_owner(monkeypatch):
     assert calls == [__import__("datetime").date(2024, 10, 8)]
 
 
+def test_daily_pipeline_persists_canonical_snapshots_before_production_runner():
+    pipeline = (__import__("pathlib").Path(__file__).parents[1] / "daily_pipeline.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "export XIAOGU_PERSIST_DB=1" in pipeline
+    assert pipeline.index("scrapy_scanner/runner_v2.py") < pipeline.index(
+        "xiaogu_forward_runner.py"
+    )
+
+
 def test_canonical_future_prices_are_immutable_facts():
     from sqlalchemy import text
     from xiaogu_db import canonical_future_price_fact, engine, ensure_production_schema, record_canonical_future_prices
