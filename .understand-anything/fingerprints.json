@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "17335611cbbfe0fce3a502b24e2374a5f0c34aff",
-  "generatedAt": "2026-08-31T13:25:34.250Z",
+  "gitCommitHash": "b774c8eab04a0ee710f1ea54bfb8adfb2a02e198",
+  "generatedAt": "2026-08-31T14:42:45.171Z",
   "files": {
     ".codebase-memory/.gitattributes": {
       "filePath": ".codebase-memory/.gitattributes",
@@ -42,16 +42,6 @@
       "exports": [],
       "totalLines": 25,
       "hasStructuralAnalysis": true
-    },
-    ".gitignore": {
-      "filePath": ".gitignore",
-      "contentHash": "66c94fb642324617498b58ad30c324cdd111e18c60af4e10627638fe612c42b5",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": false
     },
     ".plan-enforcer/.session-log.jsonl": {
       "filePath": ".plan-enforcer/.session-log.jsonl",
@@ -155,12 +145,12 @@
     },
     ".understand-anything/fingerprints.json": {
       "filePath": ".understand-anything/fingerprints.json",
-      "contentHash": "7750b9f915a7c7e1c3ca6de9461ae3ba34dcb03a8a0b5b1a0941d9d70e59bb6a",
+      "contentHash": "084ed96abc655c545cfd501e60fb0b0e81469e3183fb8066d5621792282705a4",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 5428,
+      "totalLines": 6827,
       "hasStructuralAnalysis": true
     },
     ".understand-anything/knowledge-graph.json": {
@@ -175,7 +165,7 @@
     },
     ".understand-anything/meta.json": {
       "filePath": ".understand-anything/meta.json",
-      "contentHash": "6602d0e54d2ffd7d7d70a74f6883075bd1c9ff5d80b37787857952315334162e",
+      "contentHash": "2b61024700d41966241fba9931bdeb6f6dfa2785744ae844e1fb911a5b860c96",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -195,22 +185,12 @@
     },
     "CLAUDE.md": {
       "filePath": "CLAUDE.md",
-      "contentHash": "73528cfbf6fb20c5d8996a228a533c77b12a488794a91f290a17ed723732b4c7",
+      "contentHash": "11c01984eeabb80c3028be298729d7a95c561b02fdeb58e11348565e07929e0f",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 68,
-      "hasStructuralAnalysis": true
-    },
-    "README.md": {
-      "filePath": "README.md",
-      "contentHash": "d375f92de4d4a5137fa710c952cc237605f5f28ee4b2dc88a66f425ebb4cf6f4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 73,
+      "totalLines": 70,
       "hasStructuralAnalysis": true
     },
     "daily_pipeline.sh": {
@@ -326,6 +306,16 @@
       "totalLines": 5,
       "hasStructuralAnalysis": false
     },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "d375f92de4d4a5137fa710c952cc237605f5f28ee4b2dc88a66f425ebb4cf6f4",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 73,
+      "hasStructuralAnalysis": true
+    },
     "requirements.txt": {
       "filePath": "requirements.txt",
       "contentHash": "2e2353f030ed6316bc4f62cc21ca7d4bdd13dca1fe3dd309c0ae16ebada559a0",
@@ -358,7 +348,7 @@
     },
     "scrapy_scanner/runner_v2.py": {
       "filePath": "scrapy_scanner/runner_v2.py",
-      "contentHash": "ec1398c7f50b7b19ca69bf160def9387992eaff3c2c0126ef54b799c90eaaf6a",
+      "contentHash": "bc23a3e9562cf49dc2f277a27c2d2bc83288d1cf2bdfc12d83e2808c95cdc319",
       "functions": [
         {
           "name": "fnum",
@@ -481,7 +471,7 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 71
+          "lineCount": 74
         },
         {
           "name": "fetch_paginated",
@@ -797,7 +787,7 @@
         "_collect",
         "main"
       ],
-      "totalLines": 1188,
+      "totalLines": 1191,
       "hasStructuralAnalysis": true
     },
     "scripts/agentmemory_daily.sh": {
@@ -812,7 +802,7 @@
     },
     "scripts/xiaogu_daily_health_check.py": {
       "filePath": "scripts/xiaogu_daily_health_check.py",
-      "contentHash": "448d7d37c108f4063e83c6935ca9515167ac33107861a2968e44c278e6b342c8",
+      "contentHash": "81b3157928447284fb536b7422488630dba638c4b318afd5880b590f4a39fb0c",
       "functions": [
         {
           "name": "_text",
@@ -903,7 +893,7 @@
           "name": "check_production_schema_audit",
           "params": [],
           "exported": true,
-          "lineCount": 26
+          "lineCount": 39
         },
         {
           "name": "main",
@@ -963,17 +953,17 @@
         "check_production_schema_audit",
         "main"
       ],
-      "totalLines": 220,
+      "totalLines": 233,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_db_init.sql": {
       "filePath": "scripts/xiaogu_db_init.sql",
-      "contentHash": "3be993105024f5ec6b229b11841cf5e67deb8427f091da45f2e1a6862ab32c3a",
+      "contentHash": "24d76cdb757dab63a2852f0039d2a3adeff30f07f927e6b260ceb1c3ead90543",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 141,
+      "totalLines": 154,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_ensure_database.py": {
@@ -1005,7 +995,7 @@
     },
     "tests/test_data_contract.py": {
       "filePath": "tests/test_data_contract.py",
-      "contentHash": "d56df289d1eafe5648a46c53f393a091a4fc1747c9a65c5c1d7967262e49329e",
+      "contentHash": "e8750bb01b9fc8fcb51071ae745f07d084dfadeea8eb3098b3e0e8705f7a2a4d",
       "functions": [
         {
           "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
@@ -1090,6 +1080,12 @@
           "lineCount": 18
         },
         {
+          "name": "test_paper_observation_defaults_flat",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
           "name": "test_paper_observation_has_no_second_selection_threshold",
           "params": [],
           "exported": true,
@@ -1100,6 +1096,14 @@
           "params": [],
           "exported": true,
           "lineCount": 23
+        },
+        {
+          "name": "test_research_cannot_grant_production_permission",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 29
         },
         {
           "name": "test_production_position_state_unavailable_blocks_before_decision",
@@ -1113,7 +1117,7 @@
           "name": "test_direct_evaluation_does_not_expose_missing_position_as_flat",
           "params": [],
           "exported": true,
-          "lineCount": 6
+          "lineCount": 8
         },
         {
           "name": "test_paper_observation_daily_freeze_uses_snapshot_identity_not_runner_clock",
@@ -1129,6 +1133,43 @@
           ],
           "exported": true,
           "lineCount": 23
+        },
+        {
+          "name": "test_observation_does_not_create_production_decision",
+          "params": [
+            "tmp_path",
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_paper_requires_existing_decision",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_paper_fk_to_decision",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_paper_observation_not_open_position",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_real_paper_entry_only_is_open",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 21
         },
         {
           "name": "test_paper_observation_db_truth",
@@ -1165,6 +1206,14 @@
           "lineCount": 20
         },
         {
+          "name": "test_paper_performance_is_read_only",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
           "name": "test_paper_research_overlay",
           "params": [],
           "exported": true,
@@ -1177,7 +1226,7 @@
           "lineCount": 5
         },
         {
-          "name": "test_recorder_accepts_trade_events_but_rejects_watch_memory",
+          "name": "test_recorder_requires_canonical_snapshot_for_production_decision",
           "params": [
             "tmp_path",
             "monkeypatch"
@@ -1218,6 +1267,22 @@
           ],
           "exported": true,
           "lineCount": 31
+        },
+        {
+          "name": "test_position_review_exact_snapshot_identity",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "test_missing_snapshot_id_blocks_review",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 14
         },
         {
           "name": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
@@ -1311,6 +1376,36 @@
           ],
           "exported": true,
           "lineCount": 13
+        },
+        {
+          "name": "test_returns_fk_conflict_fails_schema",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_schema_migration_final_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_real_a_share_calendar",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 42
+        },
+        {
+          "name": "test_scheduler_uses_single_calendar_owner",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 7
         },
         {
           "name": "test_canonical_future_prices_are_immutable_facts",
@@ -1447,24 +1542,34 @@
         "test_candidate_universe_is_cheap_and_has_no_alpha_fields",
         "_paper_observation_snapshot",
         "test_paper_observation_identity",
+        "test_paper_observation_defaults_flat",
         "test_paper_observation_has_no_second_selection_threshold",
         "test_research_only_capital_does_not_change_production_decision",
+        "test_research_cannot_grant_production_permission",
         "test_production_position_state_unavailable_blocks_before_decision",
         "test_direct_evaluation_does_not_expose_missing_position_as_flat",
         "test_paper_observation_daily_freeze_uses_snapshot_identity_not_runner_clock",
         "test_paper_observation_no_live_order",
+        "test_observation_does_not_create_production_decision",
+        "test_paper_requires_existing_decision",
+        "test_paper_fk_to_decision",
+        "test_paper_observation_not_open_position",
+        "test_real_paper_entry_only_is_open",
         "test_paper_observation_db_truth",
         "test_paper_no_future_leakage",
         "test_paper_model_version",
         "test_paper_daily_freeze",
         "test_paper_performance",
+        "test_paper_performance_is_read_only",
         "test_paper_research_overlay",
         "test_shadow_not_production",
-        "test_recorder_accepts_trade_events_but_rejects_watch_memory",
+        "test_recorder_requires_canonical_snapshot_for_production_decision",
         "test_recorder_persists_buy_and_queues_memory_without_bridge",
         "test_post_trade_review_queues_memory_without_bridge",
         "test_memory_api_uses_bridge_query_not_vault_scan",
         "test_position_review_keeps_previous_state_and_action_separate",
+        "test_position_review_exact_snapshot_identity",
+        "test_missing_snapshot_id_blocks_review",
         "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
         "test_api_exposes_current_state_and_trade_views",
         "test_api_ignores_unresolved_pick_without_explicit_decision_id",
@@ -1477,6 +1582,10 @@
         "test_recorder_db_failure_does_not_write_jsonl",
         "test_same_symbol_outcomes_are_bound_to_decision_id",
         "test_schema_migration_failure_is_fail_closed",
+        "test_returns_fk_conflict_fails_schema",
+        "test_schema_migration_final_contract",
+        "test_real_a_share_calendar",
+        "test_scheduler_uses_single_calendar_owner",
         "test_canonical_future_prices_are_immutable_facts",
         "test_paper_observation_db_checks_enforce_paper_only_and_no_live_order",
         "test_rule_freeze_hard_gates_match_decision_owner",
@@ -1488,12 +1597,12 @@
         "test_level_1_blocks_severe_liquidity_without_scoring",
         "test_scanner_attaches_level0_market_inputs_without_deep_research"
       ],
-      "totalLines": 985,
+      "totalLines": 1215,
       "hasStructuralAnalysis": true
     },
     "tests/test_database_historical_replay.py": {
       "filePath": "tests/test_database_historical_replay.py",
-      "contentHash": "61a4db4bec27b426fbcfd70a756d4ce16878cd1a7c7c20810d284985e26da3b2",
+      "contentHash": "746b879c4aaae5c9dfec4895802d0b2f3c5c9f43ca54d9b606bceca36d51202e",
       "functions": [
         {
           "name": "_return_row",
@@ -1562,6 +1671,12 @@
           "params": [],
           "exported": true,
           "lineCount": 35
+        },
+        {
+          "name": "test_capital_history_historical_pit_exclusion",
+          "params": [],
+          "exported": true,
+          "lineCount": 36
         },
         {
           "name": "test_capital_research_dataset_is_explicitly_non_production",
@@ -1696,6 +1811,7 @@
         "test_feature_diagnostics_accepts_only_complete_future_buyer_evidence",
         "test_feature_diagnostics_reads_capital_measurement_from_feature_vector",
         "test_capital_history_window_enforces_available_at_pit_and_deduplicates_dates",
+        "test_capital_history_historical_pit_exclusion",
         "test_capital_research_dataset_is_explicitly_non_production",
         "test_capital_ablation_keeps_price_baseline_and_selectivity_metrics",
         "test_profit_window_uses_cost_adjusted_high_not_close",
@@ -1710,7 +1826,7 @@
         "test_future_supplementation_uses_cache_and_only_linked_decisions",
         "test_future_supplementation_falls_back_to_baostock"
       ],
-      "totalLines": 469,
+      "totalLines": 507,
       "hasStructuralAnalysis": true
     },
     "tests/test_historical_replay.py": {
@@ -1792,7 +1908,7 @@
     },
     "tests/test_production_decision.py": {
       "filePath": "tests/test_production_decision.py",
-      "contentHash": "bb73f0b4ca91691ef83cdc7ec7ec0004ec948b5b46f275ddf56c27578841a03a",
+      "contentHash": "ba5385250304ee782879fe7ead71d9fbae018f28cf48eff3140e75604a329a43",
       "functions": [
         {
           "name": "_repricing_ready_snapshot",
@@ -1816,7 +1932,7 @@
           "name": "test_unverified_profit_window_cannot_enable_buy",
           "params": [],
           "exported": true,
-          "lineCount": 11
+          "lineCount": 12
         },
         {
           "name": "test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed",
@@ -1852,7 +1968,7 @@
           "name": "test_climax_or_buyer_exhaustion_blocks_new_buy",
           "params": [],
           "exported": true,
-          "lineCount": 6
+          "lineCount": 7
         },
         {
           "name": "test_five_day_boundary_closes_trade",
@@ -1967,12 +2083,12 @@
         "test_probability_collapse_and_full_coverage_stay_fail_closed",
         "test_missing_evidence_does_not_invent_main_force_accumulation"
       ],
-      "totalLines": 368,
+      "totalLines": 370,
       "hasStructuralAnalysis": true
     },
     "tests/test_production_hardening.py": {
       "filePath": "tests/test_production_hardening.py",
-      "contentHash": "1d64c0094a49eb164a7acf840a881862712bf2abcc2ba7f57b376bbb1c68a5c7",
+      "contentHash": "c9fdc18c44a53fc5a3199812222228a56f7f642e6551335441cf560e876a66b8",
       "functions": [
         {
           "name": "test_scanner_is_capture_only",
@@ -2039,6 +2155,14 @@
           ],
           "exported": true,
           "lineCount": 21
+        },
+        {
+          "name": "test_capital_history_forward_only",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 14
         },
         {
           "name": "test_no_selection_bias_blindspot",
@@ -2262,6 +2386,7 @@
         "test_capital_flow_ratio_zero_amount_is_none_and_history_is_not_replicated",
         "test_capital_flow_ratio_falls_back_to_latest_valid_history_without_t_duplication",
         "test_capital_history_scanner_accounts_for_l3_requests",
+        "test_capital_history_forward_only",
         "test_no_selection_bias_blindspot",
         "test_replay_selection_audit_keeps_l2_and_l3_counts_separate",
         "test_critical_source_failure_blocks",
@@ -2286,12 +2411,12 @@
         "test_snapshot_and_decision_share_one_transaction",
         "test_historical_unresolved_not_rewritten"
       ],
-      "totalLines": 531,
+      "totalLines": 547,
       "hasStructuralAnalysis": true
     },
     "tests/test_return_calculation.py": {
       "filePath": "tests/test_return_calculation.py",
-      "contentHash": "83093bf15a1ecc15a0564c86f95cd4c77ce309248eb1a45dc3ec4302f342e35c",
+      "contentHash": "c350f9bb8f9ba0ee882f437b23008f01fb9fdf31a2ca7a7da7ab032fe55aebdb",
       "functions": [
         {
           "name": "_bars",
@@ -2336,7 +2461,7 @@
           "lineCount": 14
         },
         {
-          "name": "test_paper_outcome_decision_id",
+          "name": "test_reference_price_not_execution_price",
           "params": [],
           "exported": true,
           "lineCount": 18
@@ -2370,7 +2495,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 37
+          "lineCount": 38
         }
       ],
       "classes": [],
@@ -2398,18 +2523,18 @@
         "test_eastmoney_loader_counts_only_five_future_trading_days",
         "test_baostock_loader_normalizes_unadjusted_ohlcv",
         "test_append_result_exposes_only_profit_window_target",
-        "test_paper_outcome_decision_id",
+        "test_reference_price_not_execution_price",
         "test_paper_t5_close",
         "test_pending_filler_appends_only_newly_available_outcomes",
         "test_outcome_persistence_orders_database_audit_then_memory",
         "test_settled_paper_observation_updates_postgres_lifecycle"
       ],
-      "totalLines": 239,
+      "totalLines": 240,
       "hasStructuralAnalysis": true
     },
     "xiaogu_api.py": {
       "filePath": "xiaogu_api.py",
-      "contentHash": "baf9c95999eddbe3e39b7faade18d3a2cce721081cbdb3fa5a9a9a56326f7d75",
+      "contentHash": "d54626b7579d5d64704d5ef277d3ab17934a9cea075a6f3e9782fd34e664379a",
       "functions": [
         {
           "name": "_payload",
@@ -2465,15 +2590,6 @@
           "returnType": "Dict[str, Any]",
           "exported": true,
           "lineCount": 48
-        },
-        {
-          "name": "_paper_grouped_performance",
-          "params": [
-            "rows"
-          ],
-          "returnType": "Dict[str, Any]",
-          "exported": true,
-          "lineCount": 18
         },
         {
           "name": "_production_view",
@@ -2569,14 +2685,14 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 7
+          "lineCount": 6
         },
         {
           "name": "paper_open",
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 3
+          "lineCount": 7
         },
         {
           "name": "paper_history",
@@ -2648,7 +2764,6 @@
         "_paper_observation_records",
         "_paper_views",
         "_paper_metric",
-        "_paper_grouped_performance",
         "_production_view",
         "system_health",
         "current_state",
@@ -2664,12 +2779,12 @@
         "paper_open",
         "paper_history"
       ],
-      "totalLines": 351,
+      "totalLines": 334,
       "hasStructuralAnalysis": true
     },
     "xiaogu_backtest_v0_1.py": {
       "filePath": "xiaogu_backtest_v0_1.py",
-      "contentHash": "2646ae63e6581a1b5643f7f5bddd50400580b817c2b948dc8673695873a28900",
+      "contentHash": "b139d138a65b43b9b5668f08554c269afee09acd0c45f696fc63d1f2bc81872a",
       "functions": [
         {
           "name": "load_snapshot",
@@ -2978,7 +3093,7 @@
           ],
           "returnType": "Dict[str, list[Dict[str, Any]]]",
           "exported": true,
-          "lineCount": 45
+          "lineCount": 47
         },
         {
           "name": "_capital_history_window",
@@ -3291,7 +3406,7 @@
         "eastmoney_future_loader",
         "main"
       ],
-      "totalLines": 2196,
+      "totalLines": 2198,
       "hasStructuralAnalysis": true
     },
     "xiaogu_core_alpha.py": {
@@ -3462,7 +3577,7 @@
     },
     "xiaogu_db.py": {
       "filePath": "xiaogu_db.py",
-      "contentHash": "e5f92b8dbf90ee6122918bc9079bb3485103c9f3b5452efc22c366448618f4fc",
+      "contentHash": "fef07436ae6093042fff5b41cc5a74c4ec287dff714e64466ded8708c9024470",
       "functions": [
         {
           "name": "get_db",
@@ -3573,14 +3688,24 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 125
+          "lineCount": 134
         },
         {
           "name": "ensure_production_schema",
           "params": [],
           "returnType": "None",
           "exported": true,
-          "lineCount": 117
+          "lineCount": 154
+        },
+        {
+          "name": "_ensure_table_primary_key",
+          "params": [
+            "table_name",
+            "columns"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 43
         },
         {
           "name": "_ensure_snapshot_primary_key",
@@ -3665,7 +3790,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 36
+          "lineCount": 49
         },
         {
           "name": "record_snapshot_and_decision",
@@ -3687,7 +3812,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 46
+          "lineCount": 52
         },
         {
           "name": "record_canonical_historical_snapshot",
@@ -3750,7 +3875,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 56
+          "lineCount": 68
         },
         {
           "name": "fetch_paper_observations",
@@ -3758,6 +3883,24 @@
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
           "lineCount": 6
+        },
+        {
+          "name": "fetch_decision_snapshot",
+          "params": [
+            "decision_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "get_snapshot_by_id",
+          "params": [
+            "snapshot_id"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 36
         },
         {
           "name": "paper_observation_exists",
@@ -3778,14 +3921,14 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 49
+          "lineCount": 51
         },
         {
           "name": "fetch_open_paper_positions",
           "params": [],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 28
+          "lineCount": 15
         },
         {
           "name": "fetch_production_model",
@@ -3829,7 +3972,7 @@
           ],
           "returnType": "int",
           "exported": true,
-          "lineCount": 18
+          "lineCount": 19
         },
         {
           "name": "is_trading_date",
@@ -3838,7 +3981,26 @@
           ],
           "returnType": "bool",
           "exported": true,
-          "lineCount": 10
+          "lineCount": 11
+        },
+        {
+          "name": "record_trading_calendar",
+          "params": [
+            "records"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 47
+        },
+        {
+          "name": "refresh_a_share_trading_calendar",
+          "params": [
+            "start_date",
+            "end_date"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 23
         },
         {
           "name": "fetch_canonical_future_bars",
@@ -3970,6 +4132,7 @@
         "_count_unresolved_snapshot_ids",
         "audit_production_schema",
         "ensure_production_schema",
+        "_ensure_table_primary_key",
         "_ensure_snapshot_primary_key",
         "snapshot_payload_identity",
         "canonical_future_price_fact",
@@ -3989,6 +4152,8 @@
         "fetch_picks",
         "record_paper_observation",
         "fetch_paper_observations",
+        "fetch_decision_snapshot",
+        "get_snapshot_by_id",
         "paper_observation_exists",
         "update_paper_observation_state",
         "fetch_open_paper_positions",
@@ -3998,6 +4163,8 @@
         "fetch_position_state",
         "count_trading_days",
         "is_trading_date",
+        "record_trading_calendar",
+        "refresh_a_share_trading_calendar",
         "fetch_canonical_future_bars",
         "fetch_position_outcome",
         "fetch_returns",
@@ -4006,7 +4173,7 @@
         "database_asset_report",
         "fetch_historical_replay_assets"
       ],
-      "totalLines": 1801,
+      "totalLines": 2065,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_bundle_io.py": {
@@ -4162,7 +4329,7 @@
     },
     "xiaogu_forward_features.py": {
       "filePath": "xiaogu_forward_features.py",
-      "contentHash": "8491d4bc2dbf8a31eed7ae5a981fc5231e69ac914eef2f282ce6d4ee645536b7",
+      "contentHash": "4f1b4417fbe385dde34909cd0281243d93ab7afa6f01f833e51ba9ad148ea889",
       "functions": [
         {
           "name": "_event_id",
@@ -4386,7 +4553,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 162
+          "lineCount": 171
         },
         {
           "name": "_attach_coverage",
@@ -4485,12 +4652,12 @@
         "_market_stage",
         "build_feature_vector"
       ],
-      "totalLines": 1192,
+      "totalLines": 1201,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_paper_recorder_v0_1.py": {
       "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
-      "contentHash": "150dd7833f3bc23c5b52ae472600f278184f124d889f227a3cbfd2b58b8a9402",
+      "contentHash": "7683bfc55a33579e60e3b2ec71c84f48e456aca3699a5792a2871e8f5ea1be68",
       "functions": [
         {
           "name": "dump_json",
@@ -4629,7 +4796,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 23
+          "lineCount": 25
         },
         {
           "name": "_snapshot_and_record",
@@ -4648,7 +4815,7 @@
           ],
           "returnType": "Tuple[Path, Dict[str, Any], Dict[str, Any]]",
           "exported": true,
-          "lineCount": 174
+          "lineCount": 173
         },
         {
           "name": "append_production_decision",
@@ -4657,7 +4824,7 @@
           ],
           "returnType": "Tuple[Path, Dict[str, Any]]",
           "exported": true,
-          "lineCount": 33
+          "lineCount": 41
         },
         {
           "name": "append_paper_observation",
@@ -4666,7 +4833,7 @@
           ],
           "returnType": "Tuple[Path, Dict[str, Any]]",
           "exported": true,
-          "lineCount": 41
+          "lineCount": 40
         },
         {
           "name": "main",
@@ -4765,12 +4932,12 @@
         "append_paper_observation",
         "main"
       ],
-      "totalLines": 628,
+      "totalLines": 637,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_result_filler_v0_1.py": {
       "filePath": "xiaogu_forward_result_filler_v0_1.py",
-      "contentHash": "9fa237da06754389f53d8442c7237a4bb64962aef3c5f189b0abd35ad1025779",
+      "contentHash": "a3775df31bc7dd3111538b37dca9001bb483cba2aca10ce477ed3bfe446054a5",
       "functions": [
         {
           "name": "_row_payload",
@@ -4866,6 +5033,15 @@
           "lineCount": 29
         },
         {
+          "name": "observation_contract_from_record",
+          "params": [
+            "record"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
           "name": "eastmoney_future_close_prices",
           "params": [
             "symbol",
@@ -4917,7 +5093,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 54
+          "lineCount": 62
         },
         {
           "name": "build_post_trade_review",
@@ -4936,7 +5112,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 28
+          "lineCount": 32
         },
         {
           "name": "refresh_paper_dataset",
@@ -5064,6 +5240,7 @@
         "_parse_timestamp",
         "historical_entry_contract",
         "entry_contract_from_record",
+        "observation_contract_from_record",
         "eastmoney_future_close_prices",
         "calculate_horizon_returns",
         "calculate_horizon_outcomes",
@@ -5076,12 +5253,12 @@
         "fill_pending_results",
         "main"
       ],
-      "totalLines": 752,
+      "totalLines": 782,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_runner.py": {
       "filePath": "xiaogu_forward_runner.py",
-      "contentHash": "c95fd2a7a5747a6f56612bfbde55eae5b3e4a8e7834e4b1a6dba34f076b5273a",
+      "contentHash": "a960435254af6cc4b7508b73aee1c08d72587139afdfa5ce851eb4389eb22e8a",
       "functions": [
         {
           "name": "_parse_clock",
@@ -5145,7 +5322,7 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 56
+          "lineCount": 57
         },
         {
           "name": "daily_paper_position_review",
@@ -5154,14 +5331,14 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 49
+          "lineCount": 46
         },
         {
           "name": "main",
           "params": [],
           "returnType": "None",
           "exported": true,
-          "lineCount": 137
+          "lineCount": 139
         }
       ],
       "classes": [],
@@ -5635,7 +5812,7 @@
     },
     "xiaogu_horizon_evaluation.py": {
       "filePath": "xiaogu_horizon_evaluation.py",
-      "contentHash": "28a0aae65fe4fcca0ec64f06f497109a3b69699babf2de0c1de24f06915336ac",
+      "contentHash": "fef63c51951b242b98648a7c883a98f2481ec5a530a8e863b0c6d7fc173e75db",
       "functions": [
         {
           "name": "validate_horizons",
@@ -6298,7 +6475,7 @@
     },
     "xiaogu_portfolio_decision.py": {
       "filePath": "xiaogu_portfolio_decision.py",
-      "contentHash": "80db3816e6680000f63af384d933bc7d33cf56e5deec84f4f778cf0124ee9daf",
+      "contentHash": "efb4e4c958ff715c60febbb1a2d967e6a8dcc3cd8ffc25359a16bbba238b09a7",
       "functions": [
         {
           "name": "_decision_id",
@@ -6380,7 +6557,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 186
+          "lineCount": 189
         }
       ],
       "classes": [],
@@ -6446,7 +6623,7 @@
         "_paper_observation",
         "evaluate_candidate_bundle"
       ],
-      "totalLines": 373,
+      "totalLines": 376,
       "hasStructuralAnalysis": true
     },
     "xiaogu_research_context.py": {
