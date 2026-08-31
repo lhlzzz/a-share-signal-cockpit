@@ -478,7 +478,6 @@ def _snapshot_and_record(
         'expected_net_profit_window': features.get('expected_net_profit_window') or (features.get('core_alpha') or {}).get('expected_net_profit_window'),
         'thesis': features.get('thesis'),
         'holding_days': features.get('holding_days', 0),
-        'renewal_count': features.get('renewal_count', 0),
         'state_transition_timestamp': features.get('state_transition', {}).get('timestamp') if isinstance(features.get('state_transition'), dict) else features.get('signal_time'),
         'state_transition': features.get('state_transition'),
         'reference': features.get('reference_price') or canonical.get('price'),

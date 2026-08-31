@@ -47,7 +47,7 @@ def test_only_portfolio_owner_emits_state():
 
 def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
     ready = _repricing_ready_snapshot()
-    buy = evaluate_candidate_bundle(ready, as_of=AS_OF)
+    buy = evaluate_candidate_bundle(ready, position_state="FLAT", as_of=AS_OF)
     assert buy["state"] == "READY"
     assert buy["future_buyer_map"]["potential_next_buyer"] == []
     assert buy["thesis"]["why_future_buyers"]
@@ -57,7 +57,7 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
 
     blocked = evaluate_candidate_bundle(
         ready | {"tradingagents": {"contradiction_status": "BEARISH", "veto": True}},
-        as_of=AS_OF,
+        position_state="FLAT", as_of=AS_OF,
     )
     assert blocked["state"] == "READY"
     assert "TRADINGAGENTS_CONTRADICTION" not in blocked["repricing_risk"]["blockers"]
@@ -77,7 +77,8 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
 
 def test_unverified_profit_window_cannot_enable_buy():
     decision = evaluate_candidate_bundle(
-        _repricing_ready_snapshot() | {"alpha_model_status": "UNVERIFIED"}, as_of=AS_OF,
+        _repricing_ready_snapshot() | {"alpha_model_status": "UNVERIFIED"},
+        position_state="FLAT", as_of=AS_OF,
     )
     assert decision["state"] == "READY"
     assert decision["core_alpha"]["expected_return_status"] in {"EXPERIMENTAL", "DATA_INSUFFICIENT"}
@@ -108,7 +109,7 @@ def test_calibrated_probability_is_used_but_oos_failure_stays_fail_closed(tmp_pa
     }), encoding="utf-8")
     monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
 
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     assert decision["core_alpha"]["research_probability"] == 0.5
     assert decision["core_alpha"]["profit_window_probability"] is None
     assert decision["core_alpha"]["profit_window_calibration"]["status"] == "CALIBRATED"
@@ -143,7 +144,7 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
     }), encoding="utf-8")
     monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
 
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     assert decision["core_alpha"]["model_status"] == "EXPERIMENTAL"
     assert decision["core_alpha"]["expected_net_profit_window"] is None
     assert decision["state"] == "READY"
@@ -151,7 +152,7 @@ def test_validated_label_without_all_production_gates_stays_experimental(tmp_pat
 
 def test_capital_convergence_exposes_formal_levels_and_conflict():
     ready = _repricing_ready_snapshot()
-    decision = evaluate_candidate_bundle(ready, as_of=AS_OF)
+    decision = evaluate_candidate_bundle(ready, position_state="FLAT", as_of=AS_OF)
     convergence = decision["core_alpha"]["capital_convergence"]
     assert convergence["status"] == "UNKNOWN"
     assert set(convergence["levels"]) == {"institution", "main_force", "hot_money"}
@@ -161,7 +162,7 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
 
     one_event = evaluate_candidate_bundle(
         ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}]},
-        as_of=AS_OF,
+        position_state="FLAT", as_of=AS_OF,
     )
     assert one_event["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
     assert one_event["core_alpha"]["capital_convergence"]["independent_channel_count"] == 1
@@ -172,12 +173,12 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
             {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
         ],
     }
-    evidenced_decision = evaluate_candidate_bundle(evidenced, as_of=AS_OF)
+    evidenced_decision = evaluate_candidate_bundle(evidenced, position_state="FLAT", as_of=AS_OF)
     assert evidenced_decision["core_alpha"]["capital_convergence"]["status"] == "CONVERGENCE"
     assert evidenced_decision["core_alpha"]["capital_convergence"]["independent_channel_count"] >= 2
 
     conflict = evaluate_candidate_bundle(
-        ready | {"f62": -1_000, "pct_chg": -1}, as_of=AS_OF,
+        ready | {"f62": -1_000, "pct_chg": -1}, position_state="FLAT", as_of=AS_OF,
     )
     assert conflict["core_alpha"]["capital_convergence"]["status"] == "CONFLICT"
 
@@ -195,7 +196,8 @@ def test_profit_window_hit_reduces_held_position():
 
 def test_climax_or_buyer_exhaustion_blocks_new_buy():
     decision = evaluate_candidate_bundle(
-        _repricing_ready_snapshot() | {"market_stage": "CLIMAX"}, as_of=AS_OF,
+        _repricing_ready_snapshot() | {"market_stage": "CLIMAX"},
+        position_state="FLAT", as_of=AS_OF,
     )
     assert decision["state"] == "READY"
     assert "BUYER_EXHAUSTION_OR_CLIMAX" in decision["repricing_risk"]["blockers"]
@@ -240,7 +242,7 @@ def test_same_lhb_event_is_one_independent_origin():
 
 
 def test_inflow_is_capital_flow_not_main_force():
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     capital = decision["feature_vector"]["CAPITAL"]
     assert capital["capital_flow_state"] == "CAPITAL_FLOW_POSITIVE"
     assert capital["main_force_behavior"]["direction"] == "UNKNOWN"
@@ -304,7 +306,7 @@ def test_research_only_capital_does_not_change_held_position_action():
 
 
 def test_collapsed_and_unvalidated_families_have_no_production_alpha_permission():
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     permissions = decision["core_alpha"]["production_alpha_permissions"]
     assert permissions
     assert all(value == "NONE" for value in permissions.values())
@@ -350,13 +352,13 @@ def test_probability_collapse_and_full_coverage_stay_fail_closed(tmp_path, monke
         },
     }), encoding="utf-8")
     monkeypatch.setattr("xiaogu_db.fetch_production_model", lambda _model_id: json.loads(calibration_path.read_text(encoding="utf-8")))
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     assert decision["core_alpha"]["model_status"] == "MODEL_NOT_DISCRIMINATIVE"
     assert decision["state"] != "BUY"
 
 
 def test_missing_evidence_does_not_invent_main_force_accumulation():
-    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), as_of=AS_OF)
+    decision = evaluate_candidate_bundle(_repricing_ready_snapshot(), position_state="FLAT", as_of=AS_OF)
     capital = decision["feature_vector"]["CAPITAL"]
     assert capital["capital_flow_state"] == "CAPITAL_FLOW_POSITIVE"
     assert capital["capital_price_impact_state"] == "DEMAND_RESPONSE_OBSERVATION"

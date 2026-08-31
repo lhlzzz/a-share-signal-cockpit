@@ -116,9 +116,9 @@ def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
 def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
     output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
               "scan_status": scan_status, "scan_reason": reason,
-              "l0_count": 0, "l1_count": 0, "l2_count": 0, "l3_count": 0,
-              "canonical_count": 0, "feature_count": 0, "alpha_count": 0, "decision_count": 0,
-              "paper_observation_count": 0, "paper_observations": [],
+              "l0_count": None, "l1_count": None, "l2_count": None, "l3_count": None,
+              "canonical_count": None, "feature_count": None, "alpha_count": None,
+              "decision_count": None, "paper_observation_count": None, "paper_observations": [],
               "state": "WATCH", "reason": reason}
     from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
     output["daily_memory_path"] = write_daily_paper_memory(
@@ -134,21 +134,19 @@ def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str 
 
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     """Re-evaluate active positions through the sole Decision Owner."""
-    from xiaogu_db import fetch_open_positions, fetch_persisted_canonical_snapshots, fetch_position_outcome
+    from xiaogu_db import fetch_decision_snapshot, fetch_open_positions, fetch_position_outcome
 
     positions = fetch_open_positions()
-    db_rows = fetch_persisted_canonical_snapshots(trade_date)
-    rows = list(db_rows or [])
     reviewed = []
     for prior in positions:
         symbol = str(prior.get("symbol") or "").zfill(6)
         if str(prior.get("trade_date") or prior.get("date") or "") >= str(trade_date):
             continue
-        snapshot = select_canonical_snapshot(rows, symbol=symbol, trade_date=trade_date)
-        if snapshot is None:
-            continue
-        prior_id = str(prior.get("decision_id") or prior.get("id") or "")
-        result = fetch_position_outcome(prior_id, symbol=symbol)
+        prior_id = str(prior.get("decision_id") or "")
+        if not prior_id:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_ID_UNAVAILABLE")
+        snapshot = fetch_decision_snapshot(prior_id)
+        result = fetch_position_outcome(prior_id)
         try:
             from xiaogu_db import count_trading_days
             start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
@@ -156,11 +154,13 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             holding_days = count_trading_days(start, end)
         except (TypeError, ValueError):
             holding_days = 0
-        previous_action = prior.get("action") or prior.get("decision")
+        previous_action = prior.get("action")
         previous_state = prior.get("state") or prior.get("previous_state")
         position_state = prior.get("position_state")
-        if not previous_action or previous_state not in {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"} or not position_state:
-            continue
+        if previous_state not in {"WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL"}:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_STATE_UNAVAILABLE")
+        if position_state not in {"FLAT", "LONG"}:
+            raise RuntimeError("POSITION_STATE_UNAVAILABLE")
         account = {
             "decision_id": prior_id,
             "position_state": position_state,
@@ -176,7 +176,8 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             portfolio_state=previous_state,
             account=account,
             mode="PRODUCTION",
-            trade_date=trade_date,
+            trade_date=str(snapshot["trade_date"]),
+            decision_clock=_parse_clock(str(snapshot.get("source_time") or "")),
             position_state=position_state,
             previous_action=previous_action,
         )

@@ -57,7 +57,9 @@
 - 只做A股主板（上海 600/601/603/605，深圳 000/001/002/003）
 - 候选池400只
 - 涨幅范围: 0.5%-9.5%
-- 正式 PAPER_PICK 股价不得超过 70.00 元；真实账户可买性仍按实际账户快照判断
+- Paper 仅记录 `OBSERVED + PAPER_FLAT`；没有 `PAPER_PICK`、Paper Entry 或模拟持仓
+- 生产 Alpha 固定为 `price_strength`；Capital 仅限 `RESEARCH_ONLY`
+- Production BUY 保持 `BLOCKED`，Live Trading 保持 `DISABLED`
 
 ### 工具使用
 - RTK 替代 bash 命令

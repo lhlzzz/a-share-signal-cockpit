@@ -198,14 +198,12 @@ def evaluate_candidate_bundle(
     if portfolio_state not in PORTFOLIO_STATES:
         raise ValueError(f"INVALID_PORTFOLIO_STATE:{portfolio_state}")
     if position_state is None:
-        # Direct research calls can still evaluate a candidate, but they must
-        # expose that the production position fact was unavailable.
         position_state_unavailable = True
-        evaluation_position_state = "FLAT"
+        evaluation_position_state = None
     else:
         position_state_unavailable = False
         evaluation_position_state = position_state
-    if evaluation_position_state not in POSITION_STATES:
+    if evaluation_position_state is not None and evaluation_position_state not in POSITION_STATES:
         raise ValueError(f"INVALID_POSITION_STATE:{position_state}")
     snapshot = (
         canonical
@@ -246,7 +244,9 @@ def evaluate_candidate_bundle(
     ]
     held = evaluation_position_state == "LONG"
 
-    if held:
+    if position_state_unavailable:
+        state, reason = "WATCH", "POSITION_STATE_UNAVAILABLE"
+    elif held:
         holding_days = (account or {}).get("holding_days")
         if int(0 if holding_days is None else holding_days) >= MAX_HOLDING_DAYS:
             state, reason = "SELL", "MAX_HOLDING_BOUNDARY_CLOSED"

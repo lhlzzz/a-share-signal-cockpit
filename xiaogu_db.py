@@ -42,7 +42,7 @@ def _exec_schema(statement: str) -> None:
 
 def _schema_error_already_exists(exc: BaseException) -> bool:
     message = str(exc).lower()
-    return "already exists" in message or "duplicate" in message
+    return "already exists" in message or "duplicate object" in message
 
 
 def _constraint_columns(table_name: str, constraint_type: str) -> list[str]:
@@ -221,7 +221,9 @@ def audit_production_schema() -> Dict[str, Any]:
             "available_at", "price_basis", "payload", "created_at",
         ),
         "canonical_future_prices": ("symbol", "date", "source", "price_basis", "price_fact_hash"),
-        "trading_calendar": ("trade_date", "is_trading_day", "source", "payload"),
+        "trading_calendar": (
+            "trade_date", "is_trading_day", "source", "source_timestamp", "payload", "created_at",
+        ),
     }
     required_unique = {
         "snapshots": ("snapshot_id",),
@@ -376,6 +378,30 @@ def ensure_production_schema() -> None:
             payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_signal_id TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_id TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS lineage_id TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS symbol TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS signal_time TIMESTAMPTZ",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS reference_price DOUBLE PRECISION",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_state TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_position_state TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_name TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_version TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS feature_version TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_version TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS cost_model_version TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_contract_version TEXT",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_only BOOLEAN",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS live_order BOOLEAN",
+        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS payload JSONB",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS trade_date DATE",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS is_trading_day BOOLEAN",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source TEXT",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source_timestamp TIMESTAMPTZ",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS payload JSONB",
+        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
@@ -412,6 +438,9 @@ def ensure_production_schema() -> None:
                 fact,
             )
     _ensure_snapshot_primary_key("snapshots")
+    _ensure_table_primary_key("paper_observations", ("paper_signal_id",))
+    _ensure_table_primary_key("trading_calendar", ("trade_date",))
+    _ensure_table_primary_key("canonical_future_prices", ("symbol", "date"))
     try:
         _exec_schema("CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)")
     except SQLAlchemyError as exc:
@@ -425,44 +454,86 @@ def ensure_production_schema() -> None:
     except SQLAlchemyError as exc:
         if not _schema_error_already_exists(exc):
             raise
-    try:
+    if "decision_id" not in set(_constraint_columns("picks", "UNIQUE")):
         _exec_schema("ALTER TABLE picks ADD CONSTRAINT picks_decision_id_key UNIQUE (decision_id)")
-    except SQLAlchemyError as exc:
-        if not _schema_error_already_exists(exc):
-            raise
-    try:
+    paper_foreign_keys = {
+        f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}"
+        for item in _foreign_keys("paper_observations")
+    }
+    if "decision_id->picks.decision_id" not in paper_foreign_keys:
         _exec_schema(
             "ALTER TABLE paper_observations ADD CONSTRAINT "
             "paper_observations_decision_id_fkey FOREIGN KEY (decision_id) "
             "REFERENCES picks (decision_id)"
         )
-    except SQLAlchemyError as exc:
-        if not _schema_error_already_exists(exc):
-            raise
-    for statement in (
-        "ALTER TABLE paper_observations ADD CONSTRAINT "
-        "paper_observations_paper_only_check CHECK (paper_only)",
-        "ALTER TABLE paper_observations ADD CONSTRAINT "
-        "paper_observations_live_order_check CHECK (NOT live_order)",
-    ):
-        try:
-            _exec_schema(statement)
-        except SQLAlchemyError as exc:
-            if not _schema_error_already_exists(exc):
-                raise
-    try:
+    paper_checks = _check_constraints("paper_observations")
+    if "paper_observations_paper_only_check" not in paper_checks:
+        _exec_schema(
+            "ALTER TABLE paper_observations ADD CONSTRAINT "
+            "paper_observations_paper_only_check CHECK (paper_only)"
+        )
+    if "paper_observations_live_order_check" not in paper_checks:
+        _exec_schema(
+            "ALTER TABLE paper_observations ADD CONSTRAINT "
+            "paper_observations_live_order_check CHECK (NOT live_order)"
+        )
+    return_foreign_keys = {
+        f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}"
+        for item in _foreign_keys("returns")
+    }
+    if "decision_id->picks.decision_id" not in return_foreign_keys:
         _exec_schema(
             "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
             "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
         )
-    except SQLAlchemyError as exc:
-        if _schema_error_already_exists(exc):
-            pass
-        else:
-            raise
     audit = audit_production_schema()
     if not audit["ok"]:
         raise RuntimeError("PRODUCTION_SCHEMA_CONTRACT_FAILED")
+
+
+def _ensure_table_primary_key(table_name: str, columns: tuple[str, ...]) -> None:
+    """Migrate a table's primary key only when existing facts prove the identity."""
+    expected = list(columns)
+    current = _constraint_columns(table_name, "PRIMARY KEY")
+    if current == expected:
+        return
+    present = _table_columns(table_name)
+    missing = [column for column in columns if column not in present]
+    if missing:
+        raise RuntimeError(f"SCHEMA_PRIMARY_KEY_COLUMN_MISSING:{table_name}:{','.join(missing)}")
+    with engine.connect() as db:
+        nulls = int(
+            db.execute(
+                text(
+                    "SELECT count(*) FROM "
+                    f'"{table_name}" WHERE ' + " OR ".join(
+                        f'"{column}" IS NULL' for column in columns
+                    )
+                )
+            ).scalar_one()
+        )
+        duplicates = int(
+            db.execute(
+                text(
+                    "SELECT count(*) FROM (SELECT "
+                    + ", ".join(f'"{column}"' for column in columns)
+                    + f' FROM "{table_name}" GROUP BY '
+                    + ", ".join(f'"{column}"' for column in columns)
+                    + " HAVING count(*) > 1) AS duplicate_keys"
+                )
+            ).scalar_one()
+        )
+    if nulls or duplicates:
+        raise RuntimeError(f"SCHEMA_PRIMARY_KEY_IDENTITY_UNRESOLVED:{table_name}")
+    if current:
+        _exec_schema(f'ALTER TABLE "{table_name}" DROP CONSTRAINT "{table_name}_pkey"')
+    for column in columns:
+        _exec_schema(f'ALTER TABLE "{table_name}" ALTER COLUMN "{column}" SET NOT NULL')
+    _exec_schema(
+        f'ALTER TABLE "{table_name}" ADD PRIMARY KEY ('
+        + ", ".join(f'"{column}"' for column in columns)
+        + ")"
+    )
 
 
 def _ensure_snapshot_primary_key(table_name: str) -> None:
@@ -1144,12 +1215,15 @@ def fetch_decision_snapshot(decision_id: str) -> Dict[str, Any]:
     if not wanted:
         raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
     with engine.connect() as db:
-        pick = db.execute(
+        picks = list(db.execute(
             text("SELECT payload FROM picks WHERE decision_id = :decision_id"),
             {"decision_id": wanted},
-        ).mappings().first()
-        if not pick:
+        ).mappings())
+        if not picks:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
+        if len(picks) > 1:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_IDENTITY_CONFLICT")
+        pick = picks[0]
         payload = pick.get("payload")
         if isinstance(payload, str):
             payload = json.loads(payload)
@@ -1163,21 +1237,50 @@ def fetch_decision_snapshot(decision_id: str) -> Dict[str, Any]:
         }
         if any(not str(value or "").strip() for value in identity.values()):
             raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
-        row = db.execute(
-            text("SELECT payload FROM snapshots WHERE snapshot_id = :snapshot_id"),
-            {"snapshot_id": identity["snapshot_id"]},
-        ).mappings().first()
-    if not row:
-        raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
-    snapshot = row.get("payload")
-    if isinstance(snapshot, str):
-        snapshot = json.loads(snapshot)
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    snapshot = get_snapshot_by_id(str(identity["snapshot_id"]))
     if any(
         str(snapshot.get(field) or "") != str(expected)
         for field, expected in identity.items()
     ):
         raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_CONFLICT")
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+
+    return validate_and_build_canonical_snapshot(snapshot)
+
+
+def get_snapshot_by_id(snapshot_id: str) -> Dict[str, Any]:
+    """Resolve exactly one immutable canonical snapshot by its own identity."""
+    wanted = str(snapshot_id or "").strip()
+    if not wanted:
+        raise RuntimeError("SNAPSHOT_NOT_FOUND")
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    """
+                    SELECT snapshot_id, lineage_id, symbol, trade_date, source, source_time, payload
+                    FROM snapshots
+                    WHERE snapshot_id = :snapshot_id
+                    LIMIT 2
+                    """
+                ),
+                {"snapshot_id": wanted},
+            ).mappings()
+        ]
+    if not rows:
+        raise RuntimeError("SNAPSHOT_NOT_FOUND")
+    if len(rows) > 1:
+        raise RuntimeError("SNAPSHOT_IDENTITY_CONFLICT")
+    row = rows[0]
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    snapshot = dict(payload) if isinstance(payload, dict) else {}
+    for field in ("snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time"):
+        snapshot.setdefault(field, row.get(field))
+    if str(snapshot.get("snapshot_id") or "") != wanted:
+        raise RuntimeError("SNAPSHOT_IDENTITY_CONFLICT")
     from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
 
     return validate_and_build_canonical_snapshot(snapshot)
@@ -1225,6 +1328,8 @@ def update_paper_observation_state(
         if isinstance(payload, str):
             payload = json.loads(payload)
         payload = dict(payload) if isinstance(payload, dict) else {}
+        if paper_position_state == "PAPER_LONG" and not isinstance(payload.get("paper_entry_contract"), dict):
+            raise ValueError("PAPER_ENTRY_CONTRACT_REQUIRED")
         payload["paper_observation_state"] = state
         payload["paper_position_state"] = paper_position_state
         if exit_reason:
@@ -1355,11 +1460,11 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
             "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
             "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
             "state": action,
-            "action": payload.get("action") or action,
+            "action": payload.get("action"),
             "previous_action": payload.get("action"),
             "position_state": position_state,
-            "decision": payload.get("action") or action,
-            "decision_id": payload.get("decision_id") or row.get("decision_id") or row.get("id"),
+            "decision": action,
+            "decision_id": payload.get("decision_id") or row.get("decision_id"),
         })
     return positions
 

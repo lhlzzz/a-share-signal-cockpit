@@ -318,6 +318,8 @@ def test_direct_evaluation_does_not_expose_missing_position_as_flat():
     assert decision["position_state_status"] == "UNAVAILABLE"
     assert decision["position_state_before"] is None
     assert decision["position_state"] is None
+    assert decision["state"] == "WATCH"
+    assert decision["reason"] == "POSITION_STATE_UNAVAILABLE"
     assert decision["paper_observation"] is None
 
 
@@ -633,11 +635,11 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
     }])
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
-        "xiaogu_db.fetch_persisted_canonical_snapshots",
-        lambda *_args, **_kwargs: [validate_and_build_canonical_snapshot({
+        "xiaogu_db.fetch_decision_snapshot",
+        lambda *_args, **_kwargs: validate_and_build_canonical_snapshot({
             "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
-            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
-        })],
+            "source_time": "2026-08-25T14:50:00+08:00", "trade_date": "2026-08-25",
+        }),
     )
     monkeypatch.setattr(
         runner,
@@ -832,11 +834,11 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", fake_positions)
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {"status": "OUTCOME_NOT_BOUND"})
     monkeypatch.setattr(
-        "xiaogu_db.fetch_persisted_canonical_snapshots",
-        lambda *_args, **_kwargs: [validate_and_build_canonical_snapshot({
+        "xiaogu_db.fetch_decision_snapshot",
+        lambda *_args, **_kwargs: validate_and_build_canonical_snapshot({
             "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
-            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
-        })],
+            "source_time": "2026-08-25T14:50:00+08:00", "trade_date": "2026-08-25",
+        }),
     )
     monkeypatch.setattr(
         runner,
