@@ -99,7 +99,7 @@ def test_append_result_exposes_only_profit_window_target():
     assert result["future_1d_net_return"] == pytest.approx(0.017)
 
 
-def test_paper_outcome_binds_by_decision_and_closes_at_t5():
+def test_paper_outcome_decision_id():
     result = append_result({
         "id": "paper-1", "date": "2026-08-26", "symbol": "600001",
         "paper_signal_status": "PAPER_SIGNAL", "paper_signal_state": "PAPER_OPEN",
@@ -117,6 +117,23 @@ def test_paper_outcome_binds_by_decision_and_closes_at_t5():
     assert result["paper_exit_reason"] == "T5_EXPIRY"
     assert result["days"]["5"]["close"] == 10.2
     assert result["profit_window"] is True
+
+
+def test_paper_t5_close():
+    result = append_result({
+        "id": "paper-t5", "date": "2026-08-26", "symbol": "600001",
+        "paper_signal_status": "PAPER_SIGNAL", "paper_signal_state": "PAPER_OPEN",
+        "paper_position_state": "PAPER_LONG",
+        "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-26T14:50:00+08:00"}},
+        "entry_contract": {
+            "signal_time": "2026-08-26T14:50:00+00:00", "execution_time": "2026-08-26T14:50:00+00:00",
+            "execution_mode": "SIGNAL_TIME_LAST_PRICE", "execution_price": 10, "entry_price": 10,
+            "price_basis": "UNADJUSTED", "entry_price_source": "canonical_snapshot.price",
+        },
+    }, future_bars=_bars())
+    assert result["paper_signal_state"] == "PAPER_CLOSED"
+    assert result["paper_position_state"] == "PAPER_FLAT"
+    assert result["paper_exit_reason"] == "T5_EXPIRY"
 
 
 def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypatch):

@@ -199,7 +199,7 @@ def _paper_signal_snapshot():
     }
 
 
-def test_paper_signal_identity_and_buy_blocked():
+def test_paper_signal_identity():
     decision = evaluate_candidate_bundle(
         _paper_signal_snapshot(),
         as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
@@ -230,7 +230,7 @@ def test_paper_signal_daily_freeze_uses_snapshot_identity_not_runner_clock():
     assert first["paper_signal"]["model_version"] == second["paper_signal"]["model_version"]
 
 
-def test_paper_signal_recorder_uses_db_and_never_live_order(tmp_path, monkeypatch):
+def test_paper_signal_no_live_order(tmp_path, monkeypatch):
     import xiaogu_db
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
@@ -255,7 +255,7 @@ def test_paper_signal_recorder_uses_db_and_never_live_order(tmp_path, monkeypatc
     assert record["future_5d_return"] is None
 
 
-def test_paper_api_reads_postgres_and_separates_real_positions(monkeypatch):
+def test_paper_signal_db_truth(monkeypatch):
     import xiaogu_api
     import xiaogu_db
 
@@ -273,6 +273,61 @@ def test_paper_api_reads_postgres_and_separates_real_positions(monkeypatch):
     assert payload["count"] == 1
     assert payload["signals"][0]["paper_signal_state"] == "PAPER_OPEN"
     assert xiaogu_api.paper_open()["count"] == 1
+
+
+def test_paper_no_future_leakage():
+    with pytest.raises(ValueError, match="FUTURE_LEAKAGE"):
+        evaluate_candidate_bundle(_paper_signal_snapshot() | {"future_5d_return": 0.2})
+
+
+def test_paper_model_version():
+    decision = evaluate_candidate_bundle(_paper_signal_snapshot())
+    assert decision["paper_signal"]["model_version"] == "profit_window_alpha_5d_v4"
+    assert decision["paper_signal"]["feature_version"] == "minimal_price_alpha_v1"
+    assert decision["paper_signal"]["cost_model_version"] == "cost_model_v1"
+
+
+def test_paper_daily_freeze():
+    first = evaluate_candidate_bundle(_paper_signal_snapshot(), as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"))
+    second = evaluate_candidate_bundle(_paper_signal_snapshot(), as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:30:00+08:00"))
+    assert first["paper_signal"]["decision_id"] == second["paper_signal"]["decision_id"]
+
+
+def test_paper_performance(monkeypatch):
+    import xiaogu_api
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_picks", lambda: [{
+        "decision_id": "paper-2", "symbol": "600002", "trade_date": "2026-08-26",
+        "payload": {"decision_id": "paper-2", "paper_signal_status": "PAPER_SIGNAL",
+                     "paper_signal": {"status": "PAPER_SIGNAL", "price_strength": 0.7, "sort_value": 0.7},
+                     "signal_time": "2026-08-26T14:50:00+08:00", "entry_price": 10},
+    }])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: [{
+        "decision_id": "paper-2", "payload": {"decision_id": "paper-2", "outcome_complete": True,
+            "profit_window": True, "future_5d_net_return": 0.03, "max_mae_5d": -0.01,
+            "future_5d_mfe": 0.04, "first_profit_day": 2},
+    }])
+    payload = xiaogu_api.paper_performance()
+    assert payload["status"] == "PAPER_OBSERVATION_ONLY"
+    assert payload["groups"]["Top5"]["profit_window_rate"] == 1
+    assert payload["groups"]["All"]["horizon_metrics"]["T+5"]["mean_net_return"] == 0.03
+
+
+def test_paper_research_overlay():
+    decision = evaluate_candidate_bundle(_paper_signal_snapshot())
+    overlay = decision["paper_signal"]["research_overlay"]
+    assert overlay["research_only"] is True
+    assert "capital_flow_ratio" in overlay
+    assert "supply" in overlay
+    assert "repricing" in overlay
+
+
+def test_shadow_not_production():
+    decision = evaluate_candidate_bundle(_paper_signal_snapshot())
+    assert decision["state"] != "BUY"
+    assert decision["buy_status"] == "BUY_BLOCKED"
+    assert decision["paper_signal"].get("shadow") is None
 
 
 def test_recorder_accepts_trade_events_but_rejects_watch_memory(tmp_path, monkeypatch):
