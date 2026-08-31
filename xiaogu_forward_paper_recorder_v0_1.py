@@ -25,8 +25,8 @@ RULE_FREEZE = BASE / 'rule_freeze_v0_1.json'
 FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
-PAPER_SIGNAL_DECISION = "PAPER_SIGNAL"
-PAPER_SIGNAL_STATES = {"PAPER_OPEN", "PAPER_CLOSED"}
+PAPER_OBSERVATION_STATUS = "PAPER_OBSERVATION"
+PAPER_OBSERVATION_STATES = {"OBSERVED", "CLOSED"}
 PAPER_POSITION_STATES = {"PAPER_FLAT", "PAPER_LONG"}
 VALID_DECISIONS = RECORDABLE_DECISIONS
 LOCKED_AT_GENERATION = ['date','generated_at','asof_time','symbol','decision','rule_version','features_used','raw_data_snapshot_path','decision_reason','paper_only','no_trade','production_ready']
@@ -84,7 +84,7 @@ def _markdown(value: Any) -> str:
 def write_trade_memory(record: Dict[str, Any]) -> str:
     """Write the single human-readable trade note for this decision."""
     state = str(record.get("decision") or "WATCH").upper()
-    if state not in RECORDABLE_DECISIONS | {PAPER_SIGNAL_DECISION}:
+    if state not in RECORDABLE_DECISIONS | {PAPER_OBSERVATION_STATUS}:
         return ""
     features = record.get("features_used") or {}
     alpha = features.get("core_alpha") or {}
@@ -96,7 +96,7 @@ symbol: {_memory_symbol(record.get('symbol'))}
 decision: {state}
 date: {record.get('date')}
 signal_time: {record.get('signal_time') or record.get('asof_time')}
-entry_price: {record.get('entry_price')}
+reference_price: {record.get('reference_price')}
 alpha_version: {record.get('alpha_version') or alpha.get('alpha_version')}
 feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 ---
@@ -105,10 +105,10 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 
 ## Decision
 - Decision ID: `{record.get('id') or record.get('decision_id') or 'UNKNOWN'}`
-- Entry price: `{record.get('entry_price') or 'UNKNOWN'}`
+- Reference price: `{record.get('reference_price') or 'UNKNOWN'}`
 - Reason: {_markdown(record.get('decision_reason'))}
 - Previous state: {_markdown(record.get('previous_state'))}
-- Paper signal state: `{record.get('paper_signal_state') or 'N/A'}`
+- Paper observation state: `{record.get('paper_observation_state') or 'N/A'}`
 - Paper position state: `{record.get('paper_position_state') or 'PAPER_FLAT'}`
 - Live order: `DISABLED`
 
@@ -202,30 +202,43 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
     return str(path)
 
 
-def write_daily_paper_memory(trade_date: str, signals: list[Dict[str, Any]]) -> str:
+def write_daily_paper_memory(
+    trade_date: str,
+    signals: list[Dict[str, Any]],
+    *,
+    scan_status: str = "NO_SIGNAL",
+    scan_reason: str = "",
+    canonical_count: int = 0,
+    alpha_count: int = 0,
+) -> str:
     """Write one compact daily observation note; PostgreSQL remains the fact source."""
     rows = []
     for signal in signals:
-        paper = signal.get("paper_signal") if isinstance(signal.get("paper_signal"), dict) else signal
+        paper = signal.get("paper_observation") if isinstance(signal.get("paper_observation"), dict) else signal
         rows.append(
-            f"- `{signal.get('decision_id')}` `{signal.get('symbol')}` "
-            f"entry={signal.get('entry_price') or signal.get('entry_reference_price')} "
+            f"- `{paper.get('paper_signal_id')}` decision=`{paper.get('decision_id')}` "
+            f"`{signal.get('symbol')}` reference={paper.get('reference_price')} "
             f"price_strength={paper.get('price_strength')} "
-            f"state={signal.get('paper_signal_state') or 'PAPER_OPEN'} "
-            f"reason={signal.get('signal_reason') or paper.get('signal_reason')}"
+            f"state={paper.get('paper_observation_state') or 'OBSERVED'} "
+            f"reason={paper.get('signal_reason') or 'CURRENT_PRODUCTION_DECISION'}"
         )
     path = memory_root() / "daily" / f"{trade_date}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"# {trade_date}\n\n"
         "## Xiaogu Paper Production\n\n"
+        f"- Scan status: `{scan_status}`\n"
+        f"- Scan reason: `{scan_reason or 'NONE'}`\n"
+        f"- Canonical count: `{canonical_count}`\n"
+        f"- Alpha count: `{alpha_count}`\n"
+        f"- Paper observation count: `{len(signals)}`\n"
         "- Status: `PAPER_OBSERVATION_ONLY`\n"
         "- Production alpha: `price_strength`\n"
         "- Capital alpha: `RESEARCH_ONLY`\n"
         "- Live trading: `DISABLED`\n"
         "- Production BUY: `BLOCKED`\n\n"
         "## Signals\n"
-        + ("\n".join(rows) if rows else "- `NO PAPER SIGNAL`")
+        + ("\n".join(rows) if rows else "- `NO PAPER OBSERVATION`")
         + "\n\n## Outcome\n- T+1..T+5 are filled from PostgreSQL future-price facts.\n",
         encoding="utf-8",
     )
@@ -263,27 +276,29 @@ def validate_generation(decision: str, rule: Dict[str, Any]) -> None:
         )
 
 
-def validate_paper_signal(decision: Dict[str, Any], rule: Dict[str, Any]) -> None:
-    signal = decision.get("paper_signal") if isinstance(decision.get("paper_signal"), dict) else {}
-    if signal.get("status") != PAPER_SIGNAL_DECISION:
-        raise ValueError("PAPER_SIGNAL_CONTRACT_REQUIRED")
-    if str(decision.get("decision_id") or "").strip() == "":
+def validate_paper_observation(decision: Dict[str, Any], rule: Dict[str, Any]) -> None:
+    observation = decision.get("paper_observation") if isinstance(decision.get("paper_observation"), dict) else {}
+    if observation.get("status") != PAPER_OBSERVATION_STATUS:
+        raise ValueError("PAPER_OBSERVATION_CONTRACT_REQUIRED")
+    if not str(observation.get("paper_signal_id") or "").strip():
+        raise ValueError("PAPER_OBSERVATION_ID_REQUIRED")
+    if not str(observation.get("decision_id") or "").strip():
         raise ValueError("DECISION_ID_REQUIRED")
     canonical = decision.get("canonical_snapshot") or {}
     if canonical.get("trusted_snapshot") is not True:
         raise ValueError("TRUSTED_CANONICAL_REQUIRED")
-    if signal.get("alpha_name") != "price_strength":
-        raise ValueError("PAPER_SIGNAL_ALPHA_CONTRACT_INVALID")
-    if signal.get("live_order") is not False or signal.get("paper_only") is not True:
-        raise ValueError("PAPER_SIGNAL_LIVE_EXECUTION_DISABLED")
-    if (decision.get("paper_signal_state") or signal.get("state")) not in PAPER_SIGNAL_STATES:
-        raise ValueError("PAPER_SIGNAL_STATE_REQUIRED")
-    if (decision.get("paper_position_state") or signal.get("paper_position_state")) not in PAPER_POSITION_STATES:
+    if observation.get("alpha_name") != "price_strength":
+        raise ValueError("PAPER_OBSERVATION_ALPHA_CONTRACT_INVALID")
+    if observation.get("live_order") is not False or observation.get("paper_only") is not True:
+        raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")
+    if observation.get("paper_observation_state") not in PAPER_OBSERVATION_STATES:
+        raise ValueError("PAPER_OBSERVATION_STATE_REQUIRED")
+    if observation.get("paper_position_state") not in PAPER_POSITION_STATES:
         raise ValueError("PAPER_POSITION_STATE_REQUIRED")
     if not rule.get("paper_only") or not rule.get("no_trade") or rule.get("production_ready"):
-        raise ValueError("PAPER_SIGNAL_SAFETY_FLAGS_INVALID")
+        raise ValueError("PAPER_OBSERVATION_SAFETY_FLAGS_INVALID")
     if rule.get("auto_order") or rule.get("broker_connected"):
-        raise ValueError("PAPER_SIGNAL_LIVE_EXECUTION_DISABLED")
+        raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")
 
 
 def _snapshot_and_record(
@@ -314,14 +329,15 @@ def _snapshot_and_record(
         'features_used': features,
         'source': source,
         'decision_id': features.get('decision_id'),
+        'paper_signal_id': (features.get('paper_observation') or {}).get('paper_signal_id'),
         'signal_time': features.get('signal_time') or asof_time,
         'entry_time': features.get('entry_time') or asof_time,
-        'entry_price': features.get('entry_price') or (
+        'reference_price': features.get('reference_price') or (
             features.get('canonical_snapshot', {}).get('price')
             if isinstance(features.get('canonical_snapshot'), dict)
             else None
         ),
-        'entry_price_source': features.get('entry_price_source') or 'canonical_snapshot.price',
+        'reference_price_source': features.get('reference_price_source') or 'canonical_snapshot.price',
         'capital_convergence': features.get('capital_convergence') or (
             features.get('core_alpha') or {}
         ).get('capital_convergence'),
@@ -356,25 +372,37 @@ def _snapshot_and_record(
         'no_trade': True,
         'production_ready': False,
         'allow_forward_paper': True,
-        'manual_paper_execution_allowed': False if decision == PAPER_SIGNAL_DECISION else decision == 'BUY',
+        'manual_paper_execution_allowed': False,
         'auto_order': False,
         'broker_connected': False,
-        'paper_signal_status': PAPER_SIGNAL_DECISION if decision == PAPER_SIGNAL_DECISION else None,
-        'paper_signal_state': features.get('paper_signal_state'),
-        'paper_position_state': features.get('paper_position_state'),
-        'signal_reason': features.get('signal_reason') or decision_reason,
+        'paper_observation_status': PAPER_OBSERVATION_STATUS if decision == PAPER_OBSERVATION_STATUS else None,
+        'paper_observation_state': (features.get('paper_observation') or {}).get('paper_observation_state'),
+        'paper_position_state': (features.get('paper_observation') or {}).get('paper_position_state'),
+        'signal_reason': (features.get('paper_observation') or {}).get('signal_reason') or decision_reason,
+        'paper_observation_contract_version': (features.get('paper_observation') or {}).get(
+            'paper_observation_contract_version'
+        ),
         'note': 'T-day visible snapshot only; T+1..T+5 window outcomes are appended after the decision.',
     }
-    entry_contract = historical_entry_contract({
-        'signal_time': asof_time if 'T' in asof_time else f'{date}T{asof_time}+08:00',
-        'execution_price': features.get('canonical_snapshot', {}).get('price')
-        if isinstance(features.get('canonical_snapshot'), dict)
-        else None,
-    })
-    snapshot['entry_contract'] = entry_contract
+    canonical = features.get('canonical_snapshot') if isinstance(features.get('canonical_snapshot'), dict) else {}
+    observation_contract = {
+        "signal_time": features.get("signal_time") or asof_time,
+        "reference_price": features.get("reference_price") or canonical.get("price"),
+        "price_basis": "UNADJUSTED",
+    }
+    entry_contract = None
+    if decision != PAPER_OBSERVATION_STATUS:
+        entry_contract = historical_entry_contract({
+            'signal_time': asof_time if 'T' in asof_time else f'{date}T{asof_time}+08:00',
+            'execution_price': features.get('canonical_snapshot', {}).get('price')
+            if isinstance(features.get('canonical_snapshot'), dict)
+            else None,
+        })
+        snapshot['entry_contract'] = entry_contract
+    else:
+        snapshot["observation_contract"] = observation_contract
     snapshot_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
     snapshot['snapshot_sha256'] = snapshot_hash
-    canonical = features.get('canonical_snapshot') if isinstance(features.get('canonical_snapshot'), dict) else {}
     record = {
         'id': features.get('decision_id'),
         'record_type': 'CORRECTION' if correction_of else 'DECISION',
@@ -388,6 +416,7 @@ def _snapshot_and_record(
         'production_run_id': production_run_id or None,
         'features_used': features,
         'entry_contract': entry_contract,
+        'observation_contract': observation_contract if decision == PAPER_OBSERVATION_STATUS else None,
         'raw_data_snapshot_path': str(snap),
         'raw_data_snapshot_sha256': snapshot_hash,
         'decision_reason': decision_reason,
@@ -395,13 +424,16 @@ def _snapshot_and_record(
         'no_trade': True,
         'production_ready': False,
         'allow_forward_paper': True,
-        'manual_paper_execution_allowed': False if decision == PAPER_SIGNAL_DECISION else decision == 'BUY',
+        'manual_paper_execution_allowed': False,
         'auto_order': False,
         'broker_connected': False,
-        'paper_signal_status': PAPER_SIGNAL_DECISION if decision == PAPER_SIGNAL_DECISION else None,
-        'paper_signal_state': features.get('paper_signal_state'),
-        'paper_position_state': features.get('paper_position_state'),
-        'signal_reason': features.get('signal_reason') or decision_reason,
+        'paper_observation_status': PAPER_OBSERVATION_STATUS if decision == PAPER_OBSERVATION_STATUS else None,
+        'paper_observation_state': (features.get('paper_observation') or {}).get('paper_observation_state'),
+        'paper_position_state': (features.get('paper_observation') or {}).get('paper_position_state'),
+        'signal_reason': (features.get('paper_observation') or {}).get('signal_reason') or decision_reason,
+        'paper_observation_contract_version': (features.get('paper_observation') or {}).get(
+            'paper_observation_contract_version'
+        ),
         'result_status': 'PENDING',
         **{field: None for field in PENDING_OUTCOME_FIELDS},
         'result_filled_at': None,
@@ -417,9 +449,8 @@ def _snapshot_and_record(
         'signal_time': features.get('signal_time') or canonical.get('source_time'),
         'snapshot_id': features.get('snapshot_id') or canonical.get('snapshot_id'),
         'lineage_id': features.get('lineage_id') or canonical.get('lineage_id'),
-        'entry_time': features.get('entry_time') or features.get('signal_time') or canonical.get('source_time'),
-        'entry_price': features.get('entry_price') or canonical.get('price'),
-        'entry_price_source': features.get('entry_price_source') or 'canonical_snapshot.price',
+        'reference_price': features.get('reference_price') or canonical.get('price'),
+        'reference_price_source': features.get('reference_price_source') or 'canonical_snapshot.price',
         'decision_version': features.get('decision_version'),
         'alpha_version': features.get('alpha_version'),
         'feature_version': features.get('feature_version'),
@@ -437,7 +468,7 @@ def _snapshot_and_record(
         'renewal_count': features.get('renewal_count', 0),
         'state_transition_timestamp': features.get('state_transition', {}).get('timestamp') if isinstance(features.get('state_transition'), dict) else features.get('signal_time'),
         'state_transition': features.get('state_transition'),
-        'entry': features.get('entry_price') or canonical.get('price'),
+        'reference': features.get('reference_price') or canonical.get('price'),
         'exit': features.get('exit_price'),
         'pnl': features.get('realized_pnl'),
         'costs': (features.get('core_alpha') or {}).get('execution_constraints', {}).get('cost_rate'),
@@ -499,43 +530,40 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     return snap, record
 
 
-def append_paper_signal(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
-    """Persist one observational signal using the existing production tables."""
+def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
+    """Persist the observation wrapper without creating a second decision."""
     rule = load_json(RULE_FREEZE)
-    validate_paper_signal(decision, rule)
+    validate_paper_observation(decision, rule)
     canonical = decision["canonical_snapshot"]
-    paper_decision = {
-        **decision,
-        "decision_id": decision["paper_signal"]["decision_id"],
-        "state": PAPER_SIGNAL_DECISION,
-        "action": None,
-        "reason": decision.get("paper_signal", {}).get("signal_reason") or "PRICE_STRENGTH_BASELINE_SIGNAL",
-        "paper_signal_state": "PAPER_OPEN",
-        "paper_position_state": "PAPER_LONG",
-        "paper_signal_status": PAPER_SIGNAL_DECISION,
-        "paper_signal": {**decision["paper_signal"], "state": "PAPER_OPEN", "paper_position_state": "PAPER_LONG"},
+    observation = decision["paper_observation"]
+    paper_record = {
+        **observation,
+        "canonical_snapshot": canonical,
+        "trade_date": canonical["trade_date"],
+        "generated_at": now_iso(),
     }
+    from xiaogu_db import paper_observation_exists, record_decision, record_paper_observation
+    if paper_observation_exists(str(observation["paper_signal_id"])):
+        return Path(""), {
+            "paper_signal_id": observation["paper_signal_id"],
+            "decision_id": observation["decision_id"],
+            "database_persistence": {"status": "ALREADY_EXISTS"},
+            "audit_persistence": {"status": "SKIPPED"},
+        }
+    record_decision(decision)
+    record_paper_observation(paper_record)
     snap, snapshot, record = _snapshot_and_record(
         date=str(canonical["trade_date"]),
         asof_time=str(canonical.get("source_time") or "000000"),
         symbol=str(canonical["symbol"]),
-        decision=PAPER_SIGNAL_DECISION,
-        features=paper_decision,
-        decision_reason=str(paper_decision["reason"]),
-        generated_at=now_iso(),
+        decision=PAPER_OBSERVATION_STATUS,
+        features=decision,
+        decision_reason="CURRENT_PRODUCTION_DECISION",
+        generated_at=paper_record["generated_at"],
         rule_version=str(rule["rule_version"]),
         production_run_id=str(decision.get("production_run_id") or ""),
         source="xiaogu_forward_runner",
     )
-    from xiaogu_db import paper_signal_exists, record_snapshot_and_decision
-    if paper_signal_exists(str(paper_decision["decision_id"])):
-        return snapshot_path_for(
-            str(canonical["trade_date"]),
-            str(canonical.get("source_time") or "000000"),
-            str(rule["rule_version"]),
-            str(canonical["symbol"]),
-        ), {"decision_id": paper_decision["decision_id"], "database_persistence": {"status": "ALREADY_EXISTS"}, "audit_persistence": {"status": "SKIPPED"}}
-    record_snapshot_and_decision(canonical, paper_decision)
     record["database_persistence"] = {"status": "PASS"}
     dump_json(snap, snapshot)
     record["audit_persistence"] = {"status": "PASS"}

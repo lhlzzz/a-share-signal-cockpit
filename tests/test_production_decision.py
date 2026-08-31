@@ -65,8 +65,8 @@ def test_watch_ready_buy_hold_reduce_sell_follow_one_owner_contract():
     reduce = evaluate_candidate_bundle(
         ready | {"f62": -1_000, "pct_chg": 1}, portfolio_state="BUY", position_state="LONG", as_of=AS_OF,
     )
-    assert reduce["state"] == "REDUCE"
-    assert reduce["reason"] == "CAPITAL_EXIT"
+    assert reduce["state"] == "HOLD"
+    assert reduce["reason"] == "REPRICING_THESIS_STILL_VALID"
 
     sell = evaluate_candidate_bundle(
         ready | {"thesis_invalidated": True}, portfolio_state="BUY", position_state="LONG", as_of=AS_OF,
@@ -291,16 +291,16 @@ def test_position_state_is_not_previous_action():
     assert decision["previous_action"] == "BUY"
 
 
-def test_reduce_is_action_not_position_state():
+def test_research_only_capital_does_not_change_held_position_action():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {"f62": -1_000, "pct_chg": 1},
         position_state="LONG",
         previous_action="HOLD",
         as_of=AS_OF,
     )
-    assert decision["action"] == "REDUCE"
+    assert decision["action"] == "HOLD"
     assert decision["position_state"] == "LONG"
-    assert decision["state"] == "REDUCE"
+    assert decision["state"] == "HOLD"
 
 
 def test_collapsed_and_unvalidated_families_have_no_production_alpha_permission():

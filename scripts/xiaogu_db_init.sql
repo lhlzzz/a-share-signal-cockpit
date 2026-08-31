@@ -26,10 +26,32 @@ CREATE TABLE IF NOT EXISTS picks (
     state TEXT NOT NULL,
     position_state TEXT,
     payload JSONB NOT NULL,
-    paper_signal_state TEXT,
-    paper_position_state TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS paper_observations (
+    paper_signal_id TEXT PRIMARY KEY,
+    decision_id TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    signal_time TIMESTAMPTZ NOT NULL,
+    reference_price DOUBLE PRECISION NOT NULL,
+    paper_observation_state TEXT NOT NULL,
+    paper_position_state TEXT NOT NULL,
+    alpha_name TEXT NOT NULL,
+    alpha_version TEXT,
+    feature_version TEXT,
+    decision_version TEXT NOT NULL,
+    cost_model_version TEXT NOT NULL,
+    paper_observation_contract_version TEXT NOT NULL,
+    paper_only BOOLEAN NOT NULL DEFAULT TRUE,
+    live_order BOOLEAN NOT NULL DEFAULT FALSE,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (decision_id)
+);
+CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time
+    ON paper_observations(signal_time);
 CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
@@ -107,14 +129,10 @@ ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_signal_state TEXT;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_position_state TEXT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_picks_paper_signal_state ON picks (paper_signal_state);
-CREATE INDEX IF NOT EXISTS idx_picks_paper_position_state ON picks (paper_position_state);
 CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
 CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);

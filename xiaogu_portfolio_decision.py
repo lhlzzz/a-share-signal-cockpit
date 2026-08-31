@@ -16,9 +16,18 @@ TRADE_ACTIONS = ("BUY", "HOLD", "REDUCE", "SELL")
 POSITION_STATES = ("FLAT", "LONG")
 HELD_ACTIONS = {"BUY", "HOLD", "REDUCE"}
 MAX_HOLDING_DAYS = 5
-PAPER_SIGNAL_MIN_PRICE_STRENGTH = 0.50
-PAPER_SIGNAL_STATE = "PAPER_OPEN"
+PAPER_OBSERVATION_CONTRACT_VERSION = "paper_observation_v1"
+PAPER_OBSERVATION_STATE = "OBSERVED"
 PAPER_POSITION_STATES = ("PAPER_FLAT", "PAPER_LONG")
+RESEARCH_ONLY_DECISION_BLOCKERS = {
+    "CAPITAL_CONVERGENCE_CONFLICT",
+    "CONFIRMED_DISTRIBUTION",
+    "CONFIRMED_SUPPLY_REVERSAL",
+    "REPRICING_COMPLETED",
+    "BUYER_EXHAUSTION_OR_CLIMAX",
+    "TRADINGAGENTS_CONTRADICTION",
+    "REFLEXIVITY_BREAK",
+}
 DECISION_HARD_GATES = (
     "TRUSTED_CANONICAL", "DB_VERIFIED", "FRESH_DATA", "DATA_VALID", "TRADABLE",
     "RISK_PASS", "EXECUTION_PASS", "ALPHA_VALIDATED", "OOS_PASS",
@@ -28,14 +37,12 @@ DECISION_HARD_GATES = (
 
 def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -> str:
     signal_time = snapshot.get("signal_time") or snapshot.get("source_time") or ""
-    clock = as_of.isoformat() if as_of else ""
-    identity = f"{snapshot.get('snapshot_id', '')}|{snapshot.get('trade_date', '')}|{signal_time}|{clock}|{snapshot['symbol']}|{state}"
+    identity = f"{snapshot.get('snapshot_id', '')}|{snapshot.get('trade_date', '')}|{signal_time}|{snapshot['symbol']}|{state}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
-def _paper_decision_id(snapshot: Dict[str, Any]) -> str:
-    signal_time = snapshot.get("signal_time") or snapshot.get("source_time") or ""
-    identity = f"{snapshot.get('snapshot_id', '')}|{snapshot.get('trade_date', '')}|{signal_time}|{snapshot['symbol']}|PAPER_SIGNAL"
+def _paper_signal_id(decision_id: str) -> str:
+    identity = f"{decision_id}|{PAPER_OBSERVATION_CONTRACT_VERSION}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
@@ -104,16 +111,14 @@ def _exit_reason(
     if (account or {}).get("profit_window_hit"):
         return "PROFIT_WINDOW_HIT"
     risk = features["RISK"]
-    completion = alpha["repricing_completion"]
     if risk["thesis_invalidated"] or snapshot["raw"].get("thesis_invalidated"):
         return "BUSINESS_OR_INDUSTRY_THESIS_BROKEN"
     if risk["regulatory_hard_risk"] or _at_least(risk.get("event_risk"), 0.80):
         return "RISK_EVENT"
-    if _at_least(features["CAPITAL"].get("distribution_risk"), 0.70):
-        return "CAPITAL_EXIT"
-    if _at_least(features["SUPPLY"].get("effective_supply"), 0.80):
-        return "SUPPLY_REVERSAL"
-    if completion["completed"]:
+    if (
+        _at_least(features["MARKET"].get("price_strength"), 0.80)
+        and _at_least(features["MARKET"].get("attention"), 0.85)
+    ):
         return "REPRICING_COMPLETED"
     if features["PRICING_GAP"]["score"] is not None and features["PRICING_GAP"]["score"] <= 0.10:
         return "PRICING_GAP_CLOSED"
@@ -122,36 +127,18 @@ def _exit_reason(
     return "THESIS_INTACT"
 
 
-def _paper_signal(
+def _paper_observation(
     snapshot: CanonicalSnapshot,
     features: Dict[str, Any],
     alpha: Dict[str, Any],
-    hard_blockers: list[str],
     *,
+    decision_id: str,
+    decision_state: str,
     position_state: str,
 ) -> Dict[str, Any]:
-    """Describe an observational signal without changing production action."""
+    """Wrap the current production decision as a paper-only observation."""
     market = features.get("MARKET") or {}
-    risk = features.get("RISK") or {}
-    execution = features.get("EXECUTION") or {}
     price_strength = market.get("price_strength")
-    blockers = list(hard_blockers)
-    if price_strength is None:
-        blockers.append("PRICE_STRENGTH_MISSING")
-    elif float(price_strength) < PAPER_SIGNAL_MIN_PRICE_STRENGTH:
-        blockers.append("PRICE_STRENGTH_BELOW_BASELINE")
-    if risk.get("thesis_invalidated") is True:
-        blockers.append("THESIS_INVALIDATED")
-    if execution.get("execution_feasibility") is None:
-        blockers.append("EXECUTION_FEASIBILITY_MISSING")
-    elif float(execution["execution_feasibility"]) < 0.35:
-        blockers.append("EXECUTION_FEASIBILITY_LOW")
-    if position_state == "LONG":
-        blockers.append("REAL_POSITION_ALREADY_LONG")
-    if snapshot.get("trusted_snapshot") is not True:
-        blockers.append("TRUSTED_CANONICAL_REQUIRED")
-    blockers = list(dict.fromkeys(blockers))
-    eligible = not blockers
     capital = features.get("CAPITAL") or {}
     research_capital = alpha.get("capital_convergence") or {}
     research = {
@@ -167,34 +154,33 @@ def _paper_signal(
         "future_buyer": alpha.get("future_buyer_capacity"),
     }
     return {
-        "status": "PAPER_SIGNAL" if eligible else "NO_PAPER_SIGNAL",
-        "state": PAPER_SIGNAL_STATE if eligible else None,
-        "paper_position_state": "PAPER_LONG" if eligible else "PAPER_FLAT",
-        "decision_id": None,
-        "signal_reason": "PRICE_STRENGTH_BASELINE_SIGNAL" if eligible else ";".join(blockers),
+        "status": "PAPER_OBSERVATION",
+        "paper_signal_id": _paper_signal_id(decision_id),
+        "decision_id": decision_id,
+        "snapshot_id": snapshot.get("snapshot_id"),
+        "lineage_id": snapshot.get("lineage_id"),
+        "symbol": snapshot.get("symbol"),
+        "signal_time": snapshot.get("signal_time") or snapshot.get("source_time"),
+        "reference_price": snapshot.get("price"),
+        "paper_observation_state": PAPER_OBSERVATION_STATE,
+        "signal_reason": "CURRENT_PRODUCTION_DECISION",
         "alpha_name": "price_strength",
+        "alpha_version": alpha.get("alpha_version"),
         "alpha_status": alpha.get("model_status") or "DATA_INSUFFICIENT",
         "price_strength": price_strength,
         "validated_probability": alpha.get("profit_window_probability"),
-        "sort_value": (
-            alpha.get("profit_window_probability")
-            if alpha.get("profit_window_probability") is not None
-            else price_strength
-        ),
-        "risk_state": "BLOCKED" if any(item in blockers for item in ("THESIS_INVALIDATED", "RISK_BLOCKED")) else "PASS",
-        "execution_state": "PASS" if execution.get("execution_feasibility") is not None and float(execution["execution_feasibility"]) >= 0.35 else "BLOCKED",
-        "blockers": blockers,
+        "production_decision_state": decision_state,
+        "production_buy": "BLOCKED",
+        "position_state": position_state,
+        "paper_position_state": "PAPER_LONG",
         "research_overlay": research,
         "paper_only": True,
         "live_order": False,
-        "model_version": alpha.get("model_id"),
+        "model_version": "v4",
         "feature_version": alpha.get("feature_version"),
         "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
         "cost_model_version": COST_MODEL_VERSION,
-        "snapshot_id": snapshot.get("snapshot_id"),
-        "lineage_id": snapshot.get("lineage_id"),
-        "signal_time": snapshot.get("signal_time") or snapshot.get("source_time"),
-        "entry_reference_price": snapshot.get("price"),
+        "paper_observation_contract_version": PAPER_OBSERVATION_CONTRACT_VERSION,
     }
 
 
@@ -211,12 +197,15 @@ def evaluate_candidate_bundle(
     """Evaluate one T-day snapshot; this is the only function allowed to emit states."""
     if portfolio_state not in PORTFOLIO_STATES:
         raise ValueError(f"INVALID_PORTFOLIO_STATE:{portfolio_state}")
-    previous_action = previous_action or (portfolio_state if portfolio_state in TRADE_ACTIONS else None)
     if position_state is None:
-        # The current holding is a PostgreSQL fact. Callers without that fact
-        # are fail-closed as FLAT.
-        position_state = "FLAT"
-    if position_state not in POSITION_STATES:
+        # Direct research calls can still evaluate a candidate, but they must
+        # expose that the production position fact was unavailable.
+        position_state_unavailable = True
+        evaluation_position_state = "FLAT"
+    else:
+        position_state_unavailable = False
+        evaluation_position_state = position_state
+    if evaluation_position_state not in POSITION_STATES:
         raise ValueError(f"INVALID_POSITION_STATE:{position_state}")
     snapshot = (
         canonical
@@ -251,15 +240,11 @@ def evaluate_candidate_bundle(
     elif minimum_required_return > 0 and expected_net_profit is None:
         repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
     all_blockers = hard_blockers + repricing_blockers
-    held = position_state == "LONG"
-
-    paper_signal = _paper_signal(
-        snapshot,
-        features,
-        alpha,
-        hard_blockers,
-        position_state=position_state,
-    )
+    production_blockers = [
+        blocker for blocker in repricing_blockers
+        if blocker not in RESEARCH_ONLY_DECISION_BLOCKERS
+    ]
+    held = evaluation_position_state == "LONG"
 
     if held:
         holding_days = (account or {}).get("holding_days")
@@ -273,14 +258,12 @@ def evaluate_candidate_bundle(
             elif (
                 (alpha["downside_risk"] is not None and alpha["confidence"] is not None and alpha["downside_risk"] >= alpha["confidence"])
                 or any(
-                blocker in repricing_blockers
+                blocker in production_blockers
                 for blocker in (
-                    "CAPITAL_CONVERGENCE_CONFLICT",
                     "REFLEXIVITY_BREAK",
-                    "BUYER_EXHAUSTION_OR_CLIMAX",
-                    "TRADINGAGENTS_CONTRADICTION",
-                    "SUPPLY_REVERSAL",
-                    "CAPITAL_EXIT",
+                    "RISK_BLOCKED",
+                    "EXECUTION_IMPOSSIBLE",
+                    "SEVERE_EXECUTION_RISK",
                 )
                 )
             ):
@@ -289,19 +272,32 @@ def evaluate_candidate_bundle(
                 state, reason = "HOLD", "REPRICING_THESIS_STILL_VALID"
     elif hard_blockers:
         state, reason = "WATCH", "HARD_CONSTRAINT:" + ";".join(hard_blockers)
-    elif not repricing_blockers:
+    elif not production_blockers:
         state, reason = "BUY", "REPRICING_READINESS_CONFIRMED"
     else:
         # Diagnostic research measurements may explain a candidate, but they
         # never decide readiness or stand in for model probability.
-        state, reason = "READY", "BUY_BLOCKED_PENDING_HARD_GATE:" + ";".join(repricing_blockers)
+        state, reason = "READY", "BUY_BLOCKED_PENDING_HARD_GATE:" + ";".join(production_blockers)
 
     if state == "BUY":
         state, reason = "READY", "PRODUCTION_BUY_BLOCKED:PAPER_OBSERVATION_ONLY"
 
-    position_state_after = "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
     decision_id = _decision_id(snapshot, state, as_of)
-    paper_signal["decision_id"] = _paper_decision_id(snapshot)
+    observation = None
+    if state in {"WATCH", "READY"} and evaluation_position_state == "FLAT" and not position_state_unavailable:
+        observation = _paper_observation(
+            snapshot,
+            features,
+            alpha,
+            decision_id=decision_id,
+            decision_state=state,
+            position_state=evaluation_position_state,
+        )
+    position_state_after = (
+        None
+        if position_state_unavailable
+        else "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
+    )
     return {
         "decision_id": decision_id,
         "state": state,
@@ -310,6 +306,7 @@ def evaluate_candidate_bundle(
         "position_state_before": position_state,
         "position_state_after": position_state_after,
         "previous_action": previous_action,
+        "position_state_status": "UNAVAILABLE" if position_state_unavailable else "AVAILABLE",
         "holding_days": int(0 if (account or {}).get("holding_days") is None else (account or {}).get("holding_days")),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",
         "buy_status": "BUY_ALLOWED" if state == "BUY" else "BUY_BLOCKED",
@@ -335,14 +332,14 @@ def evaluate_candidate_bundle(
         "pricing_gap_context": research["pricing_gap"],
         "minimum_required_return": minimum_required_return,
         "signal_time": snapshot.get("signal_time") or snapshot.get("source_time") or "",
-        "entry_price": snapshot.get("price"),
-        "entry_price_source": "canonical_snapshot.price",
+        "reference_price": snapshot.get("price"),
+        "reference_price_source": "canonical_snapshot.price",
         "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
         "alpha_version": alpha.get("alpha_version"),
         "feature_version": alpha.get("feature_version"),
         "model_version": alpha.get("model_id"),
         "cost_model_version": COST_MODEL_VERSION,
-        "paper_signal": paper_signal,
+        "paper_observation": observation,
         "capital_convergence": alpha.get("capital_convergence"),
         "future_demand": alpha.get("future_demand"),
         "business_quality": alpha.get("business_quality"),

@@ -29,7 +29,7 @@ DEFAULT_EXECUTION_COST_RATE = DEFAULT_COST_RATE
 PROFIT_WINDOW_TARGET = 0.02
 EVALUATION_DAYS = (1, 2, 3, 4, 5)
 REALIZABILITY_LEVEL = "DAILY_BAR_APPROXIMATION"
-PAPER_SIGNAL_DECISION = "PAPER_SIGNAL"
+PAPER_OBSERVATION_STATUS = "PAPER_OBSERVATION"
 
 
 def _row_payload(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -254,6 +254,14 @@ def entry_contract_from_record(record: Dict[str, Any]) -> Dict[str, Any]:
         )
     features = record.get("features_used") or {}
     canonical = features.get("canonical_snapshot") if isinstance(features, dict) else None
+    if record.get("reference_price") not in (None, "") and record.get("signal_time"):
+        return historical_entry_contract(
+            {
+                "signal_time": record.get("signal_time"),
+                "execution_price": record.get("reference_price"),
+            },
+            execution_time=record.get("signal_time"),
+        )
     if not isinstance(canonical, dict):
         raise ValueError("ENTRY_CONTRACT_MISSING")
     signal_time = canonical.get("signal_time") or canonical.get("source_time") or record.get("asof_time")
@@ -429,10 +437,6 @@ def eastmoney_future_bars(
     ]
 
 
-def _entry_price(record: Dict[str, Any]) -> float:
-    return float(entry_contract_from_record(record)["entry_price"])
-
-
 def append_result(
     record: Dict[str, Any],
     future_prices: Dict[int, Any] | None = None,
@@ -455,6 +459,11 @@ def append_result(
     decision_id = str(record.get("id") or record.get("decision_id") or "").strip()
     if not decision_id:
         raise ValueError("DECISION_ID_REQUIRED")
+    is_paper_observation = (
+        record.get("paper_observation_status") == PAPER_OBSERVATION_STATUS
+        or record.get("status") == PAPER_OBSERVATION_STATUS
+        or bool(record.get("paper_signal_id"))
+    )
     result = {
         "record_type": "RESULT",
         "decision_id": decision_id,
@@ -473,9 +482,11 @@ def append_result(
         "actual_5d_mae": outcomes.get("future_5d_mae"),
         "result_status": "SETTLED" if outcomes.get("outcome_complete") else "PENDING",
         "result_filled_at": now_iso(),
-        "paper_signal_state": "PAPER_CLOSED" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else record.get("paper_signal_state"),
-        "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else record.get("paper_position_state"),
-        "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else None,
+        "paper_signal_id": record.get("paper_signal_id"),
+        "paper_observation_status": PAPER_OBSERVATION_STATUS if is_paper_observation else None,
+        "paper_observation_state": "CLOSED" if outcomes.get("outcome_complete") and is_paper_observation else record.get("paper_observation_state"),
+        "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and is_paper_observation else record.get("paper_position_state"),
+        "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and is_paper_observation else None,
     }
     if outcomes.get("outcome_complete"):
         result["post_trade_review"] = build_post_trade_review(record, outcomes)
@@ -529,7 +540,7 @@ def build_post_trade_review(record: Dict[str, Any], outcomes: Dict[str, Any]) ->
 
 
 def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    from xiaogu_db import record_returns
+    from xiaogu_db import record_returns, update_paper_observation_state
     try:
         record_returns(
             str(result["date"]),
@@ -537,6 +548,13 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
             result,
             decision_id=str(result.get("decision_id") or result.get("id") or ""),
         )
+        if result.get("paper_signal_id") and result.get("paper_observation_state") == "CLOSED":
+            update_paper_observation_state(
+                str(result["paper_signal_id"]),
+                state="CLOSED",
+                paper_position_state="PAPER_FLAT",
+                exit_reason=str(result.get("paper_exit_reason") or "T5_EXPIRY"),
+            )
         result["database_persistence"] = {"status": "PASS"}
     except Exception as exc:
         result["database_persistence"] = {"status": "FAILED", "error": repr(exc)}
@@ -553,7 +571,7 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
 
 def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
     """Materialize a research artifact from PostgreSQL paper truth."""
-    from xiaogu_db import fetch_paper_signals, fetch_returns
+    from xiaogu_db import fetch_paper_observations, fetch_returns
 
     output_path = path or PAPER_DATASET_PATH
     outcome_by_id = {}
@@ -563,28 +581,28 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
         if decision_id:
             outcome_by_id[decision_id] = payload
     rows = []
-    for row in fetch_paper_signals():
+    for row in fetch_paper_observations():
         record = _row_payload(row)
-        decision_id = str(record.get("decision_id") or row.get("decision_id") or "").strip()
-        if not decision_id:
+        paper_signal_id = str(record.get("paper_signal_id") or "").strip()
+        decision_id = str(record.get("decision_id") or "").strip()
+        if not paper_signal_id or not decision_id:
             continue
         outcome = outcome_by_id.get(decision_id) or {}
         alpha = record.get("core_alpha") or (record.get("features_used") or {}).get("core_alpha") or {}
-        paper = record.get("paper_signal") or {}
+        paper = record
         days = outcome.get("days") if isinstance(outcome.get("days"), dict) else {}
         rows.append({
+            "paper_signal_id": paper_signal_id,
             "decision_id": decision_id,
+            "snapshot_id": record.get("snapshot_id"),
             "symbol": record.get("symbol") or row.get("symbol"),
             "signal_time": record.get("signal_time") or record.get("asof_time"),
-            "entry_price": record.get("entry_price"),
-            "entry_price_source": record.get("entry_price_source"),
-            "price_strength": paper.get("price_strength") or alpha.get("profit_window_feature_values", {}).get("price_strength"),
+            "reference_price": record.get("reference_price"),
+            "price_strength": record.get("price_strength") or alpha.get("profit_window_feature_values", {}).get("price_strength"),
             "alpha_status": paper.get("alpha_status") or alpha.get("model_status") or "DATA_INSUFFICIENT",
-            "paper_signal": "PAPER_SIGNAL",
-            "paper_signal_state": outcome.get("paper_signal_state") or record.get("paper_signal_state") or "PAPER_OPEN",
+            "paper_observation": PAPER_OBSERVATION_STATUS,
+            "paper_observation_state": outcome.get("paper_observation_state") or record.get("paper_observation_state") or "OBSERVED",
             "paper_position_state": outcome.get("paper_position_state") or record.get("paper_position_state") or "PAPER_LONG",
-            "risk_state": paper.get("risk_state"),
-            "execution_state": paper.get("execution_state"),
             "signal_reason": record.get("signal_reason") or record.get("decision_reason"),
             "research_overlay": paper.get("research_overlay") or record.get("research_overlay") or {},
             "capital_flow_ratio": (paper.get("research_overlay") or {}).get("capital_flow_ratio"),
@@ -592,6 +610,7 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
             "capital_acceleration": (paper.get("research_overlay") or {}).get("capital_acceleration"),
             "T+1": days.get("1", {}), "T+2": days.get("2", {}), "T+3": days.get("3", {}),
             "T+4": days.get("4", {}), "T+5": days.get("5", {}),
+            "profit_window": outcome.get("profit_window", False),
             "profit_window_hit": outcome.get("profit_window", False),
             "first_profit_day": outcome.get("first_profit_day"),
             "max_profit_5d": outcome.get("max_daily_bar_profit_opportunity_5d"),
@@ -602,6 +621,7 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
             "feature_version": record.get("feature_version") or paper.get("feature_version") or alpha.get("feature_version"),
             "decision_version": record.get("decision_version") or paper.get("decision_version"),
             "cost_model_version": record.get("cost_model_version") or paper.get("cost_model_version") or "cost_model_v1",
+            "paper_observation_contract_version": record.get("paper_observation_contract_version"),
             "research_only": True,
         })
     artifact = {
@@ -636,14 +656,33 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
     for row in fetch_picks():
         record = _row_payload(row)
         action = str(record.get("action") or record.get("state") or record.get("decision") or "").upper()
-        paper_status = str(record.get("paper_signal_status") or ((record.get("paper_signal") or {}).get("status") if isinstance(record.get("paper_signal"), dict) else ""))
-        if action not in {"BUY", "HOLD", "REDUCE", "SELL", "PAPER_SIGNAL"} and paper_status != "PAPER_SIGNAL":
+        paper_status = str(record.get("paper_observation_status") or "")
+        if action not in {"BUY", "HOLD", "REDUCE", "SELL"}:
             continue
         record["record_type"] = "DECISION"
-        record["decision"] = PAPER_SIGNAL_DECISION if paper_status == "PAPER_SIGNAL" else action
+        record["decision"] = action
         record["id"] = str(record.get("decision_id") or record.get("id") or "")
         record["date"] = str(record.get("date") or record.get("trade_date") or "")
         records.append(record)
+    from xiaogu_db import fetch_paper_observations
+    for row in fetch_paper_observations():
+        record = _row_payload(row)
+        if record.get("paper_signal_id") and record.get("decision_id"):
+            record["record_type"] = "PAPER_OBSERVATION"
+            record["decision"] = PAPER_OBSERVATION_STATUS
+            record["id"] = record["decision_id"]
+            record["date"] = str(record.get("trade_date") or str(record.get("signal_time") or "")[:10])
+            record["features_used"] = {
+                "canonical_snapshot": {
+                    "symbol": record.get("symbol"),
+                    "trade_date": record["date"],
+                    "source_time": record.get("signal_time"),
+                    "price": record.get("reference_price"),
+                },
+                "reference_price": record.get("reference_price"),
+                "signal_time": record.get("signal_time"),
+            }
+            records.append(record)
     prior_results: Dict[str, Dict[str, Any]] = {}
     for row in fetch_returns():
         record = _row_payload(row)
@@ -658,9 +697,22 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
             errors.append({"decision_id": "", "error": "DECISION_ID_REQUIRED"})
             continue
         try:
-            bars = eastmoney_future_bars(
-                str(record["symbol"]), entry_date=str(record["date"]), end_date=end_date,
+            from xiaogu_db import (
+                fetch_canonical_future_bars,
+                record_canonical_future_prices,
             )
+            bars = fetch_canonical_future_bars(
+                str(record["symbol"]), start_date=str(record["date"]), end_date=end_date or "",
+            )
+            if len(bars) < 5:
+                fetched = eastmoney_future_bars(
+                    str(record["symbol"]), entry_date=str(record["date"]), end_date=end_date,
+                )
+                if fetched:
+                    record_canonical_future_prices(fetched)
+                    bars = fetch_canonical_future_bars(
+                        str(record["symbol"]), start_date=str(record["date"]), end_date=end_date or "",
+                    )
             result = append_result(record, future_bars=bars)
             if _has_new_outcome(result, prior_results.get(decision_id)):
                 filled.append(_persist_and_append_result(result))

@@ -102,7 +102,7 @@ def test_append_result_exposes_only_profit_window_target():
 def test_paper_outcome_decision_id():
     result = append_result({
         "id": "paper-1", "date": "2026-08-26", "symbol": "600001",
-        "paper_signal_status": "PAPER_SIGNAL", "paper_signal_state": "PAPER_OPEN",
+        "paper_observation_status": "PAPER_OBSERVATION", "paper_observation_state": "OBSERVED",
         "paper_position_state": "PAPER_LONG",
         "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-26T14:50:00+08:00"}},
         "entry_contract": {
@@ -112,7 +112,7 @@ def test_paper_outcome_decision_id():
         },
     }, future_bars=_bars())
     assert result["decision_id"] == "paper-1"
-    assert result["paper_signal_state"] == "PAPER_CLOSED"
+    assert result["paper_observation_state"] == "CLOSED"
     assert result["paper_position_state"] == "PAPER_FLAT"
     assert result["paper_exit_reason"] == "T5_EXPIRY"
     assert result["days"]["5"]["close"] == 10.2
@@ -122,7 +122,7 @@ def test_paper_outcome_decision_id():
 def test_paper_t5_close():
     result = append_result({
         "id": "paper-t5", "date": "2026-08-26", "symbol": "600001",
-        "paper_signal_status": "PAPER_SIGNAL", "paper_signal_state": "PAPER_OPEN",
+        "paper_observation_status": "PAPER_OBSERVATION", "paper_observation_state": "OBSERVED",
         "paper_position_state": "PAPER_LONG",
         "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-26T14:50:00+08:00"}},
         "entry_contract": {
@@ -131,7 +131,7 @@ def test_paper_t5_close():
             "price_basis": "UNADJUSTED", "entry_price_source": "canonical_snapshot.price",
         },
     }, future_bars=_bars())
-    assert result["paper_signal_state"] == "PAPER_CLOSED"
+    assert result["paper_observation_state"] == "CLOSED"
     assert result["paper_position_state"] == "PAPER_FLAT"
     assert result["paper_exit_reason"] == "T5_EXPIRY"
 
@@ -147,6 +147,8 @@ def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypa
     )
     monkeypatch.setattr(filler, "FORWARD_LEDGER", ledger)
     monkeypatch.setattr(filler, "eastmoney_future_bars", lambda *_args, **_kwargs: _bars())
+    monkeypatch.setattr(xiaogu_db, "fetch_canonical_future_bars", lambda *_args, **_kwargs: _bars())
+    monkeypatch.setattr(xiaogu_db, "record_canonical_future_prices", lambda _bars: None)
     stored_returns = []
     monkeypatch.setattr(
         xiaogu_db,
@@ -195,3 +197,42 @@ def test_outcome_persistence_orders_database_audit_then_memory(monkeypatch):
     })
     assert events == ["database", "audit", "memory"]
     assert result["audit_persistence"] == {"status": "PASS"}
+
+
+def test_settled_paper_observation_updates_postgres_lifecycle(monkeypatch):
+    import xiaogu_db
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    updates = []
+    monkeypatch.setattr(xiaogu_db, "record_returns", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        xiaogu_db,
+        "update_paper_observation_state",
+        lambda *args, **kwargs: updates.append((args, kwargs)),
+    )
+    monkeypatch.setattr(filler, "FORWARD_LEDGER", __import__("pathlib").Path("/tmp/xiaogu-paper-lifecycle-test.jsonl"))
+    monkeypatch.setattr(filler, "append_jsonl", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "xiaogu_forward_paper_recorder_v0_1.update_trade_memory",
+        lambda _result: "/tmp/memory.md",
+    )
+
+    result = filler._persist_and_append_result({
+        "date": "2026-08-26",
+        "symbol": "600001",
+        "decision_id": "decision-1",
+        "paper_signal_id": "paper-signal-1",
+        "paper_observation_state": "CLOSED",
+        "paper_exit_reason": "T5_EXPIRY",
+    })
+    assert result["database_persistence"] == {"status": "PASS"}
+    assert updates == [
+        (
+            ("paper-signal-1",),
+            {
+                "state": "CLOSED",
+                "paper_position_state": "PAPER_FLAT",
+                "exit_reason": "T5_EXPIRY",
+            },
+        )
+    ]

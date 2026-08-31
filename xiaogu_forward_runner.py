@@ -21,7 +21,6 @@ from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 BASE = Path(__file__).resolve().parent
 RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
-PAPER_SIGNAL_STATUS = "PAPER_SIGNAL"
 
 
 PRODUCTION_MODES = ("PRODUCTION", "REPLAY", "DRY_RUN", "RESEARCH")
@@ -79,8 +78,12 @@ def run_production_decision(
             decision_time=clock,
             persisted=bool(db_verified),
         )
-        if position_state is None:
-            position_state = fetch_position_state(str(trusted.get("symbol") or ""))
+        db_position_state = fetch_position_state(str(trusted.get("symbol") or ""))
+        if db_position_state is None:
+            raise RuntimeError("POSITION_STATE_UNAVAILABLE")
+        if position_state is not None and position_state != db_position_state:
+            raise RuntimeError("POSITION_STATE_CONFLICT")
+        position_state = db_position_state
     elif mode == "REPLAY":
         clock = production_decision_clock(
             decision_clock
@@ -104,17 +107,22 @@ def _write_ledger_record(decision: Dict[str, Any]) -> Path:
     return path
 
 
-def _write_paper_signal(decision: Dict[str, Any]) -> Dict[str, Any]:
-    from xiaogu_forward_paper_recorder_v0_1 import append_paper_signal
-    _path, record = append_paper_signal(decision)
+def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
+    from xiaogu_forward_paper_recorder_v0_1 import append_paper_observation
+    _path, record = append_paper_observation(decision)
     return record
 
 
-def _empty_observation_output(trade_date: str, reason: str) -> Dict[str, Any]:
+def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
     output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
-              "paper_signal_count": 0, "paper_signals": [], "state": "WATCH", "reason": reason}
+              "scan_status": scan_status, "scan_reason": reason,
+              "canonical_count": 0, "alpha_count": 0,
+              "paper_observation_count": 0, "paper_observations": [],
+              "state": "WATCH", "reason": reason}
     from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
-    output["daily_memory_path"] = write_daily_paper_memory(trade_date, [])
+    output["daily_memory_path"] = write_daily_paper_memory(
+        trade_date, [], scan_status=scan_status, scan_reason=reason,
+    )
     try:
         from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
         output["paper_dataset"] = refresh_paper_dataset()
@@ -141,16 +149,16 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         prior_id = str(prior.get("decision_id") or prior.get("id") or "")
         result = fetch_position_outcome(prior_id, symbol=symbol)
         try:
+            from xiaogu_db import count_trading_days
             start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
             end = date.fromisoformat(str(trade_date))
-            holding_days = sum(
-                (start.fromordinal(day).weekday() < 5)
-                for day in range(start.toordinal() + 1, end.toordinal() + 1)
-            )
+            holding_days = count_trading_days(start, end)
         except (TypeError, ValueError):
             holding_days = 0
-        previous_action = str(prior.get("action") or prior.get("previous_action") or prior.get("decision") or "HOLD")
-        position_state = str(prior.get("position_state") or "FLAT")
+        previous_action = prior.get("action") or prior.get("previous_action") or prior.get("decision")
+        position_state = prior.get("position_state")
+        if not previous_action or not position_state:
+            continue
         account = {
             "decision_id": prior_id,
             "position_state": position_state,
@@ -195,12 +203,10 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
         prior_id = str(prior.get("decision_id") or "")
         result = fetch_position_outcome(prior_id, symbol=symbol)
         try:
+            from xiaogu_db import count_trading_days
             start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
             end = date.fromisoformat(str(trade_date))
-            holding_days = sum(
-                start.fromordinal(day).weekday() < 5
-                for day in range(start.toordinal() + 1, end.toordinal() + 1)
-            )
+            holding_days = count_trading_days(start, end)
         except (TypeError, ValueError):
             holding_days = 0
         decision = run_production_decision(
@@ -222,11 +228,11 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
         action = decision.get("action") or "HOLD"
         decision.update({
             "paper_review": True,
-            "paper_signal_decision_id": prior_id,
-            "paper_signal_state": "PAPER_CLOSED" if action in {"SELL", "REDUCE"} else "PAPER_OPEN",
-            "paper_position_state": "PAPER_FLAT" if action in {"SELL", "REDUCE"} else "PAPER_LONG",
-            "paper_action": "PAPER_SELL" if action == "SELL" else "PAPER_REDUCE" if action == "REDUCE" else "PAPER_HOLD",
-            "paper_exit_reason": decision.get("reason") if action in {"SELL", "REDUCE"} else None,
+            "paper_signal_id": prior.get("paper_signal_id"),
+            "paper_observation_state": "CLOSED" if action in {"SELL", "REDUCE"} or holding_days >= 5 else "OBSERVED",
+            "paper_position_state": "PAPER_FLAT" if action in {"SELL", "REDUCE"} or holding_days >= 5 else "PAPER_LONG",
+            "paper_action": "PAPER_SELL" if action == "SELL" or holding_days >= 5 else "PAPER_REDUCE" if action == "REDUCE" else "PAPER_HOLD",
+            "paper_exit_reason": "T5_EXPIRY" if holding_days >= 5 else decision.get("reason") if action in {"SELL", "REDUCE"} else None,
             "holding_days": holding_days,
         })
         reviewed.append(decision)
@@ -274,6 +280,13 @@ def main() -> None:
             continue
     canonical_rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
     canonical_count = len(canonical_rows)
+    if canonical_count == 0:
+        print(json.dumps(
+            _empty_observation_output(args.date, "CANONICAL_SNAPSHOT_UNAVAILABLE"),
+            ensure_ascii=False,
+            default=str,
+        ))
+        return
     if args.symbol:
         selected = select_canonical_snapshot(canonical_rows, symbol=args.symbol, trade_date=args.date)
         canonical_rows = [selected] if selected is not None else []
@@ -298,7 +311,7 @@ def main() -> None:
     })
     decisions = []
     recorded = 0
-    paper_signals = []
+    paper_observations = []
     for row in rows:
         row = dict(row)
         row.setdefault("trade_date", args.date)
@@ -311,17 +324,21 @@ def main() -> None:
         if mode == "PRODUCTION" and not args.dry_run and decision["state"] in RECORDABLE_ACTIONS:
             decision["ledger_path"] = str(_write_ledger_record(decision))
             recorded += 1
-        if mode == "PRODUCTION" and not args.dry_run and (decision.get("paper_signal") or {}).get("status") == PAPER_SIGNAL_STATUS:
-            decision["paper_ledger_record"] = _write_paper_signal(decision)
-            paper_signals.append(decision["paper_ledger_record"])
+        if mode == "PRODUCTION" and not args.dry_run and decision.get("paper_observation"):
+            decision["paper_observation_record"] = _write_paper_observation(decision)
+            paper_observations.append(decision["paper_observation_record"])
         decisions.append(decision)
     output = {
         "date": args.date,
         "mode": mode,
         "count": len(decisions),
         "recorded": recorded,
-        "paper_signal_count": len(paper_signals),
-        "paper_signals": paper_signals,
+        "scan_status": "SIGNAL_AVAILABLE" if paper_observations else "NO_SIGNAL",
+        "scan_reason": "PAPER_OBSERVATION_RECORDED" if paper_observations else "NO_PAPER_OBSERVATION",
+        "canonical_count": canonical_count,
+        "alpha_count": len(decisions),
+        "paper_observation_count": len(paper_observations),
+        "paper_observations": paper_observations,
         "candidate_universe": universe,
         "sample_accounting": {
             "full_universe_count": input_count,
@@ -340,7 +357,13 @@ def main() -> None:
     }
     if mode == "PRODUCTION" and not args.dry_run:
         from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
-        output["daily_memory_path"] = write_daily_paper_memory(args.date, paper_signals)
+        output["daily_memory_path"] = write_daily_paper_memory(
+            args.date, paper_observations,
+            scan_status=output["scan_status"],
+            scan_reason=output["scan_reason"],
+            canonical_count=canonical_count,
+            alpha_count=len(decisions),
+        )
         try:
             from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
             output["paper_dataset"] = refresh_paper_dataset()

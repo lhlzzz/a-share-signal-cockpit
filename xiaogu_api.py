@@ -52,28 +52,15 @@ def _result_records() -> List[Dict[str, Any]]:
     return [_payload(row) for row in fetch_returns()]
 
 
-def _paper_signal_records() -> List[Dict[str, Any]]:
-    """Read observational signals from PostgreSQL picks only."""
-    from xiaogu_db import fetch_picks
+def _paper_observation_records() -> List[Dict[str, Any]]:
+    """Read paper observations from PostgreSQL only."""
+    from xiaogu_db import fetch_paper_observations
 
     records = []
-    for row in fetch_picks():
+    for row in fetch_paper_observations():
         record = _payload(row)
-        signal = record.get("paper_signal") if isinstance(record.get("paper_signal"), dict) else {}
-        if record.get("paper_signal_status") != "PAPER_SIGNAL" and signal.get("status") != "PAPER_SIGNAL":
+        if not str(record.get("paper_signal_id") or "").strip():
             continue
-        decision_id = str(record.get("decision_id") or "").strip()
-        if not decision_id:
-            continue
-        record["decision_id"] = decision_id
-        record["paper_signal"] = "PAPER_SIGNAL"
-        record["signal_reason"] = record.get("signal_reason") or record.get("decision_reason") or signal.get("signal_reason")
-        record["price_strength"] = record.get("price_strength") if record.get("price_strength") is not None else signal.get("price_strength")
-        record["alpha_status"] = record.get("alpha_status") or signal.get("alpha_status") or "DATA_INSUFFICIENT"
-        record["risk_state"] = record.get("risk_state") or signal.get("risk_state")
-        record["execution_state"] = record.get("execution_state") or signal.get("execution_state")
-        record["research_overlay"] = record.get("research_overlay") or signal.get("research_overlay") or {}
-        record["sort_value"] = signal.get("sort_value") if signal.get("sort_value") is not None else record.get("price_strength")
         records.append(record)
     return records
 
@@ -81,35 +68,38 @@ def _paper_signal_records() -> List[Dict[str, Any]]:
 def _paper_views() -> List[Dict[str, Any]]:
     outcomes = {}
     for result in _result_records():
-        decision_id = str(result.get("decision_id") or "").strip()
-        if decision_id:
-            outcomes[decision_id] = result
+        key = str(result.get("paper_signal_id") or result.get("decision_id") or "").strip()
+        if key:
+            outcomes[key] = result
     views = []
-    for record in _paper_signal_records():
-        outcome = outcomes.get(record["decision_id"]) or {}
-        closed = outcome.get("outcome_complete") is True or outcome.get("paper_signal_state") == "PAPER_CLOSED"
+    for record in _paper_observation_records():
+        key = record["paper_signal_id"]
+        outcome = outcomes.get(key) or outcomes.get(str(record.get("decision_id") or "")) or {}
+        closed = outcome.get("outcome_complete") is True or record.get("paper_observation_state") == "CLOSED"
         view = {
+            "paper_signal_id": key,
             "decision_id": record["decision_id"],
+            "snapshot_id": record.get("snapshot_id"),
+            "lineage_id": record.get("lineage_id"),
             "symbol": record.get("symbol"),
             "signal_time": record.get("signal_time") or record.get("asof_time"),
-            "entry_reference_price": record.get("entry_price") or record.get("entry_reference_price"),
-            "entry_price_source": record.get("entry_price_source"),
+            "reference_price": record.get("reference_price"),
             "price_strength": record.get("price_strength"),
             "alpha_status": record.get("alpha_status"),
-            "paper_signal": "PAPER_SIGNAL",
-            "paper_signal_state": "PAPER_CLOSED" if closed else "PAPER_OPEN",
+            "paper_observation": "PAPER_OBSERVATION",
+            "paper_observation_state": "CLOSED" if closed else "OBSERVED",
             "paper_position_state": "PAPER_FLAT" if closed else "PAPER_LONG",
-            "risk_state": record.get("risk_state"),
-            "execution_state": record.get("execution_state"),
             "signal_reason": record.get("signal_reason"),
             "research_overlay": record.get("research_overlay") or {},
-            "sort_value": record.get("sort_value"),
             "model_version": record.get("model_version"),
             "feature_version": record.get("feature_version"),
             "decision_version": record.get("decision_version"),
             "cost_model_version": record.get("cost_model_version") or "cost_model_v1",
-            "snapshot_id": record.get("snapshot_id") or (record.get("canonical_snapshot") or {}).get("snapshot_id"),
-            "lineage_id": record.get("lineage_id") or (record.get("canonical_snapshot") or {}).get("lineage_id"),
+            "paper_observation_contract_version": record.get("paper_observation_contract_version"),
+            "validated_probability": record.get("validated_probability"),
+            "paper_only": True,
+            "live_order": False,
+            "production_buy": "BLOCKED",
             "outcome": outcome,
         }
         views.append(view)
@@ -145,6 +135,9 @@ def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "mean_net_return": sum(values) / len(values) if values else None,
         }
     return {
+        "count": len(rows),
+        "closed": len(settled),
+        "open": len(rows) - len(settled),
         "signal_count": len(rows),
         "closed_count": len(settled),
         "open_count": len(rows) - len(settled),
@@ -153,6 +146,8 @@ def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "median_net_profit": median(nets) if nets else None,
         "mean_mae": sum(maes) / len(maes) if maes else None,
         "mean_mfe": sum(mfes) / len(mfes) if mfes else None,
+        "MAE": sum(maes) / len(maes) if maes else None,
+        "MFE": sum(mfes) / len(mfes) if mfes else None,
         "first_profit_day_distribution": first_profit_days,
         "horizon_metrics": horizon_metrics,
         "profit_factor": positive / negative if negative else (None if not positive else "INF"),
@@ -167,7 +162,15 @@ def _paper_grouped_performance(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         by_date.setdefault(str(row.get("signal_time") or "")[:10], []).append(row)
     selected = {"All": rows, "Top5": [], "Top10": []}
     for date_rows in by_date.values():
-        ordered = sorted(date_rows, key=lambda row: float(row.get("sort_value") or -1), reverse=True)
+        ordered = sorted(
+            date_rows,
+            key=lambda row: float(
+                row.get("validated_probability")
+                if row.get("validated_probability") is not None
+                else row.get("price_strength") or -1
+            ),
+            reverse=True,
+        )
         selected["Top5"].extend(ordered[:5])
         selected["Top10"].extend(ordered[:10])
     return {name: _paper_metric(group) for name, group in selected.items()}
@@ -303,12 +306,12 @@ def paper_signals() -> Dict[str, Any]:
     return {"status": "PAPER_OBSERVATION_ONLY", "signals": rows, "count": len(rows)}
 
 
-@app.get("/paper/signal/{decision_id}")
-def paper_signal(decision_id: str) -> Dict[str, Any]:
+@app.get("/paper/signal/{paper_signal_id}")
+def paper_signal(paper_signal_id: str, decision_id: str = "") -> Dict[str, Any]:
     for row in _paper_views():
-        if row["decision_id"] == decision_id:
+        if row["paper_signal_id"] == paper_signal_id or (decision_id and row["decision_id"] == decision_id):
             return row
-    return {"decision_id": decision_id, "found": False, "status": "PAPER_OBSERVATION_ONLY"}
+    return {"paper_signal_id": paper_signal_id, "found": False, "status": "PAPER_OBSERVATION_ONLY"}
 
 
 @app.get("/paper/performance")
@@ -323,7 +326,7 @@ def paper_performance() -> Dict[str, Any]:
 
 @app.get("/paper/open")
 def paper_open() -> Dict[str, Any]:
-    rows = [row for row in _paper_views() if row["paper_signal_state"] == "PAPER_OPEN"]
+    rows = [row for row in _paper_views() if row["paper_observation_state"] == "OBSERVED"]
     return {"status": "PAPER_OBSERVATION_ONLY", "signals": rows, "count": len(rows)}
 
 

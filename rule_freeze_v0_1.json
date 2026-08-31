@@ -76,7 +76,7 @@
       "gap_risk"
     ],
     "outcomes_enter_after_decision": true,
-    "bar_opportunity_formula": "(daily_high - entry_price) / entry_price - canonical_cost_model",
+    "bar_opportunity_formula": "(daily_high - reference_price) / reference_price - canonical_cost_model",
     "profit_window_target": 0.02,
     "outcome_metrics": [
       "max_daily_bar_profit_opportunity_5d",
@@ -145,13 +145,17 @@
   },
   "alpha_status": "DATA_INSUFFICIENT",
   "buy_enabled": false,
+  "paper_production": "ENABLED",
+  "live_trading": "DISABLED",
+  "production_buy": "BLOCKED",
   "paper_observation": {
     "enabled": true,
-    "signal": "PAPER_SIGNAL",
+    "signal": "PAPER_OBSERVATION",
     "production_alpha": "price_strength",
     "capital_alpha": "RESEARCH_ONLY",
     "validation_dataset": false,
     "live_trading": false,
-    "model_version_frozen": true
+    "model_version_frozen": true,
+    "contract_version": "paper_observation_v1"
   }
 }

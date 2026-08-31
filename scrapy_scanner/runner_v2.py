@@ -1111,12 +1111,21 @@ def main() -> Dict[str, Any]:
         for name, item in diagnostics.items()
         if name in DEEP_DOMAINS and isinstance(item, dict)
     )
+    scan_status = "SCAN_BLOCKED" if production_scan == "BLOCKED" or not snapshots else "NO_SIGNAL"
+    scan_reason = (
+        block_reason or "CANONICAL_SNAPSHOT_UNAVAILABLE"
+        if scan_status == "SCAN_BLOCKED"
+        else "SCANNER_SUCCESS_AWAITING_DECISION"
+    )
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
         "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
         "source_time": source_time, "raw_domain_counts": {name: result_item_count(value) for name, value in results.items()},
         "canonical_snapshot_count": len(snapshots), "canonical_market_snapshot": market,
         "production_scan": production_scan, "block_reason": block_reason,
+        "scan_status": scan_status, "scan_reason": scan_reason,
+        "canonical_count": len(snapshots), "alpha_count": None,
+        "paper_observation_count": 0,
         "critical_sources": sorted(CRITICAL_SOURCES), "optional_sources": sorted(OPTIONAL_SOURCES),
         "scanner_contract": {
             "owner": "scrapy_scanner.runner_v2", "responsibility": "DATA_CAPTURE_ONLY",

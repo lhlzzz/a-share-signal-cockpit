@@ -15,7 +15,8 @@ TZ = ZoneInfo("Asia/Shanghai")
 
 
 def is_trading_day(check_date=None) -> bool:
-    return (check_date or datetime.now(TZ).date()).weekday() < 5
+    from xiaogu_db import is_trading_date
+    return is_trading_date(check_date or datetime.now(TZ).date())
 
 
 def _run(*args: str) -> None:
