@@ -1370,6 +1370,11 @@ def fetch_historical_replay_assets(
             "symbol", "date", "open", "high", "low", "close", "volume", "amount",
             "source", "source_timestamp", "price_basis", "price_fact_hash", "payload", "created_at",
         },
+        "canonical_historical_snapshots": {
+            "snapshot_id", "lineage_id", "symbol", "trade_date", "signal_time", "source",
+            "source_timestamp", "snapshot_version", "point_in_time", "available_at", "price_basis",
+            "created_at",
+        },
     }
     json_columns = {
         "picks": {
@@ -1387,6 +1392,7 @@ def fetch_historical_replay_assets(
         "manual_execution_records": {"risk_snapshot", "payload"},
         "production_runs": {"scoring_config_snapshot", "payload"},
         "canonical_future_prices": {"payload"},
+        "canonical_historical_snapshots": {"payload"},
     }
     preserved_json_keys = (
         "stock_capital_flow", "industry_flow", "earnings_preview", "lhb",
@@ -1484,8 +1490,10 @@ def fetch_historical_replay_assets(
         executions = rows_for(db, "manual_execution_records")
         runs = rows_for(db, "production_runs")
         future_prices = rows_for(db, "canonical_future_prices")
+        historical_snapshots = rows_for(db, "canonical_historical_snapshots")
     return {
         "picks": picks, "returns": returns, "daily_candidates": candidates,
         "manual_execution_records": executions, "production_runs": runs,
         "canonical_future_prices": future_prices,
+        "canonical_historical_snapshots": historical_snapshots,
     }

@@ -38,7 +38,10 @@ PRODUCTION_FEATURES = (
 
 PRICE_FEATURES = ("price_strength",)
 VOLUME_FEATURES = ("turnover",)
-CAPITAL_FEATURES = ("capital_flow_ratio", "capital_price_impact")
+CAPITAL_FEATURES = (
+    "capital_flow_ratio", "capital_persistence", "capital_acceleration",
+    "capital_inflection", "capital_price_efficiency", "capital_price_divergence",
+)
 FEATURE_FAMILIES = {
     "CAPITAL": CAPITAL_FEATURES,
     "CAPITAL_CONVERGENCE": ("capital_convergence",),
@@ -57,6 +60,15 @@ CUMULATIVE_ABLATION_FEATURES = {
     "PRICE + CAPITAL + REPRICING": PRICE_FEATURES + CAPITAL_FEATURES + ("repricing_state",),
     "PRICE + CAPITAL + PRICING GAP": PRICE_FEATURES + CAPITAL_FEATURES + ("real_pricing_gap",),
     "PRICE + CAPITAL + FUTURE BUYER": PRICE_FEATURES + CAPITAL_FEATURES + ("future_buyer_evidence",),
+    "PRICE + FLOW": PRICE_FEATURES + ("capital_flow_ratio",),
+    "PRICE + PERSISTENCE": PRICE_FEATURES + ("capital_persistence",),
+    "PRICE + ACCELERATION": PRICE_FEATURES + ("capital_acceleration",),
+    "PRICE + DIVERGENCE": PRICE_FEATURES + ("capital_price_divergence",),
+    "PRICE + FLOW + PERSISTENCE": PRICE_FEATURES + ("capital_flow_ratio", "capital_persistence"),
+    "PRICE + FLOW + ACCELERATION": PRICE_FEATURES + ("capital_flow_ratio", "capital_acceleration"),
+    "PRICE + FLOW + DIVERGENCE": PRICE_FEATURES + ("capital_flow_ratio", "capital_price_divergence"),
+    "PRICE + PERSISTENCE + ACCELERATION": PRICE_FEATURES + ("capital_persistence", "capital_acceleration"),
+    "CAPITAL_FULL": PRICE_FEATURES + CAPITAL_FEATURES + ("institution", "hot_money", "capital_convergence"),
     "FULL": PRICE_FEATURES + VOLUME_FEATURES + CAPITAL_FEATURES + (
         "supply_absorption", "real_pricing_gap", "repricing_state", "future_buyer_evidence",
     ),
@@ -67,6 +79,9 @@ SINGLE_FAMILY_ABLATION_FEATURES = {
     "PRICING_GAP ONLY": ("real_pricing_gap",),
     "REPRICING ONLY": ("repricing_state",),
     "FUTURE BUYER ONLY": ("future_buyer_evidence",),
+    "INSTITUTION ONLY": ("institution",),
+    "HOT MONEY ONLY": ("hot_money",),
+    "CAPITAL CONVERGENCE ONLY": ("capital_convergence",),
 }
 
 FEATURE_SOURCE_MATRIX = {
@@ -104,6 +119,27 @@ FEATURE_SOURCE_MATRIX = {
         "raw_source": "L2/L3 historical capital observations",
         "scanner_level": "L2/L3",
         "snapshot_field": "raw.fund_flow_acceleration",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_inflection": {
+        "raw_source": "L2/L3 historical capital observations",
+        "scanner_level": "L2/L3",
+        "snapshot_field": "raw.capital_history",
+        "historical_source": "PostgreSQL.canonical_historical_snapshots",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_price_efficiency": {
+        "raw_source": "L2/L3 capital history plus T-day price change",
+        "scanner_level": "L2/L3",
+        "snapshot_field": "raw.capital_history",
+        "historical_source": "PostgreSQL.canonical_historical_snapshots",
+        "feature_function": "xiaogu_forward_features.build_feature_vector",
+    },
+    "capital_price_divergence": {
+        "raw_source": "L2/L3 capital history plus T-day price change",
+        "scanner_level": "L2/L3",
+        "snapshot_field": "raw.capital_history",
+        "historical_source": "PostgreSQL.canonical_historical_snapshots",
         "feature_function": "xiaogu_forward_features.build_feature_vector",
     },
     "supply_absorption": {
@@ -223,6 +259,14 @@ MARKET_ENCODING = {
     "NEUTRAL": 0.5,
     "STRONG": 0.75,
     "BULL": 1.0,
+}
+CAPITAL_DIVERGENCE_ENCODING = {
+    "CAPITAL_UP_PRICE_UP": 1.0,
+    "CAPITAL_UP_PRICE_FLAT": 0.75,
+    "CAPITAL_UP_PRICE_DOWN": 0.90,
+    "CAPITAL_DOWN_PRICE_UP": 0.10,
+    "CAPITAL_DOWN_PRICE_FLAT": 0.25,
+    "CAPITAL_DOWN_PRICE_DOWN": 0.0,
 }
 
 
@@ -484,6 +528,17 @@ def _feature_name(name: str) -> str:
     return FEATURE_ALIASES.get(name, name)
 
 
+SIGNED_FEATURES = {
+    "capital_flow_ratio", "capital_acceleration", "capital_price_efficiency",
+}
+
+
+def _feature_numeric(name: str, value: float) -> float:
+    if name in SIGNED_FEATURES:
+        return max(-1.0, min(1.0, value))
+    return max(0.0, min(1.0, value))
+
+
 def _feature_value(row: Dict[str, Any], name: str) -> float:
     name = _feature_name(name)
     alpha = _alpha_payload(row)
@@ -498,7 +553,9 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
             value = value.get("score") if value.get("score") is not None else value.get("value")
         numeric = _number(value)
         if numeric is not None:
-            return max(0.0, min(1.0, numeric))
+            return _feature_numeric(name, numeric)
+        if name == "capital_price_divergence":
+            return CAPITAL_DIVERGENCE_ENCODING.get(str(value).upper())
     direct = row.get(name, alpha.get(name))
     if isinstance(direct, dict):
         if direct.get("score") is not None:
@@ -509,11 +566,18 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
             direct = direct.get("value")
     numeric = _number(direct)
     if numeric is not None:
-        return max(0.0, min(1.0, numeric))
+        return _feature_numeric(name, numeric)
+    if name == "capital_price_divergence" and direct not in (None, ""):
+        return CAPITAL_DIVERGENCE_ENCODING.get(str(direct).upper())
     vector = _feature_payload(row)
     group_by_name = {
         "capital_flow_ratio": ("CAPITAL", "capital_flow_ratio"),
         "capital_price_impact": ("CAPITAL", "capital_price_impact"),
+        "capital_persistence": ("CAPITAL", "capital_persistence"),
+        "capital_acceleration": ("CAPITAL", "capital_acceleration"),
+        "capital_inflection": ("CAPITAL", "capital_inflection"),
+        "capital_price_efficiency": ("CAPITAL", "capital_price_efficiency"),
+        "capital_price_divergence": ("CAPITAL", "capital_price_divergence_state"),
         "real_pricing_gap": ("PRICING_GAP", "real_pricing_gap"),
     }
     group_name, field_name = group_by_name.get(name, (None, None))
@@ -521,7 +585,9 @@ def _feature_value(row: Dict[str, Any], name: str) -> float:
         group = vector.get(group_name) if isinstance(vector, dict) else None
         numeric = _number(group.get(field_name)) if isinstance(group, dict) else None
         if numeric is not None:
-            return max(0.0, min(1.0, numeric))
+            return _feature_numeric(name, numeric)
+        if name == "capital_price_divergence" and isinstance(group, dict):
+            return CAPITAL_DIVERGENCE_ENCODING.get(str(group.get(field_name) or "").upper())
     if name == "repricing_state":
         raw = row.get(name) if row.get(name) not in (None, "", "UNKNOWN") else alpha.get(name)
         if raw in (None, "", "UNKNOWN"):
@@ -688,7 +754,29 @@ def _feature_observed(row: Dict[str, Any], name: str, value: float) -> bool:
             and any(key in raw for key in ("main_net_inflow", "f62", "amount", "signal_amount"))
         )
     if name in {"capital_persistence", "capital_acceleration"}:
-        return any(key in raw for key in (name, name.replace("capital_", "fund_flow_")))
+        history_audit = (
+            (capital.get("capital_history_audit") if isinstance(capital, dict) else None)
+            or row.get("capital_history_audit")
+            or {}
+        )
+        measured = capital.get(name) if isinstance(capital, dict) else row.get(name)
+        return (
+            history_audit.get("observed_days", 0) >= 6
+            and measured is not None
+        )
+    if name in {"capital_inflection", "capital_price_efficiency", "capital_price_divergence"}:
+        history_audit = (
+            (capital.get("capital_history_audit") if isinstance(capital, dict) else None)
+            or row.get("capital_history_audit")
+            or {}
+        )
+        measured = capital.get(name) if isinstance(capital, dict) else row.get(name)
+        if name == "capital_price_divergence" and measured is None and isinstance(capital, dict):
+            measured = capital.get("capital_price_divergence_state")
+        return (
+            history_audit.get("observed_days", 0) >= 6
+            and measured is not None
+        )
     if name == "supply_absorption":
         return (
             isinstance(supply, dict)
@@ -864,6 +952,12 @@ def build_feature_source_matrix(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any
             "valid_rate": item.get("valid_rate"),
             "unique_count": item.get("unique_count", 0),
             "std": item.get("std"),
+            "mean": item.get("mean"),
+            "p10": item.get("p10"),
+            "p25": item.get("p25"),
+            "p50": item.get("p50"),
+            "p75": item.get("p75"),
+            "p90": item.get("p90"),
             "status": item.get("status", "FEATURE_COLLAPSED"),
             "production_permission": "RESEARCH_ONLY" if item.get("status") == "OK" else "NONE",
             "production_allowed": item.get("status") == "OK",
@@ -1052,7 +1146,7 @@ def _calibration_table(labels: Sequence[int], predictions: Sequence[float], bins
 def _prediction_metrics(rows: Sequence[Dict[str, Any]], predictions: Sequence[float]) -> Dict[str, Any]:
     labels = [int(_label_value(row)) for row in rows]
     profits = [_outcome_profit(row) for row in rows]
-    maes = [_mae(row) for row in rows]
+    maes = [value for row in rows if (value := _mae(row)) is not None]
     times = [_time_to_profit(row) for row in rows]
     selected = [profit for profit, prediction in zip(profits, predictions) if prediction >= 0.5 and profit is not None]
     portfolio = portfolio_metrics([profit for profit in profits if profit is not None])
@@ -1230,6 +1324,7 @@ def _ablation_report(
     }
     baseline = results.get("BASELINE", {})
     baseline_oos = baseline.get("oos") or {}
+    price_oos = (results.get("PRICE") or {}).get("oos") or {}
     for result in results.values():
         oos = result.get("oos") or {}
         def delta(name: str) -> float | None:
@@ -1241,6 +1336,17 @@ def _ablation_report(
                 "roc_auc", "pr_auc", "brier_score", "calibration_error", "profit_window_rate",
                 "mean_net_profit", "median_net_profit", "mean_mae", "mean_mfe", "profit_factor",
                 "max_drawdown",
+            )
+        }
+        result["price_baseline_delta"] = {
+            name: (
+                oos.get(name) - price_oos.get(name)
+                if oos.get(name) is not None and price_oos.get(name) is not None else None
+            )
+            for name in (
+                "roc_auc", "pr_auc", "brier_score", "calibration_error", "probability_std",
+                "profit_window_rate", "mean_net_profit", "median_net_profit", "mean_mae",
+                "mfe", "profit_factor", "max_drawdown",
             )
         }
     return {
@@ -1580,7 +1686,12 @@ def build_alpha_report(
         "price_strength": family_oos_increment["PRICE"],
         "turnover": _family_increment("PRICE + VOLUME"),
         "capital_flow_ratio": family_oos_increment["CAPITAL"],
-        "capital_price_impact": family_oos_increment["CAPITAL"],
+        "capital_persistence": family_oos_increment["CAPITAL"],
+        "capital_acceleration": family_oos_increment["CAPITAL"],
+        "capital_inflection": family_oos_increment["CAPITAL"],
+        "capital_price_efficiency": family_oos_increment["CAPITAL"],
+        "capital_price_divergence": family_oos_increment["CAPITAL"],
+        "capital_price_impact": False,
         "supply_absorption": family_oos_increment["SUPPLY"],
         "real_pricing_gap": family_oos_increment["PRICING_GAP"],
         "repricing_state": family_oos_increment["REPRICING"],
@@ -1607,6 +1718,10 @@ def build_alpha_report(
         name for name in (calibration.get("feature_names") or MINIMAL_ALPHA_FEATURES)
         if name not in collapsed and feature_permission.get(name, False)
     }
+    # PRICE remains the frozen comparator and current minimal production
+    # candidate even while BUY is blocked by incomplete truth or OOS gates.
+    if "price_strength" not in collapsed:
+        production_feature_names.add("price_strength")
     for name, item in feature_source_matrix.items():
         item["production_permission"] = (
             "PRODUCTION"

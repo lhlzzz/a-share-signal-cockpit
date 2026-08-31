@@ -41,9 +41,10 @@ LIGHT_STOCK_FIELDS = ",".join([
 MARKET_CODES = {0: "SZ", 1: "SH", 2: "BJ"}
 STOCK_FIELDS = LIGHT_STOCK_FIELDS
 CAPITAL_FIELDS = ",".join(["f1", "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f14"] + [f"f{i}" for i in range(51, 76)])
+CAPITAL_HISTORY_FIELDS = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
 DEEP_DOMAINS = (
     "stock_capital_flow", "earnings_preview", "org_survey", "stock_reports", "lhb",
-    "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
+    "capital_history", "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
 )
 CRITICAL_SOURCES = frozenset({"stock_all_a"})
 OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
@@ -211,6 +212,79 @@ def fetch_ulist(
         status="PASS" if kept or not wanted else "EMPTY",
     )
     return kept
+
+
+def fetch_capital_history(
+    candidate_codes: Iterable[str],
+    *,
+    begin_date: str = "",
+    end_date: str = "",
+    diagnostics: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    """Capture provider-returned daily capital history for L2 candidates only.
+
+    Eastmoney's history endpoint is optional.  Provider availability is kept
+    in diagnostics; no row is synthesized when the endpoint is empty or fails.
+    """
+    _start_diagnostic(diagnostics)
+    wanted = sorted({code for code in (normalize_stock_code(item) for item in candidate_codes) if code})
+    if not wanted:
+        _store_diagnostic(
+            diagnostics, requested_symbols=[], returned_symbols=[], unrelated_symbols=[],
+            unrelated_rows=0, request_count=0, response_count=0, row_count=0,
+            status="SKIPPED", evidence_status="SOURCE_UNAVAILABLE",
+        )
+        return []
+    fetched_at = _iso_now()
+    rows: list[Dict[str, Any]] = []
+    requests = 0
+    for code in wanted:
+        secid = _secid(code)
+        if not secid:
+            continue
+        payload = api_get("https://push2his.eastmoney.com/api/qt/stock/fflow/daykline?" + urlencode({
+            "lmt": 0, "klt": 101, "fqt": 0, "secid": secid,
+            "fields1": "f1,f2,f3,f7",
+            "fields2": CAPITAL_HISTORY_FIELDS,
+        }))
+        requests += 1
+        data = payload.get("data") or {}
+        klines = data.get("klines") if isinstance(data, dict) else []
+        for item in klines or []:
+            if isinstance(item, str):
+                values = item.split(",")
+            elif isinstance(item, (list, tuple)):
+                values = list(item)
+            else:
+                continue
+            if len(values) < 3:
+                continue
+            trade_date = str(values[0] or "")[:10]
+            if not trade_date or (begin_date and trade_date < begin_date) or (end_date and trade_date > end_date):
+                continue
+            def number(index: int) -> float | None:
+                return fnum(values[index], None) if index < len(values) else None
+            rows.append({
+                "symbol": code,
+                "trade_date": trade_date,
+                "capital_flow": number(1),
+                "capital_flow_ratio": number(6),
+                "main_force_flow": number(5),
+                "source": "eastmoney_capital_history",
+                "source_id": "eastmoney_capital_history",
+                "source_time": f"{trade_date}T15:00:00+08:00",
+                "available_at": fetched_at,
+                "provider_fields": CAPITAL_HISTORY_FIELDS.split(","),
+            })
+    returned = sorted({str(row["symbol"]) for row in rows})
+    _store_diagnostic(
+        diagnostics, requested_symbols=wanted, returned_symbols=returned,
+        unrelated_symbols=[], unrelated_rows=0, request_count=requests,
+        response_count=len(rows), row_count=len(rows),
+        status="PASS" if rows else "EMPTY",
+        evidence_status="OBSERVED" if rows else "SOURCE_UNAVAILABLE",
+    )
+    return rows
 
 
 def fetch_paginated(
@@ -657,6 +731,7 @@ def build_canonical_snapshots(
         scan_nonce=uuid.uuid4().hex,
     )
     capital = _by_symbol(results.get("stock_capital_flow", []))
+    capital_history = _by_symbol(results.get("capital_history", []))
     earnings = _by_symbol(results.get("earnings_preview", []))
     reports = _by_symbol(results.get("stock_reports", []))
     lhb = _by_symbol(results.get("lhb", []))
@@ -706,6 +781,7 @@ def build_canonical_snapshots(
             visible = attach_research_observations(
                 visible,
                 stock_capital_flow=(capital.get(code) or [{}])[0],
+                capital_history=(capital_history.get(code) or [])[-6:],
                 earnings_preview=(earnings.get(code) or [{}])[0],
                 org_surveys=(org_surveys.get(code) or [])[:5],
                 stock_reports=(reports.get(code) or [])[:5],
@@ -901,6 +977,16 @@ def main() -> Dict[str, Any]:
                 lambda: fetch_ulist(candidate_codes, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})),
                 [],
             )
+            results["capital_history"] = _collect(
+                "capital_history", timings,
+                lambda: fetch_capital_history(
+                    candidate_codes,
+                    begin_date=(market_now - timedelta(days=12)).strftime("%Y-%m-%d"),
+                    end_date=source_time[:10],
+                    diagnostics=diagnostics.setdefault("capital_history", {}),
+                ),
+                [],
+            )
             results["lhb"] = _collect(
                 "lhb", timings,
                 lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {}), candidate_codes=candidate_codes),
@@ -959,9 +1045,9 @@ def main() -> Dict[str, Any]:
         else:
             for name in DEEP_DOMAINS:
                 results[name] = []
-        results["external_market"] = []
-        results["indexes"] = []
-        results["market_capital_flow"] = []
+            results["external_market"] = []
+            results["indexes"] = []
+            results["market_capital_flow"] = []
     else:
         for name in ("flow_industry", "flow_concept", *DEEP_DOMAINS, "external_market", "indexes", "market_capital_flow", "level_2_candidates"):
             results.setdefault(name, [])

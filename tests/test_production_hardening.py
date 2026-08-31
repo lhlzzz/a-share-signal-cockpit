@@ -8,6 +8,7 @@ from scrapy_scanner.runner_v2 import (
     OPTIONAL_SOURCES,
     detect_capital_candidates,
     fetch_announcements,
+    fetch_capital_history,
     fetch_datacenter,
     fetch_news,
     fetch_report_list,
@@ -99,6 +100,118 @@ def test_l2_is_resource_router():
     assert routed["600001"]["deep_fetch_required"] is True
     assert routed["600001"]["routing_reasons"]
     assert routed["600002"]["deep_fetch_required"] is False
+
+
+def _capital_history_rows():
+    ratios = (-0.10, -0.05, 0.00, 0.10, 0.15, 0.20)
+    rows = []
+    for index, ratio in enumerate(ratios):
+        trade_date = f"2026-08-{21 + index:02d}"
+        rows.append({
+            "symbol": "600001",
+            "trade_date": trade_date,
+            "capital_flow": ratio * 1_000,
+            "capital_flow_ratio": ratio,
+            "amount": 1_000,
+            "volume": 100 + index,
+            "turnover": 2 + index,
+            "pct_change": -1 if index == 5 else 0.2,
+            "close": 10 + index * 0.1,
+            "relative_volume": 1.1 + index * 0.1,
+            "source": "eastmoney_capital_history",
+            "source_id": "eastmoney_capital_history",
+            "source_time": f"{trade_date}T15:00:00+08:00",
+            "available_at": f"{trade_date}T15:00:00+08:00",
+            "snapshot_id": f"snap-{index}",
+        })
+    return rows
+
+
+def test_capital_history_features_are_pit_and_keep_missing_values():
+    history = _capital_history_rows() + [{
+        **_capital_history_rows()[-1],
+        "trade_date": "2026-08-27",
+        "source_time": "2026-08-27T15:00:00+08:00",
+        "available_at": "2026-08-27T15:00:00+08:00",
+        "capital_flow_ratio": 0.99,
+    }]
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
+        "symbol": "600001",
+        "price": 10.5,
+        "volume": 105,
+        "amount": 1_000,
+        "pct_chg": -1,
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "raw": {"capital_history": history},
+    }))
+    capital = vector["CAPITAL"]
+    audit = capital["capital_history_audit"]
+    assert audit["returned_observations"] == 6
+    assert audit["excluded_count"] == 1
+    assert audit["positive_days"] == 3
+    assert capital["capital_persistence"] == pytest.approx(0.5)
+    assert capital["capital_acceleration"] == pytest.approx(0.05)
+    assert capital["capital_acceleration_delta_3d"] == pytest.approx(0.20)
+    assert capital["capital_acceleration_slope"] == pytest.approx(0.06)
+    assert capital["capital_inflection"] == 1.0
+    assert capital["capital_price_efficiency"] == pytest.approx(-0.05)
+    assert capital["capital_price_divergence_state"] == "CAPITAL_UP_PRICE_DOWN"
+    assert capital["capital_flow_ratio"] == pytest.approx(0.20)
+    assert all(item["available_at"] <= "2026-08-26T15:00:00+08:00" for item in audit["observations"])
+    assert all(item["source_id"] and item["snapshot_id"] for item in audit["observations"])
+
+
+def test_capital_flow_ratio_zero_amount_is_none_and_history_is_not_replicated():
+    history = _capital_history_rows()[:5] + [{
+        **_capital_history_rows()[-1],
+        "amount": 0,
+        "capital_flow": 200,
+        "capital_flow_ratio": None,
+    }]
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "amount": 1_000,
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "raw": {"capital_history": history},
+    }))
+    capital = vector["CAPITAL"]
+    assert capital["capital_flow_ratio"] is None
+    assert capital["capital_persistence"] is None
+    assert capital["capital_acceleration"] is not None
+    assert capital["capital_history_audit"]["observed_days"] == 5
+
+
+def test_capital_flow_ratio_falls_back_to_latest_valid_history_without_t_duplication():
+    vector = build_feature_vector(validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "amount": 1_000,
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "raw": {"capital_history": _capital_history_rows()[:5]},
+    }))
+    capital = vector["CAPITAL"]
+    assert capital["capital_flow_ratio"] == pytest.approx(0.15)
+    assert capital["capital_history_audit"]["returned_observations"] == 5
+
+
+def test_capital_history_scanner_accounts_for_l3_requests(monkeypatch):
+    import scrapy_scanner.runner_v2 as scanner
+
+    def fake_api(url, timeout=30):
+        code = "600001" if "1.600001" in url else "000002"
+        return {"data": {"klines": [["2026-08-26", "100", "0", "0", "0", "0", "0.1"]]}}
+
+    monkeypatch.setattr(scanner, "api_get", fake_api)
+    diagnostics = {}
+    rows = fetch_capital_history(
+        ["600001", "000002"],
+        begin_date="2026-08-26",
+        end_date="2026-08-26",
+        diagnostics=diagnostics,
+    )
+    assert {row["symbol"] for row in rows} == {"600001", "000002"}
+    assert diagnostics["requested_symbols"] == ["000002", "600001"]
+    assert diagnostics["returned_symbols"] == ["000002", "600001"]
+    assert diagnostics["unrelated_symbols"] == []
+    assert diagnostics["request_count"] == 2
+    assert diagnostics["response_count"] == 2
 
 
 def test_no_selection_bias_blindspot():

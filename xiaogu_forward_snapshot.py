@@ -397,6 +397,7 @@ def attach_research_observations(
     row: Dict[str, Any],
     *,
     stock_capital_flow: Dict[str, Any] | None = None,
+    capital_history: list[Dict[str, Any]] | None = None,
     earnings_preview: Dict[str, Any] | None = None,
     org_surveys: list[Dict[str, Any]] | None = None,
     stock_reports: list[Dict[str, Any]] | None = None,
@@ -412,6 +413,7 @@ def attach_research_observations(
     enriched = RawSnapshot(row or {})
     enriched.update({
         "stock_capital_flow": dict(stock_capital_flow or {}),
+        "capital_history": list(capital_history or []),
         "earnings_preview": dict(earnings_preview or {}),
         "org_surveys": list(org_surveys or []),
         "stock_reports": list(stock_reports or []),

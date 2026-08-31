@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable
 
 from xiaogu_forward_snapshot import CanonicalSnapshot, assert_point_in_time_evidence, filter_point_in_time_records, pit_record_audit
@@ -183,11 +184,195 @@ def _source_records(raw: Dict[str, Any], key: str, source_id: str) -> list[Dict[
     ]
 
 
+MIN_CAPITAL_HISTORY_OBSERVATIONS = 6
+
+
+def _capital_history_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if len(text) == 10:
+        text += "T15:00:00+08:00"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _capital_history_number(row: Dict[str, Any], *keys: str) -> float | None:
+    return _optional_number(_first(row, *keys))
+
+
+def _capital_history_features(
+    raw: Dict[str, Any],
+    snapshot: CanonicalSnapshot,
+    as_of: str,
+) -> Dict[str, Any]:
+    """Normalize six real T-day observations without filling missing history."""
+    as_of_ts = _capital_history_timestamp(as_of)
+    trade_date = str(snapshot.get("trade_date") or "")
+    supplied = raw.get("capital_history") if isinstance(raw.get("capital_history"), list) else []
+    candidates = [dict(row) for row in supplied if isinstance(row, dict)]
+    current_source_row = raw.get("stock_capital_flow") if isinstance(raw.get("stock_capital_flow"), dict) else {}
+    current_flow = _capital_history_number(
+        raw, "main_net_inflow", "net_inflow_main", "f62",
+    )
+    if current_flow is None:
+        current_flow = _capital_history_number(
+            current_source_row, "main_net_inflow", "net_inflow_main", "f62",
+        )
+    current_amount_value = _first(current_source_row, "amount", "signal_amount", "f6")
+    current_amount_value = _first(raw, "amount", "signal_amount", "f6", default=current_amount_value)
+    current_amount_value = _first(snapshot, "amount", "signal_amount", "f6", default=current_amount_value)
+    current_amount = _optional_number(current_amount_value)
+    current_pct_value = _first(current_source_row, "pct_change", "signal_pct", "pct_chg", "f3")
+    current_pct_value = _first(snapshot, "pct_change", default=current_pct_value)
+    current_pct_value = _first(raw, "pct_change", "signal_pct", "pct_chg", "f3", default=current_pct_value)
+    current_pct_change = _optional_number(current_pct_value)
+    current_date = trade_date or str(as_of or "")[:10]
+    supplied_dates = {
+        str(row.get("trade_date") or row.get("date") or "")[:10]
+        for row in candidates
+    }
+    if current_date and current_date not in supplied_dates and current_flow is not None:
+        candidates.append({
+            "symbol": snapshot.get("symbol"),
+            "trade_date": current_date,
+            "capital_flow": current_flow,
+            "amount": current_amount,
+            "volume": _optional_number(_first(snapshot, "volume", "f5", default=_first(raw, "volume", "f5"))),
+            "turnover": _optional_number(_first(snapshot, "turnover", "turnover_rate", "f8", default=_first(raw, "turnover", "turnover_rate", "f8"))),
+            "pct_change": current_pct_change,
+            "close": _optional_number(_first(snapshot, "close", "price", "f2", default=_first(raw, "close", "price", "f2"))),
+            "relative_volume": _optional_number(_first(raw, "relative_volume", "volume_ratio", "f10")),
+            "source": current_source_row.get("source") or "stock_capital_flow",
+            "source_id": current_source_row.get("source_id") or "stock_capital_flow",
+            "source_time": current_source_row.get("source_time") or current_source_row.get("observed_at") or snapshot.get("source_time") or as_of,
+            "available_at": current_source_row.get("available_at") or snapshot.get("available_at") or as_of,
+            "snapshot_id": snapshot.get("snapshot_id"),
+        })
+
+    normalized: list[Dict[str, Any]] = []
+    excluded: list[Dict[str, Any]] = []
+    for row in candidates:
+        row_date = str(row.get("trade_date") or row.get("date") or "")[:10]
+        source_time = row.get("source_time") or row.get("observed_at")
+        available_at = row.get("available_at")
+        row_source = str(row.get("source") or row.get("source_id") or "")
+        row_source_id = str(row.get("source_id") or row_source)
+        audit = {
+            "symbol": str(row.get("symbol") or snapshot.get("symbol") or "").zfill(6),
+            "trade_date": row_date,
+            "source": row_source,
+            "source_id": row_source_id,
+            "source_time": source_time,
+            "available_at": available_at,
+            "snapshot_id": row.get("snapshot_id"),
+        }
+        row_ts = _capital_history_timestamp(source_time)
+        available_ts = _capital_history_timestamp(available_at)
+        if not row_date or not row_source or row_ts is None or available_ts is None:
+            excluded.append({**audit, "reason": "CAPITAL_IDENTITY_INCOMPLETE"})
+            continue
+        if trade_date and row_date > trade_date:
+            excluded.append({**audit, "reason": "FUTURE_TRADE_DATE"})
+            continue
+        if as_of_ts is not None and available_ts > as_of_ts:
+            excluded.append({**audit, "reason": "AVAILABLE_AFTER_AS_OF"})
+            continue
+        amount = _capital_history_number(row, "amount", "signal_amount", "f6")
+        flow = _capital_history_number(row, "capital_flow", "main_net_inflow", "net_inflow_main", "f62")
+        provider_ratio = _capital_history_number(row, "capital_flow_ratio")
+        ratio = (
+            provider_ratio
+            if provider_ratio is not None and amount is not None and amount > 0
+            else flow / amount
+            if flow is not None and amount is not None and amount > 0
+            else None
+        )
+        normalized.append({
+            **audit,
+            "capital_flow": flow,
+            "capital_flow_ratio": ratio,
+            "amount": amount,
+            "volume": _capital_history_number(row, "volume", "f5"),
+            "turnover": _capital_history_number(row, "turnover", "turnover_rate", "f8", "f168"),
+            "pct_change": _capital_history_number(row, "pct_change", "signal_pct", "pct_chg", "f3"),
+            "close": _capital_history_number(row, "close", "price", "f2", "f43"),
+            "relative_volume": _capital_history_number(row, "relative_volume", "volume_ratio", "f10"),
+        })
+
+    # A symbol/date is one observation. Prefer the latest provider timestamp.
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for row in sorted(normalized, key=lambda item: (item["trade_date"], str(item["source_time"]))):
+        by_date[row["trade_date"]] = row
+    observations = list(by_date.values())[-MIN_CAPITAL_HISTORY_OBSERVATIONS:]
+    ratios = [row["capital_flow_ratio"] for row in observations if row["capital_flow_ratio"] is not None]
+    observed_days = len(ratios)
+    positive_days = sum(value > 0 for value in ratios)
+    persistence = positive_days / observed_days if observed_days >= MIN_CAPITAL_HISTORY_OBSERVATIONS else None
+    delta_1d = delta_3d = slope = None
+    if observed_days >= 2:
+        valid_rows = [row for row in observations if row["capital_flow_ratio"] is not None]
+        delta_1d = valid_rows[-1]["capital_flow_ratio"] - valid_rows[-2]["capital_flow_ratio"]
+        if len(valid_rows) >= 4:
+            delta_3d = valid_rows[-1]["capital_flow_ratio"] - valid_rows[-4]["capital_flow_ratio"]
+            slope = (valid_rows[-1]["capital_flow_ratio"] - valid_rows[0]["capital_flow_ratio"]) / (len(valid_rows) - 1)
+    inflection = None
+    if observed_days >= MIN_CAPITAL_HISTORY_OBSERVATIONS:
+        history_ratios = [row["capital_flow_ratio"] for row in observations]
+        prior = sum(history_ratios[:3]) / 3.0
+        recent = sum(history_ratios[-2:]) / 2.0
+        inflection = 1.0 if prior <= 0 and recent > max(0.05, prior + 0.05) else 0.0
+    latest = observations[-1] if observations else {}
+    latest_ratio = latest.get("capital_flow_ratio")
+    latest_pct = latest.get("pct_change")
+    efficiency = (
+        (latest_pct / 100.0) / abs(latest_ratio)
+        if latest_pct is not None and latest_ratio not in (None, 0)
+        else None
+    )
+    divergence = None
+    if latest_ratio is not None and latest_pct is not None:
+        capital_up = latest_ratio > 0.0
+        price_up = latest_pct > 0.05
+        price_down = latest_pct < -0.05
+        divergence = (
+            "CAPITAL_UP_PRICE_UP" if capital_up and price_up else
+            "CAPITAL_UP_PRICE_DOWN" if capital_up and price_down else
+            "CAPITAL_UP_PRICE_FLAT" if capital_up else
+            "CAPITAL_DOWN_PRICE_UP" if price_up else
+            "CAPITAL_DOWN_PRICE_DOWN" if price_down else
+            "CAPITAL_DOWN_PRICE_FLAT"
+        )
+    return {
+        "observations": observations,
+        "requested_observations": MIN_CAPITAL_HISTORY_OBSERVATIONS,
+        "returned_observations": len(observations),
+        "positive_days": positive_days,
+        "observed_days": observed_days,
+        "latest_ratio": latest_ratio,
+        "latest_valid_ratio": ratios[-1] if ratios else None,
+        "persistence_ratio": persistence,
+        "delta_1d": delta_1d,
+        "delta_3d": delta_3d,
+        "slope": slope,
+        "inflection": inflection,
+        "price_efficiency": efficiency,
+        "divergence": divergence,
+        "source_status": "OBSERVED" if observations else "SOURCE_UNAVAILABLE",
+        "excluded": excluded,
+        "excluded_count": len(excluded),
+        "pit_rate": len(observations) / len(candidates) if candidates else 0.0,
+    }
+
+
 _COVERAGE_SKIP = {
     "lineage_id", "source", "available_at", "evidence", "evidence_count", "score",
     "coverage", "observed_count", "available_count", "missing_rate", "valid_rate",
     "industry_cycle", "invalidation_condition", "accumulation_phase",
     "capital_flow_state", "capital_price_impact_state", "supply_absorption_state",
+    "capital_price_divergence", "capital_price_divergence_state", "capital_inflection",
+    "capital_history", "capital_history_observations", "capital_history_audit",
     "regime", "stage", "buyable", "low_price", "drawdown_is_not_gap",
     "SUPPLY_OBSERVED", "DEMAND_OBSERVED", "ABSORPTION_OBSERVED", "PRICE_RESPONSE_OBSERVED",
     "halted", "regulatory_hard_risk", "thesis_invalidated", "buyer_exhaustion",
@@ -259,6 +444,9 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     earnings_raw = raw.get("earnings_preview") if isinstance(raw.get("earnings_preview"), dict) else {}
     earnings_raw = {**earnings_raw, "source_id": earnings_raw.get("source_id") or "research_report"}
     earnings = earnings_raw if assert_point_in_time_evidence(earnings_raw, as_of) else {}
+    capital_history_audit = _capital_history_features(raw, snap, str(as_of or ""))
+    raw = dict(raw)
+    raw["capital_history_audit"] = capital_history_audit
     pit_inputs = {
         "shareholder_changes": _source_records(raw, "shareholder_changes", "shareholder_changes"),
         "lhb": _source_records(raw, "lhb", "lhb"),
@@ -331,6 +519,21 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     flow_comparable = amount is not None and amount > 0 and main_flow is not None and abs(main_flow) <= amount * 5.0
     positive_flow = _clip(max(main_flow, 0.0) / amount) if flow_comparable else None
     negative_flow = _clip(max(-main_flow, 0.0) / amount) if flow_comparable else None
+    current_observation = next(
+        (
+            row for row in capital_history_audit.get("observations", [])
+            if str(row.get("trade_date") or "") == str(snap.get("trade_date") or "")
+        ),
+        None,
+    )
+    current_history_amount = current_observation.get("amount") if current_observation else None
+    current_history_flow = current_observation.get("capital_flow") if current_observation else None
+    if main_flow is not None:
+        capital_flow_ratio = main_flow / amount if amount is not None and amount > 0 else None
+    elif current_history_flow is not None and current_history_amount is not None and current_history_amount <= 0:
+        capital_flow_ratio = None
+    else:
+        capital_flow_ratio = capital_history_audit.get("latest_valid_ratio")
     price_impact = _clip(abs(pct_change) / max(abs(main_flow_pct) * 2.0, 1.0)) if pct_change is not None and main_flow_pct is not None else None
     price_response = _optional_clip(max(pct_change, 0.0) / 10.0) if pct_change is not None else None
     capital_divergence = _optional_clip(
@@ -401,20 +604,31 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "lhb_quality": _optional_clip(_first(raw, "lhb_quality")),
         "seat_behavior": _optional_clip(_first(raw, "seat_behavior_score")),
         "order_pressure": _optional_clip(_first(raw, "order_pressure", "order_book_pressure")),
-        "capital_flow_ratio": positive_flow,
+        "capital_flow_ratio": capital_flow_ratio,
         "volume_accumulation": _optional_clip(_first(raw, "volume_accumulation")),
         "price_volume_confirmation": _optional_clip(_first(raw, "price_volume_confirmation", default=price_response)),
         "capital_price_divergence": capital_divergence,
         "capital_price_impact": price_impact,
         "capital_price_impact_state": capital_price_impact_state,
         "distribution_risk": negative_flow,
+        "capital_history": capital_history_audit["observations"],
+        "capital_history_observations": capital_history_audit["returned_observations"],
+        "capital_history_audit": capital_history_audit,
+        "capital_persistence": capital_history_audit["persistence_ratio"],
+        "capital_acceleration": capital_history_audit["delta_1d"],
+        "capital_acceleration_delta_1d": capital_history_audit["delta_1d"],
+        "capital_acceleration_delta_3d": capital_history_audit["delta_3d"],
+        "capital_acceleration_slope": capital_history_audit["slope"],
+        "capital_inflection": capital_history_audit["inflection"],
+        "capital_price_efficiency": capital_history_audit["price_efficiency"],
+        "capital_price_divergence_state": capital_history_audit["divergence"],
     }
     # Flow/amount is a ratio, not accumulation. Accumulation needs identity
     # evidence plus persistence that has actually been observed.
     capital["accumulation"] = _optional_clip(_first(raw, "capital_accumulation"))
     capital["main_force_flow"] = None
-    capital["capital_persistence"] = capital["fund_flow_persistence"]
-    capital["capital_acceleration"] = capital["fund_flow_acceleration"]
+    capital["fund_flow_persistence"] = capital_history_audit["persistence_ratio"]
+    capital["fund_flow_acceleration"] = capital_history_audit["delta_1d"]
     available_at = str(snap.get("as_of") or snap.get("source_time") or "")
     flow_available_at = _record_available_at(flow, available_at)
     industry_available_at = _record_available_at(industry_flow, available_at)

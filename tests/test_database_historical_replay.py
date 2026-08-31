@@ -2,9 +2,12 @@ import pytest
 
 from xiaogu_backtest_v0_1 import (
     _database_linked_decision_ranges,
+    _capital_history_index,
+    _capital_history_window,
     _entry_audit,
     _merge_missing_future_targets,
     _return_targets,
+    build_capital_behavior_research_dataset,
     build_historical_5d_profit_window_dataset,
     persist_historical_replay,
     supplement_database_future_prices,
@@ -151,6 +154,104 @@ def test_feature_diagnostics_reads_capital_measurement_from_feature_vector():
     }
     diagnostics = diagnose_features([row], feature_names=("capital_flow_ratio",))
     assert diagnostics["features"]["capital_flow_ratio"]["missing_rate"] == 0.0
+
+
+def test_capital_history_window_enforces_available_at_pit_and_deduplicates_dates():
+    history = []
+    for day in range(21, 27):
+        history.append({
+            "symbol": "600001",
+            "trade_date": f"2026-08-{day}",
+            "capital_flow": 100.0,
+            "amount": 1_000.0,
+            "source": "canonical_historical_snapshots",
+            "source_time": f"2026-08-{day}T15:00:00+08:00",
+            "available_at": f"2026-08-{day}T15:00:00+08:00",
+        })
+    history.append({
+        **history[-1],
+        "source_time": "2026-08-26T15:01:00+08:00",
+        "available_at": "2026-08-26T15:01:00+08:00",
+        "capital_flow": 999.0,
+    })
+    assets = {"canonical_historical_snapshots": [{
+        "snapshot_id": "snapshot-26",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "source_time": "2026-08-26T15:00:00+08:00",
+        "available_at": "2026-08-26T15:00:00+08:00",
+        "payload": {"raw": {"capital_history": history}},
+    }]}
+    indexed = _capital_history_index(assets)
+    window = _capital_history_window(
+        indexed,
+        symbol="600001",
+        trade_date="2026-08-26",
+        as_of="2026-08-26T15:00:00+08:00",
+    )
+    assert [row["trade_date"] for row in window] == [f"2026-08-{day}" for day in range(21, 27)]
+    assert window[-1]["capital_flow"] == 100.0
+
+
+def test_capital_research_dataset_is_explicitly_non_production():
+    dataset = build_capital_behavior_research_dataset([{
+        "decision_id": None,
+        "snapshot_id": "snapshot-1",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "current_decision_payload": {
+            "canonical_snapshot": {"as_of": "2026-08-26T15:00:00+08:00"},
+            "feature_vector": {"CAPITAL": {
+                "capital_flow_ratio": 0.2,
+                "capital_persistence": 0.5,
+                "capital_acceleration": 0.1,
+                "capital_inflection": 1.0,
+                "capital_price_efficiency": 0.2,
+                "capital_price_divergence_state": "CAPITAL_UP_PRICE_FLAT",
+                "capital_history_audit": {"returned_observations": 6},
+                "main_force_behavior": {"direction": "UNKNOWN"},
+                "institution_behavior": {"direction": "UNKNOWN"},
+                "hot_money_behavior": {"direction": "UNKNOWN"},
+            }},
+            "core_alpha": {"capital_convergence": {"status": "UNKNOWN"}},
+        },
+    }])
+    assert dataset["production_permission"] == "NONE"
+    assert dataset["research_only"] is True
+    assert dataset["rows"][0]["decision_id"] is None
+    assert dataset["rows"][0]["capital_price_divergence"] == "CAPITAL_UP_PRICE_FLAT"
+
+
+def test_capital_ablation_keeps_price_baseline_and_selectivity_metrics():
+    from xiaogu_horizon_evaluation import _ablation_report, _split_rows
+
+    rows = []
+    for index in range(60):
+        price = 0.8 if index % 4 in (0, 1) else 0.2
+        flow = 0.8 if index % 3 else 0.1
+        label = bool(price > 0.5 and flow > 0.2)
+        rows.append({
+            "trade_date": f"2026-{(index // 28) + 1:02d}-{(index % 28) + 1:02d}",
+            "price_strength": price,
+            "capital_flow_ratio": flow,
+            "capital_persistence": flow,
+            "capital_acceleration": flow,
+            "capital_inflection": float(flow > 0.5),
+            "capital_price_efficiency": flow,
+            "capital_price_divergence": "CAPITAL_UP_PRICE_UP" if label else "CAPITAL_DOWN_PRICE_DOWN",
+            "profit_window": label,
+            "max_daily_bar_profit_opportunity_5d": 0.03 if label else 0.01,
+            "target_quality": "CANONICAL",
+        })
+    train, validation, oos = _split_rows(rows)
+    report = _ablation_report(train, validation, oos)
+    price = report["cumulative"]["PRICE"]
+    capital = report["cumulative"]["PRICE + CAPITAL"]
+    assert price["oos"]["samples"] > 0
+    assert capital["price_baseline_delta"]["pr_auc"] is not None
+    assert "Top5" in capital["selectivity"]
+    assert "Top10" in capital["selectivity"]
+    assert "probability_std" in capital["oos"]
 
 
 def test_profit_window_uses_cost_adjusted_high_not_close():

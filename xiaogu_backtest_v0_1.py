@@ -1095,6 +1095,172 @@ def _capital_convergence_level(value: Any) -> str:
     return "LOW" if score < 1 / 3 else "MEDIUM" if score < 2 / 3 else "HIGH"
 
 
+def _capital_history_index(assets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, list[Dict[str, Any]]]:
+    """Index only persisted canonical T-day observations for PIT replay."""
+    indexed: Dict[str, list[Dict[str, Any]]] = defaultdict(list)
+    for item in assets.get("canonical_historical_snapshots") or []:
+        payload = _as_dict(item.get("payload"))
+        raw = _as_dict(payload.get("raw"))
+        row = {**raw, **payload, **item}
+        symbol = str(row.get("symbol") or "").zfill(6)
+        trade_date = str(row.get("trade_date") or "")[:10]
+        if not symbol or not trade_date:
+            continue
+        base = {
+            "symbol": symbol,
+            "trade_date": trade_date,
+            "capital_flow": _first_value(
+                row.get("main_net_inflow"), row.get("net_inflow_main"), row.get("f62"),
+            ),
+            "amount": _first_value(row.get("amount"), row.get("signal_amount"), row.get("f6")),
+            "volume": _first_value(row.get("volume"), row.get("f5")),
+            "turnover": _first_value(row.get("turnover"), row.get("turnover_rate"), row.get("f8")),
+            "pct_change": _first_value(row.get("pct_change"), row.get("signal_pct"), row.get("pct_chg"), row.get("f3")),
+            "close": _first_value(row.get("close"), row.get("price"), row.get("f2"), row.get("f43")),
+            "relative_volume": _first_value(row.get("relative_volume"), row.get("volume_ratio"), row.get("f10")),
+            "source": row.get("source") or "canonical_historical_snapshots",
+            "source_id": row.get("source_id") or row.get("source") or "canonical_historical_snapshots",
+            "source_time": row.get("source_time") or row.get("signal_time") or row.get("source_timestamp"),
+            "available_at": row.get("available_at"),
+            "snapshot_id": row.get("snapshot_id"),
+        }
+        history_rows = raw.get("capital_history") if isinstance(raw.get("capital_history"), list) else []
+        seen_dates: set[str] = set()
+        for history_row in history_rows:
+            if not isinstance(history_row, dict):
+                continue
+            observed = {**base, **history_row}
+            observed["symbol"] = str(observed.get("symbol") or symbol).zfill(6)
+            observed["trade_date"] = str(observed.get("trade_date") or observed.get("date") or "")[:10]
+            if observed["trade_date"]:
+                seen_dates.add(observed["trade_date"])
+                indexed[observed["symbol"]].append(observed)
+        if trade_date not in seen_dates:
+            indexed[symbol].append(base)
+    for symbol in indexed:
+        indexed[symbol].sort(key=lambda row: (row["trade_date"], str(row.get("source_time") or "")))
+    return indexed
+
+
+def _capital_history_window(
+    history: Dict[str, list[Dict[str, Any]]],
+    *,
+    symbol: str,
+    trade_date: str,
+    as_of: str,
+) -> list[Dict[str, Any]]:
+    """Return at most T-5..T observations, with the decision clock enforced."""
+    def timestamp(value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        if len(text) == 10:
+            text += "T00:00:00+00:00"
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+    as_of_dt = timestamp(as_of)
+    kept = []
+    for row in history.get(str(symbol).zfill(6), []):
+        row_date = str(row.get("trade_date") or "")[:10]
+        available_dt = timestamp(row.get("available_at"))
+        if row_date and row_date <= str(trade_date) and available_dt is not None and (as_of_dt is None or available_dt <= as_of_dt):
+            kept.append(row)
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for row in sorted(kept, key=lambda value: (str(value.get("trade_date") or ""), str(value.get("source_time") or ""))):
+        by_date[str(row.get("trade_date") or "")] = row
+    return list(by_date.values())[-6:]
+
+
+def build_capital_behavior_research_dataset(
+    rows: Iterable[Dict[str, Any]],
+    *,
+    alpha_report: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Project replay rows into a capital-only research artifact.
+
+    This artifact has no production permission and never contains future labels.
+    """
+    dataset = []
+    feature_names = (
+        "capital_flow_ratio", "capital_persistence", "capital_acceleration",
+        "capital_inflection", "capital_price_efficiency", "capital_price_divergence",
+    )
+    for row in rows:
+        payload = row.get("current_decision_payload") if isinstance(row.get("current_decision_payload"), dict) else {}
+        alpha = payload.get("core_alpha") if isinstance(payload.get("core_alpha"), dict) else {}
+        vector = payload.get("feature_vector") if isinstance(payload.get("feature_vector"), dict) else {}
+        capital = vector.get("CAPITAL") if isinstance(vector.get("CAPITAL"), dict) else {}
+        convergence = alpha.get("capital_convergence") if isinstance(alpha.get("capital_convergence"), dict) else {}
+        snapshot = payload.get("canonical_snapshot") if isinstance(payload.get("canonical_snapshot"), dict) else {}
+        dataset.append({
+            "decision_id": row.get("decision_id"),
+            "snapshot_id": row.get("snapshot_id") or snapshot.get("snapshot_id"),
+            "symbol": row.get("symbol"),
+            "trade_date": row.get("trade_date") or row.get("signal_date"),
+            "as_of": snapshot.get("as_of") or row.get("signal_time") or row.get("trade_date"),
+            "capital_flow_ratio": capital.get("capital_flow_ratio"),
+            "capital_persistence": capital.get("capital_persistence"),
+            "capital_acceleration": capital.get("capital_acceleration"),
+            "capital_inflection": capital.get("capital_inflection"),
+            "capital_price_efficiency": capital.get("capital_price_efficiency"),
+            "capital_price_divergence": capital.get("capital_price_divergence_state"),
+            "main_force_state": ((capital.get("main_force_behavior") or {}).get("direction") or "UNKNOWN"),
+            "institution_state": ((capital.get("institution_behavior") or {}).get("direction") or "UNKNOWN"),
+            "hot_money_state": ((capital.get("hot_money_behavior") or {}).get("direction") or "UNKNOWN"),
+            "capital_convergence": convergence.get("status") or "UNKNOWN",
+            "capital_history_audit": capital.get("capital_history_audit") or {},
+            "production_permission": "NONE",
+        })
+    from xiaogu_horizon_evaluation import diagnose_features
+    audit = diagnose_features(dataset, feature_names=feature_names)
+    history_rows = [row for row in dataset if (row.get("capital_history_audit") or {}).get("returned_observations", 0) >= 6]
+    ablation = (alpha_report or {}).get("ablation", {})
+    capital_variant = ((ablation.get("cumulative", {}) or {}).get("PRICE + CAPITAL") or {})
+    return {
+        "dataset_name": "capital_behavior_research_dataset",
+        "dataset_version": "capital_behavior_v1",
+        "research_only": True,
+        "production_permission": "NONE",
+        "rows": dataset,
+        "count": len(dataset),
+        "capital_history_coverage": len(history_rows) / len(dataset) if dataset else 0.0,
+        "feature_audit": audit,
+        "feature_source_matrix": {
+            name: {
+                "raw_source": "canonical_historical_snapshots.payload",
+                "scanner_level": "L2/L3",
+                "snapshot_field": "raw.capital_history",
+                "historical_source": "PostgreSQL.canonical_historical_snapshots",
+                "coverage": (audit.get("features", {}).get(name) or {}).get("valid_rate"),
+                "valid_rate": (audit.get("features", {}).get(name) or {}).get("valid_rate"),
+                "pit_rate": (
+                    sum(
+                        1 for row in dataset
+                        if (row.get("capital_history_audit") or {}).get("observed_days", 0) >= 6
+                    ) / len(dataset)
+                    if dataset else 0.0
+                ),
+            }
+            for name in feature_names
+        },
+        "capital_ablation": ablation,
+        "price_baseline": ((ablation.get("cumulative", {}) or {}).get("PRICE") or {}),
+        "capital_increment": capital_variant.get("price_baseline_delta", {}),
+        "probability_separation": (capital_variant.get("probability_separation") or {}),
+        "monotonicity": (capital_variant.get("monotonicity") or {}),
+        "production_alpha_features": (alpha_report or {}).get("production_alpha_features") or ["price_strength"],
+        "removed_features": (alpha_report or {}).get("removed_features") or [],
+        "production_alpha_permissions": (alpha_report or {}).get("production_alpha_permissions") or {},
+        "production_gates": (alpha_report or {}).get("production_gates") or {},
+        "capital_production_status": "NONE",
+        "outcome_boundary": "CAPITAL_T_DAY_ONLY_NO_T_PLUS_1_TO_T_PLUS_5_INPUTS",
+    }
+
+
 def build_historical_5d_profit_window_dataset(
     assets: Dict[str, List[Dict[str, Any]]],
 ) -> Dict[str, Any]:
@@ -1107,6 +1273,7 @@ def build_historical_5d_profit_window_dataset(
     candidates = [materialize(row) for row in assets.get("daily_candidates") or []]
     returns = [materialize(row) for row in assets.get("returns") or []]
     canonical_future = [materialize(row) for row in assets.get("canonical_future_prices") or []]
+    capital_history = _capital_history_index(assets)
     production_runs = {
         str(row.get("id") or row.get("production_run_id")): row
         for row in (materialize(row) for row in assets.get("production_runs") or [])
@@ -1303,6 +1470,12 @@ def build_historical_5d_profit_window_dataset(
             issues.append("DECISION_IDENTITY_CONFLICT")
             quality = "CONFLICT"
         snapshot_source = _pick_snapshot(pick or {}, candidate)
+        snapshot_source["capital_history"] = _capital_history_window(
+            capital_history,
+            symbol=symbol,
+            trade_date=trade_date,
+            as_of=str(snapshot_source.get("source_time") or ""),
+        )
         if not snapshot_source.get("source_time"):
             snapshot_source["source_time"] = f"{snapshot_source.get('trade_date')}T15:00:00+08:00"
         snapshot = None
@@ -1359,6 +1532,16 @@ def build_historical_5d_profit_window_dataset(
             **targets,
             "capital_convergence": alpha.get("capital_convergence"),
             "capital_convergence_level": _capital_convergence_level(alpha.get("capital_convergence")),
+            "capital_flow_ratio": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_flow_ratio"),
+            "capital_persistence": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_persistence"),
+            "capital_acceleration": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_acceleration"),
+            "capital_inflection": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_inflection"),
+            "capital_price_efficiency": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_price_efficiency"),
+            "capital_price_divergence": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_price_divergence_state"),
+            "capital_history_audit": ((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("capital_history_audit", {}),
+            "main_force_state": (((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("main_force_behavior") or {}).get("direction", "UNKNOWN"),
+            "institution_state": (((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("institution_behavior") or {}).get("direction", "UNKNOWN"),
+            "hot_money_state": (((current or {}).get("feature_vector") or {}).get("CAPITAL", {}).get("hot_money_behavior") or {}).get("direction", "UNKNOWN"),
             "repricing_state": alpha.get("repricing_state"),
             "accumulation_phase": ((current or {}).get("portfolio_state") or {}).get("accumulation_status") or alpha.get("accumulation_phase"),
             "target_quality": quality,
