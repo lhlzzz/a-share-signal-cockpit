@@ -186,7 +186,7 @@ def audit_production_schema() -> Dict[str, Any]:
             "snapshot_id", "lineage_id", "symbol", "trade_date", "source", "source_time",
             "payload_hash",
         ),
-        "picks": ("decision_id", "position_state"),
+        "picks": ("decision_id", "position_state", "paper_signal_state", "paper_position_state"),
         "returns": ("decision_id",),
         "canonical_historical_snapshots": (
             "snapshot_id", "lineage_id", "symbol", "trade_date", "signal_time",
@@ -299,12 +299,16 @@ def ensure_production_schema() -> None:
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT",
         "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_signal_state TEXT",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_position_state TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
         "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
         "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_picks_paper_signal_state ON picks (paper_signal_state)",
+        "CREATE INDEX IF NOT EXISTS idx_picks_paper_position_state ON picks (paper_position_state)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
         "CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)",
@@ -711,6 +715,7 @@ def record_decision(decision: Dict[str, Any]) -> None:
         raise ValueError("DECISION_ID_REQUIRED")
     columns = _table_columns("picks")
     fields = ["trade_date", "symbol", "state", "position_state", "payload"]
+    paper_signal = decision.get("paper_signal") if isinstance(decision.get("paper_signal"), dict) else {}
     canonical = decision.get("canonical_snapshot") or {}
     params = {
         "trade_date": canonical.get("trade_date") or decision.get("date") or decision.get("trade_date"),
@@ -719,6 +724,8 @@ def record_decision(decision: Dict[str, Any]) -> None:
         "position_state": decision.get("position_state"),
         "payload": json.dumps(decision, ensure_ascii=False, default=str),
         "decision_id": decision.get("decision_id"),
+        "paper_signal_state": decision.get("paper_signal_state") or paper_signal.get("state"),
+        "paper_position_state": decision.get("paper_position_state") or paper_signal.get("paper_position_state"),
     }
     if "decision_id" in columns:
         fields.append("decision_id")
@@ -731,12 +738,16 @@ def record_decision(decision: Dict[str, Any]) -> None:
         fields.remove("position_state")
     if "payload" not in columns and "payload" in fields:
         fields.remove("payload")
+    for field in ("paper_signal_state", "paper_position_state"):
+        if field in columns:
+            fields.append(field)
+    conflict_clause = " ON CONFLICT (decision_id) DO NOTHING" if paper_signal.get("status") == "PAPER_SIGNAL" else ""
     with get_db() as db:
         db.execute(
             text(
                 f"INSERT INTO picks ({', '.join(fields)}) VALUES ("
                 + ", ".join("CAST(:payload AS jsonb)" if field == "payload" else f":{field}" for field in fields)
-                + ")"
+                + ")" + conflict_clause
             ),
             params,
         )
@@ -936,6 +947,68 @@ def upsert_scan_market_data(scan_session_id: int, trade_date: Any, scan_time: An
 def fetch_picks() -> List[Dict[str, Any]]:
     with engine.connect() as db:
         return [dict(row) for row in db.execute(text("SELECT * FROM picks ORDER BY id DESC")).mappings()]
+
+
+def fetch_paper_signals() -> List[Dict[str, Any]]:
+    """Read observational signals from PostgreSQL, never from JSONL."""
+    columns = _table_columns("picks")
+    clauses = []
+    if "paper_signal_state" in columns:
+        clauses.append("paper_signal_state IS NOT NULL")
+    if "payload" in columns:
+        clauses.append("payload->>'paper_signal_status' = 'PAPER_SIGNAL'")
+    if not clauses:
+        return []
+    with engine.connect() as db:
+        return [
+            dict(row) for row in db.execute(
+                text(f"SELECT * FROM picks WHERE {' OR '.join(clauses)} ORDER BY id DESC")
+            ).mappings()
+        ]
+
+
+def paper_signal_exists(decision_id: str) -> bool:
+    """Check one paper signal identity without reading local audit artifacts."""
+    wanted = str(decision_id or "").strip()
+    if not wanted:
+        return False
+    columns = _table_columns("picks")
+    if "decision_id" not in columns:
+        return False
+    with engine.connect() as db:
+        return bool(db.execute(
+            text("SELECT 1 FROM picks WHERE decision_id = :decision_id LIMIT 1"),
+            {"decision_id": wanted},
+        ).scalar())
+
+
+def fetch_open_paper_positions() -> List[Dict[str, Any]]:
+    """Return effective open paper positions, excluding settled outcomes."""
+    from xiaogu_forward_result_filler_v0_1 import _row_payload
+
+    signals = fetch_paper_signals()
+    outcomes = {}
+    for row in fetch_returns():
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        payload = payload if isinstance(payload, dict) else {}
+        payload.update({key: value for key, value in row.items() if key != "payload"})
+        outcomes[str(payload.get("decision_id") or "")] = payload
+    open_rows = []
+    seen_symbols: set[str] = set()
+    for row in signals:
+        record = _row_payload(row)
+        decision_id = str(record.get("decision_id") or row.get("decision_id") or "")
+        symbol = str(record.get("symbol") or row.get("symbol") or "")
+        if not decision_id or symbol in seen_symbols:
+            continue
+        outcome = outcomes.get(decision_id) or {}
+        if outcome.get("outcome_complete") is True or outcome.get("paper_signal_state") == "PAPER_CLOSED":
+            continue
+        seen_symbols.add(symbol)
+        open_rows.append({**record, "decision_id": decision_id, "paper_signal_state": "PAPER_OPEN", "paper_position_state": "PAPER_LONG"})
+    return open_rows
 
 
 def fetch_production_model(model_id: str) -> Dict[str, Any] | None:

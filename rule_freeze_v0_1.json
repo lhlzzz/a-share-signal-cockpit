@@ -143,6 +143,15 @@
     "health": "FAIL",
     "production": "BLOCK"
   },
-  "alpha_status": "EXPERIMENTAL",
-  "buy_enabled": false
+  "alpha_status": "DATA_INSUFFICIENT",
+  "buy_enabled": false,
+  "paper_observation": {
+    "enabled": true,
+    "signal": "PAPER_SIGNAL",
+    "production_alpha": "price_strength",
+    "capital_alpha": "RESEARCH_ONLY",
+    "validation_dataset": false,
+    "live_trading": false,
+    "model_version_frozen": true
+  }
 }

@@ -3,6 +3,7 @@ set -euo pipefail
 
 WORKSPACE="${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$WORKSPACE"
+export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 DATE="${1:-$(date +%F)}"
 SCAN_DIR="data/live_scan/${DATE}/eastmoney_scan_afternoon"
 

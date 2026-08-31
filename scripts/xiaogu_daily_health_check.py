@@ -51,7 +51,7 @@ def check_scanner_contract():
 
 
 def check_decision_owner():
-    return _contains("decision", "def evaluate_candidate_bundle", "WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
+    return _contains("decision", "def evaluate_candidate_bundle", "PAPER_SIGNAL", "price_strength", "PRODUCTION_BUY_BLOCKED", "WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
 
 
 def check_price_formation_features():
@@ -102,6 +102,11 @@ def check_rule_freeze():
         and rule.get("paper_only") is True
         and rule.get("auto_order") is False
         and rule.get("broker_connected") is False
+        and rule.get("buy_enabled") is False
+        and rule.get("paper_observation", {}).get("enabled") is True
+        and rule.get("paper_observation", {}).get("signal") == "PAPER_SIGNAL"
+        and rule.get("paper_observation", {}).get("capital_alpha") == "RESEARCH_ONLY"
+        and rule.get("paper_observation", {}).get("live_trading") is False
     )
     return ok, "ok" if ok else "repricing rule freeze contract mismatch"
 
@@ -157,6 +162,8 @@ def check_production_schema_audit():
         and snapshots["columns"]["payload_hash"] == "EXISTS"
         and audit["tables"]["picks"]["columns"]["decision_id"] == "EXISTS"
         and audit["tables"]["returns"]["columns"]["decision_id"] == "EXISTS"
+        and audit["tables"]["picks"]["columns"]["paper_signal_state"] == "EXISTS"
+        and audit["tables"]["picks"]["columns"]["paper_position_state"] == "EXISTS"
         and snapshots["unique"]["snapshot_id"] == "EXISTS"
         and snapshots["primary_key"]["status"] == "EXISTS"
         and historical["columns"]["snapshot_id"] == "EXISTS"

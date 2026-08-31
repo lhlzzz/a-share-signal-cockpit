@@ -18,6 +18,7 @@ from xiaogu_utils import append_jsonl, now_iso
 
 BASE = Path(__file__).resolve().parent
 FORWARD_LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"  # audit artifact only
+PAPER_DATASET_PATH = BASE / "data" / "research" / "paper_production_5d_dataset.json"
 EASTMONEY_KLINE_ENDPOINT = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 EASTMONEY_KLINE_FIELDS = (
     "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
@@ -28,6 +29,7 @@ DEFAULT_EXECUTION_COST_RATE = DEFAULT_COST_RATE
 PROFIT_WINDOW_TARGET = 0.02
 EVALUATION_DAYS = (1, 2, 3, 4, 5)
 REALIZABILITY_LEVEL = "DAILY_BAR_APPROXIMATION"
+PAPER_SIGNAL_DECISION = "PAPER_SIGNAL"
 
 
 def _row_payload(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -471,6 +473,9 @@ def append_result(
         "actual_5d_mae": outcomes.get("future_5d_mae"),
         "result_status": "SETTLED" if outcomes.get("outcome_complete") else "PENDING",
         "result_filled_at": now_iso(),
+        "paper_signal_state": "PAPER_CLOSED" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else record.get("paper_signal_state"),
+        "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else record.get("paper_position_state"),
+        "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and record.get("paper_signal_status") == "PAPER_SIGNAL" else None,
     }
     if outcomes.get("outcome_complete"):
         result["post_trade_review"] = build_post_trade_review(record, outcomes)
@@ -546,6 +551,76 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
+    """Materialize a research artifact from PostgreSQL paper truth."""
+    from xiaogu_db import fetch_paper_signals, fetch_returns
+
+    output_path = path or PAPER_DATASET_PATH
+    outcome_by_id = {}
+    for row in fetch_returns():
+        payload = _row_payload(row)
+        decision_id = str(payload.get("decision_id") or "").strip()
+        if decision_id:
+            outcome_by_id[decision_id] = payload
+    rows = []
+    for row in fetch_paper_signals():
+        record = _row_payload(row)
+        decision_id = str(record.get("decision_id") or row.get("decision_id") or "").strip()
+        if not decision_id:
+            continue
+        outcome = outcome_by_id.get(decision_id) or {}
+        alpha = record.get("core_alpha") or (record.get("features_used") or {}).get("core_alpha") or {}
+        paper = record.get("paper_signal") or {}
+        days = outcome.get("days") if isinstance(outcome.get("days"), dict) else {}
+        rows.append({
+            "decision_id": decision_id,
+            "symbol": record.get("symbol") or row.get("symbol"),
+            "signal_time": record.get("signal_time") or record.get("asof_time"),
+            "entry_price": record.get("entry_price"),
+            "entry_price_source": record.get("entry_price_source"),
+            "price_strength": paper.get("price_strength") or alpha.get("profit_window_feature_values", {}).get("price_strength"),
+            "alpha_status": paper.get("alpha_status") or alpha.get("model_status") or "DATA_INSUFFICIENT",
+            "paper_signal": "PAPER_SIGNAL",
+            "paper_signal_state": outcome.get("paper_signal_state") or record.get("paper_signal_state") or "PAPER_OPEN",
+            "paper_position_state": outcome.get("paper_position_state") or record.get("paper_position_state") or "PAPER_LONG",
+            "risk_state": paper.get("risk_state"),
+            "execution_state": paper.get("execution_state"),
+            "signal_reason": record.get("signal_reason") or record.get("decision_reason"),
+            "research_overlay": paper.get("research_overlay") or record.get("research_overlay") or {},
+            "capital_flow_ratio": (paper.get("research_overlay") or {}).get("capital_flow_ratio"),
+            "capital_persistence": (paper.get("research_overlay") or {}).get("capital_persistence"),
+            "capital_acceleration": (paper.get("research_overlay") or {}).get("capital_acceleration"),
+            "T+1": days.get("1", {}), "T+2": days.get("2", {}), "T+3": days.get("3", {}),
+            "T+4": days.get("4", {}), "T+5": days.get("5", {}),
+            "profit_window_hit": outcome.get("profit_window", False),
+            "first_profit_day": outcome.get("first_profit_day"),
+            "max_profit_5d": outcome.get("max_daily_bar_profit_opportunity_5d"),
+            "max_mae_5d": outcome.get("max_mae_5d"),
+            "mfe_5d": outcome.get("future_5d_mfe"),
+            "paper_exit_reason": outcome.get("paper_exit_reason"),
+            "model_version": record.get("model_version") or paper.get("model_version") or alpha.get("model_id"),
+            "feature_version": record.get("feature_version") or paper.get("feature_version") or alpha.get("feature_version"),
+            "decision_version": record.get("decision_version") or paper.get("decision_version"),
+            "cost_model_version": record.get("cost_model_version") or paper.get("cost_model_version") or "cost_model_v1",
+            "research_only": True,
+        })
+    artifact = {
+        "artifact": "paper_production_5d_dataset",
+        "artifact_status": "PAPER_OBSERVATION_ONLY",
+        "research_only": True,
+        "validation_dataset": False,
+        "alpha": "price_strength",
+        "target": "PROFIT_WINDOW_5D",
+        "cost_model_version": "cost_model_v1",
+        "rows": rows,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(artifact, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    tmp.replace(output_path)
+    return {"path": str(output_path), "row_count": len(rows), "status": "PAPER_OBSERVATION_ONLY"}
+
+
 def _has_new_outcome(result: Dict[str, Any], prior: Dict[str, Any] | None) -> bool:
     prior = prior or {}
     result_days = result.get("available_days")
@@ -561,10 +636,11 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
     for row in fetch_picks():
         record = _row_payload(row)
         action = str(record.get("action") or record.get("state") or record.get("decision") or "").upper()
-        if action not in {"BUY", "HOLD", "REDUCE", "SELL"}:
+        paper_status = str(record.get("paper_signal_status") or ((record.get("paper_signal") or {}).get("status") if isinstance(record.get("paper_signal"), dict) else ""))
+        if action not in {"BUY", "HOLD", "REDUCE", "SELL", "PAPER_SIGNAL"} and paper_status != "PAPER_SIGNAL":
             continue
         record["record_type"] = "DECISION"
-        record["decision"] = action
+        record["decision"] = PAPER_SIGNAL_DECISION if paper_status == "PAPER_SIGNAL" else action
         record["id"] = str(record.get("decision_id") or record.get("id") or "")
         record["date"] = str(record.get("date") or record.get("trade_date") or "")
         records.append(record)
@@ -598,9 +674,13 @@ def main() -> None:
     parser.add_argument("--record-json", default="")
     parser.add_argument("--pending", action="store_true", help="append newly available outcomes for ledger decisions")
     parser.add_argument("--end-date", default="")
+    parser.add_argument("--refresh-dataset", action="store_true")
     args = parser.parse_args()
     if args.pending:
-        print(json.dumps(fill_pending_results(end_date=args.end_date or None), ensure_ascii=False, default=str))
+        payload = fill_pending_results(end_date=args.end_date or None)
+        if args.refresh_dataset:
+            payload["paper_dataset"] = refresh_paper_dataset()
+        print(json.dumps(payload, ensure_ascii=False, default=str))
         return
     if not args.record_json:
         parser.error("--record-json is required unless --pending is used")

@@ -21,6 +21,7 @@ from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 BASE = Path(__file__).resolve().parent
 RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
+PAPER_SIGNAL_STATUS = "PAPER_SIGNAL"
 
 
 PRODUCTION_MODES = ("PRODUCTION", "REPLAY", "DRY_RUN", "RESEARCH")
@@ -103,6 +104,25 @@ def _write_ledger_record(decision: Dict[str, Any]) -> Path:
     return path
 
 
+def _write_paper_signal(decision: Dict[str, Any]) -> Dict[str, Any]:
+    from xiaogu_forward_paper_recorder_v0_1 import append_paper_signal
+    _path, record = append_paper_signal(decision)
+    return record
+
+
+def _empty_observation_output(trade_date: str, reason: str) -> Dict[str, Any]:
+    output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
+              "paper_signal_count": 0, "paper_signals": [], "state": "WATCH", "reason": reason}
+    from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
+    output["daily_memory_path"] = write_daily_paper_memory(trade_date, [])
+    try:
+        from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
+        output["paper_dataset"] = refresh_paper_dataset()
+    except Exception as exc:
+        output["paper_dataset"] = {"status": "FAILED", "error": repr(exc)}
+    return output
+
+
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     """Re-evaluate active positions through the sole Decision Owner."""
     from xiaogu_db import fetch_open_positions, fetch_persisted_canonical_snapshots, fetch_position_outcome
@@ -156,6 +176,60 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         if new_action != previous_action or holding_days >= 5 or decision.get("trade_status") == "CLOSED":
             _write_ledger_record(decision)
             reviewed.append(decision)
+    reviewed.extend(daily_paper_position_review(trade_date))
+    return reviewed
+
+
+def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
+    """Review paper positions without changing real FLAT/LONG state."""
+    from xiaogu_db import fetch_open_paper_positions, fetch_persisted_canonical_snapshots, fetch_position_outcome
+
+    positions = fetch_open_paper_positions()
+    rows = list(fetch_persisted_canonical_snapshots(trade_date) or [])
+    reviewed = []
+    for prior in positions:
+        symbol = str(prior.get("symbol") or "").zfill(6)
+        snapshot = select_canonical_snapshot(rows, symbol=symbol, trade_date=trade_date)
+        if snapshot is None:
+            continue
+        prior_id = str(prior.get("decision_id") or "")
+        result = fetch_position_outcome(prior_id, symbol=symbol)
+        try:
+            start = date.fromisoformat(str(prior.get("trade_date") or prior.get("date")))
+            end = date.fromisoformat(str(trade_date))
+            holding_days = sum(
+                start.fromordinal(day).weekday() < 5
+                for day in range(start.toordinal() + 1, end.toordinal() + 1)
+            )
+        except (TypeError, ValueError):
+            holding_days = 0
+        decision = run_production_decision(
+            snapshot,
+            portfolio_state="HOLD",
+            account={
+                "decision_id": prior_id,
+                "holding_days": holding_days,
+                "profit_window_hit": result.get("profit_window") is True,
+                "max_profit": result.get("max_daily_bar_profit_opportunity_5d"),
+                "mae": result.get("max_mae_5d"),
+                "mfe": result.get("future_5d_mfe"),
+            },
+            mode="PRODUCTION",
+            trade_date=trade_date,
+            position_state="LONG",
+            previous_action="HOLD",
+        )
+        action = decision.get("action") or "HOLD"
+        decision.update({
+            "paper_review": True,
+            "paper_signal_decision_id": prior_id,
+            "paper_signal_state": "PAPER_CLOSED" if action in {"SELL", "REDUCE"} else "PAPER_OPEN",
+            "paper_position_state": "PAPER_FLAT" if action in {"SELL", "REDUCE"} else "PAPER_LONG",
+            "paper_action": "PAPER_SELL" if action == "SELL" else "PAPER_REDUCE" if action == "REDUCE" else "PAPER_HOLD",
+            "paper_exit_reason": decision.get("reason") if action in {"SELL", "REDUCE"} else None,
+            "holding_days": holding_days,
+        })
+        reviewed.append(decision)
     return reviewed
 
 
@@ -175,7 +249,7 @@ def main() -> None:
         return
     if args.snapshot_json:
         if mode == "PRODUCTION":
-            print(json.dumps({"state": "WATCH", "reason": "NO_PRODUCTION_SNAPSHOT", "date": args.date}))
+            print(json.dumps(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"), ensure_ascii=False, default=str))
             return
         payload = json.loads(Path(args.snapshot_json).read_text(encoding="utf-8"))
         rows = payload.get("canonical_snapshots") or [payload]
@@ -183,13 +257,13 @@ def main() -> None:
         from xiaogu_db import fetch_persisted_canonical_snapshots
         rows = fetch_persisted_canonical_snapshots(args.date)
         if not rows:
-            print(json.dumps({"state": "WATCH", "reason": "NO_PRODUCTION_SNAPSHOT", "date": args.date}))
+            print(json.dumps(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"), ensure_ascii=False, default=str))
             return
     else:
         payload = load_latest_snapshot_bundle(args.date)
         rows = payload.get("canonical_snapshots") or []
     if not rows:
-        print(json.dumps({"state": "WATCH", "reason": "SNAPSHOT_NOT_FOUND", "date": args.date}))
+        print(json.dumps(_empty_observation_output(args.date, "SNAPSHOT_NOT_FOUND"), ensure_ascii=False, default=str))
         return
     input_count = len(rows)
     trusted = []
@@ -224,6 +298,7 @@ def main() -> None:
     })
     decisions = []
     recorded = 0
+    paper_signals = []
     for row in rows:
         row = dict(row)
         row.setdefault("trade_date", args.date)
@@ -236,12 +311,17 @@ def main() -> None:
         if mode == "PRODUCTION" and not args.dry_run and decision["state"] in RECORDABLE_ACTIONS:
             decision["ledger_path"] = str(_write_ledger_record(decision))
             recorded += 1
+        if mode == "PRODUCTION" and not args.dry_run and (decision.get("paper_signal") or {}).get("status") == PAPER_SIGNAL_STATUS:
+            decision["paper_ledger_record"] = _write_paper_signal(decision)
+            paper_signals.append(decision["paper_ledger_record"])
         decisions.append(decision)
-    print(json.dumps({
+    output = {
         "date": args.date,
         "mode": mode,
         "count": len(decisions),
         "recorded": recorded,
+        "paper_signal_count": len(paper_signals),
+        "paper_signals": paper_signals,
         "candidate_universe": universe,
         "sample_accounting": {
             "full_universe_count": input_count,
@@ -257,7 +337,16 @@ def main() -> None:
             "unresolved_count": 0,
         },
         "decisions": decisions,
-    }, ensure_ascii=False, default=str))
+    }
+    if mode == "PRODUCTION" and not args.dry_run:
+        from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
+        output["daily_memory_path"] = write_daily_paper_memory(args.date, paper_signals)
+        try:
+            from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
+            output["paper_dataset"] = refresh_paper_dataset()
+        except Exception as exc:
+            output["paper_dataset"] = {"status": "FAILED", "error": repr(exc)}
+    print(json.dumps(output, ensure_ascii=False, default=str))
 
 
 if __name__ == "__main__":

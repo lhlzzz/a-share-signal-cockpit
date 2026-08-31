@@ -25,6 +25,9 @@ RULE_FREEZE = BASE / 'rule_freeze_v0_1.json'
 FORWARD_LEDGER = BASE / 'forward_paper_ledger_v0_1.jsonl'
 SNAPSHOT_ROOT = BASE / 'data' / 'forward_snapshots'
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
+PAPER_SIGNAL_DECISION = "PAPER_SIGNAL"
+PAPER_SIGNAL_STATES = {"PAPER_OPEN", "PAPER_CLOSED"}
+PAPER_POSITION_STATES = {"PAPER_FLAT", "PAPER_LONG"}
 VALID_DECISIONS = RECORDABLE_DECISIONS
 LOCKED_AT_GENERATION = ['date','generated_at','asof_time','symbol','decision','rule_version','features_used','raw_data_snapshot_path','decision_reason','paper_only','no_trade','production_ready']
 PENDING_OUTCOME_FIELDS = tuple(
@@ -81,7 +84,7 @@ def _markdown(value: Any) -> str:
 def write_trade_memory(record: Dict[str, Any]) -> str:
     """Write the single human-readable trade note for this decision."""
     state = str(record.get("decision") or "WATCH").upper()
-    if state not in RECORDABLE_DECISIONS:
+    if state not in RECORDABLE_DECISIONS | {PAPER_SIGNAL_DECISION}:
         return ""
     features = record.get("features_used") or {}
     alpha = features.get("core_alpha") or {}
@@ -105,6 +108,9 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 - Entry price: `{record.get('entry_price') or 'UNKNOWN'}`
 - Reason: {_markdown(record.get('decision_reason'))}
 - Previous state: {_markdown(record.get('previous_state'))}
+- Paper signal state: `{record.get('paper_signal_state') or 'N/A'}`
+- Paper position state: `{record.get('paper_position_state') or 'PAPER_FLAT'}`
+- Live order: `DISABLED`
 
 ## Capital Views
 - Institution: {_markdown((research.get('capital') or {}).get('institution_behavior'))}
@@ -196,6 +202,36 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
     return str(path)
 
 
+def write_daily_paper_memory(trade_date: str, signals: list[Dict[str, Any]]) -> str:
+    """Write one compact daily observation note; PostgreSQL remains the fact source."""
+    rows = []
+    for signal in signals:
+        paper = signal.get("paper_signal") if isinstance(signal.get("paper_signal"), dict) else signal
+        rows.append(
+            f"- `{signal.get('decision_id')}` `{signal.get('symbol')}` "
+            f"entry={signal.get('entry_price') or signal.get('entry_reference_price')} "
+            f"price_strength={paper.get('price_strength')} "
+            f"state={signal.get('paper_signal_state') or 'PAPER_OPEN'} "
+            f"reason={signal.get('signal_reason') or paper.get('signal_reason')}"
+        )
+    path = memory_root() / "daily" / f"{trade_date}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"# {trade_date}\n\n"
+        "## Xiaogu Paper Production\n\n"
+        "- Status: `PAPER_OBSERVATION_ONLY`\n"
+        "- Production alpha: `price_strength`\n"
+        "- Capital alpha: `RESEARCH_ONLY`\n"
+        "- Live trading: `DISABLED`\n"
+        "- Production BUY: `BLOCKED`\n\n"
+        "## Signals\n"
+        + ("\n".join(rows) if rows else "- `NO PAPER SIGNAL`")
+        + "\n\n## Outcome\n- T+1..T+5 are filled from PostgreSQL future-price facts.\n",
+        encoding="utf-8",
+    )
+    return str(path)
+
+
 def read_features_arg(s: str) -> Dict[str, Any]:
     if not s:
         return {}
@@ -225,6 +261,29 @@ def validate_generation(decision: str, rule: Dict[str, Any]) -> None:
         raise SystemExit(
             'rule_freeze requires forward paper evaluation with auto/broker execution disabled'
         )
+
+
+def validate_paper_signal(decision: Dict[str, Any], rule: Dict[str, Any]) -> None:
+    signal = decision.get("paper_signal") if isinstance(decision.get("paper_signal"), dict) else {}
+    if signal.get("status") != PAPER_SIGNAL_DECISION:
+        raise ValueError("PAPER_SIGNAL_CONTRACT_REQUIRED")
+    if str(decision.get("decision_id") or "").strip() == "":
+        raise ValueError("DECISION_ID_REQUIRED")
+    canonical = decision.get("canonical_snapshot") or {}
+    if canonical.get("trusted_snapshot") is not True:
+        raise ValueError("TRUSTED_CANONICAL_REQUIRED")
+    if signal.get("alpha_name") != "price_strength":
+        raise ValueError("PAPER_SIGNAL_ALPHA_CONTRACT_INVALID")
+    if signal.get("live_order") is not False or signal.get("paper_only") is not True:
+        raise ValueError("PAPER_SIGNAL_LIVE_EXECUTION_DISABLED")
+    if (decision.get("paper_signal_state") or signal.get("state")) not in PAPER_SIGNAL_STATES:
+        raise ValueError("PAPER_SIGNAL_STATE_REQUIRED")
+    if (decision.get("paper_position_state") or signal.get("paper_position_state")) not in PAPER_POSITION_STATES:
+        raise ValueError("PAPER_POSITION_STATE_REQUIRED")
+    if not rule.get("paper_only") or not rule.get("no_trade") or rule.get("production_ready"):
+        raise ValueError("PAPER_SIGNAL_SAFETY_FLAGS_INVALID")
+    if rule.get("auto_order") or rule.get("broker_connected"):
+        raise ValueError("PAPER_SIGNAL_LIVE_EXECUTION_DISABLED")
 
 
 def _snapshot_and_record(
@@ -297,9 +356,13 @@ def _snapshot_and_record(
         'no_trade': True,
         'production_ready': False,
         'allow_forward_paper': True,
-        'manual_paper_execution_allowed': decision == 'BUY',
+        'manual_paper_execution_allowed': False if decision == PAPER_SIGNAL_DECISION else decision == 'BUY',
         'auto_order': False,
         'broker_connected': False,
+        'paper_signal_status': PAPER_SIGNAL_DECISION if decision == PAPER_SIGNAL_DECISION else None,
+        'paper_signal_state': features.get('paper_signal_state'),
+        'paper_position_state': features.get('paper_position_state'),
+        'signal_reason': features.get('signal_reason') or decision_reason,
         'note': 'T-day visible snapshot only; T+1..T+5 window outcomes are appended after the decision.',
     }
     entry_contract = historical_entry_contract({
@@ -332,9 +395,13 @@ def _snapshot_and_record(
         'no_trade': True,
         'production_ready': False,
         'allow_forward_paper': True,
-        'manual_paper_execution_allowed': decision == 'BUY',
+        'manual_paper_execution_allowed': False if decision == PAPER_SIGNAL_DECISION else decision == 'BUY',
         'auto_order': False,
         'broker_connected': False,
+        'paper_signal_status': PAPER_SIGNAL_DECISION if decision == PAPER_SIGNAL_DECISION else None,
+        'paper_signal_state': features.get('paper_signal_state'),
+        'paper_position_state': features.get('paper_position_state'),
+        'signal_reason': features.get('signal_reason') or decision_reason,
         'result_status': 'PENDING',
         **{field: None for field in PENDING_OUTCOME_FIELDS},
         'result_filled_at': None,
@@ -348,6 +415,8 @@ def _snapshot_and_record(
         'previous_state': features.get('portfolio_state_before'),
         'new_state': features.get('state') or decision,
         'signal_time': features.get('signal_time') or canonical.get('source_time'),
+        'snapshot_id': features.get('snapshot_id') or canonical.get('snapshot_id'),
+        'lineage_id': features.get('lineage_id') or canonical.get('lineage_id'),
         'entry_time': features.get('entry_time') or features.get('signal_time') or canonical.get('source_time'),
         'entry_price': features.get('entry_price') or canonical.get('price'),
         'entry_price_source': features.get('entry_price_source') or 'canonical_snapshot.price',
@@ -427,6 +496,51 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
             'date': record.get('date'),
             'error': memory_error,
         })
+    return snap, record
+
+
+def append_paper_signal(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
+    """Persist one observational signal using the existing production tables."""
+    rule = load_json(RULE_FREEZE)
+    validate_paper_signal(decision, rule)
+    canonical = decision["canonical_snapshot"]
+    paper_decision = {
+        **decision,
+        "decision_id": decision["paper_signal"]["decision_id"],
+        "state": PAPER_SIGNAL_DECISION,
+        "action": None,
+        "reason": decision.get("paper_signal", {}).get("signal_reason") or "PRICE_STRENGTH_BASELINE_SIGNAL",
+        "paper_signal_state": "PAPER_OPEN",
+        "paper_position_state": "PAPER_LONG",
+        "paper_signal_status": PAPER_SIGNAL_DECISION,
+        "paper_signal": {**decision["paper_signal"], "state": "PAPER_OPEN", "paper_position_state": "PAPER_LONG"},
+    }
+    snap, snapshot, record = _snapshot_and_record(
+        date=str(canonical["trade_date"]),
+        asof_time=str(canonical.get("source_time") or "000000"),
+        symbol=str(canonical["symbol"]),
+        decision=PAPER_SIGNAL_DECISION,
+        features=paper_decision,
+        decision_reason=str(paper_decision["reason"]),
+        generated_at=now_iso(),
+        rule_version=str(rule["rule_version"]),
+        production_run_id=str(decision.get("production_run_id") or ""),
+        source="xiaogu_forward_runner",
+    )
+    from xiaogu_db import paper_signal_exists, record_snapshot_and_decision
+    if paper_signal_exists(str(paper_decision["decision_id"])):
+        return snapshot_path_for(
+            str(canonical["trade_date"]),
+            str(canonical.get("source_time") or "000000"),
+            str(rule["rule_version"]),
+            str(canonical["symbol"]),
+        ), {"decision_id": paper_decision["decision_id"], "database_persistence": {"status": "ALREADY_EXISTS"}, "audit_persistence": {"status": "SKIPPED"}}
+    record_snapshot_and_decision(canonical, paper_decision)
+    record["database_persistence"] = {"status": "PASS"}
+    dump_json(snap, snapshot)
+    record["audit_persistence"] = {"status": "PASS"}
+    append_jsonl(FORWARD_LEDGER, record)
+    record["memory_path"] = write_trade_memory(record) or None
     return snap, record
 
 

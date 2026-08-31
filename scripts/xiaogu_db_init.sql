@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS picks (
     state TEXT NOT NULL,
     position_state TEXT,
     payload JSONB NOT NULL,
+    paper_signal_state TEXT,
+    paper_position_state TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE TABLE IF NOT EXISTS returns (
@@ -105,10 +107,14 @@ ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT;
 ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB;
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_signal_state TEXT;
+ALTER TABLE picks ADD COLUMN IF NOT EXISTS paper_position_state TEXT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT;
 ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_picks_paper_signal_state ON picks (paper_signal_state);
+CREATE INDEX IF NOT EXISTS idx_picks_paper_position_state ON picks (paper_position_state);
 CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
 CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);

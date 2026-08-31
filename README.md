@@ -42,7 +42,7 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.
 - Position state lives in PostgreSQL. JSONL is an audit artifact. Obsidian is memory only.
 
-The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. T+5 closes the trade. `WATCH` and `READY` are analysis states. The recorder persists only `BUY`, `HOLD`, `REDUCE`, and `SELL`. BUY stays blocked until the alpha is OOS-validated.
+The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. T+5 closes the trade. `WATCH` and `READY` are analysis states. `PAPER_SIGNAL` is a separate observational signal persisted in the existing `picks` table with `PAPER_OPEN/PAPER_CLOSED` and `PAPER_FLAT/PAPER_LONG`; it never becomes a real `BUY` or real `LONG`. Production BUY is hard-blocked in the current paper-observation mode.
 
 `snapshot_id` is the immutable canonical snapshot identity. `lineage_id` is one scan/lineage and may cover many symbols. Schema migration failure raises, health fails, and production is blocked. Historical rows with missing `decision_id` stay `UNRESOLVED` and are not rewritten. Current alpha status is `DATA_INSUFFICIENT`; the rebuilt 5D ground truth covers 92.61% of historical decisions, so production BUY stays blocked. The only remaining production-alpha candidate is `price_strength`; other tested features are research-only or have no stable OOS increment.
 
@@ -55,6 +55,13 @@ The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. 
 - `GET /trade/{decision_id}`
 - `GET /memory`
 - `GET /patterns`
+- `GET /paper/signals`
+- `GET /paper/signal/{decision_id}`
+- `GET /paper/performance`
+- `GET /paper/open`
+- `GET /paper/history`
+
+All paper endpoints read PostgreSQL. `data/research/paper_production_5d_dataset.json` is a research artifact and is not a validation dataset. The frozen production alpha is `price_strength`; capital, supply, repricing, and future-buyer fields remain `RESEARCH_ONLY` overlay data.
 
 ## Validation
 

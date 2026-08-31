@@ -189,6 +189,92 @@ def test_candidate_universe_is_cheap_and_has_no_alpha_fields():
     assert audit["alpha"] is False
 
 
+def _paper_signal_snapshot():
+    return {
+        "symbol": "600001", "price": 10, "open": 9.9, "high": 10.3, "low": 9.7,
+        "amount": 1_000, "volume": 100, "pct_chg": 3,
+        "buyable": True, "liquidity_score": 1, "execution_quality": 1,
+        "gap_risk": 0, "slippage": 0, "spread": 0, "market_impact": 0,
+        "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+    }
+
+
+def test_paper_signal_identity_and_buy_blocked():
+    decision = evaluate_candidate_bundle(
+        _paper_signal_snapshot(),
+        as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
+    )
+    paper = decision["paper_signal"]
+    assert paper["status"] == "PAPER_SIGNAL"
+    assert paper["decision_id"]
+    assert paper["signal_reason"] == "PRICE_STRENGTH_BASELINE_SIGNAL"
+    assert paper["alpha_name"] == "price_strength"
+    assert paper["alpha_status"] == "DATA_INSUFFICIENT"
+    assert decision["state"] != "BUY"
+    assert decision["buy_status"] == "BUY_BLOCKED"
+    assert paper["paper_only"] is True
+    assert paper["live_order"] is False
+    assert paper["cost_model_version"] == "cost_model_v1"
+
+
+def test_paper_signal_daily_freeze_uses_snapshot_identity_not_runner_clock():
+    first = evaluate_candidate_bundle(
+        _paper_signal_snapshot(),
+        as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
+    )
+    second = evaluate_candidate_bundle(
+        _paper_signal_snapshot(),
+        as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:30:00+08:00"),
+    )
+    assert first["paper_signal"]["decision_id"] == second["paper_signal"]["decision_id"]
+    assert first["paper_signal"]["model_version"] == second["paper_signal"]["model_version"]
+
+
+def test_paper_signal_recorder_uses_db_and_never_live_order(tmp_path, monkeypatch):
+    import xiaogu_db
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    decision = evaluate_candidate_bundle(
+        _paper_signal_snapshot(),
+        as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
+    )
+    monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
+    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    stored = []
+    monkeypatch.setattr(xiaogu_db, "record_snapshot_and_decision", lambda snapshot, item: stored.append((snapshot, item)))
+    _path, record = recorder.append_paper_signal(decision)
+    assert stored[0][1]["state"] == "PAPER_SIGNAL"
+    assert stored[0][1]["action"] is None
+    assert stored[0][1]["paper_signal_state"] == "PAPER_OPEN"
+    assert stored[0][1]["paper_position_state"] == "PAPER_LONG"
+    assert record["decision"] == "PAPER_SIGNAL"
+    assert record["manual_paper_execution_allowed"] is False
+    assert record["auto_order"] is False
+    assert record["broker_connected"] is False
+    assert record["future_5d_return"] is None
+
+
+def test_paper_api_reads_postgres_and_separates_real_positions(monkeypatch):
+    import xiaogu_api
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_picks", lambda: [{
+        "decision_id": "paper-1", "symbol": "600001", "trade_date": "2026-08-26",
+        "paper_signal_state": "PAPER_OPEN", "paper_position_state": "PAPER_LONG",
+        "payload": {"decision_id": "paper-1", "paper_signal_status": "PAPER_SIGNAL",
+                     "paper_signal": {"status": "PAPER_SIGNAL", "price_strength": 0.6},
+                     "signal_time": "2026-08-26T14:50:00+08:00", "entry_price": 10,
+                     "alpha_status": "DATA_INSUFFICIENT", "signal_reason": "PRICE_STRENGTH_BASELINE_SIGNAL"},
+    }])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: [])
+    payload = xiaogu_api.paper_signals()
+    assert payload["status"] == "PAPER_OBSERVATION_ONLY"
+    assert payload["count"] == 1
+    assert payload["signals"][0]["paper_signal_state"] == "PAPER_OPEN"
+    assert xiaogu_api.paper_open()["count"] == 1
+
+
 def test_recorder_accepts_trade_events_but_rejects_watch_memory(tmp_path, monkeypatch):
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
