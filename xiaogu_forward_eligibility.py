@@ -109,7 +109,8 @@ def eligibility_blockers(
             asof = datetime.fromisoformat(source_time.replace("Z", "+00:00"))
             if asof.tzinfo is None:
                 asof = asof.replace(tzinfo=timezone.utc)
-            clock = as_of or datetime.now(timezone.utc)
+            from xiaogu_forward_snapshot import production_now
+            clock = as_of or production_now()
             if clock.tzinfo is None:
                 clock = clock.replace(tzinfo=timezone.utc)
             age = (clock.astimezone(timezone.utc) - asof.astimezone(timezone.utc)).total_seconds() / 60

@@ -200,7 +200,8 @@ def test_climax_or_buyer_exhaustion_blocks_new_buy():
         position_state="FLAT", as_of=AS_OF,
     )
     assert decision["state"] == "READY"
-    assert "BUYER_EXHAUSTION_OR_CLIMAX" in decision["repricing_risk"]["blockers"]
+    assert "BUYER_EXHAUSTION_OR_CLIMAX" not in decision["production_blockers"]
+    assert not any(item.get("blocker") == "BUYER_EXHAUSTION_OR_CLIMAX" for item in decision["production_negative_evidence"])
 
 
 def test_five_day_boundary_closes_trade():

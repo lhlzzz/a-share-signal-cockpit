@@ -19,20 +19,32 @@ MAX_HOLDING_DAYS = 5
 PAPER_OBSERVATION_CONTRACT_VERSION = "paper_observation_v1"
 PAPER_OBSERVATION_STATE = "OBSERVED"
 PAPER_POSITION_STATES = ("PAPER_FLAT", "PAPER_LONG")
-RESEARCH_ONLY_DECISION_BLOCKERS = {
-    "CAPITAL_CONVERGENCE_CONFLICT",
-    "CONFIRMED_DISTRIBUTION",
-    "CONFIRMED_SUPPLY_REVERSAL",
-    "REPRICING_COMPLETED",
-    "BUYER_EXHAUSTION_OR_CLIMAX",
-    "TRADINGAGENTS_CONTRADICTION",
-    "REFLEXIVITY_BREAK",
+PRODUCTION_GATE_VERSION = "production_gate_v1"
+RESEARCH_ONLY_POSITIVE_SIGNALS = {
+    "CAPITAL_ACCUMULATION",
+    "CAPITAL_CONVERGENCE",
+    "HOT_MONEY",
+    "INSTITUTION_PRESENCE",
+    "FUTURE_BUYER",
 }
 DECISION_HARD_GATES = (
-    "TRUSTED_CANONICAL", "DB_VERIFIED", "FRESH_DATA", "DATA_VALID", "TRADABLE",
-    "RISK_PASS", "EXECUTION_PASS", "ALPHA_VALIDATED", "OOS_PASS",
-    "PROBABILITY_SEPARATION_PASS", "MONOTONICITY_PASS", "BASELINE_INCREMENT_PASS",
+    "TRUSTED_CANONICAL",
+    "DB_VERIFIED",
+    "FRESH_DATA",
+    "DATA_VALID",
+    "TRADABLE",
+    "RISK_PASS",
+    "EXECUTION_PASS",
+    "ALPHA_VALIDATED",
+    "PROFIT_WINDOW_MODEL",
+    "OOS_PASS",
+    "PROBABILITY_SEPARATION_PASS",
+    "MONOTONICITY_PASS",
+    "BASELINE_INCREMENT_PASS",
+    "NEGATIVE_EVIDENCE_CLEAR",
 )
+DATA_VALID_REASONS = {"INVALID_SYMBOL", "INVALID_PRICE", "INCOMPLETE_MARKET_DATA", "MISSING_DATA"}
+TRADABLE_REASONS = {"HALTED", "UNBUYABLE", "REGULATORY_HARD_RISK", "ACCOUNT_CONSTRAINT"}
 
 
 def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -> str:
@@ -50,56 +62,268 @@ def _at_least(value: Any, threshold: float) -> bool:
     return value is not None and float(value) >= threshold
 
 
-def _blockers(alpha: Dict[str, Any], features: Dict[str, Any], research: Dict[str, Any]) -> list[str]:
-    blockers = []
-    del research
-    # Missing capital/supply/pricing-gap/future-buyer evidence is a model
-    # input, not a BUY hard gate. Only operational failure, unvalidated
-    # alpha, and confirmed negative evidence can block here.
+def _evidence_identity(item: Dict[str, Any]) -> tuple[str, str, str] | None:
+    identity = item.get("evidence_identity")
+    if isinstance(identity, (list, tuple)) and len(identity) == 3:
+        source_id, event_id, mechanism = [str(part or "").strip() for part in identity]
+    else:
+        source_id = str(item.get("source_id") or item.get("source") or "").strip()
+        event_id = str(item.get("event_id") or "").strip()
+        mechanism = str(item.get("mechanism") or "").strip()
+    if not (source_id and event_id and mechanism):
+        return None
+    return source_id, event_id, mechanism
+
+
+def _confirmation_status(item: Dict[str, Any]) -> str:
+    status = str(
+        item.get("confirmation_status")
+        or item.get("evidence_status")
+        or item.get("status")
+        or ""
+    ).upper()
+    if status in {"UNKNOWN", "UNCONFIRMED", "MISSING"}:
+        return status or "UNKNOWN"
+    if item.get("observed") is False:
+        return "UNCONFIRMED"
+    if status in {"CONFIRMED", "OBSERVED", "EVIDENCE_BACKED"}:
+        return "CONFIRMED" if status == "CONFIRMED" else status
+    if item.get("observed") is True:
+        return "OBSERVED"
+    return "UNKNOWN"
+
+
+def _evidence_confirmed(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    status = _confirmation_status(item)
+    if status in {"UNKNOWN", "UNCONFIRMED", "MISSING", ""}:
+        return False
+    if status not in {"CONFIRMED", "OBSERVED", "EVIDENCE_BACKED"}:
+        return False
+    if _evidence_identity(item) is None:
+        return False
+    if not str(item.get("available_at") or "").strip():
+        return False
+    pit_status = str(item.get("pit_status") or "OK").upper()
+    if pit_status in {"UNKNOWN", "EXCLUDED", "FAILED", "INVALID"}:
+        return False
+    return True
+
+
+def _capital_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
+    capital = features.get("CAPITAL") or {}
+    items = []
+    for key in ("institution_behavior", "main_force_behavior", "hot_money_behavior"):
+        behavior = capital.get(key) or {}
+        for item in behavior.get("evidence") or []:
+            if isinstance(item, dict):
+                items.append(item)
+    return items
+
+
+def _negative_record(blocker: str, item: Dict[str, Any], mechanism: str) -> Dict[str, Any]:
+    identity = _evidence_identity(item)
+    source_id, event_id, item_mechanism = identity or ("", "", mechanism)
+    return {
+        "blocker": blocker,
+        "kind": "CONFIRMED_NEGATIVE_PRODUCTION_BLOCKER",
+        "status": "CONFIRMED",
+        "evidence_identity": identity,
+        "source_id": source_id,
+        "event_id": event_id,
+        "mechanism": item_mechanism or mechanism,
+        "observed_at": item.get("observed_at") or "",
+        "available_at": item.get("available_at") or "",
+        "as_of": item.get("as_of") or item.get("available_at") or "",
+        "confidence": item.get("confidence"),
+    }
+
+
+def collect_production_negative_evidence(
+    alpha: Dict[str, Any],
+    features: Dict[str, Any],
+    research: Dict[str, Any],
+) -> list[Dict[str, Any]]:
+    """Confirmed negative evidence only. UNKNOWN/None/MISSING never become blockers."""
+    records = []
+    capital_items = [item for item in _capital_evidence_items(features) if _evidence_confirmed(item)]
+    distributing = [
+        item for item in capital_items
+        if str(item.get("direction") or item.get("interpretation") or "").upper()
+        in {"DISTRIBUTING", "EXITING", "DISTRIBUTION", "SELL"}
+    ]
+    if distributing:
+        records.append(_negative_record("CONFIRMED_DISTRIBUTION", distributing[0], "distribution"))
+    supply = features.get("SUPPLY") or {}
+    capital = features.get("CAPITAL") or {}
+    supply_evidence = bool(supply.get("SUPPLY_OBSERVED") or supply.get("supply_evidence_count"))
+    capital_evidence = bool(capital_items)
+    turnover_evidence = bool(supply.get("turnover") not in (None, 0) or "turnover" in (supply.get("evidence") or []))
+    price_response = bool(supply.get("PRICE_RESPONSE_OBSERVED") or "price_response" in (supply.get("evidence") or []))
+    distribution_risk = capital.get("distribution_risk")
+    if (
+        supply.get("supply_absorption_state") == "RELEASING"
+        and distribution_risk not in (None, 0)
+        and float(distribution_risk) >= 0.70
+        and supply_evidence
+        and capital_evidence
+        and turnover_evidence
+        and price_response
+        and capital_items
+    ):
+        records.append(_negative_record("CONFIRMED_SUPPLY_REVERSAL", capital_items[0], "supply_reversal"))
+    exhaustion_status = str((features.get("REFLEXIVITY") or {}).get("buyer_exhaustion_status") or "").upper()
+    buyer_exhaustion = alpha.get("buyer_exhaustion")
+    if buyer_exhaustion is True and exhaustion_status in {"OBSERVED", "EVIDENCE_BACKED", "CONFIRMED"} and capital_items:
+        records.append(_negative_record("BUYER_EXHAUSTION_OR_CLIMAX", capital_items[0], "buyer_exhaustion"))
+    repricing_state = str(alpha.get("repricing_state") or "").upper()
+    if repricing_state in {"CLIMAX", "DISTRIBUTION"} and capital_items:
+        blocker = "CONFIRMED_DISTRIBUTION" if repricing_state == "DISTRIBUTION" else "BUYER_EXHAUSTION_OR_CLIMAX"
+        records.append(_negative_record(blocker, capital_items[0], repricing_state.lower()))
+    completion = alpha.get("repricing_completion") or {}
+    if completion.get("completed") is True and capital_items:
+        records.append(_negative_record("REPRICING_COMPLETED", capital_items[0], "completed_repricing"))
+    contradiction = (research or {}).get("contradiction") or (research or {}).get("integrated") or {}
+    if isinstance(contradiction, dict):
+        contradiction_status = str(
+            contradiction.get("confirmation_status")
+            or contradiction.get("contradiction_status")
+            or ""
+        ).upper()
+        confirmed_contradiction = (
+            contradiction_status == "CONFIRMED"
+            or (
+                contradiction.get("veto") is True
+                and _evidence_confirmed(contradiction)
+            )
+        )
+        if confirmed_contradiction:
+            records.append(_negative_record("TRADINGAGENTS_CONTRADICTION", contradiction, "critical_contradiction"))
+    unique = []
+    seen = set()
+    for record in records:
+        key = (record["blocker"], record.get("evidence_identity"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(record)
+    return unique
+
+
+def evaluate_production_gates(
+    snapshot: Dict[str, Any],
+    *,
+    features: Dict[str, Any],
+    alpha: Dict[str, Any],
+    research: Dict[str, Any],
+    account: Dict[str, Any] | None = None,
+    as_of: datetime | None = None,
+    minimum_required_return: float = 0.0,
+) -> Dict[str, Any]:
+    """Sole production hard-gate evaluator. Decision must not reimplement these checks."""
+    failed_gates: list[str] = []
+    hard_blockers: list[str] = []
+    production_blockers: list[str] = []
+    warnings: list[str] = []
+    operational = eligibility_blockers(snapshot, account=account, as_of=as_of)
+    if not isinstance(snapshot, CanonicalSnapshot) or snapshot.get("trusted_snapshot") is not True:
+        failed_gates.append("TRUSTED_CANONICAL")
+        hard_blockers.append("NO_PRODUCTION_SNAPSHOT")
+    if not snapshot.get("decision_clock"):
+        failed_gates.append("DB_VERIFIED")
+        production_blockers.append("DB_NOT_VERIFIED")
+    if "STALE_DATA" in operational:
+        failed_gates.append("FRESH_DATA")
+        hard_blockers.append("STALE_DATA")
+    data_valid_hits = [reason for reason in operational if reason in DATA_VALID_REASONS]
+    if data_valid_hits:
+        failed_gates.append("DATA_VALID")
+        hard_blockers.extend(data_valid_hits)
+    tradable_hits = [reason for reason in operational if reason in TRADABLE_REASONS]
+    if tradable_hits:
+        failed_gates.append("TRADABLE")
+        hard_blockers.extend(tradable_hits)
+    risk = features.get("RISK") or {}
+    if risk.get("thesis_invalidated") is True:
+        failed_gates.append("RISK_PASS")
+        production_blockers.append("THESIS_INVALIDATED")
+        hard_blockers.append("THESIS_INVALIDATED")
+    if risk.get("regulatory_hard_risk") is True or (
+        risk.get("event_risk") is not None and float(risk["event_risk"]) >= 0.80
+    ):
+        if "RISK_PASS" not in failed_gates:
+            failed_gates.append("RISK_PASS")
+        production_blockers.append("RISK_BLOCKED")
+        hard_blockers.append("RISK_BLOCKED")
+    execution = features.get("EXECUTION") or {}
+    if execution.get("buyable") is False:
+        failed_gates.append("EXECUTION_PASS")
+        production_blockers.append("EXECUTION_IMPOSSIBLE")
+        hard_blockers.append("EXECUTION_IMPOSSIBLE")
+    elif execution.get("execution_feasibility") is not None and execution["execution_feasibility"] <= 0:
+        failed_gates.append("EXECUTION_PASS")
+        production_blockers.append("SEVERE_EXECUTION_RISK")
+        hard_blockers.append("SEVERE_EXECUTION_RISK")
+    elif "SEVERE_LIQUIDITY_ISSUE" in operational:
+        failed_gates.append("EXECUTION_PASS")
+        hard_blockers.append("SEVERE_LIQUIDITY_ISSUE")
     calibration = alpha.get("profit_window_calibration") or alpha.get("model_validation") or {}
     gates = calibration.get("production_gates") if isinstance(calibration.get("production_gates"), dict) else {}
     model_status = alpha.get("model_status")
     if model_status != "VALIDATED":
-        blockers.append("ALPHA_NOT_VALIDATED")
-    if model_status == "MODEL_ARTIFACT_MISMATCH" or calibration.get("reason", "").startswith("MODEL_ARTIFACT_MISMATCH"):
-        blockers.append("MODEL_ARTIFACT_MISMATCH")
+        failed_gates.append("ALPHA_VALIDATED")
+        production_blockers.append("ALPHA_NOT_VALIDATED")
+    if model_status == "MODEL_ARTIFACT_MISMATCH" or str(calibration.get("reason") or "").startswith("MODEL_ARTIFACT_MISMATCH"):
+        if "ALPHA_VALIDATED" not in failed_gates:
+            failed_gates.append("ALPHA_VALIDATED")
+        production_blockers.append("MODEL_ARTIFACT_MISMATCH")
+    expected_net_profit = alpha.get("expected_net_profit_window")
+    if model_status != "VALIDATED" or expected_net_profit is None:
+        failed_gates.append("PROFIT_WINDOW_MODEL")
+        production_blockers.append("PROFIT_WINDOW_MODEL_UNVALIDATED")
+    if minimum_required_return > 0 and (expected_net_profit is None or expected_net_profit < minimum_required_return):
+        if "PROFIT_WINDOW_MODEL" not in failed_gates:
+            failed_gates.append("PROFIT_WINDOW_MODEL")
+        production_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
     if gates.get("oos_pass") is False:
-        blockers.append("OOS_FAIL")
+        failed_gates.append("OOS_PASS")
+        production_blockers.append("OOS_FAIL")
     if gates.get("probability_separation") is False:
-        blockers.append("PROBABILITY_SEPARATION_FAIL")
+        failed_gates.append("PROBABILITY_SEPARATION_PASS")
+        production_blockers.append("PROBABILITY_SEPARATION_FAIL")
     if gates.get("monotonicity") is False:
-        blockers.append("MONOTONICITY_FAIL")
+        failed_gates.append("MONOTONICITY_PASS")
+        production_blockers.append("MONOTONICITY_FAIL")
     if gates.get("full_alpha_baseline_increment") is False:
-        blockers.append("BASELINE_INCREMENT_FAIL")
-    risk = features.get("RISK") or {}
-    if risk.get("thesis_invalidated") is True:
-        blockers.append("THESIS_INVALIDATED")
-    if risk.get("regulatory_hard_risk") is True or (
-        risk.get("event_risk") is not None and float(risk["event_risk"]) >= 0.80
-    ):
-        blockers.append("RISK_BLOCKED")
-    if alpha["repricing_completion"]["completed"]:
-        blockers.append("REPRICING_COMPLETED")
-    if alpha["contradiction"]["veto"]:
-        blockers.append("TRADINGAGENTS_CONTRADICTION")
+        failed_gates.append("BASELINE_INCREMENT_PASS")
+        production_blockers.append("BASELINE_INCREMENT_FAIL")
+    negative_evidence = collect_production_negative_evidence(alpha, features, research)
+    if negative_evidence:
+        failed_gates.append("NEGATIVE_EVIDENCE_CLEAR")
+        production_blockers.extend(record["blocker"] for record in negative_evidence)
     if alpha.get("reflexivity_break") is not None and alpha["reflexivity_break"] >= 0.70:
-        blockers.append("REFLEXIVITY_BREAK")
-    if alpha.get("repricing_state") == "CLIMAX" or (
-        alpha.get("crowding_risk") is not None and alpha["crowding_risk"] >= 0.85
-    ) or alpha.get("buyer_exhaustion") is True:
-        blockers.append("BUYER_EXHAUSTION_OR_CLIMAX")
-    if alpha["capital_convergence"]["status"] == "CONFLICT":
-        blockers.append("CAPITAL_CONVERGENCE_CONFLICT")
-        blockers.append("CONFIRMED_DISTRIBUTION")
-    if (features.get("SUPPLY") or {}).get("supply_absorption_state") == "RELEASING" and (features.get("CAPITAL") or {}).get("distribution_risk") not in (None, 0):
-        if (features.get("CAPITAL") or {}).get("distribution_risk", 0) >= 0.70:
-            blockers.append("CONFIRMED_SUPPLY_REVERSAL")
-    execution = features.get("EXECUTION") or {}
-    if execution.get("buyable") is False:
-        blockers.append("EXECUTION_IMPOSSIBLE")
-    elif execution.get("execution_feasibility") is not None and execution["execution_feasibility"] <= 0:
-        blockers.append("SEVERE_EXECUTION_RISK")
-    return list(dict.fromkeys(blockers))
+        production_blockers.append("REFLEXIVITY_BREAK")
+    remaining_operational = [
+        reason for reason in operational
+        if reason not in hard_blockers and reason not in production_blockers
+    ]
+    hard_blockers.extend(remaining_operational)
+    hard_blockers = list(dict.fromkeys(reason for reason in hard_blockers if reason))
+    production_blockers = list(dict.fromkeys(reason for reason in production_blockers if reason))
+    failed_gates = [gate for gate in DECISION_HARD_GATES if gate in failed_gates]
+    blockers = list(dict.fromkeys(hard_blockers + production_blockers))
+    passed = not failed_gates and not blockers
+    return {
+        "passed": passed,
+        "failed_gates": failed_gates,
+        "blockers": blockers,
+        "hard_blockers": hard_blockers,
+        "production_blockers": production_blockers,
+        "warnings": warnings,
+        "gate_version": PRODUCTION_GATE_VERSION,
+        "negative_evidence": negative_evidence,
+    }
 
 
 def _exit_reason(
@@ -226,23 +450,20 @@ def evaluate_candidate_bundle(
         integrated={},
         future_buyer_map=None,
     )
-    hard_blockers = eligibility_blockers(snapshot, account=account, as_of=as_of)
-    repricing_blockers = _blockers(alpha, features, research)
-    expected_net_profit = alpha.get("expected_net_profit_window")
-    if (
-        minimum_required_return > 0
-        and expected_net_profit is not None
-        and expected_net_profit < minimum_required_return
-    ):
-        repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
-    elif minimum_required_return > 0 and expected_net_profit is None:
-        repricing_blockers.append("PROFIT_WINDOW_BELOW_MINIMUM")
-    all_blockers = hard_blockers + repricing_blockers
-    production_blockers = [
-        blocker for blocker in repricing_blockers
-        if blocker not in RESEARCH_ONLY_DECISION_BLOCKERS
-    ]
+    gate_result = evaluate_production_gates(
+        snapshot,
+        features=features,
+        alpha=alpha,
+        research=research,
+        account=account,
+        as_of=as_of,
+        minimum_required_return=minimum_required_return,
+    )
+    hard_blockers = list(gate_result["hard_blockers"])
+    production_blockers = list(gate_result["production_blockers"])
+    all_blockers = list(gate_result["blockers"])
     held = evaluation_position_state == "LONG"
+    position_review = bool((account or {}).get("position_review"))
 
     if position_state_unavailable:
         state, reason = "WATCH", "POSITION_STATE_UNAVAILABLE"
@@ -266,6 +487,7 @@ def evaluate_candidate_bundle(
                     "SEVERE_EXECUTION_RISK",
                 )
                 )
+                or gate_result["negative_evidence"]
             ):
                 state, reason = "REDUCE", "REPRICING_RISK_OR_CONFIRMATION_DETERIORATED"
             else:
@@ -282,9 +504,11 @@ def evaluate_candidate_bundle(
     if state == "BUY":
         state, reason = "READY", "PRODUCTION_BUY_BLOCKED:PAPER_OBSERVATION_ONLY"
 
-    decision_id = _decision_id(snapshot, state, as_of)
+    if position_review and state == "BUY":
+        state, reason = "HOLD", "PRODUCTION_BUY_BLOCKED:POSITION_REVIEW"
+    decision_id = str((account or {}).get("decision_id") or "") if position_review and (account or {}).get("decision_id") else _decision_id(snapshot, state, as_of)
     observation = None
-    if state in {"WATCH", "READY"} and evaluation_position_state == "FLAT" and not position_state_unavailable:
+    if (not position_review) and state in {"WATCH", "READY"} and evaluation_position_state == "FLAT" and not position_state_unavailable:
         observation = _paper_observation(
             snapshot,
             features,
@@ -306,6 +530,20 @@ def evaluate_candidate_bundle(
         "position_state_before": position_state,
         "position_state_after": position_state_after,
         "previous_action": previous_action,
+        "original_snapshot_id": (account or {}).get("original_snapshot_id") or (None if position_review else snapshot["snapshot_id"]),
+        "review_snapshot_id": (account or {}).get("review_snapshot_id"),
+        "review_trade_date": (account or {}).get("review_trade_date"),
+        "decision_clock": as_of.isoformat() if as_of else None,
+        "gate_version": gate_result["gate_version"],
+        "gate_result": {
+            "passed": gate_result["passed"],
+            "failed_gates": list(gate_result["failed_gates"]),
+            "blockers": list(gate_result["blockers"]),
+            "warnings": list(gate_result["warnings"]),
+        },
+        "failed_gates": list(gate_result["failed_gates"]),
+        "production_blockers": production_blockers,
+        "production_negative_evidence": list(gate_result["negative_evidence"]),
         "position_state_status": "UNAVAILABLE" if position_state_unavailable else "AVAILABLE",
         "holding_days": int(0 if (account or {}).get("holding_days") is None else (account or {}).get("holding_days")),
         "trade_status": "CLOSED" if state == "SELL" else "OPEN" if state in TRADE_ACTIONS else "NOT_OPEN",

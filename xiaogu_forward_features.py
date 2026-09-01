@@ -51,7 +51,11 @@ def _evidence(
     mechanism = str(mechanism or evidence_family)
     economic_origin_id = str(extra.pop("economic_origin_id", "") or event_id)
     observed_at = str(observed_at or available_at or "")
-    identity = f"{source_id}|{event_id}|{mechanism}"
+    identity = (source_id, event_id, mechanism)
+    as_of = str(extra.pop("as_of", "") or available_at or observed_at or "")
+    direction = extra.pop("direction", "")
+    strength = extra.pop("strength", None)
+    confidence = extra.pop("confidence", None)
     return {
         "observed": bool(observed),
         "source": source,
@@ -59,10 +63,15 @@ def _evidence(
         "event_id": event_id,
         "economic_origin_id": economic_origin_id,
         "mechanism": mechanism,
-        "evidence_id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16],
+        "evidence_identity": identity,
+        "evidence_id": hashlib.sha256("|".join(identity).encode("utf-8")).hexdigest()[:16],
         "evidence_family": evidence_family,
         "observed_at": observed_at,
         "available_at": available_at,
+        "as_of": as_of,
+        "direction": direction,
+        "strength": strength,
+        "confidence": confidence,
         "pit_status": "OK" if available_at else "UNKNOWN",
         "time_basis": "observed_at/available_at" if observed_at or available_at else "UNKNOWN",
         "source_time": observed_at or None,
@@ -824,6 +833,17 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         count = len(observed)
         source_trust = 0.85 if any(item.get("source") in {"lhb", "stock_capital_flow"} for item in observed) else 0.40 if observed else 0.0
         freshness = 1.0 if available_at else 0.5
+        confidence = round(_clip(min(1.0, count / 2.0) * source_trust * freshness), 8)
+        for item in evidence:
+            item.setdefault("direction", direction)
+            item.setdefault("strength", None if not count or strength is None else round(_clip(strength), 8))
+            item.setdefault("confidence", confidence)
+            item.setdefault("as_of", available_at)
+            item.setdefault("evidence_identity", (
+                str(item.get("source_id") or item.get("source") or ""),
+                str(item.get("event_id") or ""),
+                str(item.get("mechanism") or ""),
+            ))
         return {
             "direction": direction,
             "strength": None if not count or strength is None else round(_clip(strength), 8),
@@ -834,7 +854,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
             "evidence_family": next((item.get("evidence_family") for item in observed), "UNKNOWN"),
             "source": next((item.get("source") for item in observed), ""),
             "available_at": available_at,
-            "confidence": round(_clip(min(1.0, count / 2.0) * source_trust * freshness), 8),
+            "confidence": confidence,
             "evidence_status": "OBSERVED" if count else "UNKNOWN",
             "observation": [item for item in evidence if item.get("observed")],
             "interpretation": direction,

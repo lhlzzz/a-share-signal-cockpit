@@ -51,7 +51,7 @@ def check_scanner_contract():
 
 
 def check_decision_owner():
-    return _contains("decision", "def evaluate_candidate_bundle", "paper_observation", "price_strength", "PRODUCTION_BUY_BLOCKED", "WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
+    return _contains("decision", "def evaluate_candidate_bundle", "def evaluate_production_gates", "paper_observation", "price_strength", "PRODUCTION_BUY_BLOCKED", "WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
 
 
 def check_price_formation_features():
@@ -288,6 +288,91 @@ def check_calendar_truth():
     )
 
 
+def check_position_review_contract():
+    from inspect import getsource
+    import xiaogu_db as db
+    import xiaogu_forward_runner as runner
+
+    review = getsource(runner.daily_position_review)
+    resolver = getsource(db.get_current_position_review_snapshot)
+    ok = (
+        "get_current_position_review_snapshot" in review
+        and "original_snapshot_id" in review
+        and "review_snapshot_id" in review
+        and "review_trade_date" in review
+        and "decision_clock=_parse_clock" not in review
+        and "ORDER BY source_time DESC" not in resolver
+        and "CURRENT_REVIEW_SNAPSHOT_NOT_FOUND" in resolver
+        and "CURRENT_REVIEW_SNAPSHOT_AMBIGUOUS" in resolver
+    )
+    return ok, "ok" if ok else "position review still uses original snapshot or latest-wins"
+
+
+def check_production_clock_contract():
+    from inspect import getsource
+    import xiaogu_forward_runner as runner
+    import xiaogu_forward_snapshot as snap
+
+    ok = (
+        "datetime.now(timezone.utc)" in getsource(snap.production_now)
+        and "production_now()" in getsource(snap.production_decision_clock)
+        and "production_decision_clock(decision_clock)" in getsource(runner.run_production_decision)
+        and "decision_clock=_parse_clock" not in getsource(runner.daily_position_review)
+    )
+    return ok, "ok" if ok else "production clock contract mismatch"
+
+
+def check_negative_evidence_contract():
+    from inspect import getsource
+    from xiaogu_portfolio_decision import (
+        collect_production_negative_evidence,
+        evaluate_candidate_bundle,
+        evaluate_production_gates,
+    )
+
+    ok = (
+        "collect_production_negative_evidence" in getsource(evaluate_production_gates)
+        and "CONFIRMED_DISTRIBUTION" in getsource(collect_production_negative_evidence)
+        and "UNKNOWN" in getsource(collect_production_negative_evidence)
+        and "RESEARCH_ONLY_DECISION_BLOCKERS" not in getsource(evaluate_candidate_bundle)
+        and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
+    )
+    return ok, "ok" if ok else "negative evidence is still filtered out"
+
+
+def check_gate_contract():
+    from inspect import getsource
+    from xiaogu_portfolio_decision import DECISION_HARD_GATES, evaluate_candidate_bundle, evaluate_production_gates
+
+    rule = json.loads(open(PATHS["rule"], encoding="utf-8").read())
+    ok = (
+        tuple(rule["alpha_contract"]["required_hard_gates"]) == tuple(DECISION_HARD_GATES)
+        and rule["alpha_contract"].get("gate_owner") == "xiaogu_portfolio_decision.evaluate_production_gates"
+        and rule["alpha_contract"].get("gate_version") == "production_gate_v1"
+        and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
+        and "oos_pass" not in getsource(evaluate_candidate_bundle)
+        and "def evaluate_production_gates" in getsource(evaluate_production_gates)
+    )
+    return ok, "ok" if ok else "gate owner contract mismatch"
+
+
+def check_capital_identity_contract():
+    from inspect import getsource
+    import xiaogu_core_alpha as alpha
+    import xiaogu_forward_features as features
+
+    conv = getsource(alpha._capital_convergence)
+    evidence = getsource(features._evidence)
+    ok = (
+        "evidence_identity" in evidence
+        and "independent_origin_count" in conv
+        and "confirmed_channel_count" in conv
+        and "directional_alignment" in conv
+        and "evidence_identity_count" in conv
+    )
+    return ok, "ok" if ok else "capital identity contract mismatch"
+
+
 CHECKS = [
     *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
     ("scanner_contract", check_scanner_contract),
@@ -303,6 +388,11 @@ CHECKS = [
     ("production_schema_audit", check_production_schema_audit),
     ("snapshot_identity_lock", check_snapshot_identity_lock),
     ("calendar_truth", check_calendar_truth),
+    ("position_review_contract", check_position_review_contract),
+    ("production_clock_contract", check_production_clock_contract),
+    ("negative_evidence_contract", check_negative_evidence_contract),
+    ("gate_contract", check_gate_contract),
+    ("capital_identity_contract", check_capital_identity_contract),
 ]
 
 

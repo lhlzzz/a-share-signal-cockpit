@@ -60,6 +60,10 @@
 - Paper 仅记录 `OBSERVED + PAPER_FLAT`；没有 `PAPER_PICK`、Paper Entry 或模拟持仓
 - 生产 Alpha 固定为 `price_strength`；Capital 仅限 `RESEARCH_ONLY`
 - Production BUY 保持 `BLOCKED`，Live Trading 保持 `DISABLED`
+- `original_snapshot_id` = provenance；`review_snapshot_id` = current truth
+- Production Clock = `xiaogu_forward_snapshot.production_now()`，不得用 `source_time` 冒充
+- Research positive != Production blocker；Confirmed negative evidence = Production blocker
+- Gate owner = `evaluate_production_gates()`
 
 ### 工具使用
 - RTK 替代 bash 命令

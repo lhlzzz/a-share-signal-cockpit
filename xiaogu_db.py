@@ -1312,6 +1312,67 @@ def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]
     return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
 
 
+def get_current_position_review_snapshot(*, symbol: str, review_trade_date: str) -> Dict[str, Any]:
+    """Resolve the exact trusted canonical snapshot for Position Review on one trade date.
+
+    Production never selects latest-by-source_time. Zero or multiple identities fail closed.
+    """
+    ensure_production_schema()
+    wanted = str(symbol or "").zfill(6)[-6:]
+    if not wanted or wanted == "000000" or not str(review_trade_date or "").strip():
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:CURRENT_REVIEW_SNAPSHOT_NOT_FOUND")
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    """
+                    SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time, symbol
+                    FROM snapshots
+                    WHERE trade_date = CAST(:trade_date AS date)
+                      AND symbol = :symbol
+                    """
+                ),
+                {"trade_date": review_trade_date, "symbol": wanted},
+            ).mappings()
+        ]
+    snapshots = []
+    identities = set()
+    for row in rows:
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            continue
+        payload.setdefault("lineage_id", row.get("lineage_id"))
+        payload.setdefault("trade_date", str(row.get("trade_date") or review_trade_date))
+        payload.setdefault("snapshot_id", row.get("snapshot_id") or payload.get("snapshot_id"))
+        payload.setdefault("source", row.get("source") or payload.get("source"))
+        payload.setdefault("source_time", row.get("source_time") or payload.get("source_time"))
+        payload.setdefault("symbol", row.get("symbol") or payload.get("symbol"))
+        try:
+            snapshot = validate_and_build_canonical_snapshot(payload, target_trade_date=review_trade_date)
+        except (TypeError, ValueError):
+            continue
+        if snapshot.get("trusted_snapshot") is not True:
+            continue
+        if str(snapshot.get("symbol") or "").zfill(6)[-6:] != wanted:
+            continue
+        if str(snapshot.get("trade_date") or "") != str(review_trade_date):
+            continue
+        snapshot_id = str(snapshot.get("snapshot_id") or "").strip()
+        if not snapshot_id:
+            continue
+        snapshots.append(snapshot)
+        identities.add(snapshot_id)
+    if not snapshots:
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:CURRENT_REVIEW_SNAPSHOT_NOT_FOUND")
+    if len(identities) != 1:
+        raise RuntimeError("POSITION_REVIEW_BLOCKED:CURRENT_REVIEW_SNAPSHOT_AMBIGUOUS")
+    return snapshots[0]
+
+
 def _payload_as_dict(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, str):
         payload = json.loads(payload)

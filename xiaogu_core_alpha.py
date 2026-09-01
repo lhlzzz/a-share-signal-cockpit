@@ -122,13 +122,25 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     evidence_items = [item for behavior in behaviors.values() for item in _direct_evidence_items(behavior)]
     independent_sources = {str(item.get("source_id") or item.get("source") or "") for item in evidence_items if item.get("source_id") or item.get("source")}
     independent_families = {str(item.get("evidence_family") or "") for item in evidence_items if item.get("evidence_family")}
-    independent_origins = {
-        str(item.get("economic_origin_id") or item.get("event_id") or "")
-        for item in evidence_items
-        if item.get("economic_origin_id") or item.get("event_id")
-    }
-    independent_mechanisms = {str(item.get("mechanism") or item.get("evidence_family") or "") for item in evidence_items if item.get("mechanism") or item.get("evidence_family")}
-    independent_channel_count = len(independent_origins)
+    evidence_identities = set()
+    grouping_origins = set()
+    independent_mechanisms = set()
+    for item in evidence_items:
+        source_id = str(item.get("source_id") or item.get("source") or "").strip()
+        event_id = str(item.get("event_id") or "").strip()
+        mechanism = str(item.get("mechanism") or "").strip()
+        identity = item.get("evidence_identity")
+        if isinstance(identity, (list, tuple)) and len(identity) == 3:
+            source_id, event_id, mechanism = [str(part or "").strip() for part in identity]
+        if source_id and event_id and mechanism:
+            evidence_identities.add((source_id, event_id, mechanism))
+        if item.get("economic_origin_id"):
+            grouping_origins.add(str(item.get("economic_origin_id")))
+        if mechanism:
+            independent_mechanisms.add(mechanism)
+    independent_origin_count = len(evidence_identities)
+    independent_channel_count = independent_origin_count
+    independent_origins = grouping_origins
     score = _mean(*[value for value in channels.values() if value is not None and value > 0])
     distribution = None if capital.get("distribution_risk") is None else _clip(capital.get("distribution_risk"))
     conflict = _at_least(distribution, 0.70) or capital.get("capital_price_impact_state") == "DISTRIBUTION_RISK"
@@ -143,7 +155,7 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     status = (
         "CONFLICT" if conflict
         else "UNKNOWN" if observed == 0
-        else "CONVERGENCE" if confirmed >= 2 and independent_channel_count >= 2 and aligned
+        else "CONVERGENCE" if confirmed >= 2 and independent_origin_count >= 2 and aligned
         else "PARTIAL"
     )
     qualities = [_clip(behavior.get("confidence")) for behavior in behaviors.values() if _direct_evidence_items(behavior)]
@@ -165,14 +177,19 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
         "main_force_level": levels["main_force"],
         "hot_money_level": levels["hot_money"],
         "confirmed_channels": confirmed,
+        "confirmed_channel_count": confirmed,
         "observed_channels": observed,
         "evidence_count": len(evidence_items),
+        "evidence_identity_count": independent_origin_count,
+        "independent_origin_count": independent_origin_count,
         "independent_channel_count": independent_channel_count,
         "independent_evidence_count": independent_channel_count,
+        "evidence_identities": [list(item) for item in sorted(evidence_identities)],
         "independent_origins": sorted(independent_origins),
         "independent_mechanisms": sorted(independent_mechanisms),
         "independent_sources": sorted(independent_sources),
         "independent_families": sorted(independent_families),
+        "directional_alignment": aligned,
         "confidence": _round_or_none(confidence),
         "behaviors": behaviors,
         "status": status,

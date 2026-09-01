@@ -153,7 +153,12 @@ def _holding_days_since(opened_on: Any, reviewed_on: str) -> int:
 
 def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     """Re-evaluate active positions through the sole Decision Owner."""
-    from xiaogu_db import fetch_decision_snapshot, fetch_open_positions, fetch_position_outcome
+    from xiaogu_db import (
+        fetch_decision_snapshot,
+        fetch_open_positions,
+        fetch_position_outcome,
+        get_current_position_review_snapshot,
+    )
 
     positions = fetch_open_positions()
     reviewed = []
@@ -164,7 +169,10 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         prior_id = str(prior.get("decision_id") or "")
         if not prior_id:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_ID_UNAVAILABLE")
-        snapshot = fetch_decision_snapshot(prior_id)
+        original_snapshot = fetch_decision_snapshot(prior_id)
+        original_snapshot_id = str(original_snapshot.get("snapshot_id") or "")
+        if not original_snapshot_id:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
         result = fetch_position_outcome(prior_id)
         holding_days = _holding_days_since(
             prior.get("trade_date") or prior.get("date"),
@@ -177,8 +185,19 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_STATE_UNAVAILABLE")
         if position_state not in {"FLAT", "LONG"}:
             raise RuntimeError("POSITION_STATE_UNAVAILABLE")
+        review_snapshot = get_current_position_review_snapshot(
+            symbol=symbol,
+            review_trade_date=str(trade_date),
+        )
+        review_snapshot_id = str(review_snapshot.get("snapshot_id") or "")
+        if not review_snapshot_id:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:CURRENT_REVIEW_SNAPSHOT_NOT_FOUND")
         account = {
             "decision_id": prior_id,
+            "position_review": True,
+            "original_snapshot_id": original_snapshot_id,
+            "review_snapshot_id": review_snapshot_id,
+            "review_trade_date": str(trade_date),
             "position_state": position_state,
             "previous_action": previous_action,
             "holding_days": holding_days,
@@ -188,15 +207,22 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
             "mfe": result.get("mfe_5d"),
         }
         decision = run_production_decision(
-            snapshot,
+            review_snapshot,
             portfolio_state=previous_state,
             account=account,
             mode="PRODUCTION",
-            trade_date=str(snapshot["trade_date"]),
-            decision_clock=_parse_clock(str(snapshot.get("source_time") or "")),
+            trade_date=str(trade_date),
             position_state=position_state,
             previous_action=previous_action,
         )
+        if decision.get("action") == "BUY" or decision.get("state") == "BUY":
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:BUY_NOT_ALLOWED")
+        decision["decision_id"] = prior_id
+        decision["original_snapshot_id"] = original_snapshot_id
+        decision["review_snapshot_id"] = review_snapshot_id
+        decision["review_trade_date"] = str(trade_date)
+        decision["paper_observation"] = None
+        decision.pop("paper_signal_id", None)
         decision["holding_days"] = holding_days
         decision["prior_decision_id"] = prior_id
         new_action = decision.get("action") or decision.get("state")

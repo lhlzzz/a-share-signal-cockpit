@@ -20,7 +20,7 @@ python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --mode PRODUCTION
 python3 xiaogu_scheduler.py
 ```
 
-`--snapshot-json` is blocked in PRODUCTION. Production reads DB-verified trusted canonical snapshots and uses the actual production decision clock, not `source_time`. Replay may use a historical clock. `persisted` means PostgreSQL verification, not a local file flag. JSONL is audit only.
+`--snapshot-json` is blocked in PRODUCTION. Production reads DB-verified trusted canonical snapshots and uses the actual production decision clock from `production_now()`, not `source_time`. Replay may use a historical clock. Position Review evaluates the current trade-date snapshot (`review_snapshot_id`), never the original entry snapshot. `persisted` means PostgreSQL verification, not a local file flag. JSONL is audit only.
 
 ## Architecture
 
@@ -37,6 +37,10 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Research: Serenity, Buffett, UZI, and Contradiction supply context only.
 - Alpha owner: `xiaogu_core_alpha.build_core_alpha()`.
 - Decision owner: `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
+- Gate owner: `xiaogu_portfolio_decision.evaluate_production_gates()`.
+- Production clock owner: `xiaogu_forward_snapshot.production_now()`.
+- Position Review uses `review_snapshot_id` as current truth; `original_snapshot_id` is provenance only.
+- Confirmed negative evidence is a production blocker. Research-positive capital cannot BUY.
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
 - Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit, then sends memory through the optional Obsidian REST bridge. Bridge failure queues a retry; it never affects PostgreSQL.
 - Outcomes: `xiaogu_forward_result_filler_v0_1.py --pending` appends T+1..T+5 daily-bar approximations, not executable fills.

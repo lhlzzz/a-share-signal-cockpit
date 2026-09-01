@@ -195,6 +195,9 @@ def current_state() -> Dict[str, Any]:
     for row in fetch_open_positions():
         position = _payload(row)
         position.setdefault("decision", position.get("action") or position.get("state"))
+        position["original_snapshot_id"] = position.get("original_snapshot_id")
+        position["review_snapshot_id"] = position.get("review_snapshot_id")
+        position["review_trade_date"] = position.get("review_trade_date")
         positions.append(_production_view(position))
     return {
         "market_state": "UNKNOWN",
@@ -206,7 +209,13 @@ def current_state() -> Dict[str, Any]:
 @app.get("/decision")
 def current_decision() -> Dict[str, Any]:
     records = _decision_records()
-    return _production_view(records[0]) if records else {"found": False}
+    if not records:
+        return {"found": False}
+    record = dict(records[0])
+    record["original_snapshot_id"] = record.get("original_snapshot_id")
+    record["review_snapshot_id"] = record.get("review_snapshot_id")
+    record["review_trade_date"] = record.get("review_trade_date")
+    return _production_view(record)
 
 
 @app.get("/trades")
@@ -220,6 +229,9 @@ def trades() -> List[Dict[str, Any]]:
     return [_production_view({
         "decision_id": _decision_id(record),
         "symbol": record.get("symbol"),
+        "original_snapshot_id": record.get("original_snapshot_id"),
+        "review_snapshot_id": record.get("review_snapshot_id"),
+        "review_trade_date": record.get("review_trade_date"),
         "decision": record.get("decision"),
         "signal_time": record.get("signal_time") or record.get("asof_time"),
         "entry_price": record.get("entry_price"),

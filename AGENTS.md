@@ -79,6 +79,8 @@ Memory
 | Research | `xiaogu_research_context.py` | Context / evidence / contradiction |
 | Alpha | `xiaogu_core_alpha.build_core_alpha` | Sole alpha owner |
 | Decision | `xiaogu_portfolio_decision.evaluate_candidate_bundle` | Sole state/action owner |
+| Gates | `xiaogu_portfolio_decision.evaluate_production_gates` | Sole production hard-gate owner |
+| Clock | `xiaogu_forward_snapshot.production_now` | Sole production clock |
 | Runner | `xiaogu_forward_runner.run_production_decision` | Production entry |
 | Recorder | `xiaogu_forward_paper_recorder_v0_1.py` | BUY/HOLD/REDUCE/SELL events |
 | Outcome | `xiaogu_forward_result_filler_v0_1.py` | T+1..T+5 truth |
@@ -137,7 +139,7 @@ Position state is `FLAT` or `LONG`. Action is `BUY`, `HOLD`, `REDUCE`, or `SELL`
 
 Recorder persists only BUY/HOLD/REDUCE/SELL and position transitions.
 
-BUY requires a validated alpha plus data, capital, supply, repricing, risk, execution, profit-window, OOS, probability-separation, monotonicity, and baseline-increment gates. Any failure is BUY BLOCKED.
+BUY requires a validated alpha plus data, capital, supply, repricing, risk, execution, profit-window, OOS, probability-separation, monotonicity, baseline-increment, and confirmed-negative-evidence gates. Any failure is BUY BLOCKED. Research-positive capital cannot BUY. Confirmed negative evidence is a production blocker. Position Review uses `review_snapshot_id` as current truth; `original_snapshot_id` is provenance only. Production Clock is current actual time.
 
 ---
 

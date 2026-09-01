@@ -637,17 +637,23 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
     }])
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
+    original = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-25T14:50:00+08:00", "trade_date": "2026-08-25",
+    })
+    current = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10.2, "volume": 110, "amount": 1100,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    monkeypatch.setattr("xiaogu_db.fetch_decision_snapshot", lambda *_args, **_kwargs: original)
     monkeypatch.setattr(
-        "xiaogu_db.fetch_decision_snapshot",
-        lambda *_args, **_kwargs: validate_and_build_canonical_snapshot({
-            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
-            "source_time": "2026-08-25T14:50:00+08:00", "trade_date": "2026-08-25",
-        }),
+        "xiaogu_db.get_current_position_review_snapshot",
+        lambda **_kwargs: current,
     )
     monkeypatch.setattr(
         runner,
         "run_production_decision",
-        lambda *args, **kwargs: seen.update(kwargs) or {
+        lambda received, **kwargs: seen.update({"snapshot_id": received["snapshot_id"], **kwargs}) or {
             "state": "HOLD", "action": "HOLD", "trade_status": "NOT_OPEN",
         },
     )
@@ -655,6 +661,10 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
     runner.daily_position_review("2026-08-26")
     assert seen["portfolio_state"] == "HOLD"
     assert seen["previous_action"] == "BUY"
+    assert seen["snapshot_id"] == current["snapshot_id"]
+    assert seen["snapshot_id"] != original["snapshot_id"]
+    assert seen["trade_date"] == "2026-08-26"
+    assert "decision_clock" not in seen or seen.get("decision_clock") is None or seen.get("decision_clock") != original.get("source_time")
 
 
 def test_position_review_exact_snapshot_identity(monkeypatch):
@@ -865,6 +875,13 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
         lambda *_args, **_kwargs: validate_and_build_canonical_snapshot({
             "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
             "source_time": "2026-08-25T14:50:00+08:00", "trade_date": "2026-08-25",
+        }),
+    )
+    monkeypatch.setattr(
+        "xiaogu_db.get_current_position_review_snapshot",
+        lambda **_kwargs: validate_and_build_canonical_snapshot({
+            "symbol": "600001", "price": 10.4, "volume": 120, "amount": 1200,
+            "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
         }),
     )
     monkeypatch.setattr(

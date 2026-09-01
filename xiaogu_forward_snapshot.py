@@ -270,10 +270,15 @@ def snapshot_age(source_time: str | datetime | None, decision_time: str | dateti
     return decision_ts.astimezone(timezone.utc) - source_ts.astimezone(timezone.utc)
 
 
+def production_now() -> datetime:
+    """Sole production clock. Replay and backtest must pass an explicit historical clock."""
+    return datetime.now(timezone.utc)
+
+
 def production_decision_clock(decision_time: str | datetime | None = None) -> datetime:
     """Return the actual production clock. Replay may pass a historical decision time."""
     if decision_time is None:
-        return datetime.now(timezone.utc)
+        return production_now()
     parsed = decision_time if isinstance(decision_time, datetime) else _parse_timestamp(decision_time)
     if parsed is None:
         raise ValueError("INVALID_DECISION_CLOCK")

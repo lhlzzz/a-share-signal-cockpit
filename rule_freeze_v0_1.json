@@ -40,10 +40,12 @@
       "RISK_PASS",
       "EXECUTION_PASS",
       "ALPHA_VALIDATED",
+      "PROFIT_WINDOW_MODEL",
       "OOS_PASS",
       "PROBABILITY_SEPARATION_PASS",
       "MONOTONICITY_PASS",
-      "BASELINE_INCREMENT_PASS"
+      "BASELINE_INCREMENT_PASS",
+      "NEGATIVE_EVIDENCE_CLEAR"
     ],
     "model_inputs": [
       "BUSINESS",
@@ -53,7 +55,9 @@
       "PRICING_GAP",
       "REFLEXIVITY",
       "MARKET"
-    ]
+    ],
+    "gate_owner": "xiaogu_portfolio_decision.evaluate_production_gates",
+    "gate_version": "production_gate_v1"
   },
   "evaluation": {
     "horizons_days": [
@@ -176,5 +180,24 @@
     "future_prices_are_calendar_truth": false,
     "weekday_logic_is_production_truth": false
   },
-  "SNAPSHOT_IDENTITY_IMMUTABLE": true
+  "SNAPSHOT_IDENTITY_IMMUTABLE": true,
+  "production_clock_owner": "xiaogu_forward_snapshot.production_now",
+  "position_review": {
+    "original_snapshot_id": "provenance",
+    "review_snapshot_id": "current truth",
+    "production_clock": "current actual time",
+    "actions": [
+      "HOLD",
+      "REDUCE",
+      "SELL"
+    ],
+    "creates_paper_observation": false
+  },
+  "research_positive": "RESEARCH_ONLY",
+  "confirmed_negative_evidence": "PRODUCTION_BLOCKER",
+  "capital_evidence_identity": [
+    "source_id",
+    "event_id",
+    "mechanism"
+  ]
 }
