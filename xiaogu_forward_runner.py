@@ -62,7 +62,7 @@ def run_production_decision(
     )
     account = account or {}
     if mode == "PRODUCTION":
-        from xiaogu_db import fetch_position_by_decision_id, fetch_position_state, verify_persisted_snapshot
+        from xiaogu_db import get_position_by_decision_id, get_position_by_id, verify_persisted_snapshot
         db_verified = verify_persisted_snapshot(
             snapshot_id=str(trusted.get("snapshot_id") or ""),
             lineage_id=str(trusted.get("lineage_id") or ""),
@@ -86,20 +86,29 @@ def run_production_decision(
                 raise RuntimeError("PAPER_POSITION_REVIEW_BLOCKED:POSITION_IDENTITY_UNAVAILABLE")
             if position_state not in {"FLAT", "LONG"}:
                 raise RuntimeError("POSITION_STATE_UNAVAILABLE")
-        else:
-            review_decision_id = str(account.get("decision_id") or "")
-            if review_decision_id and account.get("position_review"):
-                db_position = fetch_position_by_decision_id(review_decision_id)
-                if db_position is None:
-                    raise RuntimeError("POSITION_STATE_UNAVAILABLE")
-                db_position_state = db_position.get("position_state")
-            else:
-                db_position_state = fetch_position_state(str(trusted.get("symbol") or ""))
+        elif account.get("position_review"):
+            position_id = str(account.get("position_id") or "").strip()
+            review_decision_id = str(account.get("decision_id") or "").strip()
+            if not position_id or not review_decision_id:
+                raise RuntimeError("POSITION_REVIEW_BLOCKED:POSITION_IDENTITY_UNAVAILABLE")
+            db_position = get_position_by_id(position_id)
+            if db_position is None:
+                raise RuntimeError("POSITION_STATE_UNAVAILABLE")
+            if str(db_position.get("decision_id") or "").strip() != review_decision_id:
+                raise RuntimeError("POSITION_IDENTITY_CONFLICT")
+            by_decision = get_position_by_decision_id(review_decision_id)
+            if by_decision is None or str(by_decision.get("position_id") or "").strip() != position_id:
+                raise RuntimeError("POSITION_IDENTITY_CONFLICT")
+            db_position_state = db_position.get("position_state")
             if db_position_state is None:
                 raise RuntimeError("POSITION_STATE_UNAVAILABLE")
             if position_state is not None and position_state != db_position_state:
                 raise RuntimeError("POSITION_STATE_CONFLICT")
             position_state = db_position_state
+        elif position_state is None:
+            raise RuntimeError("POSITION_STATE_UNAVAILABLE")
+        elif position_state not in {"FLAT", "LONG"}:
+            raise RuntimeError(f"INVALID_POSITION_STATE:{position_state}")
     elif mode == "REPLAY":
         clock = production_decision_clock(
             decision_clock
@@ -177,11 +186,12 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
     reviewed = []
     for prior in positions:
         symbol = str(prior.get("symbol") or "").zfill(6)
-        if str(prior.get("trade_date") or prior.get("date") or "") >= str(trade_date):
+        if str(prior.get("trade_date") or prior.get("opened_trade_date") or prior.get("date") or "") >= str(trade_date):
             continue
-        prior_id = str(prior.get("decision_id") or "")
-        if not prior_id:
-            raise RuntimeError("POSITION_REVIEW_BLOCKED:DECISION_ID_UNAVAILABLE")
+        position_id = str(prior.get("position_id") or "").strip()
+        prior_id = str(prior.get("decision_id") or "").strip()
+        if not position_id or not prior_id:
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:POSITION_IDENTITY_UNAVAILABLE")
         original_snapshot_id = str(prior.get("original_snapshot_id") or prior.get("snapshot_id") or "")
         if not original_snapshot_id:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
@@ -205,6 +215,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         if not review_snapshot_id:
             raise RuntimeError("POSITION_REVIEW_BLOCKED:CURRENT_REVIEW_SNAPSHOT_NOT_FOUND")
         account = {
+            "position_id": position_id,
             "decision_id": prior_id,
             "position_review": True,
             "original_snapshot_id": original_snapshot_id,
@@ -229,6 +240,7 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         )
         if decision.get("action") == "BUY" or decision.get("state") == "BUY":
             raise RuntimeError("POSITION_REVIEW_BLOCKED:BUY_NOT_ALLOWED")
+        decision["position_id"] = position_id
         decision["decision_id"] = prior_id
         decision["original_snapshot_id"] = original_snapshot_id
         decision["review_snapshot_id"] = review_snapshot_id
@@ -238,6 +250,18 @@ def daily_position_review(trade_date: str) -> list[Dict[str, Any]]:
         decision["holding_days"] = holding_days
         decision["prior_decision_id"] = prior_id
         new_action = decision.get("action") or decision.get("state")
+        if holding_days >= 5:
+            new_action = "SELL"
+            decision["action"] = "SELL"
+            decision["state"] = "SELL"
+            decision["position_state"] = "FLAT"
+            decision["position_state_after"] = "FLAT"
+            decision["trade_status"] = "CLOSED"
+            decision["reason"] = "MAX_HOLDING_BOUNDARY_CLOSED"
+        if new_action == "REDUCE":
+            raise RuntimeError("POSITION_REVIEW_BLOCKED:REDUCE_UNSUPPORTED")
+        if new_action not in {"HOLD", "SELL"}:
+            raise RuntimeError(f"POSITION_REVIEW_BLOCKED:INVALID_REVIEW_ACTION:{new_action}")
         if new_action != previous_action or holding_days >= 5 or decision.get("trade_status") == "CLOSED":
             _write_ledger_record(decision)
             reviewed.append(decision)
@@ -310,9 +334,14 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
         if decision.get("action") == "BUY" or decision.get("state") == "BUY":
             raise RuntimeError("PAPER_POSITION_REVIEW_BLOCKED:BUY_NOT_ALLOWED")
         action = decision.get("action") or "HOLD"
-        if action not in {"HOLD", "REDUCE", "SELL"}:
+        if holding_days >= 5:
+            action = "SELL"
+        if action == "REDUCE":
+            raise RuntimeError("PAPER_POSITION_REVIEW_BLOCKED:PAPER_REDUCE_UNSUPPORTED")
+        if action not in {"HOLD", "SELL"}:
             raise RuntimeError("PAPER_POSITION_REVIEW_BLOCKED:INVALID_REVIEW_ACTION")
-        paper_action = "PAPER_SELL" if action == "SELL" or holding_days >= 5 else "PAPER_REDUCE" if action == "REDUCE" else "PAPER_HOLD"
+        paper_action = "PAPER_SELL" if action == "SELL" else "PAPER_HOLD"
+        closed = paper_action == "PAPER_SELL"
         decision.update({
             "paper_review": True,
             "paper_signal_id": paper_signal_id,
@@ -321,12 +350,20 @@ def daily_paper_position_review(trade_date: str) -> list[Dict[str, Any]]:
             "review_snapshot_id": review_snapshot_id,
             "review_trade_date": str(trade_date),
             "paper_observation": None,
-            "paper_observation_state": "CLOSED" if paper_action in {"PAPER_SELL", "PAPER_REDUCE"} or holding_days >= 5 else "OBSERVED",
-            "paper_position_state": "PAPER_FLAT" if paper_action in {"PAPER_SELL", "PAPER_REDUCE"} or holding_days >= 5 else "PAPER_LONG",
+            "paper_observation_state": "CLOSED" if closed else "OBSERVED",
+            "paper_position_state": "PAPER_FLAT" if closed else "PAPER_LONG",
             "paper_action": paper_action,
-            "paper_exit_reason": "T5_EXPIRY" if holding_days >= 5 else decision.get("reason") if paper_action in {"PAPER_SELL", "PAPER_REDUCE"} else None,
+            "paper_exit_reason": "T5_EXPIRY" if holding_days >= 5 else decision.get("reason") if closed else None,
             "holding_days": holding_days,
         })
+        if closed:
+            from xiaogu_db import update_paper_observation_state
+            update_paper_observation_state(
+                paper_signal_id,
+                state="CLOSED",
+                paper_position_state="PAPER_FLAT",
+                exit_reason=str(decision.get("paper_exit_reason") or "PAPER_SELL"),
+            )
         reviewed.append(decision)
     return reviewed
 
@@ -448,6 +485,7 @@ def main() -> None:
             portfolio_state=args.portfolio_state,
             mode=mode,
             trade_date=args.date,
+            position_state="FLAT",
         )
         if mode == "PRODUCTION" and not args.dry_run and (
             decision["state"] in RECORDABLE_ACTIONS or decision.get("paper_observation")

@@ -36,7 +36,7 @@ INVALID_CALENDAR_YEAR = "INVALID_CALENDAR_YEAR"
 CALENDAR_DATASET_DIR = Path(__file__).resolve().parent / "data" / "trading_calendar"
 # Test/import override. Normal runtime always resolves the year-specific path.
 CALENDAR_DATASET_PATH: Path | None = None
-SCHEMA_VERSION = "xiaogu_production_schema_v4"
+SCHEMA_VERSION = "xiaogu_production_schema_v5"
 MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
 MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
 HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
@@ -247,6 +247,30 @@ SCHEMA_V4_STATEMENTS = (
     FOR EACH ROW
     EXECUTE FUNCTION xiaogu_protect_snapshot_identity()
     """.strip(),
+)
+SCHEMA_V5_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS positions (
+        position_id TEXT PRIMARY KEY,
+        decision_id TEXT NOT NULL UNIQUE,
+        symbol TEXT NOT NULL,
+        original_snapshot_id TEXT NOT NULL,
+        position_state TEXT NOT NULL,
+        opened_trade_date DATE NOT NULL,
+        closed_trade_date DATE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT positions_position_state_check CHECK (position_state IN ('FLAT', 'LONG')),
+        CONSTRAINT positions_closed_state_check CHECK (
+            (position_state = 'LONG' AND closed_trade_date IS NULL)
+            OR (position_state = 'FLAT')
+        ),
+        CONSTRAINT positions_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES picks (decision_id),
+        CONSTRAINT positions_original_snapshot_id_fkey FOREIGN KEY (original_snapshot_id) REFERENCES snapshots (snapshot_id)
+    )
+    """.strip(),
+    "CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions (symbol)",
+    "CREATE INDEX IF NOT EXISTS idx_positions_decision_id ON positions (decision_id)",
 )
 
 
@@ -502,6 +526,11 @@ def audit_production_schema() -> Dict[str, Any]:
         "snapshot_identity_conflicts": (
             "snapshot_id", "existing_payload_hash", "incoming_payload_hash", "source", "detected_at",
         ),
+        "positions": (
+            "position_id", "decision_id", "symbol", "original_snapshot_id",
+            "position_state", "opened_trade_date", "closed_trade_date",
+            "created_at", "updated_at",
+        ),
     }
     required_unique = {
         "snapshots": {("snapshot_id",), ("lineage_id", "symbol")},
@@ -513,6 +542,7 @@ def audit_production_schema() -> Dict[str, Any]:
         "trading_calendar_versions": {
             ("calendar_version", "market", "effective_year"),
         },
+        "positions": {("position_id",), ("decision_id",)},
     }
     required_indexes = {
         "snapshots": ("idx_snapshots_trade_date", "idx_snapshots_lineage_id"),
@@ -525,6 +555,7 @@ def audit_production_schema() -> Dict[str, Any]:
         ),
         "trading_calendar": ("idx_trading_calendar_open_days",),
         "snapshot_identity_conflicts": ("idx_snapshot_identity_conflicts_snapshot_id",),
+        "positions": ("idx_positions_symbol", "idx_positions_decision_id"),
     }
     required_triggers = {
         "snapshots": ("snapshots_identity_immutable",),
@@ -541,6 +572,7 @@ def audit_production_schema() -> Dict[str, Any]:
         "trading_calendar_versions": ("calendar_version", "market", "effective_year"),
         "xiaogu_schema_version": ("singleton",),
         "xiaogu_schema_migrations": ("migration_id",),
+        "positions": ("position_id",),
     }
     tables = {}
     ok = True
@@ -611,6 +643,13 @@ def audit_production_schema() -> Dict[str, Any]:
             expected_fk = "decision_id->picks.decision_id"
             if expected_fk not in fk_audit:
                 fk_audit[expected_fk] = "MISSING"
+        if table_name == "positions":
+            for expected_fk in (
+                "decision_id->picks.decision_id",
+                "original_snapshot_id->snapshots.snapshot_id",
+            ):
+                if expected_fk not in fk_audit:
+                    fk_audit[expected_fk] = "MISSING"
         tables[table_name] = {
             "columns": column_audit,
             "indexes": index_audit,
@@ -634,6 +673,11 @@ def audit_production_schema() -> Dict[str, Any]:
             live_order_check = str(checks.get("paper_observations_live_order_check") or "").replace("(", "").replace(")", "").strip()
             ok = ok and paper_only_check == "CHECK paper_only"
             ok = ok and live_order_check == "CHECK NOT live_order"
+        if table_name == "positions":
+            ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
+            ok = ok and fk_audit.get("original_snapshot_id->snapshots.snapshot_id") == "EXISTS"
+            state_check = str(checks.get("positions_position_state_check") or "")
+            ok = ok and "FLAT" in state_check and "LONG" in state_check
     anomalies = {
         "picks_missing_decision_id": _count_unbound_decision_ids("picks"),
         "returns_missing_decision_id": _count_unbound_decision_ids("returns"),
@@ -696,6 +740,13 @@ def _schema_migrations() -> tuple[dict[str, Any], ...]:
             "to_version": "xiaogu_production_schema_v4",
             "statements": SCHEMA_V4_STATEMENTS,
             "apply": _apply_snapshot_identity_lock,
+        },
+        {
+            "migration_id": "schema-xiaogu_production_schema_v5",
+            "from_version": "xiaogu_production_schema_v4",
+            "to_version": "xiaogu_production_schema_v5",
+            "statements": SCHEMA_V5_STATEMENTS,
+            "apply": _apply_position_identity_constraints,
         },
     )
 
@@ -922,6 +973,27 @@ def _apply_v2_schema() -> None:
 
 def _apply_snapshot_identity_lock() -> None:
     _apply_identity_constraints()
+
+
+def _apply_position_identity_constraints() -> None:
+    """Lock position identity without rewriting historical IDs or outcomes."""
+    _apply_identity_constraints()
+    if "position_id" not in _table_columns("positions"):
+        raise RuntimeError("POSITION_SCHEMA_MISSING")
+    fks = {
+        f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}"
+        for item in _foreign_keys("positions")
+    }
+    if "decision_id->picks.decision_id" not in fks:
+        _exec_schema(
+            "ALTER TABLE positions ADD CONSTRAINT positions_decision_id_fkey "
+            "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
+        )
+    if "original_snapshot_id->snapshots.snapshot_id" not in fks:
+        _exec_schema(
+            "ALTER TABLE positions ADD CONSTRAINT positions_original_snapshot_id_fkey "
+            "FOREIGN KEY (original_snapshot_id) REFERENCES snapshots (snapshot_id)"
+        )
 
 
 def _apply_schema_migration(migration: Dict[str, Any]) -> None:
@@ -1623,6 +1695,7 @@ def record_decision(decision: Dict[str, Any]) -> None:
             ),
             params,
         )
+    upsert_position(decision)
 
 
 def record_snapshot_and_decision(snapshot: Dict[str, Any], decision: Dict[str, Any]) -> None:
@@ -2135,6 +2208,14 @@ def _table_columns(table_name: str) -> set[str]:
         }
 
 
+def position_id_for_decision(decision_id: str) -> str:
+    """Deterministic position identity derived from the entry decision. Not a random UUID."""
+    wanted = str(decision_id or "").strip()
+    if not wanted:
+        raise ValueError("DECISION_ID_REQUIRED")
+    return f"POS|{wanted}"
+
+
 def _position_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     payload = row.get("payload")
     if isinstance(payload, str):
@@ -2142,128 +2223,126 @@ def _position_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         payload = {}
     action = str(row.get("state") or row.get("decision") or payload.get("action") or payload.get("state") or "")
-    position_state = str(row.get("position_state") or payload.get("position_state") or "")
-    decision_id = str(payload.get("decision_id") or row.get("decision_id") or "").strip()
+    position_state = str(row.get("position_state") or payload.get("position_state") or "").upper()
+    decision_id = str(row.get("decision_id") or payload.get("decision_id") or "").strip()
+    position_id = str(row.get("position_id") or payload.get("position_id") or "").strip()
+    opened = row.get("opened_trade_date") or row.get("trade_date") or payload.get("trade_date") or ""
+    closed = row.get("closed_trade_date")
+    original_snapshot_id = str(
+        row.get("original_snapshot_id") or payload.get("original_snapshot_id") or payload.get("snapshot_id") or ""
+    ).strip()
+    if position_state and position_state not in {"FLAT", "LONG"}:
+        raise ValueError(f"INVALID_POSITION_STATE:{position_state}")
     return {
         **payload,
-        "id": row.get("id"),
-        "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
+        "position_id": position_id,
+        "decision_id": decision_id,
         "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
+        "original_snapshot_id": original_snapshot_id,
+        "position_state": position_state,
+        "opened_at": str(opened)[:10],
+        "opened_trade_date": str(opened)[:10],
+        "closed_at": str(closed)[:10] if closed not in (None, "") else None,
+        "closed_trade_date": str(closed)[:10] if closed not in (None, "") else None,
+        "trade_date": str(opened)[:10],
         "state": action,
         "action": payload.get("action") or action,
         "previous_action": payload.get("action") or payload.get("previous_action"),
-        "position_state": position_state,
         "decision": action,
-        "decision_id": decision_id,
-        "original_snapshot_id": payload.get("original_snapshot_id") or payload.get("snapshot_id"),
-        "snapshot_id": payload.get("snapshot_id") or row.get("snapshot_id"),
+        "snapshot_id": payload.get("snapshot_id") or original_snapshot_id,
     }
 
 
-def fetch_open_positions() -> List[Dict[str, Any]]:
-    """Return every LONG position keyed by decision identity."""
-    columns = _table_columns("picks")
-    if "position_state" not in columns:
-        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
-    if "decision_id" not in columns:
-        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
-    if "state" in columns and "decision" in columns:
-        select_state = "COALESCE(state, decision) AS state"
-    elif "state" in columns:
-        select_state = "state"
-    else:
-        select_state = "decision AS state"
-    select_payload = ", payload" if "payload" in columns else ""
+def _load_positions(where_sql: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if "position_id" not in _table_columns("positions"):
+        raise RuntimeError("POSITION_SCHEMA_MISSING")
+    sql = f"""
+        SELECT
+            p.position_id,
+            p.decision_id,
+            p.symbol,
+            p.original_snapshot_id,
+            p.position_state,
+            p.opened_trade_date,
+            p.closed_trade_date,
+            p.created_at,
+            p.updated_at,
+            k.state,
+            k.payload,
+            k.trade_date
+        FROM positions p
+        LEFT JOIN picks k ON k.decision_id = p.decision_id
+        WHERE {where_sql}
+    """
     with engine.connect() as db:
-        rows = [
-            dict(row)
-            for row in db.execute(
-                text(
-                    f"""
-                    SELECT id, trade_date, symbol, {select_state}{select_payload}, decision_id, position_state
-                    FROM picks
-                    WHERE position_state = 'LONG'
-                      AND decision_id IS NOT NULL
-                      AND BTRIM(CAST(decision_id AS text)) <> ''
-                    """
-                )
-            ).mappings()
-        ]
+        rows = [dict(row) for row in db.execute(text(sql), params).mappings()]
     positions = []
     seen = set()
     for row in rows:
+        if row.get("state") is None and row.get("payload") is None:
+            raise RuntimeError("POSITION_IDENTITY_CONFLICT")
         position = _position_payload(row)
-        decision_id = position.get("decision_id")
-        if not decision_id or decision_id in seen:
-            continue
-        if position.get("position_state") != "LONG":
-            continue
-        seen.add(decision_id)
+        position_id = str(position.get("position_id") or "").strip()
+        decision_id = str(position.get("decision_id") or "").strip()
+        if not position_id or not decision_id:
+            raise RuntimeError("POSITION_IDENTITY_UNAVAILABLE")
+        if position_id in seen:
+            raise RuntimeError("POSITION_IDENTITY_AMBIGUOUS")
+        seen.add(position_id)
         positions.append(position)
     return positions
 
 
-def fetch_position_by_decision_id(decision_id: str) -> Dict[str, Any] | None:
-    """Load one position by decision identity. This is the position identity owner."""
-    wanted = str(decision_id or "").strip()
+def fetch_open_positions() -> List[Dict[str, Any]]:
+    """Return every active LONG position keyed by position_id."""
+    opened = _load_positions("p.position_state = 'LONG'", {})
+    return [row for row in opened if row.get("position_state") == "LONG"]
+
+
+def get_position_by_id(position_id: str) -> Dict[str, Any] | None:
+    wanted = str(position_id or "").strip()
     if not wanted:
         return None
-    columns = _table_columns("picks")
-    if "position_state" not in columns:
-        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
-    if "decision_id" not in columns:
-        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
-    if "state" in columns and "decision" in columns:
-        select_state = "COALESCE(state, decision) AS state"
-    elif "state" in columns:
-        select_state = "state"
-    else:
-        select_state = "decision AS state"
-    select_payload = ", payload" if "payload" in columns else ""
-    with engine.connect() as db:
-        rows = [
-            dict(row)
-            for row in db.execute(
-                text(
-                    f"""
-                    SELECT id, trade_date, symbol, {select_state}{select_payload}, decision_id, position_state
-                    FROM picks
-                    WHERE decision_id = :decision_id
-                    """
-                ),
-                {"decision_id": wanted},
-            ).mappings()
-        ]
+    rows = _load_positions("p.position_id = :position_id", {"position_id": wanted})
     if not rows:
         return None
     if len(rows) > 1:
         raise RuntimeError("POSITION_IDENTITY_AMBIGUOUS")
-    position = _position_payload(rows[0])
-    state = str(position.get("position_state") or "").upper()
-    if state not in {"FLAT", "LONG"}:
-        raise ValueError(f"INVALID_POSITION_STATE:{state}")
-    position["position_state"] = state
-    return position
+    return rows[0]
 
 
-def fetch_position_state(symbol: str) -> str | None:
-    """Read-only derived symbol status. Not the position identity owner."""
+def get_position_by_decision_id(decision_id: str) -> Dict[str, Any] | None:
+    wanted = str(decision_id or "").strip()
+    if not wanted:
+        return None
+    rows = _load_positions("p.decision_id = :decision_id", {"decision_id": wanted})
+    if not rows:
+        return None
+    if len(rows) > 1:
+        raise RuntimeError("POSITION_IDENTITY_AMBIGUOUS")
+    return rows[0]
+
+
+def fetch_position_by_decision_id(decision_id: str) -> Dict[str, Any] | None:
+    """Compatibility alias. Position identity owner is get_position_by_id()."""
+    return get_position_by_decision_id(decision_id)
+
+
+def derive_position_state_by_symbol(symbol: str) -> str | None:
+    """DERIVED READ ONLY. Never production position identity."""
     wanted = str(symbol or "").strip()
     if not wanted:
         return None
-    columns = _table_columns("picks")
-    if "position_state" not in columns:
-        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
-    if "decision_id" not in columns:
-        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
+    if "position_id" not in _table_columns("positions"):
+        raise RuntimeError("POSITION_SCHEMA_MISSING")
     with engine.connect() as db:
         rows = [
             dict(row)
             for row in db.execute(
                 text(
                     """
-                    SELECT decision_id, position_state
-                    FROM picks
+                    SELECT position_id, decision_id, position_state
+                    FROM positions
                     WHERE symbol = :symbol
                       AND position_state IN ('FLAT', 'LONG')
                     """
@@ -2272,9 +2351,9 @@ def fetch_position_state(symbol: str) -> str | None:
             ).mappings()
         ]
     long_ids = {
-        str(row.get("decision_id") or "").strip()
+        str(row.get("position_id") or "").strip()
         for row in rows
-        if str(row.get("position_state") or "").upper() == "LONG" and str(row.get("decision_id") or "").strip()
+        if str(row.get("position_state") or "").upper() == "LONG" and str(row.get("position_id") or "").strip()
     }
     if len(long_ids) > 1:
         raise RuntimeError("POSITION_STATE_AMBIGUOUS")
@@ -2283,6 +2362,89 @@ def fetch_position_state(symbol: str) -> str | None:
     if any(str(row.get("position_state") or "").upper() == "FLAT" for row in rows):
         return "FLAT"
     return None
+
+
+def upsert_position(decision: Dict[str, Any]) -> None:
+    """Persist one position identity from a recorded decision. Never forges IDs."""
+    state = str(decision.get("position_state") or "").upper()
+    if state not in {"FLAT", "LONG"}:
+        return
+    decision_id = str(decision.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ValueError("DECISION_ID_REQUIRED")
+    existing = get_position_by_decision_id(decision_id)
+    if existing is None and state != "LONG":
+        return
+    position_id = str(decision.get("position_id") or (existing or {}).get("position_id") or "").strip()
+    if not position_id:
+        position_id = position_id_for_decision(decision_id)
+    if existing and str(existing.get("position_id") or "").strip() != position_id:
+        raise RuntimeError("POSITION_IDENTITY_CONFLICT")
+    original_snapshot_id = str(
+        (existing or {}).get("original_snapshot_id")
+        or decision.get("original_snapshot_id")
+        or decision.get("snapshot_id")
+        or ""
+    ).strip()
+    if not original_snapshot_id:
+        raise RuntimeError("SNAPSHOT_IDENTITY_UNAVAILABLE")
+    symbol = str(decision.get("symbol") or (existing or {}).get("symbol") or "").strip()
+    if not symbol:
+        raise ValueError("SYMBOL_REQUIRED")
+    opened = str((existing or {}).get("opened_trade_date") or decision.get("trade_date") or "")[:10]
+    if not opened:
+        raise RuntimeError("POSITION_OPENED_TRADE_DATE_UNAVAILABLE")
+    closed = None
+    if state == "FLAT":
+        closed = str(decision.get("review_trade_date") or decision.get("trade_date") or "")[:10] or None
+        if not closed:
+            raise RuntimeError("POSITION_CLOSED_TRADE_DATE_UNAVAILABLE")
+    if "position_id" not in _table_columns("positions"):
+        raise RuntimeError("POSITION_SCHEMA_MISSING")
+    with get_db() as db:
+        snapshot = db.execute(
+            text("SELECT 1 FROM snapshots WHERE snapshot_id = :snapshot_id"),
+            {"snapshot_id": original_snapshot_id},
+        ).first()
+        if not snapshot:
+            raise RuntimeError("SNAPSHOT_NOT_FOUND")
+        pick = db.execute(
+            text("SELECT 1 FROM picks WHERE decision_id = :decision_id"),
+            {"decision_id": decision_id},
+        ).first()
+        if not pick:
+            raise RuntimeError("DECISION_ID_NOT_FOUND")
+        try:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO positions (
+                        position_id, decision_id, symbol, original_snapshot_id,
+                        position_state, opened_trade_date, closed_trade_date
+                    )
+                    VALUES (
+                        :position_id, :decision_id, :symbol, :original_snapshot_id,
+                        :position_state, CAST(:opened_trade_date AS date),
+                        CAST(:closed_trade_date AS date)
+                    )
+                    ON CONFLICT (position_id) DO UPDATE
+                    SET position_state = EXCLUDED.position_state,
+                        closed_trade_date = EXCLUDED.closed_trade_date,
+                        updated_at = NOW()
+                    """
+                ),
+                {
+                    "position_id": position_id,
+                    "decision_id": decision_id,
+                    "symbol": symbol,
+                    "original_snapshot_id": original_snapshot_id,
+                    "position_state": state,
+                    "opened_trade_date": opened,
+                    "closed_trade_date": closed,
+                },
+            )
+        except IntegrityError as exc:
+            raise RuntimeError("POSITION_IDENTITY_CONFLICT") from exc
 
 
 def _calendar_date(value: Any) -> date:

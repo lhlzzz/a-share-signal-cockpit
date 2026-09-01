@@ -30,17 +30,25 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt pytest
       - run: python -m compileall -q scrapy_scanner scripts xiaogu_*.py
-      - run: pytest tests/ -x -q
+      - run: mkdir -p artifacts
+      - run: pytest tests/ -x -q --junitxml=artifacts/test-report.xml
       - run: |
           python - <<'PY'
           from fastapi.testclient import TestClient
           from xiaogu_api import app
           client = TestClient(app)
-          assert client.get("/health").status_code == 200
+          health = client.get("/health")
+          assert health.status_code == 200
+          assert health.json().get("status") in {"ok", "blocked"}
           assert client.get("/state").status_code == 200
           for path in ("/decision", "/trades", "/paper/signals", "/paper/performance"):
               assert client.get(path).status_code == 200
           PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: artifacts/test-report.xml
 
   production_contract:
     runs-on: ubuntu-latest
@@ -67,15 +75,31 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt pytest
       - run: python -m compileall -q scrapy_scanner scripts xiaogu_*.py
-      - run: pytest tests/test_schema_snapshot_truth.py tests/test_snapshot_identity_lock.py tests/test_production_contract.py tests/test_production_decision.py tests/test_production_hardening.py tests/test_data_contract.py -x -q
-      - run: python scripts/xiaogu_daily_health_check.py
+      - run: mkdir -p artifacts
+      - run: pytest tests/test_schema_snapshot_truth.py tests/test_snapshot_identity_lock.py tests/test_production_contract.py tests/test_production_decision.py tests/test_production_hardening.py tests/test_data_contract.py -x -q --junitxml=artifacts/production-contract-report.xml
+      - run: set -o pipefail && python scripts/xiaogu_daily_health_check.py --json | tee artifacts/health-report.json
       - name: production path anti-regressions
         run: |
-          if git grep -n -E 'fetch_decision_snapshot\(prior_id\)|event_id = source_id|mechanism = evidence_family|DISTINCT ON\(symbol\)' -- '*.py' | grep -E 'xiaogu_forward_runner.py|xiaogu_portfolio_decision.py|xiaogu_forward_features.py|xiaogu_db.py'; then
+          if git grep -n -E 'fetch_decision_snapshot\(prior_id\)|event_id = source_id|mechanism = evidence_family|DISTINCT ON\(symbol\)|fetch_position_state\(symbol\)' -- '*.py' | grep -E 'xiaogu_forward_runner.py|xiaogu_portfolio_decision.py|xiaogu_forward_features.py|xiaogu_db.py'; then
             echo "forbidden production-path identity fallback detected" >&2
+            exit 1
+          fi
+          if git grep -n '"PAPER_REDUCE"' -- xiaogu_forward_runner.py xiaogu_portfolio_decision.py xiaogu_db.py xiaogu_api.py; then
+            echo "production still emits PAPER_REDUCE" >&2
+            exit 1
+          fi
+          if git grep -n 'CONFIRMED_DISTRIBUTION": None' -- xiaogu_portfolio_decision.py; then
+            echo "distribution blocker still accepts any mechanism" >&2
             exit 1
           fi
           if git grep -n 'mode="REPLAY"' -- xiaogu_forward_runner.py | grep daily_paper_position_review; then
             echo "paper review still uses REPLAY" >&2
             exit 1
           fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-contract-and-health
+          path: |
+            artifacts/production-contract-report.xml
+            artifacts/health-report.json

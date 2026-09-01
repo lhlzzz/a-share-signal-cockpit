@@ -19,6 +19,10 @@ MAX_HOLDING_DAYS = 5
 PAPER_OBSERVATION_CONTRACT_VERSION = "paper_observation_v1"
 PAPER_OBSERVATION_STATE = "OBSERVED"
 PAPER_POSITION_STATES = ("PAPER_FLAT", "PAPER_LONG")
+PAPER_REVIEW_ACTIONS = ("PAPER_HOLD", "PAPER_SELL")
+QUANTITY_MODEL = False
+REDUCE_UNSUPPORTED = "REDUCE_UNSUPPORTED"
+PAPER_REDUCE_UNSUPPORTED = "PAPER_REDUCE_UNSUPPORTED"
 PRODUCTION_GATE_VERSION = "production_gate_v1"
 RESEARCH_ONLY_POSITIVE_SIGNALS = {
     "CAPITAL_ACCUMULATION",
@@ -85,17 +89,14 @@ def _confirmation_status(item: Dict[str, Any]) -> str:
 
 
 def _evidence_confirmed(item: Any, as_of: datetime | None = None) -> bool:
+    """Strict confirmation + strict PIT + strict (source_id, event_id, mechanism) identity."""
     if not isinstance(item, dict):
         return False
-    if str(item.get("source_id") or "").strip() == "":
+    identity = validate_evidence_identity(item)
+    if identity is None or item.get("evidence_identity") is None:
         return False
-    if str(item.get("event_id") or "").strip() == "":
-        return False
-    if str(item.get("mechanism") or "").strip() == "":
-        return False
-    if validate_evidence_identity(item) is None:
-        return False
-    if item.get("evidence_identity") is None:
+    source_id, event_id, mechanism = identity
+    if not (source_id and event_id and mechanism):
         return False
     observed_at = str(item.get("observed_at") or "").strip()
     available_at = str(item.get("available_at") or "").strip()
@@ -107,8 +108,7 @@ def _evidence_confirmed(item: Any, as_of: datetime | None = None) -> bool:
     audit = pit_record_audit(item, as_of_value)
     if audit.get("pit_status") != "OK":
         return False
-    item_pit = str(item.get("pit_status") or "").upper()
-    if item_pit != "OK":
+    if str(audit.get("exclusion_reason") or "").strip():
         return False
     status = _confirmation_status(item)
     if status not in {"CONFIRMED", "OBSERVED", "EVIDENCE_BACKED"}:
@@ -145,8 +145,9 @@ def _capital_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
     return items
 
 
+DISTRIBUTION_MECHANISMS = frozenset({"distribution_risk"})
 BLOCKER_REQUIRED_MECHANISMS = {
-    "CONFIRMED_DISTRIBUTION": None,
+    "CONFIRMED_DISTRIBUTION": DISTRIBUTION_MECHANISMS,
     "CONFIRMED_SUPPLY_REVERSAL": {"supply_reversal"},
     "BUYER_EXHAUSTION_OR_CLIMAX": {"buyer_exhaustion"},
     "REPRICING_COMPLETED": {"completed_repricing", "repricing_completion"},
@@ -169,7 +170,7 @@ def build_confirmed_negative_blocker(
         return None
     source_id, event_id, mechanism = identity
     allowed = required_mechanisms if required_mechanisms is not None else BLOCKER_REQUIRED_MECHANISMS.get(blocker)
-    if allowed is not None and mechanism not in allowed:
+    if not allowed or mechanism not in allowed:
         return None
     if not _evidence_confirmed(item, as_of=as_of):
         return None
@@ -206,12 +207,11 @@ def collect_production_negative_evidence(
     """Confirmed negative evidence only. UNKNOWN/None/MISSING never become blockers."""
     records = []
     capital_items = _capital_evidence_items(features)
-    distributing = [
+    distribution_items = [
         item for item in capital_items
-        if str(item.get("direction") or item.get("interpretation") or "").upper()
-        in {"DISTRIBUTING", "EXITING", "DISTRIBUTION", "SELL"}
+        if str(item.get("mechanism") or "").strip() in DISTRIBUTION_MECHANISMS
     ]
-    for item in distributing:
+    for item in distribution_items:
         record = build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", item, as_of=as_of)
         if record:
             records.append(record)
@@ -570,8 +570,10 @@ def evaluate_candidate_bundle(
         if position_state_unavailable
         else "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
     )
+    # REDUCE is an abstract action only. Without a quantity model it never closes the position.
     return {
         "decision_id": decision_id,
+        "position_id": (account or {}).get("position_id"),
         "state": state,
         "action": state if state in TRADE_ACTIONS else None,
         "position_state": position_state_after,

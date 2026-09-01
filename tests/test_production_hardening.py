@@ -464,7 +464,7 @@ def test_position_state_not_action_derived():
     assert decision["action"] != decision["position_state"] or decision["action"] in {"HOLD", "REDUCE", "SELL", "BUY"}
 
 
-def test_production_runner_reads_position_state_from_postgres(monkeypatch):
+def test_production_runner_does_not_use_symbol_position_truth(monkeypatch):
     import xiaogu_forward_runner as runner
 
     snapshot = validate_and_build_canonical_snapshot({
@@ -474,20 +474,19 @@ def test_production_runner_reads_position_state_from_postgres(monkeypatch):
     })
     seen = {}
     monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
-    def fake_position_state(symbol):
-        seen["symbol"] = symbol
-        return "LONG"
-
-    monkeypatch.setattr("xiaogu_db.fetch_position_state", fake_position_state)
+    monkeypatch.setattr(
+        "xiaogu_db.derive_position_state_by_symbol",
+        lambda _symbol: (_ for _ in ()).throw(AssertionError("SYMBOL_IS_NOT_POSITION_TRUTH")),
+    )
     monkeypatch.setattr(runner, "evaluate_candidate_bundle", lambda *_args, **kwargs: seen.update(kwargs) or {"state": "HOLD"})
     runner.run_production_decision(
         snapshot,
         mode="PRODUCTION",
         trade_date="2026-08-26",
         decision_clock=datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
+        position_state="FLAT",
     )
-    assert seen["symbol"] == "600001"
-    assert seen["position_state"] == "LONG"
+    assert seen["position_state"] == "FLAT"
 
 
 def test_decision_outcome_isolation():

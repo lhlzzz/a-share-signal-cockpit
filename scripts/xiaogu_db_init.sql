@@ -31,6 +31,26 @@ CREATE TABLE IF NOT EXISTS picks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS positions (
+    position_id TEXT PRIMARY KEY,
+    decision_id TEXT NOT NULL UNIQUE,
+    symbol TEXT NOT NULL,
+    original_snapshot_id TEXT NOT NULL,
+    position_state TEXT NOT NULL,
+    opened_trade_date DATE NOT NULL,
+    closed_trade_date DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT positions_position_state_check CHECK (position_state IN ('FLAT', 'LONG')),
+    CONSTRAINT positions_closed_state_check CHECK (
+        (position_state = 'LONG' AND closed_trade_date IS NULL)
+        OR (position_state = 'FLAT')
+    ),
+    CONSTRAINT positions_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES picks (decision_id),
+    CONSTRAINT positions_original_snapshot_id_fkey FOREIGN KEY (original_snapshot_id) REFERENCES snapshots (snapshot_id)
+);
+CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions (symbol);
+CREATE INDEX IF NOT EXISTS idx_positions_decision_id ON positions (decision_id);
 CREATE TABLE IF NOT EXISTS paper_observations (
     paper_signal_id TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL,

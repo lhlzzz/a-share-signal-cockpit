@@ -39,7 +39,12 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Decision owner: `xiaogu_portfolio_decision.evaluate_candidate_bundle()`.
 - Gate owner: `xiaogu_portfolio_decision.evaluate_production_gates()`.
 - Production clock owner: `xiaogu_forward_snapshot.production_now()`.
+- Position identity is `position_id`, not symbol. Same symbol / different decision stay isolated.
 - Position Review uses `review_snapshot_id` as current truth; `original_snapshot_id` is provenance only.
+- Paper REDUCE is unsupported without a quantity model. Paper review actions are `PAPER_HOLD` / `PAPER_SELL`.
+- Distribution requires a distribution mechanism. A SELL direction is not distribution by itself.
+- Negative evidence is point-in-time: future `available_at` is excluded; missing identity is not confirmed.
+- Health checks actual runtime behavior; `inspect.getsource()` is not the production contract.
 - Confirmed negative evidence is a production blocker. Research-positive capital cannot BUY.
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
 - Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit, then sends memory through the optional Obsidian REST bridge. Bridge failure queues a retry; it never affects PostgreSQL.

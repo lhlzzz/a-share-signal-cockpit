@@ -199,9 +199,12 @@ def current_state() -> Dict[str, Any]:
     for row in fetch_open_positions():
         position = _payload(row)
         position.setdefault("decision", position.get("action") or position.get("state"))
+        position["position_id"] = position.get("position_id")
         position["decision_id"] = position.get("decision_id")
         position["original_snapshot_id"] = position.get("original_snapshot_id")
         position["review_snapshot_id"] = position.get("review_snapshot_id")
+        position["current_snapshot_id"] = position.get("review_snapshot_id")
+        position["position_state"] = position.get("position_state")
         position["review_trade_date"] = position.get("review_trade_date")
         position["decision_clock"] = position.get("decision_clock")
         positions.append(_production_view(position))

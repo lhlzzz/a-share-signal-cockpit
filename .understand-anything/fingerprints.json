@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "7caacf8ea73e46f7353d0976157a8be626fb6af1",
-  "generatedAt": "2026-09-01T12:48:13.611Z",
+  "gitCommitHash": "c7c326806f2c269072c461e195c1984327fdde6c",
+  "generatedAt": "2026-09-01T14:53:40.803Z",
   "files": {
     ".codebase-memory/.gitattributes": {
       "filePath": ".codebase-memory/.gitattributes",
@@ -35,13 +35,23 @@
     },
     ".github/workflows/ci.yml": {
       "filePath": ".github/workflows/ci.yml",
-      "contentHash": "a489ebf1771daf08e75d8ac7ac11f6cb4dc2fc023ee8f55359836c3738827ea9",
+      "contentHash": "48a838847145a721610532e08325a16ca2837d89fca46abead0b866157c62aba",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 82,
+      "totalLines": 106,
       "hasStructuralAnalysis": true
+    },
+    ".gitignore": {
+      "filePath": ".gitignore",
+      "contentHash": "9224e9406764f7f9cbabd3631db6ef36829e44fc2fa60bf96c6a8a2277f54d01",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": false
     },
     ".plan-enforcer/.session-log.jsonl": {
       "filePath": ".plan-enforcer/.session-log.jsonl",
@@ -145,12 +155,12 @@
     },
     ".understand-anything/fingerprints.json": {
       "filePath": ".understand-anything/fingerprints.json",
-      "contentHash": "7d420b99368ec5b17119c6078d38a1a22348dbc98344aa43366f79b667c2b459",
+      "contentHash": "b1c91bc907be1ec2464b25aeb1ffec18acfa9846254abaaa962192ed9519e965",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 7320,
+      "totalLines": 7929,
       "hasStructuralAnalysis": true
     },
     ".understand-anything/knowledge-graph.json": {
@@ -175,32 +185,32 @@
     },
     "AGENTS.md": {
       "filePath": "AGENTS.md",
-      "contentHash": "2bb1c2ff758362ff52fe6053bc2c2ad12a4b001148a4a0235929367ae9e07902",
+      "contentHash": "c5779b91d61864ef9b22aa5300c5780f2709f664561be45ed248ceb100670b69",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 192,
+      "totalLines": 194,
       "hasStructuralAnalysis": true
     },
     "CLAUDE.md": {
       "filePath": "CLAUDE.md",
-      "contentHash": "f1a6dbd3b6c61034b2121293633925c7a4cb4aa9c055ede6e2497ec3cc05519b",
+      "contentHash": "b98b45aa7c66913e204bc8803ce3b61f7725b83ea836c215c167eebe439098bf",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 97,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "16dae51a33d31426f680c8332669f1dab8dedb1e393935d6afd185341f502910",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
       "totalLines": 92,
-      "hasStructuralAnalysis": true
-    },
-    "README.md": {
-      "filePath": "README.md",
-      "contentHash": "c27a120fb5a246134881f12909af934e51212e3eefc1b77d58a0bbce57376937",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 87,
       "hasStructuralAnalysis": true
     },
     "daily_pipeline.sh": {
@@ -338,12 +348,12 @@
     },
     "rule_freeze_v0_1.json": {
       "filePath": "rule_freeze_v0_1.json",
-      "contentHash": "6aa3c1930aa5cc38920abc8c7cdd7e944acd29f9d26b99b9ac8d1ed2e6838e65",
+      "contentHash": "c1b862c5ccb7b40cdb604cd4a7705f1d642f6d248b08e25d33b9a10c0d926638",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 215,
+      "totalLines": 261,
       "hasStructuralAnalysis": true
     },
     "scrapy_scanner/__init__.py": {
@@ -812,7 +822,7 @@
     },
     "scripts/xiaogu_daily_health_check.py": {
       "filePath": "scripts/xiaogu_daily_health_check.py",
-      "contentHash": "5a2d399e2337a601f38b584bae1503d6f03e57bb7837451a3e2f236d681aa576",
+      "contentHash": "ae5e735b91a7c890f43ec9f662944ac2447752202b07620732170f2414814047",
       "functions": [
         {
           "name": "_text",
@@ -921,25 +931,25 @@
           "name": "check_position_review_contract",
           "params": [],
           "exported": true,
-          "lineCount": 19
+          "lineCount": 64
         },
         {
           "name": "check_paper_position_review_contract",
           "params": [],
           "exported": true,
-          "lineCount": 24
+          "lineCount": 59
         },
         {
           "name": "check_production_clock_contract",
           "params": [],
           "exported": true,
-          "lineCount": 19
+          "lineCount": 37
         },
         {
           "name": "check_negative_evidence_contract",
           "params": [],
           "exported": true,
-          "lineCount": 50
+          "lineCount": 69
         },
         {
           "name": "check_evidence_identity_contract",
@@ -963,7 +973,7 @@
           "name": "check_position_identity_contract",
           "params": [],
           "exported": true,
-          "lineCount": 16
+          "lineCount": 66
         },
         {
           "name": "main",
@@ -1033,17 +1043,17 @@
         "check_position_identity_contract",
         "main"
       ],
-      "totalLines": 552,
+      "totalLines": 719,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_db_init.sql": {
       "filePath": "scripts/xiaogu_db_init.sql",
-      "contentHash": "85b656d86da9464035d05e3ae747f8b2b0d58cb08c117ccfbfaec933708502e4",
+      "contentHash": "7a223f7500a0f920b2bdbf6cc01a24849ead35c32ea01bc4843a6447f2a89d7b",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 236,
+      "totalLines": 256,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_ensure_database.py": {
@@ -1076,6 +1086,51 @@
       "totalLines": 13,
       "hasStructuralAnalysis": true
     },
+    "scripts/xiaogu_migrate_historical_snapshots.py": {
+      "filePath": "scripts/xiaogu_migrate_historical_snapshots.py",
+      "contentHash": "4fb235e3aced8a7d2a9e0674dd39f92b370ec4fa0c8c52b77553cab94eccb6de",
+      "functions": [
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "xiaogu_db",
+          "specifiers": [
+            "migrate_historical_snapshot_identity"
+          ]
+        }
+      ],
+      "exports": [
+        "main"
+      ],
+      "totalLines": 32,
+      "hasStructuralAnalysis": true
+    },
     "start_api.sh": {
       "filePath": "start_api.sh",
       "contentHash": "f1d07d41b2ae0c27677514350feec3492db504f6c87b334c86628cf60f33f7db",
@@ -1088,7 +1143,7 @@
     },
     "tests/test_data_contract.py": {
       "filePath": "tests/test_data_contract.py",
-      "contentHash": "c23514aa5dc73cb86518e6613d680970fd151340b68741225c443faed19cc05c",
+      "contentHash": "08e6a5bc64663f4f1b66b04f000bae523bd7c36fad3a4779a48cfee8f380c396",
       "functions": [
         {
           "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
@@ -1204,7 +1259,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 18
+          "lineCount": 17
         },
         {
           "name": "test_direct_evaluation_does_not_expose_missing_position_as_flat",
@@ -1359,7 +1414,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 44
+          "lineCount": 45
         },
         {
           "name": "test_position_review_exact_snapshot_identity",
@@ -1367,7 +1422,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 39
+          "lineCount": 40
         },
         {
           "name": "test_missing_snapshot_id_blocks_review",
@@ -1375,7 +1430,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 8
+          "lineCount": 9
         },
         {
           "name": "test_position_review_blocks_when_calendar_input_is_unavailable",
@@ -1383,7 +1438,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 23
+          "lineCount": 24
         },
         {
           "name": "test_runner_bundle_loader_reads_scanner_canonical_jsonl",
@@ -1439,7 +1494,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 48
+          "lineCount": 49
         },
         {
           "name": "test_production_clock_rejects_stale_snapshot",
@@ -1468,7 +1523,7 @@
           "name": "test_same_symbol_outcomes_are_bound_to_decision_id",
           "params": [],
           "exported": true,
-          "lineCount": 41
+          "lineCount": 50
         },
         {
           "name": "test_schema_migration_failure_is_fail_closed",
@@ -1828,7 +1883,7 @@
         "test_level_1_blocks_severe_liquidity_without_scoring",
         "test_scanner_attaches_level0_market_inputs_without_deep_research"
       ],
-      "totalLines": 1452,
+      "totalLines": 1465,
       "hasStructuralAnalysis": true
     },
     "tests/test_database_historical_replay.py": {
@@ -2147,6 +2202,550 @@
       "totalLines": 10,
       "hasStructuralAnalysis": true
     },
+    "tests/test_production_contract.py": {
+      "filePath": "tests/test_production_contract.py",
+      "contentHash": "ac0216c931b166ec8c9dfbde07d0408b0c35625174a6ac6ecb6ea20fcca320b7",
+      "functions": [
+        {
+          "name": "_lhb_row",
+          "params": [
+            "event_id",
+            "explain",
+            "**extra"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_open_position",
+          "params": [
+            "**extra"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_cleanup_seeded_positions",
+          "params": [
+            "decision_ids",
+            "lineage_ids"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_seed_isolated_positions",
+          "params": [
+            "rows"
+          ],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "_base_snapshot",
+          "params": [
+            "**extra"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_ready_snapshot",
+          "params": [
+            "**extra"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_production_clock_is_not_source_time",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_production_clock_stale_data_uses_real_clock",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "test_replay_clock_may_use_historical_source_time",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_position_review_uses_current_snapshot_not_original",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_position_review_missing_current_snapshot_blocks",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_position_review_does_not_create_paper_observation",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_unknown_evidence_is_not_a_production_blocker",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_confirmed_distribution_is_a_production_blocker",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_research_positive_capital_cannot_buy",
+          "params": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_same_lhb_event_counts_as_one_independent_origin",
+          "params": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "test_two_independent_events_count_as_two_origins",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_evaluate_candidate_bundle_does_not_implement_gates",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_rule_freeze_matches_python_gate_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_gate_pass_and_fail_are_owned_by_evaluate_production_gates",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_paper_observation_stays_observed_and_flat",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_review_decision_contract_fields",
+          "params": [],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_current_review_snapshot_resolver_fail_closed",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "test_current_review_snapshot_ambiguous",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "test_paper_review_uses_current_snapshot",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "test_paper_review_uses_production_clock",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "test_paper_review_missing_current_snapshot_blocks",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "test_old_review_snapshot_is_stale_against_production_clock",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "test_production_clock_is_not_snapshot_source_time",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_future_available_at_is_excluded_from_production",
+          "params": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "test_future_negative_evidence_is_not_a_production_blocker",
+          "params": [],
+          "exported": true,
+          "lineCount": 19
+        },
+        {
+          "name": "test_missing_event_id_is_not_confirmed",
+          "params": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_missing_mechanism_is_not_confirmed",
+          "params": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_evidence_identity_does_not_fabricate_fallbacks",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_repricing_blocker_uses_repricing_evidence_not_capital",
+          "params": [],
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "test_unknown_evidence_identity_is_not_a_blocker",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "test_open_positions_are_isolated_by_decision_identity",
+          "params": [],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "test_same_symbol_long_positions_stay_isolated",
+          "params": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "test_entry_to_review_keeps_original_and_current_snapshot_identity",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "test_position_identity_not_symbol",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_same_symbol_two_positions_isolated",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_open_positions_no_distinct_on_symbol",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "test_position_by_decision_id",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_position_by_id",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_paper_reduce_rejected",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "test_paper_hold_keeps_long",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "test_paper_sell_closes",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "test_paper_t5_closes",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "test_paper_current_snapshot",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_paper_current_clock",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_negative_future_evidence_excluded",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_negative_missing_identity_excluded",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_distribution_requires_distribution_mechanism",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "test_sell_direction_not_distribution_by_itself",
+          "params": [],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "test_blocker_own_evidence",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_capital_lhb_one_origin",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_production_clock_now",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_replay_clock_allowed_only_replay",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_health_runtime_position_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_health_runtime_evidence_contract",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timedelta",
+            "timezone"
+          ]
+        },
+        {
+          "source": "inspect",
+          "specifiers": [
+            "getsource"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "production_decision_clock",
+            "production_now",
+            "snapshot_age",
+            "validate_and_build_canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_features",
+          "specifiers": [
+            "_evidence",
+            "validate_evidence_identity"
+          ]
+        },
+        {
+          "source": "xiaogu_portfolio_decision",
+          "specifiers": [
+            "DECISION_HARD_GATES",
+            "PRODUCTION_GATE_VERSION",
+            "_evidence_confirmed",
+            "build_confirmed_negative_blocker",
+            "collect_production_negative_evidence",
+            "evaluate_candidate_bundle",
+            "evaluate_production_gates"
+          ]
+        }
+      ],
+      "exports": [
+        "_lhb_row",
+        "_open_position",
+        "_cleanup_seeded_positions",
+        "_seed_isolated_positions",
+        "_base_snapshot",
+        "_ready_snapshot",
+        "test_production_clock_is_not_source_time",
+        "test_production_clock_stale_data_uses_real_clock",
+        "test_replay_clock_may_use_historical_source_time",
+        "test_position_review_uses_current_snapshot_not_original",
+        "test_position_review_missing_current_snapshot_blocks",
+        "test_position_review_does_not_create_paper_observation",
+        "test_unknown_evidence_is_not_a_production_blocker",
+        "test_confirmed_distribution_is_a_production_blocker",
+        "test_research_positive_capital_cannot_buy",
+        "test_same_lhb_event_counts_as_one_independent_origin",
+        "test_two_independent_events_count_as_two_origins",
+        "test_evaluate_candidate_bundle_does_not_implement_gates",
+        "test_rule_freeze_matches_python_gate_contract",
+        "test_gate_pass_and_fail_are_owned_by_evaluate_production_gates",
+        "test_paper_observation_stays_observed_and_flat",
+        "test_review_decision_contract_fields",
+        "test_current_review_snapshot_resolver_fail_closed",
+        "test_current_review_snapshot_ambiguous",
+        "test_paper_review_uses_current_snapshot",
+        "test_paper_review_uses_production_clock",
+        "test_paper_review_missing_current_snapshot_blocks",
+        "test_old_review_snapshot_is_stale_against_production_clock",
+        "test_production_clock_is_not_snapshot_source_time",
+        "test_future_available_at_is_excluded_from_production",
+        "test_future_negative_evidence_is_not_a_production_blocker",
+        "test_missing_event_id_is_not_confirmed",
+        "test_missing_mechanism_is_not_confirmed",
+        "test_evidence_identity_does_not_fabricate_fallbacks",
+        "test_repricing_blocker_uses_repricing_evidence_not_capital",
+        "test_unknown_evidence_identity_is_not_a_blocker",
+        "test_open_positions_are_isolated_by_decision_identity",
+        "test_same_symbol_long_positions_stay_isolated",
+        "test_entry_to_review_keeps_original_and_current_snapshot_identity",
+        "test_position_identity_not_symbol",
+        "test_same_symbol_two_positions_isolated",
+        "test_open_positions_no_distinct_on_symbol",
+        "test_position_by_decision_id",
+        "test_position_by_id",
+        "test_paper_reduce_rejected",
+        "test_paper_hold_keeps_long",
+        "test_paper_sell_closes",
+        "test_paper_t5_closes",
+        "test_paper_current_snapshot",
+        "test_paper_current_clock",
+        "test_negative_future_evidence_excluded",
+        "test_negative_missing_identity_excluded",
+        "test_distribution_requires_distribution_mechanism",
+        "test_sell_direction_not_distribution_by_itself",
+        "test_blocker_own_evidence",
+        "test_capital_lhb_one_origin",
+        "test_production_clock_now",
+        "test_replay_clock_allowed_only_replay",
+        "test_health_runtime_position_contract",
+        "test_health_runtime_evidence_contract"
+      ],
+      "totalLines": 1150,
+      "hasStructuralAnalysis": true
+    },
     "tests/test_production_decision.py": {
       "filePath": "tests/test_production_decision.py",
       "contentHash": "567119606fd078516a04a4ad02853f562b860238cc203ca4ee830d731cfa0f9a",
@@ -2329,7 +2928,7 @@
     },
     "tests/test_production_hardening.py": {
       "filePath": "tests/test_production_hardening.py",
-      "contentHash": "179a289f7b8ce06945f96d7ed4a8b01bb79d823ad78b1cc922783c8b3265016d",
+      "contentHash": "17397536e378f563c5733043ba32f0a26cbca96cd6ac7ea22f2a9338e8be7d69",
       "functions": [
         {
           "name": "_fixture_calendar",
@@ -2522,12 +3121,12 @@
           "lineCount": 9
         },
         {
-          "name": "test_production_runner_reads_position_state_from_postgres",
+          "name": "test_production_runner_does_not_use_symbol_position_truth",
           "params": [
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 24
+          "lineCount": 23
         },
         {
           "name": "test_decision_outcome_isolation",
@@ -2655,14 +3254,14 @@
         "test_pricing_gap_not_hard_gate",
         "test_artifact_version_mismatch_blocks",
         "test_position_state_not_action_derived",
-        "test_production_runner_reads_position_state_from_postgres",
+        "test_production_runner_does_not_use_symbol_position_truth",
         "test_decision_outcome_isolation",
         "test_t5_forces_close",
         "test_cost_model_single_source",
         "test_snapshot_and_decision_share_one_transaction",
         "test_historical_unresolved_not_rewritten"
       ],
-      "totalLines": 553,
+      "totalLines": 552,
       "hasStructuralAnalysis": true
     },
     "tests/test_return_calculation.py": {
@@ -2783,9 +3382,450 @@
       "totalLines": 245,
       "hasStructuralAnalysis": true
     },
+    "tests/test_schema_snapshot_truth.py": {
+      "filePath": "tests/test_schema_snapshot_truth.py",
+      "contentHash": "736461e452f86044f8966ec9d45d446955742dbc073334d7c652f653e2cf4b73",
+      "functions": [
+        {
+          "name": "_snapshot",
+          "params": [
+            "symbol",
+            "trade_date",
+            "lineage_id",
+            "source_time"
+          ],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "_calendar_rows",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_schema_composite_unique_exact",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_schema_conflict_blocks",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "test_schema_version_ahead_blocks",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_bootstrap_creates_latest_schema",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_runtime_migration_upgrade",
+          "params": [],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "test_migration_checksum_conflict",
+          "params": [],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "test_historical_snapshot_migration_not_called_by_production_init",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_historical_snapshot_unresolved_stays_unresolved",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_historical_snapshot_conflict_blocks_migration",
+          "params": [],
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "test_canonical_single_candidate",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_canonical_multiple_candidates_blocks",
+          "params": [],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_production_never_uses_latest_snapshot_fallback",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_decision_snapshot_id_is_exact",
+          "params": [],
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "test_calendar_fixture_2026_08_31",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_calendar_fixture_2026_09_25",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_calendar_fixture_2026_09_28",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_calendar_cross_year",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_paper_reuses_decision_snapshot_identity",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_outcome_reuses_decision_identity",
+          "params": [],
+          "exported": true,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "inspect",
+          "specifiers": [
+            "inspect"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "date"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "sqlalchemy",
+          "specifiers": [
+            "text"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "select_canonical_snapshot",
+            "select_unique_canonical_snapshots",
+            "validate_and_build_canonical_snapshot"
+          ]
+        },
+        {
+          "source": "xiaogu_portfolio_decision",
+          "specifiers": [
+            "evaluate_candidate_bundle"
+          ]
+        }
+      ],
+      "exports": [
+        "_snapshot",
+        "_calendar_rows",
+        "test_schema_composite_unique_exact",
+        "test_schema_conflict_blocks",
+        "test_schema_version_ahead_blocks",
+        "test_bootstrap_creates_latest_schema",
+        "test_runtime_migration_upgrade",
+        "test_migration_checksum_conflict",
+        "test_historical_snapshot_migration_not_called_by_production_init",
+        "test_historical_snapshot_unresolved_stays_unresolved",
+        "test_historical_snapshot_conflict_blocks_migration",
+        "test_canonical_single_candidate",
+        "test_canonical_multiple_candidates_blocks",
+        "test_production_never_uses_latest_snapshot_fallback",
+        "test_decision_snapshot_id_is_exact",
+        "test_calendar_fixture_2026_08_31",
+        "test_calendar_fixture_2026_09_25",
+        "test_calendar_fixture_2026_09_28",
+        "test_calendar_cross_year",
+        "test_paper_reuses_decision_snapshot_identity",
+        "test_outcome_reuses_decision_identity"
+      ],
+      "totalLines": 305,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_snapshot_identity_lock.py": {
+      "filePath": "tests/test_snapshot_identity_lock.py",
+      "contentHash": "0bdc1ea26e891d4f7eab9527bb0793601f472de307a7f27ddc734ec152c9401c",
+      "functions": [
+        {
+          "name": "_lock_snapshot",
+          "params": [
+            "symbol",
+            "lineage_id",
+            "price",
+            "source_time",
+            "extra"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "_cleanup",
+          "params": [
+            "snapshot_ids"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_same_payload_same_hash",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_key_order_does_not_change_hash",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_timezone_normalization",
+          "params": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "test_number_normalization",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_different_payload_different_hash",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_snapshot_hash_stable",
+          "params": [],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "test_snapshot_hash_changes_on_fact_change",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_snapshot_insert",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_snapshot_same_hash_idempotent",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_snapshot_different_hash_conflict",
+          "params": [],
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "test_snapshot_concurrent_same_hash",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_snapshot_concurrent_same_hash_is_idempotent",
+          "params": [],
+          "exported": true,
+          "lineCount": 30
+        },
+        {
+          "name": "test_snapshot_concurrent_different_hash",
+          "params": [],
+          "exported": true,
+          "lineCount": 2
+        },
+        {
+          "name": "test_snapshot_concurrent_different_hash_conflicts",
+          "params": [],
+          "exported": true,
+          "lineCount": 41
+        },
+        {
+          "name": "test_snapshot_row_immutable",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "test_snapshot_persisted_verification",
+          "params": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "test_snapshot_identity_conflict_on_different_lineage_payload",
+          "params": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_historical_lock_snapshot",
+          "params": [
+            "snapshot_id",
+            "lineage_id",
+            "symbol",
+            "price"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "_cleanup_historical",
+          "params": [
+            "snapshot_ids"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "test_historical_snapshot_same_hash_idempotent",
+          "params": [],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
+          "name": "test_historical_snapshot_different_hash_conflict",
+          "params": [],
+          "exported": true,
+          "lineCount": 39
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "as_completed"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime",
+            "timezone"
+          ]
+        },
+        {
+          "source": "zoneinfo",
+          "specifiers": [
+            "ZoneInfo"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "sqlalchemy",
+          "specifiers": [
+            "text"
+          ]
+        },
+        {
+          "source": "xiaogu_forward_snapshot",
+          "specifiers": [
+            "snapshot_payload_hash",
+            "validate_and_build_canonical_snapshot"
+          ]
+        }
+      ],
+      "exports": [
+        "_lock_snapshot",
+        "_cleanup",
+        "test_same_payload_same_hash",
+        "test_key_order_does_not_change_hash",
+        "test_timezone_normalization",
+        "test_number_normalization",
+        "test_different_payload_different_hash",
+        "test_snapshot_hash_stable",
+        "test_snapshot_hash_changes_on_fact_change",
+        "test_snapshot_insert",
+        "test_snapshot_same_hash_idempotent",
+        "test_snapshot_different_hash_conflict",
+        "test_snapshot_concurrent_same_hash",
+        "test_snapshot_concurrent_same_hash_is_idempotent",
+        "test_snapshot_concurrent_different_hash",
+        "test_snapshot_concurrent_different_hash_conflicts",
+        "test_snapshot_row_immutable",
+        "test_snapshot_persisted_verification",
+        "test_snapshot_identity_conflict_on_different_lineage_payload",
+        "_historical_lock_snapshot",
+        "_cleanup_historical",
+        "test_historical_snapshot_same_hash_idempotent",
+        "test_historical_snapshot_different_hash_conflict"
+      ],
+      "totalLines": 418,
+      "hasStructuralAnalysis": true
+    },
     "xiaogu_api.py": {
       "filePath": "xiaogu_api.py",
-      "contentHash": "c207cb42915e40fa9ee1b2fd130af8cb261ce6bdf222ce916f2186adec34b388",
+      "contentHash": "8682806451c296a520935c4296cd41d300d2987525b54ee34a7a739c31a902cd",
       "functions": [
         {
           "name": "_payload",
@@ -2863,7 +3903,7 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 19
+          "lineCount": 22
         },
         {
           "name": "current_decision",
@@ -3030,7 +4070,7 @@
         "paper_open",
         "paper_history"
       ],
-      "totalLines": 355,
+      "totalLines": 358,
       "hasStructuralAnalysis": true
     },
     "xiaogu_backtest_v0_1.py": {
@@ -3830,7 +4870,7 @@
     },
     "xiaogu_db.py": {
       "filePath": "xiaogu_db.py",
-      "contentHash": "e5ea619726735b82322b07314a7799bf9301f800b967d8471a726dd917ee489a",
+      "contentHash": "235e5b7b93f14ec7bc61962a94f024c23efcc67f7008cb31b723a152860fb220",
       "functions": [
         {
           "name": "get_db",
@@ -3950,7 +4990,7 @@
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 196
+          "lineCount": 216
         },
         {
           "name": "_schema_version_ordinal",
@@ -3975,7 +5015,7 @@
           "params": [],
           "returnType": "tuple[dict[str, Any], ...]",
           "exported": true,
-          "lineCount": 24
+          "lineCount": 31
         },
         {
           "name": "_schema_version",
@@ -4055,6 +5095,13 @@
           "returnType": "None",
           "exported": true,
           "lineCount": 2
+        },
+        {
+          "name": "_apply_position_identity_constraints",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 19
         },
         {
           "name": "_apply_schema_migration",
@@ -4272,7 +5319,7 @@
           ],
           "returnType": "None",
           "exported": true,
-          "lineCount": 49
+          "lineCount": 50
         },
         {
           "name": "record_snapshot_and_decision",
@@ -4431,20 +5478,57 @@
           "lineCount": 15
         },
         {
+          "name": "position_id_for_decision",
+          "params": [
+            "decision_id"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
           "name": "_position_payload",
           "params": [
             "row"
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 23
+          "lineCount": 35
+        },
+        {
+          "name": "_load_positions",
+          "params": [
+            "where_sql",
+            "params"
+          ],
+          "returnType": "List[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 38
         },
         {
           "name": "fetch_open_positions",
           "params": [],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 41
+          "lineCount": 4
+        },
+        {
+          "name": "get_position_by_id",
+          "params": [
+            "position_id"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "get_position_by_decision_id",
+          "params": [
+            "decision_id"
+          ],
+          "returnType": "Dict[str, Any] | None",
+          "exported": true,
+          "lineCount": 10
         },
         {
           "name": "fetch_position_by_decision_id",
@@ -4453,16 +5537,25 @@
           ],
           "returnType": "Dict[str, Any] | None",
           "exported": true,
-          "lineCount": 41
+          "lineCount": 3
         },
         {
-          "name": "fetch_position_state",
+          "name": "derive_position_state_by_symbol",
           "params": [
             "symbol"
           ],
           "returnType": "str | None",
           "exported": true,
-          "lineCount": 37
+          "lineCount": 34
+        },
+        {
+          "name": "upsert_position",
+          "params": [
+            "decision"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 81
         },
         {
           "name": "_calendar_date",
@@ -4862,6 +5955,7 @@
         "_apply_identity_constraints",
         "_apply_v2_schema",
         "_apply_snapshot_identity_lock",
+        "_apply_position_identity_constraints",
         "_apply_schema_migration",
         "_apply_pending_schema_migrations",
         "ensure_production_schema",
@@ -4902,10 +5996,15 @@
         "fetch_open_paper_positions",
         "fetch_production_model",
         "_table_columns",
+        "position_id_for_decision",
         "_position_payload",
+        "_load_positions",
         "fetch_open_positions",
+        "get_position_by_id",
+        "get_position_by_decision_id",
         "fetch_position_by_decision_id",
-        "fetch_position_state",
+        "derive_position_state_by_symbol",
+        "upsert_position",
         "_calendar_date",
         "_calendar_dataset_path",
         "calendar_content_hash",
@@ -4937,7 +6036,7 @@
         "database_asset_report",
         "fetch_historical_replay_assets"
       ],
-      "totalLines": 3497,
+      "totalLines": 3659,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_bundle_io.py": {
@@ -5413,7 +6512,7 @@
     },
     "xiaogu_forward_paper_recorder_v0_1.py": {
       "filePath": "xiaogu_forward_paper_recorder_v0_1.py",
-      "contentHash": "6b79f80902a0eb25efc7a1ccb75e5a6691ef65e9a4f13b5696ccb76ce4203fbf",
+      "contentHash": "9f2d8f39b6b550d2ef6d91e45f0b0c1a427c1983b211cc4d8c87e3e71c07deb1",
       "functions": [
         {
           "name": "dump_json",
@@ -6027,7 +7126,7 @@
     },
     "xiaogu_forward_runner.py": {
       "filePath": "xiaogu_forward_runner.py",
-      "contentHash": "a45fef034808ab4fabc7fde963c3e84b49ed03d82ebca3eee9002dbbed977425",
+      "contentHash": "ebb5c8c88885bf6f37ba0b842bf02673907ec3da018bbb4a5728f4341e9a4a55",
       "functions": [
         {
           "name": "_parse_clock",
@@ -6053,7 +7152,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 77
+          "lineCount": 86
         },
         {
           "name": "_write_ledger_record",
@@ -6101,7 +7200,7 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 78
+          "lineCount": 93
         },
         {
           "name": "daily_paper_position_review",
@@ -6110,14 +7209,14 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 84
+          "lineCount": 97
         },
         {
           "name": "main",
           "params": [],
           "returnType": "None",
           "exported": true,
-          "lineCount": 176
+          "lineCount": 177
         }
       ],
       "classes": [],
@@ -6195,7 +7294,7 @@
         "daily_paper_position_review",
         "main"
       ],
-      "totalLines": 514,
+      "totalLines": 552,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_snapshot.py": {
@@ -7317,7 +8416,7 @@
     },
     "xiaogu_portfolio_decision.py": {
       "filePath": "xiaogu_portfolio_decision.py",
-      "contentHash": "c70ffa1e73a3ffd09a75e5e89d2774ac5315d3897d8ff7f41dce2c283eece0df",
+      "contentHash": "1b793431a8e182e340ec51702b18505ee4e77aa0872a4d90797162cd0047a35b",
       "functions": [
         {
           "name": "_decision_id",
@@ -7375,7 +8474,7 @@
           ],
           "returnType": "bool",
           "exported": true,
-          "lineCount": 30
+          "lineCount": 26
         },
         {
           "name": "_nested_evidence_items",
@@ -7417,7 +8516,7 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 59
+          "lineCount": 58
         },
         {
           "name": "evaluate_production_gates",
@@ -7473,7 +8572,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 203
+          "lineCount": 205
         }
       ],
       "classes": [],
@@ -7548,7 +8647,7 @@
         "_paper_observation",
         "evaluate_candidate_bundle"
       ],
-      "totalLines": 662,
+      "totalLines": 664,
       "hasStructuralAnalysis": true
     },
     "xiaogu_research_context.py": {

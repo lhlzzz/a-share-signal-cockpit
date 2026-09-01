@@ -210,5 +210,51 @@
     "PRODUCTION_GATES": "FROZEN",
     "status": "ARCHITECTURE FROZEN",
     "paper_observation": "ACTIVE"
+  },
+  "position_identity": {
+    "owner": "xiaogu_db.get_position_by_id",
+    "identity": "position_id",
+    "decision_identity": "decision_id",
+    "symbol_derived": false,
+    "states": [
+      "FLAT",
+      "LONG"
+    ],
+    "review_actions": [
+      "HOLD",
+      "SELL"
+    ],
+    "reduce": "UNSUPPORTED"
+  },
+  "paper_review": {
+    "identity": "paper_signal_id",
+    "actions": [
+      "PAPER_HOLD",
+      "PAPER_SELL"
+    ],
+    "reduce": "UNSUPPORTED",
+    "position_states": [
+      "PAPER_FLAT",
+      "PAPER_LONG"
+    ],
+    "clock": "PRODUCTION",
+    "review_snapshot": "current trusted snapshot"
+  },
+  "negative_evidence": {
+    "identity": [
+      "source_id",
+      "event_id",
+      "mechanism"
+    ],
+    "pit": true,
+    "distribution_requires_mechanism": true,
+    "sell_direction_is_not_distribution": true,
+    "future_excluded": true,
+    "unknown_not_blocker": true
+  },
+  "health": {
+    "primary": "runtime behavior",
+    "static_architecture": true,
+    "source_inspection_not_sufficient": true
   }
 }

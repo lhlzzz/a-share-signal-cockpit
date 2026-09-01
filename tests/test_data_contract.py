@@ -305,7 +305,6 @@ def test_production_position_state_unavailable_blocks_before_decision(monkeypatc
         "trade_date": "2026-08-26",
     })
     monkeypatch.setattr(xiaogu_db, "verify_persisted_snapshot", lambda **_kwargs: True)
-    monkeypatch.setattr(xiaogu_db, "fetch_position_state", lambda _symbol: None)
     with pytest.raises(RuntimeError, match="POSITION_STATE_UNAVAILABLE"):
         run_production_decision(
             snapshot,
@@ -628,6 +627,7 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
 
     seen = {}
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "position_id": "POS|d1",
         "symbol": "600001",
         "trade_date": "2026-08-25",
         "state": "HOLD",
@@ -680,6 +680,7 @@ def test_position_review_exact_snapshot_identity(monkeypatch):
         "source_time": "2026-08-27T14:50:00+08:00",
     })
     seen = {}
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
         "paper_signal_id": "paper-1",
         "decision_id": "decision-1",
@@ -713,6 +714,7 @@ def test_position_review_exact_snapshot_identity(monkeypatch):
 def test_missing_snapshot_id_blocks_review(monkeypatch):
     import xiaogu_forward_runner as runner
 
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
         "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26", "symbol": "600001",
     }])
@@ -724,6 +726,7 @@ def test_position_review_blocks_when_calendar_input_is_unavailable(monkeypatch):
     import xiaogu_forward_runner as runner
 
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "position_id": "POS|decision-1",
         "symbol": "600001",
         "trade_date": "",
         "state": "HOLD",
@@ -871,6 +874,7 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
 
     def fake_positions():
         return [{
+            "position_id": "POS|d1",
             "symbol": "600001",
             "trade_date": "2026-08-25",
             "state": "HOLD",
@@ -968,12 +972,21 @@ def test_same_symbol_outcomes_are_bound_to_decision_id():
     with engine.begin() as db:
         db.execute(text("DELETE FROM returns WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
         db.execute(text("DELETE FROM picks WHERE decision_id IN ('test-trade-a', 'test-trade-b')"))
+        from xiaogu_db import _table_columns
+        pick_fields = ["trade_date", "symbol", "state", "decision_id", "payload"]
+        if "decision" in _table_columns("picks"):
+            pick_fields = ["trade_date", "symbol", "decision", "state", "decision_id", "payload"]
+            values = (
+                "('2026-08-01', '600001', 'BUY', 'BUY', 'test-trade-a', CAST(:payload AS jsonb)), "
+                "('2026-08-08', '600001', 'BUY', 'BUY', 'test-trade-b', CAST(:payload AS jsonb))"
+            )
+        else:
+            values = (
+                "('2026-08-01', '600001', 'BUY', 'test-trade-a', CAST(:payload AS jsonb)), "
+                "('2026-08-08', '600001', 'BUY', 'test-trade-b', CAST(:payload AS jsonb))"
+            )
         db.execute(
-            text(
-                "INSERT INTO picks (trade_date, symbol, decision, state, decision_id, payload) "
-                "VALUES ('2026-08-01', '600001', 'BUY', 'BUY', 'test-trade-a', CAST(:payload AS jsonb)), "
-                "       ('2026-08-08', '600001', 'BUY', 'BUY', 'test-trade-b', CAST(:payload AS jsonb))"
-            ),
+            text(f"INSERT INTO picks ({', '.join(pick_fields)}) VALUES {values}"),
             {"payload": json.dumps({"decision_id": "seed"})},
         )
         db.execute(

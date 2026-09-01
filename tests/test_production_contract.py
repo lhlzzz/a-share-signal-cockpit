@@ -41,18 +41,85 @@ def _lhb_row(event_id: str, explain: str, **extra):
 
 
 def _open_position(**extra):
+    decision_id = extra.get("decision_id", "d-original")
     payload = {
+        "position_id": extra.get("position_id", f"POS|{decision_id}"),
         "symbol": "600001",
         "trade_date": "2026-08-26",
         "state": "HOLD",
         "action": "HOLD",
-        "decision_id": "d-original",
+        "decision_id": decision_id,
         "position_state": "LONG",
         "snapshot_id": extra.get("snapshot_id", "original-snapshot"),
         "original_snapshot_id": extra.get("original_snapshot_id", extra.get("snapshot_id", "original-snapshot")),
     }
     payload.update(extra)
+    payload.setdefault("position_id", f"POS|{payload['decision_id']}")
     return payload
+
+
+def _cleanup_seeded_positions(decision_ids, lineage_ids):
+    from sqlalchemy import text
+    from xiaogu_db import engine
+
+    decision_ids = [str(item) for item in decision_ids]
+    lineage_ids = [str(item) for item in lineage_ids]
+    with engine.begin() as db:
+        if decision_ids:
+            wanted = ", ".join(f":d{i}" for i in range(len(decision_ids)))
+            params = {f"d{i}": value for i, value in enumerate(decision_ids)}
+            db.execute(text(f"DELETE FROM positions WHERE decision_id IN ({wanted})"), params)
+            db.execute(text(f"DELETE FROM picks WHERE decision_id IN ({wanted})"), params)
+        if lineage_ids:
+            wanted = ", ".join(f":l{i}" for i in range(len(lineage_ids)))
+            params = {f"l{i}": value for i, value in enumerate(lineage_ids)}
+            db.execute(text(f"DELETE FROM snapshots WHERE lineage_id IN ({wanted})"), params)
+
+
+def _seed_isolated_positions(rows):
+    """Persist positions through production writers. Never forges identity."""
+    from xiaogu_db import ensure_production_schema, record_decision, record_snapshot
+
+    ensure_production_schema()
+    decision_ids = [row["decision_id"] for row in rows]
+    lineage_ids = [row["lineage_id"] for row in rows]
+    _cleanup_seeded_positions(decision_ids, lineage_ids)
+    seeded = []
+    for row in rows:
+        snapshot = validate_and_build_canonical_snapshot(
+            _base_snapshot(
+                symbol=row["symbol"],
+                trade_date=row["trade_date"],
+                source_time=f"{row['trade_date']}T14:50:00+08:00",
+                lineage_id=row["lineage_id"],
+            ),
+            lineage_id=row["lineage_id"],
+        )
+        record_snapshot(snapshot)
+        decision = {
+            "decision_id": row["decision_id"],
+            "position_id": f"POS|{row['decision_id']}",
+            "symbol": snapshot["symbol"],
+            "trade_date": snapshot["trade_date"],
+            "state": "HOLD",
+            "action": "HOLD",
+            "position_state": "LONG",
+            "snapshot_id": snapshot["snapshot_id"],
+            "lineage_id": snapshot["lineage_id"],
+            "original_snapshot_id": snapshot["snapshot_id"],
+            "canonical_snapshot": snapshot,
+        }
+        record_decision(decision)
+        if row.get("position_state") == "FLAT":
+            record_decision({
+                **decision,
+                "state": "SELL",
+                "action": "SELL",
+                "position_state": "FLAT",
+                "review_trade_date": snapshot["trade_date"],
+            })
+        seeded.append({**row, "snapshot_id": snapshot["snapshot_id"], "position_id": decision["position_id"]})
+    return seeded
 
 REVIEW_CLOCK = datetime.fromisoformat("2026-09-01T10:00:00+08:00")
 
@@ -223,7 +290,7 @@ def test_confirmed_distribution_is_a_production_blocker():
         _ready_snapshot(
             f62=-1_000,
             pct_chg=-2,
-            lhb=[_lhb_row("lhb-dist-1", "1家机构卖出", institution=True, NET_BS_AMT=-120)],
+            lhb=[_lhb_row("lhb-dist-1", "1家机构卖出", institution=True, NET_BS_AMT=-120, mechanism="distribution_risk")],
         ),
         position_state="FLAT",
         as_of=AS_OF,
@@ -440,6 +507,7 @@ def test_paper_review_uses_current_snapshot(monkeypatch):
     current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
     assert original["snapshot_id"] != current["snapshot_id"]
     seen = {}
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
         "paper_signal_id": "paper-1",
         "decision_id": "d-original",
@@ -490,6 +558,7 @@ def test_paper_review_uses_production_clock(monkeypatch):
 
     current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
     seen = {}
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
         "paper_signal_id": "paper-1",
         "decision_id": "d-original",
@@ -517,6 +586,7 @@ def test_paper_review_uses_production_clock(monkeypatch):
 def test_paper_review_missing_current_snapshot_blocks(monkeypatch):
     import xiaogu_forward_runner as runner
 
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
         "paper_signal_id": "paper-1",
         "decision_id": "d-original",
@@ -539,7 +609,14 @@ def test_old_review_snapshot_is_stale_against_production_clock(monkeypatch):
     from xiaogu_forward_runner import run_production_decision
 
     monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
-    monkeypatch.setattr("xiaogu_db.fetch_position_by_decision_id", lambda _decision_id: {"position_state": "LONG", "decision_id": "d-original"})
+    monkeypatch.setattr(
+        "xiaogu_db.get_position_by_id",
+        lambda _position_id: {"position_id": "POS|d-original", "position_state": "LONG", "decision_id": "d-original"},
+    )
+    monkeypatch.setattr(
+        "xiaogu_db.get_position_by_decision_id",
+        lambda _decision_id: {"position_id": "POS|d-original", "position_state": "LONG", "decision_id": "d-original"},
+    )
     snapshot = validate_and_build_canonical_snapshot(_base_snapshot())
     with pytest.raises(ValueError, match="STALE_DATA"):
         run_production_decision(
@@ -547,7 +624,7 @@ def test_old_review_snapshot_is_stale_against_production_clock(monkeypatch):
             mode="PRODUCTION",
             trade_date="2026-08-26",
             position_state="LONG",
-            account={"decision_id": "d-original", "position_review": True},
+            account={"position_id": "POS|d-original", "decision_id": "d-original", "position_review": True},
         )
 
 
@@ -558,7 +635,6 @@ def test_production_clock_is_not_snapshot_source_time(monkeypatch):
     monkeypatch.setattr("xiaogu_forward_snapshot.production_now", lambda: fixed)
     monkeypatch.setattr("xiaogu_forward_runner.production_decision_clock", lambda decision_time=None: decision_time or fixed)
     monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
-    monkeypatch.setattr("xiaogu_db.fetch_position_state", lambda _symbol: "FLAT")
     snapshot = validate_and_build_canonical_snapshot(_base_snapshot(source_time="2026-09-03T09:50:00+08:00", trade_date="2026-09-03"))
     decision = run_production_decision(snapshot, mode="PRODUCTION", trade_date="2026-09-03", position_state="FLAT")
     assert decision["decision_clock"] == fixed.isoformat()
@@ -694,8 +770,7 @@ def test_repricing_blocker_uses_repricing_evidence_not_capital():
     assert tuple(repricing[0]["evidence_identity"]) == ("repricing", "repricing-b", "completed_repricing")
     assert tuple(repricing[0]["evidence_identity"]) != ("lhb", "capital-a", "lhb_event")
     distribution = [item for item in records if item["blocker"] == "CONFIRMED_DISTRIBUTION"]
-    assert distribution
-    assert tuple(distribution[0]["evidence_identity"]) == ("lhb", "capital-a", "lhb_event")
+    assert distribution == []
 
 
 def test_unknown_evidence_identity_is_not_a_blocker():
@@ -723,66 +798,52 @@ def test_unknown_evidence_identity_is_not_a_blocker():
 
 
 def test_open_positions_are_isolated_by_decision_identity():
-    import json
-    from sqlalchemy import text
-    from xiaogu_db import engine, ensure_production_schema, fetch_open_positions, fetch_position_by_decision_id, fetch_position_state
+    from xiaogu_db import (
+        derive_position_state_by_symbol,
+        fetch_open_positions,
+        get_position_by_decision_id,
+        get_position_by_id,
+    )
 
-    ensure_production_schema()
-    with engine.begin() as db:
-        db.execute(text("DELETE FROM picks WHERE decision_id IN ('pos-d1', 'pos-d2')"))
-        db.execute(
-            text(
-                "INSERT INTO picks (trade_date, symbol, decision, state, decision_id, position_state, payload) "
-                "VALUES "
-                "('2026-08-01', '600001', 'HOLD', 'HOLD', 'pos-d1', 'LONG', CAST(:payload_a AS jsonb)), "
-                "('2026-08-08', '600001', 'SELL', 'SELL', 'pos-d2', 'FLAT', CAST(:payload_b AS jsonb))"
-            ),
-            {
-                "payload_a": json.dumps({"decision_id": "pos-d1", "snapshot_id": "s1", "original_snapshot_id": "s1", "action": "HOLD"}),
-                "payload_b": json.dumps({"decision_id": "pos-d2", "snapshot_id": "s2", "original_snapshot_id": "s2", "action": "SELL"}),
-            },
-        )
+    rows = [
+        {"decision_id": "iso-pos-d1", "lineage_id": "iso-lin-d1", "symbol": "990011", "trade_date": "2026-08-03", "position_state": "LONG"},
+        {"decision_id": "iso-pos-d2", "lineage_id": "iso-lin-d2", "symbol": "990011", "trade_date": "2026-08-10", "position_state": "FLAT"},
+    ]
     try:
+        _seed_isolated_positions(rows)
         opened = fetch_open_positions()
         ids = {row["decision_id"] for row in opened}
-        assert "pos-d1" in ids
-        assert "pos-d2" not in ids
-        first = fetch_position_by_decision_id("pos-d1")
-        second = fetch_position_by_decision_id("pos-d2")
+        assert "iso-pos-d1" in ids
+        assert "iso-pos-d2" not in ids
+        first = get_position_by_decision_id("iso-pos-d1")
+        second = get_position_by_id("POS|iso-pos-d2")
+        assert first["position_id"] == "POS|iso-pos-d1"
         assert first["position_state"] == "LONG"
         assert second["position_state"] == "FLAT"
         assert first["decision_id"] != second["decision_id"]
-        assert fetch_position_state("600001") == "LONG"
+        assert first["position_id"] != second["position_id"]
+        assert first["symbol"] == second["symbol"] == "990011"
+        assert derive_position_state_by_symbol("990011") == "LONG"
     finally:
-        with engine.begin() as db:
-            db.execute(text("DELETE FROM picks WHERE decision_id IN ('pos-d1', 'pos-d2')"))
+        _cleanup_seeded_positions(["iso-pos-d1", "iso-pos-d2"], ["iso-lin-d1", "iso-lin-d2"])
 
 
 def test_same_symbol_long_positions_stay_isolated():
-    import json
-    from sqlalchemy import text
-    from xiaogu_db import engine, ensure_production_schema, fetch_open_positions, fetch_position_state
+    from xiaogu_db import derive_position_state_by_symbol, fetch_open_positions
 
-    ensure_production_schema()
-    with engine.begin() as db:
-        db.execute(text("DELETE FROM picks WHERE decision_id IN ('pos-a', 'pos-b')"))
-        db.execute(
-            text(
-                "INSERT INTO picks (trade_date, symbol, decision, state, decision_id, position_state, payload) "
-                "VALUES "
-                "('2026-08-01', '600001', 'HOLD', 'HOLD', 'pos-a', 'LONG', CAST(:payload AS jsonb)), "
-                "('2026-08-08', '600001', 'HOLD', 'HOLD', 'pos-b', 'LONG', CAST(:payload AS jsonb))"
-            ),
-            {"payload": json.dumps({"action": "HOLD"})},
-        )
+    rows = [
+        {"decision_id": "iso-pos-a", "lineage_id": "iso-lin-a", "symbol": "990012", "trade_date": "2026-08-03", "position_state": "LONG"},
+        {"decision_id": "iso-pos-b", "lineage_id": "iso-lin-b", "symbol": "990012", "trade_date": "2026-08-10", "position_state": "LONG"},
+    ]
     try:
-        opened = [row for row in fetch_open_positions() if row["decision_id"] in {"pos-a", "pos-b"}]
-        assert {row["decision_id"] for row in opened} == {"pos-a", "pos-b"}
+        _seed_isolated_positions(rows)
+        opened = [row for row in fetch_open_positions() if row["decision_id"] in {"iso-pos-a", "iso-pos-b"}]
+        assert {row["decision_id"] for row in opened} == {"iso-pos-a", "iso-pos-b"}
+        assert {row["position_id"] for row in opened} == {"POS|iso-pos-a", "POS|iso-pos-b"}
         with pytest.raises(RuntimeError, match="POSITION_STATE_AMBIGUOUS"):
-            fetch_position_state("600001")
+            derive_position_state_by_symbol("990012")
     finally:
-        with engine.begin() as db:
-            db.execute(text("DELETE FROM picks WHERE decision_id IN ('pos-a', 'pos-b')"))
+        _cleanup_seeded_positions(["iso-pos-a", "iso-pos-b"], ["iso-lin-a", "iso-lin-b"])
 
 
 def test_entry_to_review_keeps_original_and_current_snapshot_identity(monkeypatch):
@@ -816,3 +877,273 @@ def test_entry_to_review_keeps_original_and_current_snapshot_identity(monkeypatc
     assert seen["mode"] == "PRODUCTION"
     assert reviewed[0]["paper_observation"] is None
     assert "paper_signal_id" not in reviewed[0]
+
+
+def test_position_identity_not_symbol(monkeypatch):
+    from xiaogu_forward_runner import run_production_decision
+
+    monkeypatch.setattr("xiaogu_db.verify_persisted_snapshot", lambda **_kwargs: True)
+    snapshot = validate_and_build_canonical_snapshot(_base_snapshot(source_time="2026-09-03T09:50:00+08:00", trade_date="2026-09-03"))
+    decision = run_production_decision(
+        snapshot,
+        mode="PRODUCTION",
+        trade_date="2026-09-03",
+        position_state="FLAT",
+        decision_clock=datetime.fromisoformat("2026-09-03T10:00:00+08:00"),
+    )
+    assert decision["position_state_before"] == "FLAT"
+    assert decision["symbol"] == "600001"
+
+
+def test_same_symbol_two_positions_isolated():
+    test_same_symbol_long_positions_stay_isolated()
+
+
+def test_open_positions_no_distinct_on_symbol():
+    from inspect import getsource
+    from xiaogu_db import _load_positions, fetch_open_positions
+
+    for fn in (fetch_open_positions, _load_positions):
+        source = getsource(fn)
+        assert "DISTINCT ON" not in source
+        assert "ORDER BY id DESC" not in source
+    test_same_symbol_long_positions_stay_isolated()
+
+
+def test_position_by_decision_id():
+    test_open_positions_are_isolated_by_decision_identity()
+
+
+def test_position_by_id():
+    from xiaogu_db import get_position_by_id
+    test_open_positions_are_isolated_by_decision_identity()
+    assert callable(get_position_by_id)
+
+
+def test_paper_reduce_rejected(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "d-original",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "snapshot_id": "original-id",
+        "original_snapshot_id": "original-id",
+        "paper_position_state": "PAPER_LONG",
+        "paper_entry_contract": {"entry_price": 10},
+    }])
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "run_production_decision", lambda *_args, **_kwargs: {"state": "REDUCE", "action": "REDUCE"})
+    with pytest.raises(RuntimeError, match="PAPER_REDUCE_UNSUPPORTED"):
+        runner.daily_paper_position_review("2026-09-01")
+
+
+def test_paper_hold_keeps_long(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "d-original",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "snapshot_id": "original-id",
+        "original_snapshot_id": "original-id",
+        "paper_position_state": "PAPER_LONG",
+        "paper_entry_contract": {"entry_price": 10},
+    }])
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "run_production_decision", lambda *_args, **_kwargs: {"state": "HOLD", "action": "HOLD"})
+    reviewed = runner.daily_paper_position_review("2026-09-01")
+    assert reviewed[0]["paper_action"] == "PAPER_HOLD"
+    assert reviewed[0]["paper_position_state"] == "PAPER_LONG"
+    assert reviewed[0]["paper_observation_state"] == "OBSERVED"
+
+
+def test_paper_sell_closes(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
+    closed = {}
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "d-original",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "snapshot_id": "original-id",
+        "original_snapshot_id": "original-id",
+        "paper_position_state": "PAPER_LONG",
+        "paper_entry_contract": {"entry_price": 10},
+    }])
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr(
+        "xiaogu_db.update_paper_observation_state",
+        lambda paper_signal_id, **kwargs: closed.update({"paper_signal_id": paper_signal_id, **kwargs}),
+    )
+    monkeypatch.setattr(runner, "run_production_decision", lambda *_args, **_kwargs: {"state": "SELL", "action": "SELL", "reason": "THESIS_BROKEN"})
+    reviewed = runner.daily_paper_position_review("2026-09-01")
+    assert reviewed[0]["paper_action"] == "PAPER_SELL"
+    assert reviewed[0]["paper_position_state"] == "PAPER_FLAT"
+    assert reviewed[0]["paper_observation_state"] == "CLOSED"
+    assert closed["state"] == "CLOSED"
+    assert closed["paper_position_state"] == "PAPER_FLAT"
+
+
+def test_paper_t5_closes(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
+    monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "d-original",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "snapshot_id": "original-id",
+        "original_snapshot_id": "original-id",
+        "paper_position_state": "PAPER_LONG",
+        "paper_entry_contract": {"entry_price": 10},
+    }])
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 5)
+    monkeypatch.setattr("xiaogu_db.update_paper_observation_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(runner, "run_production_decision", lambda *_args, **_kwargs: {"state": "HOLD", "action": "HOLD"})
+    reviewed = runner.daily_paper_position_review("2026-09-01")
+    assert reviewed[0]["paper_action"] == "PAPER_SELL"
+    assert reviewed[0]["paper_position_state"] == "PAPER_FLAT"
+    assert reviewed[0]["paper_observation_state"] == "CLOSED"
+    assert reviewed[0]["paper_exit_reason"] == "T5_EXPIRY"
+
+
+def test_paper_current_snapshot(monkeypatch):
+    test_paper_review_uses_current_snapshot(monkeypatch)
+
+
+def test_paper_current_clock(monkeypatch):
+    test_paper_review_uses_production_clock(monkeypatch)
+
+
+def test_negative_future_evidence_excluded():
+    test_future_negative_evidence_is_not_a_production_blocker()
+
+
+def test_negative_missing_identity_excluded():
+    test_missing_event_id_is_not_confirmed()
+
+
+def test_distribution_requires_distribution_mechanism():
+    item = {
+        "source_id": "lhb",
+        "event_id": "dist-1",
+        "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "dist-1", "distribution_risk"),
+        "observed": True,
+        "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "as_of": AS_OF.isoformat(),
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "pit_status": "OK",
+        "confirmation_status": "CONFIRMED",
+    }
+    records = collect_production_negative_evidence(
+        {},
+        {"CAPITAL": {"institution_behavior": {"evidence": [item]}}},
+        {},
+        as_of=AS_OF,
+    )
+    assert records and records[0]["blocker"] == "CONFIRMED_DISTRIBUTION"
+    assert records[0]["mechanism"] == "distribution_risk"
+
+
+def test_sell_direction_not_distribution_by_itself():
+    item = {
+        "source_id": "lhb",
+        "event_id": "sell-1",
+        "mechanism": "lhb_event",
+        "evidence_identity": ("lhb", "sell-1", "lhb_event"),
+        "observed": True,
+        "direction": "SELL",
+        "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "as_of": AS_OF.isoformat(),
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "pit_status": "OK",
+        "confirmation_status": "CONFIRMED",
+    }
+    records = collect_production_negative_evidence(
+        {},
+        {"CAPITAL": {"institution_behavior": {"evidence": [item]}}},
+        {},
+        as_of=AS_OF,
+    )
+    assert records == []
+    assert build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", item, as_of=AS_OF) is None
+
+
+def test_blocker_own_evidence():
+    supply_item = {
+        "source_id": "supply",
+        "event_id": "sup-1",
+        "mechanism": "supply_reversal",
+        "evidence_identity": ("supply", "sup-1", "supply_reversal"),
+        "observed": True,
+        "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "as_of": AS_OF.isoformat(),
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "pit_status": "OK",
+        "confirmation_status": "CONFIRMED",
+    }
+    assert build_confirmed_negative_blocker("CONFIRMED_SUPPLY_REVERSAL", supply_item, as_of=AS_OF)
+    assert build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", supply_item, as_of=AS_OF) is None
+    assert build_confirmed_negative_blocker("REPRICING_COMPLETED", supply_item, as_of=AS_OF) is None
+
+
+def test_capital_lhb_one_origin():
+    test_same_lhb_event_counts_as_one_independent_origin()
+
+
+def test_production_clock_now():
+    test_production_clock_is_not_source_time()
+
+
+def test_replay_clock_allowed_only_replay(monkeypatch):
+    test_replay_clock_may_use_historical_source_time(monkeypatch)
+
+
+def test_health_runtime_position_contract():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "xiaogu_daily_health_check",
+        "scripts/xiaogu_daily_health_check.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ok, detail = mod.check_position_review_contract()
+    assert ok, detail
+    ok, detail = mod.check_position_identity_contract()
+    assert ok, detail
+
+
+def test_health_runtime_evidence_contract():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "xiaogu_daily_health_check",
+        "scripts/xiaogu_daily_health_check.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ok, detail = mod.check_evidence_identity_contract()
+    assert ok, detail
+    ok, detail = mod.check_negative_evidence_contract()
+    assert ok, detail

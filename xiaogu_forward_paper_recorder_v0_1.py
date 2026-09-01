@@ -67,7 +67,7 @@ def _memory_symbol(value: Any) -> str:
 
 
 def _memory_note_path(state: str, record: Dict[str, Any]) -> str:
-    section = "EXIT" if state in {"SELL", "REDUCE"} else state
+    section = "EXIT" if state == "SELL" else state
     return f"xiaogu_memory/decisions/{section}/{record.get('date')}_{_memory_symbol(record.get('symbol'))}.md"
 
 
@@ -487,7 +487,7 @@ def _snapshot_and_record(
         'exit': features.get('exit_price'),
         'pnl': features.get('realized_pnl'),
         'costs': (features.get('core_alpha') or {}).get('execution_constraints', {}).get('cost_rate'),
-        'exit_reason': features.get('reason') if decision in {'REDUCE', 'SELL'} else None,
+        'exit_reason': features.get('reason') if decision == 'SELL' else None,
     }
     return snap, snapshot, record
 

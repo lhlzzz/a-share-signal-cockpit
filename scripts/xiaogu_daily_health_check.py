@@ -289,70 +289,168 @@ def check_calendar_truth():
 
 
 def check_position_review_contract():
-    from inspect import getsource
-    import xiaogu_db as db
+    from datetime import datetime, timezone
     import xiaogu_forward_runner as runner
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
 
-    review = getsource(runner.daily_position_review)
-    resolver = getsource(db.get_current_position_review_snapshot)
-    static_ok = (
-        "get_current_position_review_snapshot" in review
-        and "original_snapshot_id" in review
-        and "review_snapshot_id" in review
-        and "review_trade_date" in review
-        and "decision_clock=_parse_clock" not in review
-        and "ORDER BY source_time DESC" not in resolver
-        and "CURRENT_REVIEW_SNAPSHOT_NOT_FOUND" in resolver
-        and "CURRENT_REVIEW_SNAPSHOT_AMBIGUOUS" in resolver
-        and "fetch_decision_snapshot(prior_id)" not in review
+    original = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    current = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 11, "volume": 110, "amount": 1100,
+        "source_time": "2026-09-01T09:40:00+08:00", "trade_date": "2026-09-01",
+    })
+    seen = {}
+
+    def fake_run(received, **kwargs):
+        seen.update({"received": received, **kwargs})
+        return {"state": "HOLD", "action": "HOLD", "trade_status": "OPEN"}
+
+    original_fetch = __import__("xiaogu_db").fetch_open_positions
+    original_resolver = __import__("xiaogu_db").get_current_position_review_snapshot
+    original_outcome = __import__("xiaogu_db").fetch_position_outcome
+    original_days = __import__("xiaogu_db").trading_days_between
+    original_run = runner.run_production_decision
+    original_paper = runner.daily_paper_position_review
+    original_write = runner._write_ledger_record
+    try:
+        __import__("xiaogu_db").fetch_open_positions = lambda: [{
+            "position_id": "POS|d-original",
+            "decision_id": "d-original",
+            "symbol": "600001",
+            "trade_date": "2026-08-26",
+            "state": "HOLD",
+            "action": "HOLD",
+            "position_state": "LONG",
+            "snapshot_id": original["snapshot_id"],
+            "original_snapshot_id": original["snapshot_id"],
+        }]
+        __import__("xiaogu_db").get_current_position_review_snapshot = lambda **_kwargs: current
+        __import__("xiaogu_db").fetch_position_outcome = lambda *_args, **_kwargs: {}
+        __import__("xiaogu_db").trading_days_between = lambda *_args, **_kwargs: 2
+        runner.run_production_decision = fake_run
+        runner.daily_paper_position_review = lambda _date: []
+        runner._write_ledger_record = lambda _decision: None
+        runner.daily_position_review("2026-09-01")
+    finally:
+        __import__("xiaogu_db").fetch_open_positions = original_fetch
+        __import__("xiaogu_db").get_current_position_review_snapshot = original_resolver
+        __import__("xiaogu_db").fetch_position_outcome = original_outcome
+        __import__("xiaogu_db").trading_days_between = original_days
+        runner.run_production_decision = original_run
+        runner.daily_paper_position_review = original_paper
+        runner._write_ledger_record = original_write
+    ok = (
+        seen.get("received", {}).get("snapshot_id") == current["snapshot_id"]
+        and seen.get("received", {}).get("snapshot_id") != original["snapshot_id"]
+        and seen.get("account", {}).get("position_id") == "POS|d-original"
+        and seen.get("account", {}).get("decision_id") == "d-original"
+        and seen.get("account", {}).get("review_snapshot_id") == current["snapshot_id"]
+        and seen.get("account", {}).get("original_snapshot_id") == original["snapshot_id"]
+        and seen.get("mode") == "PRODUCTION"
+        and seen.get("decision_clock") is None
     )
-    return static_ok, "ok" if static_ok else "position review still uses original snapshot or latest-wins"
+    return ok, "ok" if ok else "position review did not use current snapshot identity"
 
 
 def check_paper_position_review_contract():
-    from inspect import getsource
     import xiaogu_forward_runner as runner
-    from xiaogu_forward_features import _evidence, validate_evidence_identity
+    from xiaogu_forward_snapshot import production_now, validate_and_build_canonical_snapshot
 
-    paper = getsource(runner.daily_paper_position_review)
-    static_ok = (
-        "get_current_position_review_snapshot" in paper
-        and 'mode="PRODUCTION"' in paper
-        and 'mode="REPLAY"' not in paper
-        and "original_snapshot_id" in paper
-        and "review_snapshot_id" in paper
-        and "review_trade_date" in paper
-        and "paper_signal_id" in paper
-        and "PAPER_POSITION_REVIEW_BLOCKED" in paper
-        and "fetch_decision_snapshot(prior_id)" not in paper
+    current = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 11, "volume": 110, "amount": 1100,
+        "source_time": "2026-09-01T09:40:00+08:00", "trade_date": "2026-09-01",
+    })
+    seen = {}
+
+    def fake_run(received, **kwargs):
+        seen.update({"received": received, **kwargs})
+        return {"state": "HOLD", "action": "HOLD", "trade_status": "OPEN"}
+
+    db = __import__("xiaogu_db")
+    original_fetch = db.fetch_open_paper_positions
+    original_resolver = db.get_current_position_review_snapshot
+    original_outcome = db.fetch_position_outcome
+    original_days = db.trading_days_between
+    original_update = db.update_paper_observation_state
+    original_run = runner.run_production_decision
+    try:
+        db.fetch_open_paper_positions = lambda: [{
+            "paper_signal_id": "paper-1",
+            "decision_id": "d-original",
+            "symbol": "600001",
+            "trade_date": "2026-08-26",
+            "snapshot_id": "original-id",
+            "original_snapshot_id": "original-id",
+            "paper_position_state": "PAPER_LONG",
+            "paper_entry_contract": {"entry_price": 10},
+        }]
+        db.get_current_position_review_snapshot = lambda **_kwargs: current
+        db.fetch_position_outcome = lambda *_args, **_kwargs: {}
+        db.trading_days_between = lambda *_args, **_kwargs: 2
+        db.update_paper_observation_state = lambda *_args, **_kwargs: None
+        runner.run_production_decision = fake_run
+        reviewed = runner.daily_paper_position_review("2026-09-01")
+    finally:
+        db.fetch_open_paper_positions = original_fetch
+        db.get_current_position_review_snapshot = original_resolver
+        db.fetch_position_outcome = original_outcome
+        db.trading_days_between = original_days
+        db.update_paper_observation_state = original_update
+        runner.run_production_decision = original_run
+    ok = (
+        seen.get("mode") == "PRODUCTION"
+        and seen.get("decision_clock") is None
+        and seen.get("received", {}).get("snapshot_id") == current["snapshot_id"]
+        and seen.get("account", {}).get("paper_signal_id") == "paper-1"
+        and seen.get("account", {}).get("decision_id") == "d-original"
+        and seen.get("account", {}).get("review_snapshot_id") == current["snapshot_id"]
+        and reviewed
+        and reviewed[0].get("paper_action") == "PAPER_HOLD"
+        and reviewed[0].get("paper_position_state") == "PAPER_LONG"
+        and "PAPER_REDUCE" not in str(reviewed[0].get("paper_action"))
+        and seen.get("received", {}).get("source_time") != production_now().isoformat()
     )
-    missing = _evidence(
-        observed=True, source="x", available_at="2026-08-26T14:50:00+08:00",
-        evidence_family="DIRECT_INSTITUTION", source_id="x", event_id="", mechanism="",
-    )
-    behavior_ok = missing["evidence_identity"] is None and validate_evidence_identity(missing) is None
-    ok = static_ok and behavior_ok
-    return ok, "ok" if ok else "paper position review contract mismatch"
+    return ok, "ok" if ok else "paper position review did not use current snapshot/clock"
 
 
 def check_production_clock_contract():
     from datetime import datetime, timedelta, timezone
-    from inspect import getsource
-    import xiaogu_forward_runner as runner
     import xiaogu_forward_snapshot as snap
+    from xiaogu_forward_runner import run_production_decision
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
 
-    static_ok = (
-        "datetime.now(timezone.utc)" in getsource(snap.production_now)
-        and "production_now()" in getsource(snap.production_decision_clock)
-        and "production_decision_clock(decision_clock)" in getsource(runner.run_production_decision)
-        and "decision_clock=_parse_clock" not in getsource(runner.daily_position_review)
-        and 'mode="REPLAY"' not in getsource(runner.daily_paper_position_review)
-    )
     source_time = datetime.fromisoformat("2026-08-26T10:00:00+08:00")
     clock = snap.production_now()
     age = snap.snapshot_age(source_time, clock)
-    behavior_ok = age is not None and age > timedelta(minutes=120) and clock != source_time.astimezone(timezone.utc)
-    ok = static_ok and behavior_ok
+    live_ok = age is not None and age > timedelta(minutes=120) and clock != source_time.astimezone(timezone.utc)
+    fixed = datetime.fromisoformat("2026-09-03T10:00:00+08:00").astimezone(timezone.utc)
+    original_now = snap.production_now
+    original_clock = snap.production_decision_clock
+    db = __import__("xiaogu_db")
+    original_verify = db.verify_persisted_snapshot
+    try:
+        snap.production_now = lambda: fixed
+        # production_decision_clock still calls production_now from module globals;
+        # patch runner helper through an explicit clock instead.
+        db.verify_persisted_snapshot = lambda **_kwargs: True
+        snapshot = validate_and_build_canonical_snapshot({
+            "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+            "source_time": "2026-09-03T09:50:00+08:00", "trade_date": "2026-09-03",
+        })
+        decision = run_production_decision(
+            snapshot,
+            mode="PRODUCTION",
+            trade_date="2026-09-03",
+            position_state="FLAT",
+            decision_clock=fixed,
+        )
+        runner_ok = decision["decision_clock"] == fixed.isoformat() and decision["decision_clock"] != snapshot["source_time"]
+    finally:
+        snap.production_now = original_now
+        db.verify_persisted_snapshot = original_verify
+    ok = live_ok and runner_ok
     return ok, "ok" if ok else "production clock contract mismatch"
 
 
@@ -388,21 +486,40 @@ def check_negative_evidence_contract():
         "available_at": "2026-08-26T14:50:00+08:00", "event_time": "2026-08-26T14:45:00+08:00",
         "pit_status": "OK", "confirmation_status": "UNKNOWN",
     }
-    confirmed_item = {
+    sell_only = {
         "source_id": "lhb", "event_id": "conf-1", "mechanism": "lhb_event",
         "evidence_identity": ("lhb", "conf-1", "lhb_event"), "observed": True,
         "direction": "SELL", "observed_at": "2026-08-26T14:45:00+08:00",
         "available_at": "2026-08-26T14:50:00+08:00", "event_time": "2026-08-26T14:45:00+08:00",
         "as_of": as_of.isoformat(), "pit_status": "OK", "confirmation_status": "CONFIRMED",
     }
+    distribution_item = {
+        **sell_only,
+        "event_id": "dist-1",
+        "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "dist-1", "distribution_risk"),
+    }
+    missing_identity = {
+        "source_id": "lhb", "event_id": "", "mechanism": "distribution_risk",
+        "evidence_identity": None, "observed": True, "direction": "SELL",
+        "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "as_of": as_of.isoformat(), "pit_status": "OK", "confirmation_status": "CONFIRMED",
+    }
     future_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [future_item]}}}, {}, as_of=as_of)
     unknown_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [unknown_item]}}}, {}, as_of=as_of)
-    confirmed_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [confirmed_item]}}}, {}, as_of=as_of)
+    sell_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [sell_only]}}}, {}, as_of=as_of)
+    confirmed_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [distribution_item]}}}, {}, as_of=as_of)
+    missing_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [missing_identity]}}}, {}, as_of=as_of)
     behavior_ok = (
         future_records == []
         and unknown_records == []
-        and any(item["blocker"] == "CONFIRMED_DISTRIBUTION" for item in confirmed_records)
-        and build_confirmed_negative_blocker("REPRICING_COMPLETED", confirmed_item, as_of=as_of) is None
+        and sell_records == []
+        and missing_records == []
+        and any(item["blocker"] == "CONFIRMED_DISTRIBUTION" and item["mechanism"] == "distribution_risk" for item in confirmed_records)
+        and build_confirmed_negative_blocker("REPRICING_COMPLETED", distribution_item, as_of=as_of) is None
+        and build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", sell_only, as_of=as_of) is None
     )
     ok = static_ok and behavior_ok
     return ok, "ok" if ok else "negative evidence is still filtered out or unbound"
@@ -483,21 +600,71 @@ def check_capital_identity_contract():
 
 
 def check_position_identity_contract():
-    from inspect import getsource
+    from sqlalchemy import text
     import xiaogu_db as db
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
 
-    open_src = getsource(db.fetch_open_positions)
-    state_src = getsource(db.fetch_position_state)
-    by_id_src = getsource(db.fetch_position_by_decision_id)
-    ok = (
-        "DISTINCT ON" not in open_src
-        and "ORDER BY id DESC" not in state_src
-        and "LIMIT 1" not in state_src
-        and "decision_id" in open_src
-        and "def fetch_position_by_decision_id" in by_id_src
-        and "Not the position identity owner" in state_src
-    )
-    return ok, "ok" if ok else "position identity still depends on latest symbol row"
+    db.ensure_production_schema()
+    ids = ("health-pos-a", "health-pos-b")
+    lineages = ("health-lin-a", "health-lin-b")
+    symbol = "990013"
+
+    def cleanup():
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM positions WHERE decision_id IN ('health-pos-a', 'health-pos-b')"))
+            connection.execute(text("DELETE FROM picks WHERE decision_id IN ('health-pos-a', 'health-pos-b')"))
+            connection.execute(text("DELETE FROM snapshots WHERE lineage_id IN ('health-lin-a', 'health-lin-b')"))
+
+    cleanup()
+    try:
+        for decision_id, lineage_id, trade_date in (
+            ("health-pos-a", "health-lin-a", "2026-08-03"),
+            ("health-pos-b", "health-lin-b", "2026-08-10"),
+        ):
+            snapshot = validate_and_build_canonical_snapshot(
+                {
+                    "symbol": symbol,
+                    "price": 10,
+                    "volume": 100,
+                    "amount": 1000,
+                    "source_time": f"{trade_date}T14:50:00+08:00",
+                    "trade_date": trade_date,
+                    "lineage_id": lineage_id,
+                },
+                lineage_id=lineage_id,
+            )
+            db.record_snapshot(snapshot)
+            db.record_decision({
+                "decision_id": decision_id,
+                "position_id": f"POS|{decision_id}",
+                "symbol": snapshot["symbol"],
+                "trade_date": snapshot["trade_date"],
+                "state": "HOLD",
+                "action": "HOLD",
+                "position_state": "LONG",
+                "snapshot_id": snapshot["snapshot_id"],
+                "lineage_id": snapshot["lineage_id"],
+                "original_snapshot_id": snapshot["snapshot_id"],
+                "canonical_snapshot": snapshot,
+            })
+        opened = [row for row in db.fetch_open_positions() if row["decision_id"] in ids]
+        first = db.get_position_by_id("POS|health-pos-a")
+        second = db.get_position_by_decision_id("health-pos-b")
+        ok = (
+            {row["position_id"] for row in opened} == {"POS|health-pos-a", "POS|health-pos-b"}
+            and first["position_id"] != second["position_id"]
+            and first["symbol"] == second["symbol"] == symbol
+            and first["decision_id"] != second["decision_id"]
+        )
+        try:
+            db.derive_position_state_by_symbol(symbol)
+            derived_ok = False
+        except RuntimeError as exc:
+            derived_ok = "POSITION_STATE_AMBIGUOUS" in str(exc)
+        ok = ok and derived_ok
+    finally:
+        cleanup()
+    return ok, "ok" if ok else "position identity still collapses same-symbol positions"
 
 
 CHECKS = [
