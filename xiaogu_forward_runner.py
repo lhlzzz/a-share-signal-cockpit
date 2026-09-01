@@ -71,12 +71,14 @@ def run_production_decision(
             symbol=str(trusted.get("symbol") or ""),
             payload_hash=str(trusted.get("payload_hash") or ""),
         )
+        if not db_verified:
+            raise RuntimeError("SNAPSHOT_PERSISTENCE_FAILED")
         clock = production_decision_clock(decision_clock)
         trusted = assert_production_provenance(
             trusted,
             trade_date=trade_date or str(trusted.get("trade_date") or ""),
             decision_time=clock,
-            persisted=bool(db_verified),
+            persisted=True,
         )
         db_position_state = fetch_position_state(str(trusted.get("symbol") or ""))
         if db_position_state is None:

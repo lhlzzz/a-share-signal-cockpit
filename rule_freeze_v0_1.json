@@ -136,7 +136,10 @@
   ],
   "snapshot_identity": {
     "snapshot_id": "immutable canonical snapshot identity",
-    "lineage_id": "scan/lineage identity, not snapshot identity"
+    "lineage_id": "scan/lineage identity, not snapshot identity",
+    "same_id_same_hash": "IDEMPOTENT",
+    "same_id_different_hash": "SNAPSHOT_IDENTITY_CONFLICT",
+    "concurrent_writes": "atomic"
   },
   "schema_contract": {
     "migration_failure": "RAISE",
@@ -172,5 +175,6 @@
     "t_plus_n_resolver": "xiaogu_db.resolve_t_plus_n",
     "future_prices_are_calendar_truth": false,
     "weekday_logic_is_production_truth": false
-  }
+  },
+  "SNAPSHOT_IDENTITY_IMMUTABLE": true
 }

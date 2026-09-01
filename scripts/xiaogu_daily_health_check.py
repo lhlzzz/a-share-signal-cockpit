@@ -115,6 +115,7 @@ def check_rule_freeze():
         and rule.get("paper_observation", {}).get("signal") == "PAPER_OBSERVATION"
         and rule.get("paper_observation", {}).get("capital_alpha") == "RESEARCH_ONLY"
         and rule.get("paper_observation", {}).get("live_trading") is False
+        and rule.get("SNAPSHOT_IDENTITY_IMMUTABLE") is True
     )
     return ok, "ok" if ok else "repricing rule freeze contract mismatch"
 
@@ -148,10 +149,14 @@ def check_schema_fail_closed():
         return False, "schema migration still swallows exceptions"
     if "ON CONFLICT (lineage_id) DO NOTHING" in db_text:
         return False, "production snapshots still conflict on lineage_id"
+    if "ON CONFLICT (snapshot_id) DO NOTHING" in db_text:
+        return False, "snapshot writer still swallows identity conflicts"
     if "payload->>'snapshot_id', lineage_id)" in db_text or "snapshot_id = COALESCE(NULLIF(snapshot_id, ''), payload->>'snapshot_id', lineage_id)" in db_text:
         return False, "schema still forges snapshot_id from lineage_id"
     if "SNAPSHOT_IDENTITY_CONFLICT" not in db_text:
         return False, "missing snapshot payload identity conflict"
+    if "SNAPSHOT_IDENTITY_IMMUTABLE" not in db_text:
+        return False, "missing snapshot immutability lock"
     return True, "ok"
 
 
@@ -180,9 +185,14 @@ def check_production_schema_audit():
         and snapshots["unique"][("snapshot_id",)] == "EXISTS"
         and snapshots["unique"][("lineage_id", "symbol")] == "EXISTS"
         and snapshots["primary_key"]["status"] == "EXISTS"
+        and snapshots["triggers"]["snapshots_identity_immutable"] == "EXISTS"
         and historical["columns"]["snapshot_id"] == "EXISTS"
         and historical["unique"][("snapshot_id",)] == "EXISTS"
         and historical["primary_key"]["status"] == "EXISTS"
+        and historical["triggers"]["canonical_historical_snapshots_identity_immutable"] == "EXISTS"
+        and audit["tables"]["snapshot_identity_conflicts"]["columns"]["snapshot_id"] == "EXISTS"
+        and audit["tables"]["snapshot_identity_conflicts"]["columns"]["existing_payload_hash"] == "EXISTS"
+        and audit["tables"]["snapshot_identity_conflicts"]["columns"]["incoming_payload_hash"] == "EXISTS"
         and ("decision_id", "trade_date") in audit["tables"]["returns"]["unique_constraints"]
         and audit.get("schema_version_status") == "EXISTS"
     )
@@ -220,6 +230,30 @@ def check_production_schema_audit():
         ensure_ascii=False,
         default=str,
     )
+
+
+def check_snapshot_identity_lock():
+    from inspect import getsource
+    import xiaogu_db as db_mod
+    from xiaogu_db import (
+        SNAPSHOT_IDENTITY_IMMUTABLE,
+        ensure_production_schema,
+        find_snapshot_identity_conflicts,
+    )
+
+    ensure_production_schema()
+    writer = getsource(db_mod.record_snapshot)
+    historical = getsource(db_mod.record_canonical_historical_snapshots)
+    if "ON CONFLICT (snapshot_id) DO NOTHING" in writer or "ON CONFLICT (snapshot_id) DO NOTHING" in historical:
+        return False, "snapshot writer still swallows identity conflicts"
+    if "UPDATE snapshots" in writer or "SET payload" in writer:
+        return False, "snapshot writer mutates immutable identity"
+    if SNAPSHOT_IDENTITY_IMMUTABLE is not True:
+        return False, "SNAPSHOT_IDENTITY_IMMUTABLE is not locked"
+    conflicts = find_snapshot_identity_conflicts()
+    if conflicts:
+        return False, json.dumps({"conflicts": len(conflicts), "status": "FAIL"}, ensure_ascii=False)
+    return True, "ok"
 
 
 def check_calendar_truth():
@@ -267,6 +301,7 @@ CHECKS = [
     ("database_truth_boundaries", check_database_truth_boundaries),
     ("schema_fail_closed", check_schema_fail_closed),
     ("production_schema_audit", check_production_schema_audit),
+    ("snapshot_identity_lock", check_snapshot_identity_lock),
     ("calendar_truth", check_calendar_truth),
 ]
 

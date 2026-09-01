@@ -74,6 +74,7 @@
 - Historical snapshot repair = explicit migration only; never production init.
 - Calendar = unique owner (`xiaogu_db.py`).
 - Canonical Snapshot = exact identity; ambiguity fail-closed.
+- Snapshot rows are immutable. Same `snapshot_id` + same hash is idempotent; same identity + different hash is `SNAPSHOT_IDENTITY_CONFLICT`. Concurrent writes are resolved atomically.
 
 ### Trading Calendar Truth
 - 唯一 Calendar Owner 是 `xiaogu_db.py`。

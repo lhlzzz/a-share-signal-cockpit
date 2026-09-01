@@ -839,7 +839,7 @@ def test_production_mode_rejects_unpersisted_snapshot_json():
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
     })
-    with pytest.raises(ValueError, match="NO_PRODUCTION_SNAPSHOT"):
+    with pytest.raises(RuntimeError, match="SNAPSHOT_PERSISTENCE_FAILED"):
         run_production_decision(snapshot, mode="PRODUCTION", persisted=False, trade_date="2026-08-26")
 
 
@@ -905,7 +905,7 @@ def test_persisted_flag_is_not_enough_without_db_row():
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
     })
-    with pytest.raises(ValueError, match="NO_PRODUCTION_SNAPSHOT"):
+    with pytest.raises(RuntimeError, match="SNAPSHOT_PERSISTENCE_FAILED"):
         run_production_decision(snapshot, mode="PRODUCTION", persisted=True, trade_date="2026-08-26")
 
 
@@ -1305,6 +1305,10 @@ def test_record_snapshot_conflicts_on_snapshot_id_not_lineage():
             text("DELETE FROM snapshots WHERE snapshot_id = :left OR snapshot_id = :right"),
             {"left": ids[0], "right": ids[1]},
         )
+        db.execute(
+            text("DELETE FROM snapshot_identity_conflicts WHERE snapshot_id = :left OR snapshot_id = :right"),
+            {"left": ids[0], "right": ids[1]},
+        )
     try:
         record_snapshot(first)
         record_snapshot(second)
@@ -1323,6 +1327,10 @@ def test_record_snapshot_conflicts_on_snapshot_id_not_lineage():
                 text("DELETE FROM snapshots WHERE snapshot_id = :left OR snapshot_id = :right"),
                 {"left": ids[0], "right": ids[1]},
             )
+            db.execute(
+                text("DELETE FROM snapshot_identity_conflicts WHERE snapshot_id = :left OR snapshot_id = :right"),
+                {"left": ids[0], "right": ids[1]},
+            )
 
 
 def test_record_snapshot_rejects_payload_identity_conflict():
@@ -1339,6 +1347,10 @@ def test_record_snapshot_rejects_payload_identity_conflict():
     ensure_production_schema()
     with engine.begin() as db:
         db.execute(text("DELETE FROM snapshots WHERE snapshot_id = :sid"), {"sid": first["snapshot_id"]})
+        db.execute(
+            text("DELETE FROM snapshot_identity_conflicts WHERE snapshot_id = :sid"),
+            {"sid": first["snapshot_id"]},
+        )
     try:
         record_snapshot(first)
         conflicted = dict(first)
@@ -1349,6 +1361,10 @@ def test_record_snapshot_rejects_payload_identity_conflict():
     finally:
         with engine.begin() as db:
             db.execute(text("DELETE FROM snapshots WHERE snapshot_id = :sid"), {"sid": first["snapshot_id"]})
+            db.execute(
+                text("DELETE FROM snapshot_identity_conflicts WHERE snapshot_id = :sid"),
+                {"sid": first["snapshot_id"]},
+            )
 
 
 def test_supply_state_exposes_evidence_and_confidence():

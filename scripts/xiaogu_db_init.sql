@@ -185,3 +185,51 @@ CREATE TABLE IF NOT EXISTS canonical_future_prices (
 );
 CREATE INDEX IF NOT EXISTS idx_canonical_future_prices_date
     ON canonical_future_prices(date, symbol);
+CREATE TABLE IF NOT EXISTS snapshot_identity_conflicts (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_id TEXT NOT NULL,
+    existing_payload_hash TEXT NOT NULL,
+    incoming_payload_hash TEXT NOT NULL,
+    source TEXT,
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_snapshot_identity_conflicts_snapshot_id
+    ON snapshot_identity_conflicts (snapshot_id, detected_at);
+CREATE OR REPLACE FUNCTION xiaogu_protect_snapshot_identity()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $protect_snapshot_identity$
+BEGIN
+  IF TG_OP <> 'UPDATE' THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.snapshot_id IS NULL OR BTRIM(CAST(OLD.snapshot_id AS text)) = '' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id
+     OR NEW.lineage_id IS DISTINCT FROM OLD.lineage_id
+     OR NEW.symbol IS DISTINCT FROM OLD.symbol
+     OR NEW.trade_date IS DISTINCT FROM OLD.trade_date
+     OR NEW.source IS DISTINCT FROM OLD.source
+     OR NEW.payload IS DISTINCT FROM OLD.payload THEN
+    RAISE EXCEPTION 'SNAPSHOT_IDENTITY_IMMUTABLE';
+  END IF;
+  IF TG_TABLE_NAME = 'snapshots' THEN
+    IF NEW.source_time IS DISTINCT FROM OLD.source_time
+       OR NEW.payload_hash IS DISTINCT FROM OLD.payload_hash THEN
+      RAISE EXCEPTION 'SNAPSHOT_IDENTITY_IMMUTABLE';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$protect_snapshot_identity$;
+DROP TRIGGER IF EXISTS snapshots_identity_immutable ON snapshots;
+CREATE TRIGGER snapshots_identity_immutable
+BEFORE UPDATE ON snapshots
+FOR EACH ROW
+EXECUTE FUNCTION xiaogu_protect_snapshot_identity();
+DROP TRIGGER IF EXISTS canonical_historical_snapshots_identity_immutable ON canonical_historical_snapshots;
+CREATE TRIGGER canonical_historical_snapshots_identity_immutable
+BEFORE UPDATE ON canonical_historical_snapshots
+FOR EACH ROW
+EXECUTE FUNCTION xiaogu_protect_snapshot_identity();

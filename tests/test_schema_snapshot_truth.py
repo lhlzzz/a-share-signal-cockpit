@@ -106,11 +106,15 @@ def test_schema_version_ahead_blocks():
 def test_bootstrap_creates_latest_schema():
     sql = (ROOT / "scripts" / "xiaogu_db_init.sql").read_text(encoding="utf-8")
     assert "ALTER TABLE" not in sql
-    assert "UPDATE " not in sql
+    assert "UPDATE snapshots SET" not in sql
+    assert "UPDATE canonical_historical_snapshots SET" not in sql
     assert "CREATE TABLE IF NOT EXISTS xiaogu_schema_version" in sql
     assert "CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations" in sql
     assert "idx_snapshots_lineage_symbol" in sql
     assert "migration_type" in sql
+    assert "CREATE TABLE IF NOT EXISTS snapshot_identity_conflicts" in sql
+    assert "snapshots_identity_immutable" in sql
+    assert "xiaogu_protect_snapshot_identity" in sql
 
 
 def test_runtime_migration_upgrade():
@@ -119,20 +123,20 @@ def test_runtime_migration_upgrade():
     db.ensure_production_schema()
     with db.engine.begin() as connection:
         connection.execute(
-            text("UPDATE xiaogu_schema_version SET schema_version = 'xiaogu_production_schema_v2'")
+            text("UPDATE xiaogu_schema_version SET schema_version = 'xiaogu_production_schema_v3'")
         )
         connection.execute(
             text("DELETE FROM xiaogu_schema_migrations WHERE migration_id = :migration_id"),
-            {"migration_id": "schema-xiaogu_production_schema_v3"},
+            {"migration_id": "schema-xiaogu_production_schema_v4"},
         )
     try:
         db.ensure_production_schema()
         audit = db.audit_production_schema()
         assert audit["schema_version"] == db.SCHEMA_VERSION
         assert audit["ok"] is True
-        applied = db._applied_migration("schema-xiaogu_production_schema_v3")
+        applied = db._applied_migration("schema-xiaogu_production_schema_v4")
         assert applied is not None
-        assert applied["checksum"] == db._migration_checksum(db.SCHEMA_V3_STATEMENTS)
+        assert applied["checksum"] == db._migration_checksum(db.SCHEMA_V4_STATEMENTS)
     finally:
         db.ensure_production_schema()
 

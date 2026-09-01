@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 engine = create_engine(
     os.environ.get("DATABASE_URL", "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"),
@@ -36,10 +36,15 @@ INVALID_CALENDAR_YEAR = "INVALID_CALENDAR_YEAR"
 CALENDAR_DATASET_DIR = Path(__file__).resolve().parent / "data" / "trading_calendar"
 # Test/import override. Normal runtime always resolves the year-specific path.
 CALENDAR_DATASET_PATH: Path | None = None
-SCHEMA_VERSION = "xiaogu_production_schema_v3"
+SCHEMA_VERSION = "xiaogu_production_schema_v4"
 MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
 MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
 HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
+SNAPSHOT_INSERTED = "INSERTED"
+SNAPSHOT_IDEMPOTENT = "IDEMPOTENT"
+SNAPSHOT_IDENTITY_CONFLICT = "SNAPSHOT_IDENTITY_CONFLICT"
+SNAPSHOT_PERSISTENCE_FAILED = "SNAPSHOT_PERSISTENCE_FAILED"
+SNAPSHOT_IDENTITY_IMMUTABLE = True
 SCHEMA_V2_STATEMENTS = ('ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT',
  'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT',
  'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT',
@@ -184,6 +189,64 @@ SCHEMA_V3_STATEMENTS = (
     "WHERE migration_type IS NULL OR BTRIM(migration_type) = ''",
     "ALTER TABLE xiaogu_schema_migrations ALTER COLUMN migration_type SET DEFAULT 'PRODUCTION_SCHEMA_MIGRATION'",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)",
+)
+SCHEMA_V4_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS snapshot_identity_conflicts (
+        id BIGSERIAL PRIMARY KEY,
+        snapshot_id TEXT NOT NULL,
+        existing_payload_hash TEXT NOT NULL,
+        incoming_payload_hash TEXT NOT NULL,
+        source TEXT,
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """.strip(),
+    "CREATE INDEX IF NOT EXISTS idx_snapshot_identity_conflicts_snapshot_id "
+    "ON snapshot_identity_conflicts (snapshot_id, detected_at)",
+    """
+    CREATE OR REPLACE FUNCTION xiaogu_protect_snapshot_identity()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $protect_snapshot_identity$
+    BEGIN
+      IF TG_OP <> 'UPDATE' THEN
+        RETURN NEW;
+      END IF;
+      IF OLD.snapshot_id IS NULL OR BTRIM(CAST(OLD.snapshot_id AS text)) = '' THEN
+        RETURN NEW;
+      END IF;
+      IF NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id
+         OR NEW.lineage_id IS DISTINCT FROM OLD.lineage_id
+         OR NEW.symbol IS DISTINCT FROM OLD.symbol
+         OR NEW.trade_date IS DISTINCT FROM OLD.trade_date
+         OR NEW.source IS DISTINCT FROM OLD.source
+         OR NEW.payload IS DISTINCT FROM OLD.payload THEN
+        RAISE EXCEPTION 'SNAPSHOT_IDENTITY_IMMUTABLE';
+      END IF;
+      IF TG_TABLE_NAME = 'snapshots' THEN
+        IF NEW.source_time IS DISTINCT FROM OLD.source_time
+           OR NEW.payload_hash IS DISTINCT FROM OLD.payload_hash THEN
+          RAISE EXCEPTION 'SNAPSHOT_IDENTITY_IMMUTABLE';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $protect_snapshot_identity$;
+    """.strip(),
+    "DROP TRIGGER IF EXISTS snapshots_identity_immutable ON snapshots",
+    """
+    CREATE TRIGGER snapshots_identity_immutable
+    BEFORE UPDATE ON snapshots
+    FOR EACH ROW
+    EXECUTE FUNCTION xiaogu_protect_snapshot_identity()
+    """.strip(),
+    "DROP TRIGGER IF EXISTS canonical_historical_snapshots_identity_immutable ON canonical_historical_snapshots",
+    """
+    CREATE TRIGGER canonical_historical_snapshots_identity_immutable
+    BEFORE UPDATE ON canonical_historical_snapshots
+    FOR EACH ROW
+    EXECUTE FUNCTION xiaogu_protect_snapshot_identity()
+    """.strip(),
 )
 
 
@@ -436,6 +499,9 @@ def audit_production_schema() -> Dict[str, Any]:
             "migration_id", "from_version", "to_version", "applied_at", "checksum",
             "migration_type",
         ),
+        "snapshot_identity_conflicts": (
+            "snapshot_id", "existing_payload_hash", "incoming_payload_hash", "source", "detected_at",
+        ),
     }
     required_unique = {
         "snapshots": {("snapshot_id",), ("lineage_id", "symbol")},
@@ -458,6 +524,11 @@ def audit_production_schema() -> Dict[str, Any]:
             "idx_canonical_historical_snapshots_date",
         ),
         "trading_calendar": ("idx_trading_calendar_open_days",),
+        "snapshot_identity_conflicts": ("idx_snapshot_identity_conflicts_snapshot_id",),
+    }
+    required_triggers = {
+        "snapshots": ("snapshots_identity_immutable",),
+        "canonical_historical_snapshots": ("canonical_historical_snapshots_identity_immutable",),
     }
     required_primary_key = {
         "snapshots": ("snapshot_id",),
@@ -492,12 +563,33 @@ def audit_production_schema() -> Dict[str, Any]:
                     {"table_name": table_name},
                 ).fetchall()
             }
+            trigger_names = {
+                str(row[0])
+                for row in db.execute(
+                    text(
+                        """
+                        SELECT t.tgname
+                        FROM pg_trigger t
+                        JOIN pg_class c ON c.oid = t.tgrelid
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE n.nspname = 'public'
+                          AND c.relname = :table_name
+                          AND NOT t.tgisinternal
+                        """
+                    ),
+                    {"table_name": table_name},
+                ).fetchall()
+            }
         column_audit = {column: _exists_label(column in present_columns) for column in columns}
         unique_audit = {
             expected: _exists_label(expected in unique_keys)
             for expected in required_unique.get(table_name, set())
         }
         index_audit = {name: _exists_label(name in index_names) for name in required_indexes.get(table_name, ())}
+        trigger_audit = {
+            name: _exists_label(name in trigger_names)
+            for name in required_triggers.get(table_name, ())
+        }
         expected_pk = required_primary_key.get(table_name)
         if expected_pk is None:
             pk_status = "EXISTS" if primary_key else "MISSING"
@@ -527,10 +619,12 @@ def audit_production_schema() -> Dict[str, Any]:
             "primary_key": {"columns": list(primary_key), "status": pk_status},
             "foreign_keys": fk_audit,
             "unique_constraints": sorted(unique_keys),
+            "triggers": trigger_audit,
         }
         ok = ok and all(value == "EXISTS" for value in column_audit.values())
         ok = ok and all(value == "EXISTS" for value in unique_audit.values())
         ok = ok and all(value == "EXISTS" for value in index_audit.values())
+        ok = ok and all(value == "EXISTS" for value in trigger_audit.values())
         ok = ok and pk_status == "EXISTS"
         if table_name == "returns":
             ok = ok and fk_audit.get("decision_id->picks.decision_id") == "EXISTS"
@@ -595,6 +689,13 @@ def _schema_migrations() -> tuple[dict[str, Any], ...]:
             "to_version": "xiaogu_production_schema_v3",
             "statements": SCHEMA_V3_STATEMENTS,
             "apply": _apply_identity_constraints,
+        },
+        {
+            "migration_id": "schema-xiaogu_production_schema_v4",
+            "from_version": "xiaogu_production_schema_v3",
+            "to_version": "xiaogu_production_schema_v4",
+            "statements": SCHEMA_V4_STATEMENTS,
+            "apply": _apply_snapshot_identity_lock,
         },
     )
 
@@ -819,6 +920,10 @@ def _apply_v2_schema() -> None:
     _apply_identity_constraints()
 
 
+def _apply_snapshot_identity_lock() -> None:
+    _apply_identity_constraints()
+
+
 def _apply_schema_migration(migration: Dict[str, Any]) -> None:
     migration_id = str(migration["migration_id"])
     checksum = _migration_checksum(migration["statements"])
@@ -942,14 +1047,8 @@ def snapshot_payload_identity(payload: Any) -> str:
         payload = json.loads(payload)
     if not isinstance(payload, dict):
         payload = {}
-    cleaned = {
-        key: value
-        for key, value in payload.items()
-        if key not in {"created_at", "updated_at"}
-    }
-    return hashlib.sha256(
-        json.dumps(cleaned, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    from xiaogu_forward_snapshot import snapshot_payload_hash
+    return snapshot_payload_hash(payload)
 
 
 def canonical_future_price_fact(bar: Dict[str, Any]) -> Dict[str, Any]:
@@ -1162,12 +1261,11 @@ def verify_persisted_snapshot(
             return False
         if symbol and str(row.get("symbol") or "") != symbol:
             return False
+        from xiaogu_forward_snapshot import snapshot_payload_hash
         computed_hash = snapshot_payload_hash(payload)
         stored_hash = str(row.get("payload_hash") or payload.get("payload_hash") or "")
-        if stored_hash and stored_hash != computed_hash:
-            return False
         if payload_hash:
-            if computed_hash != payload_hash:
+            if payload_hash != stored_hash and payload_hash != computed_hash:
                 return False
         return True
     except SQLAlchemyError:
@@ -1214,7 +1312,127 @@ def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]
     return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
 
 
-def record_snapshot(snapshot: Dict[str, Any]) -> None:
+def _payload_as_dict(payload: Any) -> Dict[str, Any]:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _snapshot_facts_hash(payload: Any) -> str:
+    from xiaogu_forward_snapshot import snapshot_payload_hash
+    return snapshot_payload_hash(_payload_as_dict(payload))
+
+
+def _stored_snapshot_hash(row: Any) -> str:
+    stored_hash = str(row.get("payload_hash") or "")
+    if stored_hash:
+        return stored_hash
+    return _snapshot_facts_hash(row.get("payload"))
+
+
+def _snapshot_hashes_match(row: Any, incoming_hash: str) -> bool:
+    stored_col = str(row.get("payload_hash") or "")
+    recomputed = _snapshot_facts_hash(row.get("payload"))
+    return incoming_hash == stored_col or incoming_hash == recomputed
+
+
+def _snapshot_row_matches_write(
+    row: Any,
+    *,
+    snapshot_id: str,
+    payload_hash: str,
+    symbol: str,
+    trade_date: str,
+) -> bool:
+    if not row:
+        return False
+    stored_id = str(row.get("snapshot_id") or "")
+    stored_symbol = str(row.get("symbol") or "")
+    stored_date = str(row.get("trade_date") or "")[:10]
+    expected_date = str(trade_date or "")[:10]
+    if stored_id != snapshot_id:
+        return False
+    if symbol and stored_symbol != str(symbol):
+        return False
+    if expected_date and stored_date != expected_date:
+        return False
+    return _snapshot_hashes_match(row, payload_hash)
+
+
+def _fetch_snapshot_row(db: Any, snapshot_id: str) -> Any:
+    return db.execute(
+        text(
+            "SELECT snapshot_id, lineage_id, symbol, trade_date, source, source_time, "
+            "payload_hash, payload FROM snapshots WHERE snapshot_id = :snapshot_id"
+        ),
+        {"snapshot_id": snapshot_id},
+    ).mappings().first()
+
+
+def _fetch_snapshot_by_lineage_symbol(db: Any, lineage_id: str, symbol: str) -> Any:
+    if not lineage_id or not symbol:
+        return None
+    return db.execute(
+        text(
+            "SELECT snapshot_id, lineage_id, symbol, trade_date, source, source_time, "
+            "payload_hash, payload FROM snapshots "
+            "WHERE lineage_id = :lineage_id AND symbol = :symbol"
+        ),
+        {"lineage_id": lineage_id, "symbol": symbol},
+    ).mappings().first()
+
+
+def _audit_snapshot_identity_conflict(
+    *,
+    snapshot_id: str,
+    existing_hash: str,
+    incoming_hash: str,
+    source: str = "",
+) -> None:
+    with engine.begin() as audit_db:
+        audit_db.execute(
+            text(
+                """
+                INSERT INTO snapshot_identity_conflicts
+                    (snapshot_id, existing_payload_hash, incoming_payload_hash, source)
+                VALUES (:snapshot_id, :existing_payload_hash, :incoming_payload_hash, :source)
+                """
+            ),
+            {
+                "snapshot_id": snapshot_id,
+                "existing_payload_hash": existing_hash,
+                "incoming_payload_hash": incoming_hash,
+                "source": source or "record_snapshot",
+            },
+        )
+
+
+def find_snapshot_identity_conflicts() -> List[Dict[str, Any]]:
+    """Read-only audit of snapshot identity conflicts. Never repairs rows."""
+    ensure_production_schema()
+    if not _table_columns("snapshot_identity_conflicts"):
+        return []
+    with engine.connect() as db:
+        rows = db.execute(
+            text(
+                """
+                SELECT snapshot_id,
+                       existing_payload_hash AS existing_hash,
+                       incoming_payload_hash AS incoming_hash,
+                       MIN(detected_at) AS first_seen,
+                       MAX(detected_at) AS last_seen
+                FROM snapshot_identity_conflicts
+                GROUP BY snapshot_id, existing_payload_hash, incoming_payload_hash
+                ORDER BY MIN(detected_at)
+                """
+            )
+        ).mappings()
+        return [dict(row) for row in rows]
+
+
+def record_snapshot(snapshot: Dict[str, Any]) -> str:
     if _ACTIVE_DB_CONNECTION.get() is None:
         ensure_production_schema()
     snapshot_id = str(snapshot.get("snapshot_id") or "")
@@ -1227,13 +1445,12 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
     fields = ["lineage_id", "trade_date", "payload"]
     from xiaogu_forward_snapshot import snapshot_payload_hash
     computed_hash = snapshot_payload_hash(snapshot)
-    provided_hash = str(snapshot.get("payload_hash") or "")
-    if provided_hash and provided_hash != computed_hash:
-        raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
+    stored_payload = dict(snapshot)
+    stored_payload["payload_hash"] = computed_hash
     params = {
         "lineage_id": lineage_id,
         "trade_date": snapshot["trade_date"],
-        "payload": json.dumps(snapshot, ensure_ascii=False, default=str),
+        "payload": json.dumps(stored_payload, ensure_ascii=False, default=str),
         "snapshot_id": snapshot_id,
         "source": snapshot.get("source"),
         "source_time": snapshot.get("source_time"),
@@ -1248,34 +1465,52 @@ def record_snapshot(snapshot: Dict[str, Any]) -> None:
         for field in fields
     )
     with get_db() as db:
-        existing = db.execute(
-            text("SELECT payload, payload_hash FROM snapshots WHERE snapshot_id = :snapshot_id"),
-            {"snapshot_id": snapshot_id},
-        ).mappings().first()
-        if existing:
-            stored_payload = existing.get("payload")
-            stored_hash = str(existing.get("payload_hash") or "")
-            if not stored_hash:
-                stored_hash = snapshot_payload_hash(stored_payload)
-            if stored_hash != str(params["payload_hash"]):
-                raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
-            return
-        db.execute(
-            text(
-                f"INSERT INTO snapshots ({', '.join(fields)}) VALUES ({placeholders}) "
-                "ON CONFLICT (snapshot_id) DO NOTHING"
-            ),
-            params,
-        )
-        stored = db.execute(
-            text("SELECT payload, payload_hash FROM snapshots WHERE snapshot_id = :snapshot_id"),
-            {"snapshot_id": snapshot_id},
-        ).mappings().first()
-        stored_hash = snapshot_payload_hash(stored.get("payload")) if stored else ""
-        if stored and stored.get("payload_hash"):
-            stored_hash = str(stored["payload_hash"])
-        if not stored or stored_hash != str(params["payload_hash"]):
-            raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
+        try:
+            with db.begin_nested():
+                db.execute(
+                    text(
+                        f"INSERT INTO snapshots ({', '.join(fields)}) VALUES ({placeholders})"
+                    ),
+                    params,
+                )
+        except IntegrityError:
+            stored = _fetch_snapshot_row(db, snapshot_id)
+            if stored is None:
+                stored = _fetch_snapshot_by_lineage_symbol(
+                    db, lineage_id, str(snapshot.get("symbol") or "")
+                )
+            if stored is None:
+                raise RuntimeError(SNAPSHOT_PERSISTENCE_FAILED)
+            if (
+                str(stored.get("snapshot_id") or "") == snapshot_id
+                and _snapshot_hashes_match(stored, computed_hash)
+            ):
+                if not _snapshot_row_matches_write(
+                    stored,
+                    snapshot_id=snapshot_id,
+                    payload_hash=computed_hash,
+                    symbol=str(snapshot.get("symbol") or ""),
+                    trade_date=str(snapshot.get("trade_date") or ""),
+                ):
+                    raise RuntimeError(SNAPSHOT_PERSISTENCE_FAILED)
+                return SNAPSHOT_IDEMPOTENT
+            _audit_snapshot_identity_conflict(
+                snapshot_id=snapshot_id,
+                existing_hash=_stored_snapshot_hash(stored),
+                incoming_hash=computed_hash,
+                source=str(snapshot.get("source") or "record_snapshot"),
+            )
+            raise ValueError(SNAPSHOT_IDENTITY_CONFLICT)
+        stored = _fetch_snapshot_row(db, snapshot_id)
+        if not _snapshot_row_matches_write(
+            stored,
+            snapshot_id=snapshot_id,
+            payload_hash=computed_hash,
+            symbol=str(snapshot.get("symbol") or ""),
+            trade_date=str(snapshot.get("trade_date") or ""),
+        ):
+            raise RuntimeError(SNAPSHOT_PERSISTENCE_FAILED)
+        return SNAPSHOT_INSERTED
 
 
 def record_decision(decision: Dict[str, Any]) -> None:
@@ -1437,33 +1672,44 @@ def record_canonical_historical_snapshots(snapshots: Iterable[Dict[str, Any]]) -
         return
     with get_db() as db:
         for row in rows:
-            existing = db.execute(
-                text("SELECT payload FROM canonical_historical_snapshots WHERE snapshot_id = :snapshot_id"),
-                {"snapshot_id": row["snapshot_id"]},
-            ).mappings().first()
-            if existing:
-                stored = existing.get("payload")
-                if isinstance(stored, str):
-                    stored = json.loads(stored)
-                if snapshot_payload_identity(stored) != snapshot_payload_identity(json.loads(row["payload"])):
-                    raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
-                continue
-            db.execute(
-                text(
-                    """
-                    INSERT INTO canonical_historical_snapshots
-                        (snapshot_id, lineage_id, symbol, trade_date, signal_time, source,
-                         source_timestamp, snapshot_version, point_in_time,
-                         available_at, price_basis, payload)
-                    VALUES (:snapshot_id, :lineage_id, :symbol, :trade_date, CAST(:signal_time AS timestamptz),
-                            :source, CAST(:source_timestamp AS timestamptz), :snapshot_version,
-                            :point_in_time, CAST(:available_at AS timestamptz), :price_basis,
-                            CAST(:payload AS jsonb))
-                    ON CONFLICT (snapshot_id) DO NOTHING
-                    """
-                ),
-                row,
-            )
+            incoming_hash = snapshot_payload_identity(json.loads(row["payload"]))
+            try:
+                with db.begin_nested():
+                    db.execute(
+                        text(
+                            """
+                            INSERT INTO canonical_historical_snapshots
+                                (snapshot_id, lineage_id, symbol, trade_date, signal_time, source,
+                                 source_timestamp, snapshot_version, point_in_time,
+                                 available_at, price_basis, payload)
+                            VALUES (:snapshot_id, :lineage_id, :symbol, :trade_date, CAST(:signal_time AS timestamptz),
+                                    :source, CAST(:source_timestamp AS timestamptz), :snapshot_version,
+                                    :point_in_time, CAST(:available_at AS timestamptz), :price_basis,
+                                    CAST(:payload AS jsonb))
+                            """
+                        ),
+                        row,
+                    )
+            except IntegrityError:
+                existing = db.execute(
+                    text(
+                        "SELECT snapshot_id, payload FROM canonical_historical_snapshots "
+                        "WHERE snapshot_id = :snapshot_id"
+                    ),
+                    {"snapshot_id": row["snapshot_id"]},
+                ).mappings().first()
+                if existing is None:
+                    raise RuntimeError(SNAPSHOT_PERSISTENCE_FAILED)
+                stored_hash = snapshot_payload_identity(existing.get("payload"))
+                if stored_hash == incoming_hash:
+                    continue
+                _audit_snapshot_identity_conflict(
+                    snapshot_id=row["snapshot_id"],
+                    existing_hash=stored_hash,
+                    incoming_hash=incoming_hash,
+                    source=str(row.get("source") or "canonical_historical_snapshots"),
+                )
+                raise ValueError(SNAPSHOT_IDENTITY_CONFLICT)
 
 
 def record_canonical_future_prices(bars: Iterable[Dict[str, Any]]) -> None:

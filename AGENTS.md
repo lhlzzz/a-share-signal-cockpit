@@ -131,6 +131,8 @@ Production Decision accepts trusted snapshots only. Runner modes are PRODUCTION,
 
 `snapshot_id` is one immutable Canonical Snapshot. `lineage_id` is one scan lineage and may map to many symbol snapshots. Bootstrap SQL (`scripts/xiaogu_db_init.sql`) is fresh-DB only. `xiaogu_db.ensure_production_schema()` is the sole runtime migration owner: read version, apply pending checksummed migrations, audit, and block on `SCHEMA_VERSION_AHEAD` or checksum conflict. Historical snapshot repair is explicit research-only (`scripts/xiaogu_migrate_historical_snapshots.py`) and is never invoked by production init. Production canonical resolution requires exactly one trusted snapshot identity; latest-wins is forbidden. Missing historical `decision_id` stays UNRESOLVED and is never rewritten.
 
+Snapshot is immutable. Same identity + same hash is idempotent. Same identity + different hash is `SNAPSHOT_IDENTITY_CONFLICT`. Concurrent writes are resolved atomically. Persistence failure is `SNAPSHOT_PERSISTENCE_FAILED` and blocks Production before Feature, Alpha, Decision, and Paper. `SNAPSHOT_IDENTITY_IMMUTABLE = true`.
+
 Position state is `FLAT` or `LONG`. Action is `BUY`, `HOLD`, `REDUCE`, or `SELL`. T+5 is SELL / CLOSED. A still-valid thesis requires a new trade, not renewal.
 
 Recorder persists only BUY/HOLD/REDUCE/SELL and position transitions.

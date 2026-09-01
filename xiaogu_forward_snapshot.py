@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import math
+from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Mapping
 
@@ -347,7 +349,66 @@ def snapshot_payload_hash(payload: Mapping[str, Any]) -> str:
         for key, value in dict(payload).items()
         if key not in {"payload_hash", "trusted_snapshot", "decision_clock", "source_age_seconds"}
     }
-    return _sha256(stable)
+    return _sha256(_canonicalize_for_hash(stable))
+
+
+_HASH_INSTANT_KEYS = {
+    "source_time",
+    "created_at",
+    "as_of",
+    "signal_time",
+    "available_at",
+    "source_timestamp",
+}
+_HASH_DATE_KEYS = {"trade_date"}
+
+
+def _canonical_instant(moment: datetime) -> str:
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _canonical_number(value: int | float | Decimal) -> int | float:
+    if isinstance(value, bool):
+        raise TypeError("boolean is not a hash number")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(format(float(value), ".15g"))
+    if math.isfinite(value) and value.is_integer():
+        return int(value)
+    return float(format(value, ".15g"))
+
+
+def _canonicalize_for_hash(value: Any, key: str = "") -> Any:
+    """Stable hash input: sorted keys, UTC instants, integral floats as ints."""
+    if isinstance(value, Mapping):
+        return {
+            str(item_key): _canonicalize_for_hash(item_value, str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_canonicalize_for_hash(item, key) for item in value]
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        return _canonical_number(value)
+    if isinstance(value, datetime):
+        return _canonical_instant(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        if key in _HASH_DATE_KEYS:
+            return value[:10] if len(value) >= 10 else value
+        if key in _HASH_INSTANT_KEYS:
+            parsed = _parse_timestamp(value)
+            if parsed is not None:
+                return _canonical_instant(parsed)
+        return value
+    return value
 
 
 def build_scan_lineage_id(
