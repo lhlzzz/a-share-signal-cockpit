@@ -285,6 +285,20 @@ def test_unknown_evidence_is_not_a_production_blocker():
     assert "TRADINGAGENTS_CONTRADICTION" not in decision["production_blockers"]
 
 
+def test_feature_engine_emits_distribution_specific_evidence():
+    snapshot = validate_and_build_canonical_snapshot(_ready_snapshot(
+        f62=-1_000,
+        pct_chg=-2,
+        lhb=[_lhb_row("lhb-dist-feat", "1家机构卖出", institution=True, NET_BS_AMT=-120, mechanism="distribution_risk")],
+    ))
+    from xiaogu_forward_features import build_feature_vector
+    features = build_feature_vector(snapshot)
+    items = features["CAPITAL"]["distribution_evidence"]
+    assert items
+    assert items[0]["mechanism"] == "distribution_risk"
+    assert items[0]["evidence_identity"] == ("lhb", "lhb-dist-feat", "distribution_risk")
+
+
 def test_confirmed_distribution_is_a_production_blocker():
     decision = evaluate_candidate_bundle(
         _ready_snapshot(
@@ -663,8 +677,8 @@ def test_future_negative_evidence_is_not_a_production_blocker():
     future_item = {
         "source_id": "lhb",
         "event_id": "future-1",
-        "mechanism": "lhb_event",
-        "evidence_identity": ("lhb", "future-1", "lhb_event"),
+        "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "future-1", "distribution_risk"),
         "observed": True,
         "direction": "SELL",
         "observed_at": "2026-08-27T10:00:00+08:00",
@@ -674,7 +688,7 @@ def test_future_negative_evidence_is_not_a_production_blocker():
         "pit_status": "OK",
         "confirmation_status": "CONFIRMED",
     }
-    features = {"CAPITAL": {"institution_behavior": {"evidence": [future_item]}}}
+    features = {"CAPITAL": {"distribution_evidence": [future_item]}}
     records = collect_production_negative_evidence({}, features, {}, as_of=AS_OF)
     assert records == []
     assert build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", future_item, as_of=AS_OF) is None
@@ -943,6 +957,21 @@ def test_paper_reduce_rejected(monkeypatch):
         runner.daily_paper_position_review("2026-09-01")
 
 
+def test_position_review_reduce_is_unsupported(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    original = validate_and_build_canonical_snapshot(_base_snapshot())
+    current = validate_and_build_canonical_snapshot(_base_snapshot(price=11, trade_date="2026-09-01", source_time="2026-09-01T09:40:00+08:00"))
+    monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [_open_position(snapshot_id=original["snapshot_id"], original_snapshot_id=original["snapshot_id"])])
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
+    monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 2)
+    monkeypatch.setattr(runner, "run_production_decision", lambda *_args, **_kwargs: {"state": "REDUCE", "action": "REDUCE"})
+    monkeypatch.setattr(runner, "daily_paper_position_review", lambda _date: [])
+    with pytest.raises(RuntimeError, match="REDUCE_UNSUPPORTED"):
+        runner.daily_position_review("2026-09-01")
+
+
 def test_paper_hold_keeps_long(monkeypatch):
     import xiaogu_forward_runner as runner
 
@@ -1057,12 +1086,35 @@ def test_distribution_requires_distribution_mechanism():
     }
     records = collect_production_negative_evidence(
         {},
-        {"CAPITAL": {"institution_behavior": {"evidence": [item]}}},
+        {"CAPITAL": {"distribution_evidence": [item]}},
         {},
         as_of=AS_OF,
     )
     assert records and records[0]["blocker"] == "CONFIRMED_DISTRIBUTION"
     assert records[0]["mechanism"] == "distribution_risk"
+
+
+def test_capital_evidence_is_not_a_distribution_blocker():
+    item = {
+        "source_id": "lhb",
+        "event_id": "dist-cap-1",
+        "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "dist-cap-1", "distribution_risk"),
+        "observed": True,
+        "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "as_of": AS_OF.isoformat(),
+        "event_time": "2026-08-26T14:45:00+08:00",
+        "pit_status": "OK",
+        "confirmation_status": "CONFIRMED",
+    }
+    records = collect_production_negative_evidence(
+        {},
+        {"CAPITAL": {"institution_behavior": {"evidence": [item]}}},
+        {},
+        as_of=AS_OF,
+    )
+    assert records == []
 
 
 def test_sell_direction_not_distribution_by_itself():
@@ -1146,4 +1198,10 @@ def test_health_runtime_evidence_contract():
     ok, detail = mod.check_evidence_identity_contract()
     assert ok, detail
     ok, detail = mod.check_negative_evidence_contract()
+    assert ok, detail
+    ok, detail = mod.check_gate_contract()
+    assert ok, detail
+    ok, detail = mod.check_capital_identity_contract()
+    assert ok, detail
+    ok, detail = mod.check_reduce_not_flat()
     assert ok, detail

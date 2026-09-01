@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "c7c326806f2c269072c461e195c1984327fdde6c",
-  "generatedAt": "2026-09-01T14:53:40.803Z",
+  "gitCommitHash": "edc02d920d3e8e6831957f01e81a4e81f615a412",
+  "generatedAt": "2026-09-01T17:59:26.470Z",
   "files": {
     ".codebase-memory/.gitattributes": {
       "filePath": ".codebase-memory/.gitattributes",
@@ -35,7 +35,7 @@
     },
     ".github/workflows/ci.yml": {
       "filePath": ".github/workflows/ci.yml",
-      "contentHash": "48a838847145a721610532e08325a16ca2837d89fca46abead0b866157c62aba",
+      "contentHash": "e751dafd8e313a182822602f726f233d69b6f18a89149eca117654d8fe4e6c3f",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -155,12 +155,12 @@
     },
     ".understand-anything/fingerprints.json": {
       "filePath": ".understand-anything/fingerprints.json",
-      "contentHash": "b1c91bc907be1ec2464b25aeb1ffec18acfa9846254abaaa962192ed9519e965",
+      "contentHash": "21116b6beecb6d79c35977e55edfa83876ca7734f63adce0c09d440aff963b45",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 7929,
+      "totalLines": 9028,
       "hasStructuralAnalysis": true
     },
     ".understand-anything/knowledge-graph.json": {
@@ -185,7 +185,7 @@
     },
     "AGENTS.md": {
       "filePath": "AGENTS.md",
-      "contentHash": "c5779b91d61864ef9b22aa5300c5780f2709f664561be45ed248ceb100670b69",
+      "contentHash": "58e4bbc4bff668a79b9993baf2be5ff4e0240c77de5740d0bbbfb2f319ba9a0e",
       "functions": [],
       "classes": [],
       "imports": [],
@@ -195,22 +195,22 @@
     },
     "CLAUDE.md": {
       "filePath": "CLAUDE.md",
-      "contentHash": "b98b45aa7c66913e204bc8803ce3b61f7725b83ea836c215c167eebe439098bf",
+      "contentHash": "5bd362302f2c4c927b5a4c5cd0f4e9f01ef22bad6e8c8f7f18fcec837dd9db23",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 97,
+      "totalLines": 99,
       "hasStructuralAnalysis": true
     },
     "README.md": {
       "filePath": "README.md",
-      "contentHash": "16dae51a33d31426f680c8332669f1dab8dedb1e393935d6afd185341f502910",
+      "contentHash": "fe158e4250d1c44808da8c5352210ee095a7d3972fd6e9a72c03b8d843e086a4",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 92,
+      "totalLines": 95,
       "hasStructuralAnalysis": true
     },
     "daily_pipeline.sh": {
@@ -348,12 +348,12 @@
     },
     "rule_freeze_v0_1.json": {
       "filePath": "rule_freeze_v0_1.json",
-      "contentHash": "c1b862c5ccb7b40cdb604cd4a7705f1d642f6d248b08e25d33b9a10c0d926638",
+      "contentHash": "49ba0e7548cb2e0c90613de4230157a06ca4102396e1e2c638db2308106c801e",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 261,
+      "totalLines": 267,
       "hasStructuralAnalysis": true
     },
     "scrapy_scanner/__init__.py": {
@@ -822,7 +822,7 @@
     },
     "scripts/xiaogu_daily_health_check.py": {
       "filePath": "scripts/xiaogu_daily_health_check.py",
-      "contentHash": "ae5e735b91a7c890f43ec9f662944ac2447752202b07620732170f2414814047",
+      "contentHash": "b8221ce27220a2af32554fff60602175491b72aa66fe6c54fed17de93ce96200",
       "functions": [
         {
           "name": "_text",
@@ -949,7 +949,7 @@
           "name": "check_negative_evidence_contract",
           "params": [],
           "exported": true,
-          "lineCount": 69
+          "lineCount": 61
         },
         {
           "name": "check_evidence_identity_contract",
@@ -961,19 +961,25 @@
           "name": "check_gate_contract",
           "params": [],
           "exported": true,
-          "lineCount": 15
+          "lineCount": 44
         },
         {
           "name": "check_capital_identity_contract",
           "params": [],
           "exported": true,
-          "lineCount": 26
+          "lineCount": 42
         },
         {
           "name": "check_position_identity_contract",
           "params": [],
           "exported": true,
           "lineCount": 66
+        },
+        {
+          "name": "check_reduce_not_flat",
+          "params": [],
+          "exported": true,
+          "lineCount": 35
         },
         {
           "name": "main",
@@ -1041,9 +1047,10 @@
         "check_gate_contract",
         "check_capital_identity_contract",
         "check_position_identity_contract",
+        "check_reduce_not_flat",
         "main"
       ],
-      "totalLines": 719,
+      "totalLines": 794,
       "hasStructuralAnalysis": true
     },
     "scripts/xiaogu_db_init.sql": {
@@ -1143,7 +1150,7 @@
     },
     "tests/test_data_contract.py": {
       "filePath": "tests/test_data_contract.py",
-      "contentHash": "08e6a5bc64663f4f1b66b04f000bae523bd7c36fad3a4779a48cfee8f380c396",
+      "contentHash": "35a31fc6066b52a1fcf593f39361f15abdb99607dab4cd4297d8761f9eca4d9f",
       "functions": [
         {
           "name": "test_snapshot_has_no_future_fields_and_features_are_measurements",
@@ -1456,7 +1463,7 @@
             "monkeypatch"
           ],
           "exported": true,
-          "lineCount": 24
+          "lineCount": 56
         },
         {
           "name": "test_api_ignores_unresolved_pick_without_explicit_decision_id",
@@ -1883,7 +1890,7 @@
         "test_level_1_blocks_severe_liquidity_without_scoring",
         "test_scanner_attaches_level0_market_inputs_without_deep_research"
       ],
-      "totalLines": 1465,
+      "totalLines": 1497,
       "hasStructuralAnalysis": true
     },
     "tests/test_database_historical_replay.py": {
@@ -2204,7 +2211,7 @@
     },
     "tests/test_production_contract.py": {
       "filePath": "tests/test_production_contract.py",
-      "contentHash": "ac0216c931b166ec8c9dfbde07d0408b0c35625174a6ac6ecb6ea20fcca320b7",
+      "contentHash": "a22b9cca9f4c93b8ed55910888ae6c446f34483b1a06faf17b165c7e475e9ce4",
       "functions": [
         {
           "name": "_lhb_row",
@@ -2308,6 +2315,12 @@
           "params": [],
           "exported": true,
           "lineCount": 10
+        },
+        {
+          "name": "test_feature_engine_emits_distribution_specific_evidence",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
         },
         {
           "name": "test_confirmed_distribution_is_a_production_blocker",
@@ -2522,6 +2535,14 @@
           "lineCount": 21
         },
         {
+          "name": "test_position_review_reduce_is_unsupported",
+          "params": [
+            "monkeypatch"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
           "name": "test_paper_hold_keeps_long",
           "params": [
             "monkeypatch"
@@ -2580,6 +2601,12 @@
           "lineCount": 22
         },
         {
+          "name": "test_capital_evidence_is_not_a_distribution_blocker",
+          "params": [],
+          "exported": true,
+          "lineCount": 21
+        },
+        {
           "name": "test_sell_direction_not_distribution_by_itself",
           "params": [],
           "exported": true,
@@ -2621,7 +2648,7 @@
           "name": "test_health_runtime_evidence_contract",
           "params": [],
           "exported": true,
-          "lineCount": 12
+          "lineCount": 18
         }
       ],
       "classes": [],
@@ -2695,6 +2722,7 @@
         "test_position_review_missing_current_snapshot_blocks",
         "test_position_review_does_not_create_paper_observation",
         "test_unknown_evidence_is_not_a_production_blocker",
+        "test_feature_engine_emits_distribution_specific_evidence",
         "test_confirmed_distribution_is_a_production_blocker",
         "test_research_positive_capital_cannot_buy",
         "test_same_lhb_event_counts_as_one_independent_origin",
@@ -2727,6 +2755,7 @@
         "test_position_by_decision_id",
         "test_position_by_id",
         "test_paper_reduce_rejected",
+        "test_position_review_reduce_is_unsupported",
         "test_paper_hold_keeps_long",
         "test_paper_sell_closes",
         "test_paper_t5_closes",
@@ -2735,6 +2764,7 @@
         "test_negative_future_evidence_excluded",
         "test_negative_missing_identity_excluded",
         "test_distribution_requires_distribution_mechanism",
+        "test_capital_evidence_is_not_a_distribution_blocker",
         "test_sell_direction_not_distribution_by_itself",
         "test_blocker_own_evidence",
         "test_capital_lhb_one_origin",
@@ -2743,12 +2773,12 @@
         "test_health_runtime_position_contract",
         "test_health_runtime_evidence_contract"
       ],
-      "totalLines": 1150,
+      "totalLines": 1208,
       "hasStructuralAnalysis": true
     },
     "tests/test_production_decision.py": {
       "filePath": "tests/test_production_decision.py",
-      "contentHash": "567119606fd078516a04a4ad02853f562b860238cc203ca4ee830d731cfa0f9a",
+      "contentHash": "d7610bc168b021b184f7091f42b5ee6d0fefcd7ffe9390ab8e1545078df977d8",
       "functions": [
         {
           "name": "_repricing_ready_snapshot",
@@ -2802,7 +2832,7 @@
           "name": "test_profit_window_hit_reduces_held_position",
           "params": [],
           "exported": true,
-          "lineCount": 9
+          "lineCount": 14
         },
         {
           "name": "test_climax_or_buyer_exhaustion_blocks_new_buy",
@@ -2923,7 +2953,7 @@
         "test_probability_collapse_and_full_coverage_stay_fail_closed",
         "test_missing_evidence_does_not_invent_main_force_accumulation"
       ],
-      "totalLines": 371,
+      "totalLines": 376,
       "hasStructuralAnalysis": true
     },
     "tests/test_production_hardening.py": {
@@ -3825,7 +3855,7 @@
     },
     "xiaogu_api.py": {
       "filePath": "xiaogu_api.py",
-      "contentHash": "8682806451c296a520935c4296cd41d300d2987525b54ee34a7a739c31a902cd",
+      "contentHash": "f31810267f14c9b55c6fa0047a071b8d2078a85c0163f70a52e11f70f6653136",
       "functions": [
         {
           "name": "_payload",
@@ -3871,7 +3901,7 @@
           "params": [],
           "returnType": "List[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 43
+          "lineCount": 52
         },
         {
           "name": "_paper_metric",
@@ -3899,18 +3929,34 @@
           "lineCount": 8
         },
         {
+          "name": "_position_view",
+          "params": [
+            "row"
+          ],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 19
+        },
+        {
           "name": "current_state",
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 22
+          "lineCount": 10
+        },
+        {
+          "name": "positions",
+          "params": [],
+          "returnType": "Dict[str, Any]",
+          "exported": true,
+          "lineCount": 5
         },
         {
           "name": "current_decision",
           "params": [],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 11
+          "lineCount": 13
         },
         {
           "name": "trades",
@@ -4057,7 +4103,9 @@
         "_paper_metric",
         "_production_view",
         "system_health",
+        "_position_view",
         "current_state",
+        "positions",
         "current_decision",
         "trades",
         "trade",
@@ -4070,7 +4118,7 @@
         "paper_open",
         "paper_history"
       ],
-      "totalLines": 358,
+      "totalLines": 386,
       "hasStructuralAnalysis": true
     },
     "xiaogu_backtest_v0_1.py": {
@@ -6192,7 +6240,7 @@
     },
     "xiaogu_forward_features.py": {
       "filePath": "xiaogu_forward_features.py",
-      "contentHash": "a5cbc693883e64bb66fe48b5f402957a87dfceb3f94e71bd907b7779a11f9edc",
+      "contentHash": "7ef4aa8b285f6f431ef5da817fd71f8fbbb8a546087d7d84f76c972d389b12f2",
       "functions": [
         {
           "name": "validate_evidence_identity",
@@ -6444,7 +6492,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 807
+          "lineCount": 824
         }
       ],
       "classes": [],
@@ -6507,7 +6555,7 @@
         "_market_stage",
         "build_feature_vector"
       ],
-      "totalLines": 1302,
+      "totalLines": 1319,
       "hasStructuralAnalysis": true
     },
     "xiaogu_forward_paper_recorder_v0_1.py": {
@@ -8416,7 +8464,7 @@
     },
     "xiaogu_portfolio_decision.py": {
       "filePath": "xiaogu_portfolio_decision.py",
-      "contentHash": "1b793431a8e182e340ec51702b18505ee4e77aa0872a4d90797162cd0047a35b",
+      "contentHash": "c4e2cb5a262763579ece4d44be37435749163906a2ea92f4b43f2a91d50dcfd8",
       "functions": [
         {
           "name": "_decision_id",
@@ -8445,15 +8493,6 @@
             "threshold"
           ],
           "returnType": "bool",
-          "exported": true,
-          "lineCount": 2
-        },
-        {
-          "name": "_evidence_identity",
-          "params": [
-            "item"
-          ],
-          "returnType": "tuple[str, str, str] | None",
           "exported": true,
           "lineCount": 2
         },
@@ -8495,6 +8534,15 @@
           "lineCount": 9
         },
         {
+          "name": "_distribution_evidence_items",
+          "params": [
+            "features"
+          ],
+          "returnType": "list[Dict[str, Any]]",
+          "exported": true,
+          "lineCount": 10
+        },
+        {
           "name": "build_confirmed_negative_blocker",
           "params": [
             "blocker",
@@ -8516,7 +8564,7 @@
           ],
           "returnType": "list[Dict[str, Any]]",
           "exported": true,
-          "lineCount": 58
+          "lineCount": 54
         },
         {
           "name": "evaluate_production_gates",
@@ -8572,7 +8620,7 @@
           ],
           "returnType": "Dict[str, Any]",
           "exported": true,
-          "lineCount": 205
+          "lineCount": 208
         }
       ],
       "classes": [],
@@ -8635,11 +8683,11 @@
         "_decision_id",
         "_paper_signal_id",
         "_at_least",
-        "_evidence_identity",
         "_confirmation_status",
         "_evidence_confirmed",
         "_nested_evidence_items",
         "_capital_evidence_items",
+        "_distribution_evidence_items",
         "build_confirmed_negative_blocker",
         "collect_production_negative_evidence",
         "evaluate_production_gates",
@@ -8647,7 +8695,7 @@
         "_paper_observation",
         "evaluate_candidate_bundle"
       ],
-      "totalLines": 664,
+      "totalLines": 671,
       "hasStructuralAnalysis": true
     },
     "xiaogu_research_context.py": {

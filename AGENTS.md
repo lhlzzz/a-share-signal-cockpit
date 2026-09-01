@@ -141,7 +141,7 @@ Recorder persists only BUY/HOLD/REDUCE/SELL and position transitions.
 
 BUY requires a validated alpha plus data, capital, supply, repricing, risk, execution, profit-window, OOS, probability-separation, monotonicity, baseline-increment, and confirmed-negative-evidence gates. Any failure is BUY BLOCKED. Research-positive capital cannot BUY. Confirmed negative evidence is a production blocker. Position Review uses `review_snapshot_id` as current truth; `original_snapshot_id` is provenance only. Production Clock is current actual time.
 
-Position identity is `position_id`. `decision_id` identifies the Production Decision, not the position body. Symbol-derived status is `derive_position_state_by_symbol()` and is never production position truth. Paper REDUCE is unsupported without a quantity model. Distribution blockers require `mechanism ∈ DISTRIBUTION_MECHANISMS`. Negative evidence requires `(source_id, event_id, mechanism)` plus PIT. Health is behavior-first.
+Position identity is `position_id`. `decision_id` identifies the Production Decision, not the position body. Symbol-derived status is `derive_position_state_by_symbol()` and is never production position truth. Same symbol / different decision stay isolated. Paper REDUCE is unsupported without a quantity model and never equals FLAT. Distribution blockers consume distribution-specific evidence with `mechanism ∈ DISTRIBUTION_MECHANISMS`. Negative evidence requires `(source_id, event_id, mechanism)` plus PIT. Health is behavior-first. Production Gate has one owner: `evaluate_production_gates()`.
 
 ---
 

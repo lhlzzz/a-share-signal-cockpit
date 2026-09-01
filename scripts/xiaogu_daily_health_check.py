@@ -456,32 +456,22 @@ def check_production_clock_contract():
 
 def check_negative_evidence_contract():
     from datetime import datetime
-    from inspect import getsource
     from xiaogu_portfolio_decision import (
         build_confirmed_negative_blocker,
         collect_production_negative_evidence,
-        evaluate_candidate_bundle,
-        evaluate_production_gates,
     )
 
-    static_ok = (
-        "collect_production_negative_evidence" in getsource(evaluate_production_gates)
-        and "build_confirmed_negative_blocker" in getsource(collect_production_negative_evidence)
-        and "UNKNOWN" in getsource(collect_production_negative_evidence)
-        and "RESEARCH_ONLY_DECISION_BLOCKERS" not in getsource(evaluate_candidate_bundle)
-        and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
-    )
     as_of = datetime.fromisoformat("2026-08-26T15:00:00+08:00")
     future_item = {
-        "source_id": "lhb", "event_id": "future-1", "mechanism": "lhb_event",
-        "evidence_identity": ("lhb", "future-1", "lhb_event"), "observed": True,
+        "source_id": "lhb", "event_id": "future-1", "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "future-1", "distribution_risk"), "observed": True,
         "direction": "SELL", "observed_at": "2026-08-27T10:00:00+08:00",
         "available_at": "2026-08-27T10:00:00+08:00", "event_time": "2026-08-27T10:00:00+08:00",
         "pit_status": "OK", "confirmation_status": "CONFIRMED",
     }
     unknown_item = {
-        "source_id": "lhb", "event_id": "unk-1", "mechanism": "lhb_event",
-        "evidence_identity": ("lhb", "unk-1", "lhb_event"), "observed": False,
+        "source_id": "lhb", "event_id": "unk-1", "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "unk-1", "distribution_risk"), "observed": False,
         "direction": "SELL", "observed_at": "2026-08-26T14:45:00+08:00",
         "available_at": "2026-08-26T14:50:00+08:00", "event_time": "2026-08-26T14:45:00+08:00",
         "pit_status": "OK", "confirmation_status": "UNKNOWN",
@@ -507,21 +497,23 @@ def check_negative_evidence_contract():
         "event_time": "2026-08-26T14:45:00+08:00",
         "as_of": as_of.isoformat(), "pit_status": "OK", "confirmation_status": "CONFIRMED",
     }
-    future_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [future_item]}}}, {}, as_of=as_of)
-    unknown_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [unknown_item]}}}, {}, as_of=as_of)
-    sell_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [sell_only]}}}, {}, as_of=as_of)
-    confirmed_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [distribution_item]}}}, {}, as_of=as_of)
-    missing_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [missing_identity]}}}, {}, as_of=as_of)
+    future_records = collect_production_negative_evidence({}, {"CAPITAL": {"distribution_evidence": [future_item]}}, {}, as_of=as_of)
+    unknown_records = collect_production_negative_evidence({}, {"CAPITAL": {"distribution_evidence": [unknown_item]}}, {}, as_of=as_of)
+    sell_records = collect_production_negative_evidence({}, {"CAPITAL": {"distribution_evidence": [sell_only], "institution_behavior": {"evidence": [sell_only]}}}, {}, as_of=as_of)
+    confirmed_records = collect_production_negative_evidence({}, {"CAPITAL": {"distribution_evidence": [distribution_item]}}, {}, as_of=as_of)
+    capital_channel_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [distribution_item]}}}, {}, as_of=as_of)
+    missing_records = collect_production_negative_evidence({}, {"CAPITAL": {"distribution_evidence": [missing_identity]}}, {}, as_of=as_of)
     behavior_ok = (
         future_records == []
         and unknown_records == []
         and sell_records == []
         and missing_records == []
+        and capital_channel_records == []
         and any(item["blocker"] == "CONFIRMED_DISTRIBUTION" and item["mechanism"] == "distribution_risk" for item in confirmed_records)
         and build_confirmed_negative_blocker("REPRICING_COMPLETED", distribution_item, as_of=as_of) is None
         and build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", sell_only, as_of=as_of) is None
     )
-    ok = static_ok and behavior_ok
+    ok = behavior_ok
     return ok, "ok" if ok else "negative evidence is still filtered out or unbound"
 
 
@@ -555,18 +547,47 @@ def check_evidence_identity_contract():
 
 
 def check_gate_contract():
-    from inspect import getsource
+    from datetime import datetime
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
     from xiaogu_portfolio_decision import DECISION_HARD_GATES, evaluate_candidate_bundle, evaluate_production_gates
 
     rule = json.loads(open(PATHS["rule"], encoding="utf-8").read())
+    as_of = datetime.fromisoformat("2026-08-26T15:00:00+08:00")
+    snapshot = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+    })
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=as_of)
+    distribution_item = {
+        "source_id": "lhb", "event_id": "gate-dist-1", "mechanism": "distribution_risk",
+        "evidence_identity": ("lhb", "gate-dist-1", "distribution_risk"), "observed": True,
+        "observed_at": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00",
+        "event_time": "2026-08-26T14:45:00+08:00", "as_of": as_of.isoformat(),
+        "pit_status": "OK", "confirmation_status": "CONFIRMED",
+    }
+    unknown_item = {
+        **distribution_item,
+        "event_id": "gate-unk-1",
+        "evidence_identity": ("lhb", "gate-unk-1", "distribution_risk"),
+        "observed": False,
+        "confirmation_status": "UNKNOWN",
+    }
+    features = {"CAPITAL": {"distribution_evidence": [distribution_item]}, "RISK": {}, "EXECUTION": {}}
+    unknown_features = {"CAPITAL": {"distribution_evidence": [unknown_item]}, "RISK": {}, "EXECUTION": {}}
+    alpha = {"model_status": "DATA_INSUFFICIENT"}
+    blocked = evaluate_production_gates(snapshot, features=features, alpha=alpha, research={}, as_of=as_of)
+    unknown = evaluate_production_gates(snapshot, features=unknown_features, alpha=alpha, research={}, as_of=as_of)
     ok = (
         tuple(rule["alpha_contract"]["required_hard_gates"]) == tuple(DECISION_HARD_GATES)
         and rule["alpha_contract"].get("gate_owner") == "xiaogu_portfolio_decision.evaluate_production_gates"
         and rule["alpha_contract"].get("gate_version") == "production_gate_v1"
-        and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
-        and "oos_pass" not in getsource(evaluate_candidate_bundle)
-        and "def evaluate_production_gates" in getsource(evaluate_production_gates)
-        and "NEGATIVE_EVIDENCE_CLEAR" in getsource(evaluate_production_gates)
+        and decision["gate_version"] == "production_gate_v1"
+        and decision["gate_result"]["failed_gates"] == decision["failed_gates"]
+        and "NEGATIVE_EVIDENCE_CLEAR" in blocked["failed_gates"]
+        and "CONFIRMED_DISTRIBUTION" in blocked["production_blockers"]
+        and "NEGATIVE_EVIDENCE_CLEAR" not in unknown["failed_gates"]
+        and "CONFIRMED_DISTRIBUTION" not in unknown["production_blockers"]
+        and decision["state"] != "BUY"
     )
     return ok, "ok" if ok else "gate owner contract mismatch"
 
@@ -590,11 +611,27 @@ def check_capital_identity_contract():
     # hot_money evidence family must start with DIRECT_
     hot_money["evidence_family"] = "DIRECT_HOT_MONEY"
     result = _capital_convergence(capital)
+    second = {
+        **shared,
+        "event_id": "other-event",
+        "evidence_identity": ("lhb", "other-event", "lhb_event"),
+        "evidence_family": "DIRECT_HOT_MONEY",
+    }
+    two = {
+        "institution_behavior": {"evidence_status": "OBSERVED", "strength": 0.8, "direction": "BUYING", "evidence": [institution], "confidence": 0.8},
+        "main_force_behavior": {},
+        "hot_money_behavior": {"evidence_status": "OBSERVED", "strength": 0.8, "direction": "BUYING", "evidence": [second], "confidence": 0.8},
+    }
+    two_result = _capital_convergence(two)
     ok = (
         result["independent_origin_count"] == 1
         and result["evidence_identity_count"] == 1
         and result["confirmed_channel_count"] >= 1
         and "directional_alignment" in result
+        and two_result["independent_origin_count"] == 2
+        and two_result["evidence_identity_count"] == 2
+        and two_result["confirmed_channel_count"] >= 2
+        and two_result["directional_alignment"] is True
     )
     return ok, "ok" if ok else "capital identity still splits one LHB event"
 
@@ -667,6 +704,43 @@ def check_position_identity_contract():
     return ok, "ok" if ok else "position identity still collapses same-symbol positions"
 
 
+def check_reduce_not_flat():
+    from datetime import datetime
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+    from xiaogu_portfolio_decision import QUANTITY_MODEL, evaluate_candidate_bundle
+
+    as_of = datetime.fromisoformat("2026-08-26T15:00:00+08:00")
+    snapshot = validate_and_build_canonical_snapshot({
+        "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
+        "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        "financial_quality": 1, "moat": 1, "pricing_power": 1, "earnings_quality": 1,
+        "roic": 100, "roe": 100, "growth": 100, "management": 1, "debt_safety": 1,
+        "capital_allocation": 1, "valuation_quality": 0.8,
+        "market_story_strength": 1, "system_change_strength": 1, "demand_score": 1,
+        "bottleneck_score": 1, "supply_constraint": 1, "demand_visibility": 1,
+        "industry_catalyst": 1, "evidence_strength": 1,
+        "f62": 500, "f184": 5, "pct_chg": 3, "capital_accumulation": 1,
+        "capital_persistence": 1, "capital_acceleration": 1, "institutional_flow": 0.8,
+        "hot_money_flow": 0.5, "alpha_model_status": "VALIDATED", "execution_quality": 1,
+    })
+    decision = evaluate_candidate_bundle(
+        snapshot,
+        portfolio_state="BUY",
+        position_state="LONG",
+        account={"profit_window_hit": True, "holding_days": 1},
+        as_of=as_of,
+    )
+    ok = (
+        decision["state"] == "REDUCE"
+        and decision["action"] == "REDUCE"
+        and decision["position_state"] == "LONG"
+        and decision["position_state_after"] == "LONG"
+        and decision["trade_status"] != "CLOSED"
+        and (QUANTITY_MODEL or decision.get("unsupported_reduction") == "REDUCE_UNSUPPORTED")
+    )
+    return ok, "ok" if ok else "REDUCE still collapses to FLAT/CLOSED"
+
+
 CHECKS = [
     *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
     ("scanner_contract", check_scanner_contract),
@@ -690,6 +764,7 @@ CHECKS = [
     ("capital_identity_contract", check_capital_identity_contract),
     ("position_identity_contract", check_position_identity_contract),
     ("gate_contract", check_gate_contract),
+    ("reduce_not_flat", check_reduce_not_flat),
 ]
 
 

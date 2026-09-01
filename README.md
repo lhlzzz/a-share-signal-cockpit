@@ -41,10 +41,12 @@ Eastmoney → Canonical Snapshot → Cheap Eligibility → Candidate Universe
 - Production clock owner: `xiaogu_forward_snapshot.production_now()`.
 - Position identity is `position_id`, not symbol. Same symbol / different decision stay isolated.
 - Position Review uses `review_snapshot_id` as current truth; `original_snapshot_id` is provenance only.
-- Paper REDUCE is unsupported without a quantity model. Paper review actions are `PAPER_HOLD` / `PAPER_SELL`.
-- Distribution requires a distribution mechanism. A SELL direction is not distribution by itself.
+- Paper REDUCE is unsupported without a quantity model. Paper review actions are `PAPER_HOLD` / `PAPER_SELL`. Production `REDUCE` does not become `FLAT`/`CLOSED`.
+- Distribution blockers consume `CAPITAL.distribution_evidence` only. A SELL/EXITING capital label is not distribution. Mechanism must be `distribution_risk`.
+- Evidence identity is strictly `(source_id, event_id, mechanism)`. Missing any field means identity is None and not confirmed.
 - Negative evidence is point-in-time: future `available_at` is excluded; missing identity is not confirmed.
-- Health checks actual runtime behavior; `inspect.getsource()` is not the production contract.
+- Health checks actual runtime behavior; `inspect.getsource()` is an architecture tripwire, not the production contract.
+- Production Gate has one owner: `evaluate_production_gates()`.
 - Confirmed negative evidence is a production blocker. Research-positive capital cannot BUY.
 - Production runner: `xiaogu_forward_runner.run_production_decision()`.
 - Recorder: `xiaogu_forward_paper_recorder_v0_1.py` writes PostgreSQL first, then JSONL audit, then sends memory through the optional Obsidian REST bridge. Bridge failure queues a retry; it never affects PostgreSQL.
@@ -63,6 +65,7 @@ The sole alpha target is `PROFIT_WINDOW_5D`. Maximum holding is 5 trading days. 
 
 - `GET /health`
 - `GET /state`
+- `GET /positions`
 - `GET /decision`
 - `GET /trades`
 - `GET /trade/{decision_id}`

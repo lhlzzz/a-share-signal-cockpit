@@ -66,10 +66,6 @@ def _at_least(value: Any, threshold: float) -> bool:
     return value is not None and float(value) >= threshold
 
 
-def _evidence_identity(item: Dict[str, Any]) -> tuple[str, str, str] | None:
-    return validate_evidence_identity(item)
-
-
 def _confirmation_status(item: Dict[str, Any]) -> str:
     status = str(
         item.get("confirmation_status")
@@ -145,6 +141,18 @@ def _capital_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
     return items
 
 
+def _distribution_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """Distribution blockers consume only distribution-specific evidence."""
+    capital = features.get("CAPITAL") or {}
+    items: list[Dict[str, Any]] = []
+    for container in (capital.get("distribution_evidence"), features.get("distribution_evidence")):
+        if isinstance(container, list):
+            items.extend(item for item in container if isinstance(item, dict))
+        elif isinstance(container, dict):
+            items.extend(_nested_evidence_items(container))
+    return items
+
+
 DISTRIBUTION_MECHANISMS = frozenset({"distribution_risk"})
 BLOCKER_REQUIRED_MECHANISMS = {
     "CONFIRMED_DISTRIBUTION": DISTRIBUTION_MECHANISMS,
@@ -207,11 +215,7 @@ def collect_production_negative_evidence(
     """Confirmed negative evidence only. UNKNOWN/None/MISSING never become blockers."""
     records = []
     capital_items = _capital_evidence_items(features)
-    distribution_items = [
-        item for item in capital_items
-        if str(item.get("mechanism") or "").strip() in DISTRIBUTION_MECHANISMS
-    ]
-    for item in distribution_items:
+    for item in _distribution_evidence_items(features):
         record = build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", item, as_of=as_of)
         if record:
             records.append(record)
@@ -570,12 +574,15 @@ def evaluate_candidate_bundle(
         if position_state_unavailable
         else "FLAT" if state in {"WATCH", "READY", "SELL"} else "LONG"
     )
-    # REDUCE is an abstract action only. Without a quantity model it never closes the position.
+    # REDUCE stays in the six-state contract, but without a quantity model it
+    # never becomes FLAT/CLOSED and is not an executable production action.
+    unsupported_reduction = REDUCE_UNSUPPORTED if (state == "REDUCE" and not QUANTITY_MODEL) else None
     return {
         "decision_id": decision_id,
         "position_id": (account or {}).get("position_id"),
         "state": state,
         "action": state if state in TRADE_ACTIONS else None,
+        "unsupported_reduction": unsupported_reduction,
         "position_state": position_state_after,
         "position_state_before": position_state,
         "position_state_after": position_state_after,

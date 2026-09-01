@@ -783,15 +783,47 @@ def test_api_exposes_current_state_and_trade_views(tmp_path, monkeypatch):
         },
     }])
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", lambda: [{
+        "position_id": "POS|decision-1",
         "decision_id": "decision-1", "symbol": "600001", "state": "BUY",
-        "position_state": "LONG", "payload": {},
+        "position_state": "LONG", "original_snapshot_id": "snap-1",
+        "payload": {},
     }])
-    assert xiaogu_api.current_state()["positions"][0]["decision"] == "BUY"
+    monkeypatch.setattr("xiaogu_db.fetch_paper_observations", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "decision-1",
+        "original_snapshot_id": "snap-1",
+        "review_snapshot_id": "snap-2",
+        "paper_position_state": "PAPER_LONG",
+        "paper_observation_state": "OBSERVED",
+        "payload": {
+            "paper_signal_id": "paper-1",
+            "decision_id": "decision-1",
+            "original_snapshot_id": "snap-1",
+            "review_snapshot_id": "snap-2",
+            "paper_position_state": "PAPER_LONG",
+            "paper_observation_state": "OBSERVED",
+        },
+    }])
+    position = xiaogu_api.current_state()["positions"][0]
+    assert position["decision"] == "BUY"
+    assert position["position_id"] == "POS|decision-1"
+    assert position["decision_id"] == "decision-1"
+    assert position["original_snapshot_id"] == "snap-1"
+    assert position["position_state"] == "LONG"
+    listed = xiaogu_api.positions()["positions"][0]
+    assert listed["position_id"] == "POS|decision-1"
     assert xiaogu_api.current_decision()["decision"] == "BUY"
     assert xiaogu_api.trades()[0]["new_state"] == "BUY"
     decision_id = xiaogu_api.trades()[0]["decision_id"]
     assert xiaogu_api.trade(decision_id)["decision_id"] == decision_id
     assert xiaogu_api.trade("missing-decision")["found"] is False
+    paper = xiaogu_api.paper_signals()["signals"][0]
+    assert paper["paper_signal_id"] == "paper-1"
+    assert paper["decision_id"] == "decision-1"
+    assert paper["original_snapshot_id"] == "snap-1"
+    assert paper["review_snapshot_id"] == "snap-2"
+    assert paper["paper_position_state"] == "PAPER_LONG"
+    assert paper["paper_action"] == "PAPER_HOLD"
 
 
 def test_api_ignores_unresolved_pick_without_explicit_decision_id(monkeypatch):

@@ -192,6 +192,11 @@ def test_profit_window_hit_reduces_held_position():
     )
     assert decision["state"] == "REDUCE"
     assert decision["reason"] == "PROFIT_WINDOW_HIT"
+    assert decision["action"] == "REDUCE"
+    assert decision["position_state"] == "LONG"
+    assert decision["position_state_after"] == "LONG"
+    assert decision["trade_status"] != "CLOSED"
+    assert decision["unsupported_reduction"] == "REDUCE_UNSUPPORTED"
 
 
 def test_climax_or_buyer_exhaustion_blocks_new_buy():

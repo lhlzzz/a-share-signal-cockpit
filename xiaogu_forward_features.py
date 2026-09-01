@@ -729,6 +729,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     lineage_id = str(snap.get("lineage_id") or "")
     institution_rows = [row for row in lhb_rows if _institution_row(row)]
     hot_money_rows = [row for row in lhb_rows if _hot_money_row(row)]
+    distribution_evidence: list[Dict[str, Any]] = []
     def _payload_identity(payload: Any, default_source: str) -> tuple[str, str, str]:
         if not isinstance(payload, dict):
             return "", "", ""
@@ -770,6 +771,21 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
                 source_id=source_id, event_id=event_id, mechanism=mechanism,
                 observed_at=observed_at, lineage_id=lineage_id,
                 interpretation="HOT_MONEY",
+                as_of=str(as_of or ""),
+                economic_origin_id=origin,
+                event_time=row.get("event_time"),
+                pit_status=pit.get("pit_status"), time_basis=pit.get("time_basis"),
+                source_time=pit.get("source_time"), exclusion_reason=pit.get("exclusion_reason"),
+                primary_event_field=pit.get("primary_event_field"),
+                availability_field=pit.get("availability_field"),
+            ))
+        if mechanism == "distribution_risk":
+            distribution_evidence.append(_evidence(
+                observed=True, source="lhb", available_at=record_available_at,
+                evidence_family="DISTRIBUTION", detail="distribution_risk",
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
+                observed_at=observed_at, lineage_id=lineage_id,
+                interpretation="DISTRIBUTION",
                 as_of=str(as_of or ""),
                 economic_origin_id=origin,
                 event_time=row.get("event_time"),
@@ -967,6 +983,7 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         hot_money_direction, capital["hot_money_flow"], capital["fund_flow_persistence"],
         capital["fund_flow_acceleration"], hot_money_direct,
     )
+    capital["distribution_evidence"] = distribution_evidence
     capital["price_volume_evidence"] = price_volume_evidence
     capital["flow_persistence_evidence"] = persistence_evidence
     capital["industry_capital_evidence"] = industry_capital_evidence

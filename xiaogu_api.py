@@ -77,6 +77,14 @@ def _paper_views() -> List[Dict[str, Any]]:
         key = record["paper_signal_id"]
         outcome = outcomes.get(key) or outcomes.get(str(record.get("decision_id") or "")) or {}
         closed = outcome.get("outcome_complete") is True and record.get("paper_position_state") == "PAPER_LONG"
+        paper_observation_state = "CLOSED" if closed else record.get("paper_observation_state") or "OBSERVED"
+        paper_position_state = "PAPER_FLAT" if closed else record.get("paper_position_state") or "PAPER_FLAT"
+        if paper_observation_state == "CLOSED" or (closed and paper_position_state == "PAPER_FLAT"):
+            paper_action = record.get("paper_action") or "PAPER_SELL"
+        elif paper_position_state == "PAPER_LONG":
+            paper_action = record.get("paper_action") or "PAPER_HOLD"
+        else:
+            paper_action = record.get("paper_action")
         view = {
             "paper_signal_id": key,
             "decision_id": record["decision_id"],
@@ -92,8 +100,9 @@ def _paper_views() -> List[Dict[str, Any]]:
             "price_strength": record.get("price_strength"),
             "alpha_status": record.get("alpha_status"),
             "paper_observation": "PAPER_OBSERVATION",
-            "paper_observation_state": "CLOSED" if closed else record.get("paper_observation_state") or "OBSERVED",
-            "paper_position_state": "PAPER_FLAT" if closed else record.get("paper_position_state") or "PAPER_FLAT",
+            "paper_observation_state": paper_observation_state,
+            "paper_position_state": paper_position_state,
+            "paper_action": paper_action,
             "signal_reason": record.get("signal_reason"),
             "research_overlay": record.get("research_overlay") or {},
             "model_version": record.get("model_version"),
@@ -190,29 +199,46 @@ def system_health() -> Dict[str, Any]:
         return {"status": "blocked", "paper_only": True, "database": {"ok": False, "error": repr(exc)}}
 
 
+def _position_view(row: Dict[str, Any]) -> Dict[str, Any]:
+    position = _payload(row)
+    action = position.get("action") or position.get("state") or position.get("decision")
+    return _production_view({
+        **position,
+        "position_id": position.get("position_id"),
+        "decision_id": position.get("decision_id"),
+        "symbol": position.get("symbol"),
+        "original_snapshot_id": position.get("original_snapshot_id"),
+        "position_state": position.get("position_state"),
+        "opened_trade_date": position.get("opened_trade_date") or position.get("trade_date"),
+        "closed_trade_date": position.get("closed_trade_date"),
+        "review_snapshot_id": position.get("review_snapshot_id"),
+        "review_trade_date": position.get("review_trade_date"),
+        "decision_clock": position.get("decision_clock"),
+        "action": action,
+        "decision": action,
+        "current_snapshot_id": position.get("review_snapshot_id"),
+    })
+
+
 @app.get("/state")
 def current_state() -> Dict[str, Any]:
     from xiaogu_db import fetch_open_positions
 
     records = _decision_records()
-    positions = []
-    for row in fetch_open_positions():
-        position = _payload(row)
-        position.setdefault("decision", position.get("action") or position.get("state"))
-        position["position_id"] = position.get("position_id")
-        position["decision_id"] = position.get("decision_id")
-        position["original_snapshot_id"] = position.get("original_snapshot_id")
-        position["review_snapshot_id"] = position.get("review_snapshot_id")
-        position["current_snapshot_id"] = position.get("review_snapshot_id")
-        position["position_state"] = position.get("position_state")
-        position["review_trade_date"] = position.get("review_trade_date")
-        position["decision_clock"] = position.get("decision_clock")
-        positions.append(_production_view(position))
+    positions = [_position_view(row) for row in fetch_open_positions()]
     return {
         "market_state": "UNKNOWN",
         "positions": positions,
         "latest": _production_view(records[0]) if records else None,
     }
+
+
+@app.get("/positions")
+def positions() -> Dict[str, Any]:
+    from xiaogu_db import fetch_open_positions
+
+    rows = [_position_view(row) for row in fetch_open_positions()]
+    return {"positions": rows, "count": len(rows)}
 
 
 @app.get("/decision")
@@ -221,11 +247,13 @@ def current_decision() -> Dict[str, Any]:
     if not records:
         return {"found": False}
     record = dict(records[0])
+    record["position_id"] = record.get("position_id")
     record["decision_id"] = record.get("decision_id")
     record["original_snapshot_id"] = record.get("original_snapshot_id")
     record["review_snapshot_id"] = record.get("review_snapshot_id")
     record["review_trade_date"] = record.get("review_trade_date")
     record["decision_clock"] = record.get("decision_clock")
+    record["action"] = record.get("action") or record.get("decision") or record.get("state")
     return _production_view(record)
 
 

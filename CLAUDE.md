@@ -65,10 +65,12 @@
 - Research positive != Production blocker；Confirmed negative evidence = Production blocker
 - Gate owner = `evaluate_production_gates()`
 - Position identity = `position_id` (not symbol). Same symbol / different decision remain isolated.
-- Paper REDUCE unsupported without quantity model. Paper review = `PAPER_HOLD` / `PAPER_SELL`.
-- Distribution requires a distribution mechanism; SELL direction is not distribution.
+- Paper REDUCE unsupported without quantity model. Paper review = `PAPER_HOLD` / `PAPER_SELL`. REDUCE does not equal FLAT.
+- Distribution requires distribution-specific evidence and `mechanism ∈ DISTRIBUTION_MECHANISMS`; SELL/EXITING is not distribution.
+- Evidence identity is strictly `(source_id, event_id, mechanism)`; missing any field is not confirmed.
 - Negative evidence is PIT; missing identity is not confirmed; future evidence is excluded.
 - Health is behavior-first, not `inspect.getsource()`.
+- Production Gate has one owner: `evaluate_production_gates()`.
 
 ### 工具使用
 - RTK 替代 bash 命令

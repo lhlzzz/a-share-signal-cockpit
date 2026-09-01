@@ -224,7 +224,8 @@
       "HOLD",
       "SELL"
     ],
-    "reduce": "UNSUPPORTED"
+    "reduce": "UNSUPPORTED",
+    "reduce_equals_flat": false
   },
   "paper_review": {
     "identity": "paper_signal_id",
@@ -250,7 +251,12 @@
     "distribution_requires_mechanism": true,
     "sell_direction_is_not_distribution": true,
     "future_excluded": true,
-    "unknown_not_blocker": true
+    "unknown_not_blocker": true,
+    "distribution_source": "CAPITAL.distribution_evidence",
+    "capital_evidence_is_not_distribution": true,
+    "mechanisms": [
+      "distribution_risk"
+    ]
   },
   "health": {
     "primary": "runtime behavior",
