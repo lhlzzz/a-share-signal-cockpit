@@ -173,6 +173,8 @@ def check_production_schema_audit():
         and snapshots["columns"]["payload_hash"] == "EXISTS"
         and audit["tables"]["picks"]["columns"]["decision_id"] == "EXISTS"
         and audit["tables"]["returns"]["columns"]["decision_id"] == "EXISTS"
+        and audit["tables"]["returns"]["columns"]["calendar_version"] == "EXISTS"
+        and audit["tables"]["returns"]["columns"]["calendar_content_hash"] == "EXISTS"
         and audit["tables"]["paper_observations"]["columns"]["paper_signal_id"] == "EXISTS"
         and audit["tables"]["paper_observations"]["columns"]["paper_observation_state"] == "EXISTS"
         and snapshots["unique"]["snapshot_id"] == "EXISTS"
@@ -180,6 +182,8 @@ def check_production_schema_audit():
         and historical["columns"]["snapshot_id"] == "EXISTS"
         and historical["unique"]["snapshot_id"] == "EXISTS"
         and historical["primary_key"]["status"] == "EXISTS"
+        and ("decision_id", "trade_date") in audit["tables"]["returns"]["unique_constraints"]
+        and audit.get("schema_version_status") == "EXISTS"
     )
     returns_fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
     paper_fk = audit["tables"]["paper_observations"]["foreign_keys"].get("decision_id->picks.decision_id")
@@ -193,22 +197,48 @@ def check_production_schema_audit():
         and paper_only_check == "CHECK paper_only"
         and live_order_check == "CHECK NOT live_order"
     )
-    return required, "ok" if required else json.dumps(audit, ensure_ascii=False, default=str)
+    return required, json.dumps(
+        {
+            "schema_version": audit.get("schema_version"),
+            "schema_ok": audit.get("ok"),
+            "composite_unique": audit["tables"]["returns"]["unique_constraints"],
+            "status": "PASS" if required else "FAIL",
+        },
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 def check_calendar_truth():
-    from xiaogu_db import audit_trading_calendar
+    from xiaogu_db import audit_trading_calendar, get_calendar_version
 
     report = audit_trading_calendar()
     required = (
         report.get("status") == "PASS"
-        and report.get("calendar_version") == "CN_A_SHARE_2026_V1"
+        and report.get("calendar_version") == get_calendar_version(report["effective_year"])
+        and report.get("calendar_content_hash") == report.get("authoritative_content_hash")
+        and report.get("calendar_source")
+        and report.get("today_source")
         and report.get("regressions", {}).get("2026-08-31") == "TRUE"
         and report.get("regressions", {}).get("2026-09-25") == "FALSE"
         and report.get("regressions", {}).get("2026-09-28") == "TRUE"
         and report.get("t5") == "2026-09-29"
     )
-    return required, "ok" if required else json.dumps(report, ensure_ascii=False, default=str)
+    return required, json.dumps(
+        {
+            "calendar_version": report.get("calendar_version"),
+            "calendar_source": report.get("calendar_source"),
+            "effective_year": report.get("effective_year"),
+            "coverage": [report.get("coverage_start"), report.get("coverage_end")],
+            "row_count": report.get("row_count"),
+            "content_hash": report.get("calendar_content_hash"),
+            "today_status": report.get("today_status"),
+            "today_source": report.get("today_source"),
+            "status": report.get("status"),
+        },
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 CHECKS = [

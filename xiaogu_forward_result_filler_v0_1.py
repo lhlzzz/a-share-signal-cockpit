@@ -637,6 +637,10 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
             "paper_signal_id": paper_signal_id,
             "decision_id": decision_id,
             "snapshot_id": record.get("snapshot_id"),
+            "calendar_version": record.get("calendar_version") or outcome.get("calendar_version"),
+            "calendar_content_hash": (
+                record.get("calendar_content_hash") or outcome.get("calendar_content_hash")
+            ),
             "symbol": record.get("symbol") or row.get("symbol"),
             "signal_time": record.get("signal_time") or record.get("asof_time"),
             "reference_price": record.get("reference_price"),

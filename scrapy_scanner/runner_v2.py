@@ -952,13 +952,13 @@ def main() -> Dict[str, Any]:
         calendar_status = is_trading_date(source_time[:10])
         if calendar_status == CALENDAR_UNKNOWN:
             production_scan = "BLOCKED"
-            block_reason = "CALENDAR_DATA_UNAVAILABLE"
+            block_reason = "CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE"
         elif calendar_status != TRADING_DAY:
             production_scan = "BLOCKED"
             block_reason = "NON_TRADING_DAY"
     except Exception:
         production_scan = "BLOCKED"
-        block_reason = "CALENDAR_DATA_UNAVAILABLE"
+        block_reason = "CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE"
 
     try:
         if production_scan == "BLOCKED":

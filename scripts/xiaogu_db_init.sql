@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS paper_observations (
     paper_observation_contract_version TEXT NOT NULL,
     paper_only BOOLEAN NOT NULL DEFAULT TRUE,
     live_order BOOLEAN NOT NULL DEFAULT FALSE,
+    calendar_version TEXT,
+    calendar_content_hash TEXT,
     payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (decision_id),
@@ -84,11 +86,36 @@ CREATE TABLE IF NOT EXISTS trading_calendar_migrations (
     reason TEXT NOT NULL,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS trading_calendar_versions (
+    calendar_version TEXT NOT NULL,
+    market TEXT NOT NULL,
+    effective_year INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    source_timestamp TIMESTAMPTZ NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL CHECK (status IN ('REGISTERED', 'ACTIVE', 'SUPERSEDED')),
+    PRIMARY KEY (calendar_version, market, effective_year)
+);
+CREATE TABLE IF NOT EXISTS xiaogu_schema_version (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    schema_version TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations (
+    migration_id TEXT PRIMARY KEY,
+    from_version TEXT,
+    to_version TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    checksum TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
     symbol TEXT NOT NULL,
     decision_id TEXT,
+    calendar_version TEXT,
+    calendar_content_hash TEXT,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

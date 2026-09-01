@@ -1850,12 +1850,22 @@ def historical_replay(
     for item in snapshots:
         source, future_bars, _ignored_future_prices = _replay_entry(item)
         snapshot = canonical_historical_snapshot(source) if source.get("signal_time") or source.get("source_time") else source
+        from xiaogu_db import load_trading_calendar
+        replay_trade_date = str(snapshot.get("trade_date") or snapshot.get("date") or "")[:10]
+        if not replay_trade_date:
+            raise RuntimeError("CALENDAR_DATA_UNAVAILABLE")
+        calendar_dataset = load_trading_calendar(date.fromisoformat(replay_trade_date).year)
+        calendar_metadata = {
+            "calendar_version": calendar_dataset["calendar_version"],
+            "calendar_content_hash": calendar_dataset["content_hash"],
+        }
         decision = run_production_decision(snapshot, mode="REPLAY", persisted=True)
         try:
             entry = historical_entry_contract(snapshot)
         except ValueError:
             raise
         record = _decision_record(snapshot, decision, entry)
+        record.update(calendar_metadata)
         decision_summary = {
             "state": decision.get("state"), "symbol": decision.get("symbol"),
             "reason": decision.get("reason"), "decision_owner": decision.get("decision_owner"),
@@ -1875,6 +1885,7 @@ def historical_replay(
         rows.append({
             "snapshot": snapshot, "decision": decision_summary, "decision_record": record,
             "entry_contract": entry, "future_bars": bars, "labels": outcomes,
+            **calendar_metadata,
                 "forward_window": {
                     "profit_window": outcomes.get("profit_window"),
                     "max_daily_bar_profit_opportunity_5d": outcomes.get("max_daily_bar_profit_opportunity_5d"),

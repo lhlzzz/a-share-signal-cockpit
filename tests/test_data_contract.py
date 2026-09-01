@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
 import sys
+import calendar as calendar_module
+from datetime import date, timedelta
 import pytest
 
 from xiaogu_forward_eligibility import candidate_universe
@@ -1001,48 +1003,14 @@ def test_schema_migration_final_contract():
     assert db.audit_production_schema()["ok"] is True
 
 
-def test_real_a_share_calendar(monkeypatch):
-    import sys
-    import types
+def test_missing_authoritative_calendar_fails_closed(monkeypatch):
     import xiaogu_db as db
 
     recorded = []
-
-    class Result:
-        error_code = "0"
-        error_msg = ""
-
-        def __init__(self):
-            self.rows = iter((
-                ["2024-10-01", "0"],
-                ["2024-10-08", "1"],
-                ["2024-10-12", "0"],
-            ))
-            self.current = None
-
-        def next(self):
-            try:
-                self.current = next(self.rows)
-                return True
-            except StopIteration:
-                return False
-
-        def get_row_data(self):
-            return self.current
-
-    fake = types.SimpleNamespace(
-        login=lambda: types.SimpleNamespace(error_code="0", error_msg=""),
-        logout=lambda: None,
-        query_trade_dates=lambda **_kwargs: Result(),
-    )
-    monkeypatch.setitem(sys.modules, "baostock", fake)
     monkeypatch.setattr(db, "record_trading_calendar", lambda rows: recorded.extend(rows))
-    assert db.refresh_a_share_trading_calendar("2024-10-01", "2024-10-12") == 3
-    assert recorded == [
-        {"trade_date": "2024-10-01", "is_trading_day": False, "source": "baostock_trade_dates"},
-        {"trade_date": "2024-10-08", "is_trading_day": True, "source": "baostock_trade_dates"},
-        {"trade_date": "2024-10-12", "is_trading_day": False, "source": "baostock_trade_dates"},
-    ]
+    with pytest.raises(RuntimeError, match="CALENDAR_DATA_UNAVAILABLE"):
+        db.refresh_a_share_trading_calendar("2024-10-01", "2024-10-12")
+    assert recorded == []
 
 
 def test_2026_authoritative_calendar_regressions():
@@ -1080,6 +1048,68 @@ def test_authoritative_calendar_records_include_provenance():
     assert row["source"] == "sse_official_2026_trading_calendar"
     assert row["calendar_version"] == "CN_A_SHARE_2026_V1"
     assert row["source_timestamp"] == "2025-12-22T00:00:00+08:00"
+
+
+def _annual_calendar_fixture(year: int) -> dict:
+    return {
+        "source": f"official_{year}",
+        "source_timestamp": f"{year - 1}-12-22T00:00:00+08:00",
+        "calendar_version": f"CN_A_SHARE_{year}_V1",
+        "rows": [
+            {
+                "trade_date": (date(year, 1, 1) + timedelta(days=offset)).isoformat(),
+                "market": "ASHARE",
+                "is_trading_day": (date(year, 1, 1) + timedelta(days=offset)).weekday() < 5,
+            }
+            for offset in range(366 if calendar_module.isleap(year) else 365)
+        ],
+    }
+
+
+def test_calendar_loader_is_year_bound_and_supports_leap_year(tmp_path, monkeypatch):
+    import xiaogu_db as db
+
+    fixture = _annual_calendar_fixture(2028)
+    (tmp_path / "ashare_2028.json").write_text(json.dumps(fixture), encoding="utf-8")
+    monkeypatch.setattr(db, "CALENDAR_DATASET_DIR", tmp_path)
+    loaded = db.load_trading_calendar(2028)
+    assert len(loaded["rows"]) == 366
+    assert db.get_calendar_version(2028) == "CN_A_SHARE_2028_V1"
+    assert db.calendar_content_hash(loaded["rows"]) == loaded["content_hash"]
+
+
+def test_calendar_hash_changes_when_one_fact_changes():
+    import xiaogu_db as db
+
+    rows = [
+        {
+            "trade_date": "2026-01-01",
+            "market": "ASHARE",
+            "is_trading_day": False,
+            "source": "official",
+            "calendar_version": "CN_A_SHARE_2026_V1",
+        }
+    ]
+    changed = [dict(rows[0], is_trading_day=True)]
+    assert db.calendar_content_hash(rows) == db.calendar_content_hash(list(reversed(rows)))
+    assert db.calendar_content_hash(rows) != db.calendar_content_hash(changed)
+
+
+def test_calendar_loader_rejects_wrong_year_and_missing_date(tmp_path, monkeypatch):
+    import xiaogu_db as db
+
+    fixture = _annual_calendar_fixture(2026)
+    fixture["rows"][0]["trade_date"] = "2027-01-01"
+    (tmp_path / "ashare_2026.json").write_text(json.dumps(fixture), encoding="utf-8")
+    monkeypatch.setattr(db, "CALENDAR_DATASET_PATH", tmp_path / "ashare_2026.json")
+    with pytest.raises(RuntimeError, match="INVALID_CALENDAR_YEAR"):
+        db.load_trading_calendar(2026)
+
+    fixture = _annual_calendar_fixture(2026)
+    fixture["rows"].pop()
+    (tmp_path / "ashare_2026.json").write_text(json.dumps(fixture), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="CALENDAR_INCOMPLETE"):
+        db.load_trading_calendar(2026)
 
 
 def test_calendar_audit_uses_requested_current_date():

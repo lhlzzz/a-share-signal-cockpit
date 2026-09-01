@@ -87,8 +87,10 @@ Memory
 | Memory | Memory Adapter → Obsidian | Trade notes only |
 
 Trading Calendar owner: `xiaogu_db.py`. The sole truth is the versioned
-`trading_calendar` table, populated from an authoritative dataset and audited
-through `trading_calendar_migrations`. `is_trading_date()` returns `TRUE`,
+`trading_calendar` table, populated from `data/trading_calendar/ashare_YYYY.json`
+by effective year and audited through `trading_calendar_migrations` and
+`trading_calendar_versions`. Each annual dataset has an immutable content hash.
+`is_trading_date()` returns `TRUE`,
 `FALSE`, or `UNKNOWN`; missing data is `CALENDAR_DATA_UNAVAILABLE` and blocks
 production. Future prices, scanner row availability, snapshots, paper
 observations, and weekday arithmetic cannot determine a trading date.

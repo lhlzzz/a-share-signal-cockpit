@@ -266,7 +266,7 @@ def main() -> None:
         calendar_status = is_trading_date(args.date)
         if calendar_status == CALENDAR_UNKNOWN:
             print(json.dumps(_empty_observation_output(
-                args.date, "CALENDAR_DATA_UNAVAILABLE", scan_status="SCAN_BLOCKED"
+                args.date, "CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE", scan_status="SCAN_BLOCKED"
             ), ensure_ascii=False, default=str))
             return
         if calendar_status != TRADING_DAY:
