@@ -285,8 +285,12 @@ def select_canonical_snapshot(
     *,
     symbol: str,
     trade_date: str,
-) -> CanonicalSnapshot | None:
-    """Pick the unique trusted snapshot for one symbol and trade date."""
+) -> CanonicalSnapshot:
+    """Resolve the unique trusted snapshot for one symbol and trade date.
+
+    Production never selects max(source_time). Zero matches fail closed.
+    Multiple distinct snapshot identities fail closed.
+    """
     wanted = str(symbol or "").zfill(6)[-6:]
     matched: list[CanonicalSnapshot] = []
     for row in rows:
@@ -298,14 +302,14 @@ def select_canonical_snapshot(
             continue
         matched.append(row)
     if not matched:
-        return None
-
-    def _key(snapshot: CanonicalSnapshot) -> tuple[datetime, str]:
-        parsed = _parse_timestamp(snapshot.get("source_time"))
-        stamp = parsed or datetime.min.replace(tzinfo=timezone.utc)
-        return (stamp, str(snapshot.get("production_run_id") or snapshot.get("lineage_id") or ""))
-
-    return max(matched, key=_key)
+        raise ValueError("CANONICAL_SNAPSHOT_NOT_FOUND")
+    identities = {
+        str(snapshot.get("snapshot_id") or "").strip()
+        for snapshot in matched
+    }
+    if len(identities) == 1 and next(iter(identities)):
+        return matched[0]
+    raise ValueError("CANONICAL_SNAPSHOT_AMBIGUOUS")
 
 
 def select_unique_canonical_snapshots(
@@ -313,7 +317,7 @@ def select_unique_canonical_snapshots(
     *,
     trade_date: str,
 ) -> list[CanonicalSnapshot]:
-    """Keep one trusted snapshot per symbol for a production day."""
+    """Keep exactly one trusted snapshot per symbol for a production day."""
     grouped: dict[str, list[CanonicalSnapshot]] = {}
     for row in rows:
         if not isinstance(row, CanonicalSnapshot) or row.get("trusted_snapshot") is not True:
@@ -324,11 +328,10 @@ def select_unique_canonical_snapshots(
         if not symbol or symbol == "000000":
             continue
         grouped.setdefault(symbol, []).append(row)
-    selected = [
+    return [
         select_canonical_snapshot(items, symbol=symbol, trade_date=trade_date)
         for symbol, items in grouped.items()
     ]
-    return [snapshot for snapshot in selected if snapshot is not None]
 
 
 def _sha256(payload: Any) -> str:

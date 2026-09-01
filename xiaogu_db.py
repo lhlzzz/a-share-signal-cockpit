@@ -36,7 +36,155 @@ INVALID_CALENDAR_YEAR = "INVALID_CALENDAR_YEAR"
 CALENDAR_DATASET_DIR = Path(__file__).resolve().parent / "data" / "trading_calendar"
 # Test/import override. Normal runtime always resolves the year-specific path.
 CALENDAR_DATASET_PATH: Path | None = None
-SCHEMA_VERSION = "xiaogu_production_schema_v2"
+SCHEMA_VERSION = "xiaogu_production_schema_v3"
+MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
+MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
+HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
+SCHEMA_V2_STATEMENTS = ('ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT',
+ 'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT',
+ 'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT',
+ 'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT',
+ 'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS payload_hash TEXT',
+ 'ALTER TABLE canonical_historical_snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT',
+ 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT',
+ 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT',
+ 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT',
+ 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB',
+ 'CREATE TABLE IF NOT EXISTS paper_observations (\n'
+ '            paper_signal_id TEXT PRIMARY KEY,\n'
+ '            decision_id TEXT NOT NULL,\n'
+ '            snapshot_id TEXT NOT NULL,\n'
+ '            lineage_id TEXT NOT NULL,\n'
+ '            symbol TEXT NOT NULL,\n'
+ '            signal_time TIMESTAMPTZ NOT NULL,\n'
+ '            reference_price DOUBLE PRECISION NOT NULL,\n'
+ '            paper_observation_state TEXT NOT NULL,\n'
+ '            paper_position_state TEXT NOT NULL,\n'
+ '            alpha_name TEXT NOT NULL,\n'
+ '            alpha_version TEXT,\n'
+ '            feature_version TEXT,\n'
+ '            decision_version TEXT NOT NULL,\n'
+ '            cost_model_version TEXT NOT NULL,\n'
+ '            paper_observation_contract_version TEXT NOT NULL,\n'
+ '            paper_only BOOLEAN NOT NULL DEFAULT TRUE,\n'
+ '            live_order BOOLEAN NOT NULL DEFAULT FALSE,\n'
+ '            calendar_version TEXT,\n'
+ '            calendar_content_hash TEXT,\n'
+ "            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),\n"
+ '            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n'
+ '            UNIQUE (decision_id)\n'
+ '        )',
+ 'CREATE TABLE IF NOT EXISTS trading_calendar (\n'
+ '            trade_date DATE PRIMARY KEY,\n'
+ "            market TEXT NOT NULL DEFAULT 'ASHARE',\n"
+ '            is_trading_day BOOLEAN NOT NULL,\n'
+ '            source TEXT NOT NULL,\n'
+ '            source_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n'
+ "            calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1',\n"
+ "            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),\n"
+ '            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n'
+ '        )',
+ 'CREATE TABLE IF NOT EXISTS trading_calendar_migrations (\n'
+ '            id BIGSERIAL PRIMARY KEY,\n'
+ '            migration_id TEXT NOT NULL,\n'
+ '            trade_date DATE NOT NULL,\n'
+ '            market TEXT NOT NULL,\n'
+ '            previous_is_trading_day BOOLEAN,\n'
+ '            previous_source TEXT,\n'
+ '            previous_calendar_version TEXT,\n'
+ '            new_is_trading_day BOOLEAN NOT NULL,\n'
+ '            new_source TEXT NOT NULL,\n'
+ '            new_calendar_version TEXT NOT NULL,\n'
+ '            source_timestamp TIMESTAMPTZ NOT NULL,\n'
+ '            reason TEXT NOT NULL,\n'
+ '            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n'
+ '        )',
+ 'CREATE TABLE IF NOT EXISTS trading_calendar_versions (\n'
+ '            calendar_version TEXT NOT NULL,\n'
+ '            market TEXT NOT NULL,\n'
+ '            effective_year INTEGER NOT NULL,\n'
+ '            source TEXT NOT NULL,\n'
+ '            source_timestamp TIMESTAMPTZ NOT NULL,\n'
+ '            content_hash TEXT NOT NULL,\n'
+ '            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n'
+ "            status TEXT NOT NULL CHECK (status IN ('REGISTERED', 'ACTIVE', 'SUPERSEDED')),\n"
+ '            PRIMARY KEY (calendar_version, market, effective_year)\n'
+ '        )',
+ 'CREATE TABLE IF NOT EXISTS xiaogu_schema_version (\n'
+ '            singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),\n'
+ '            schema_version TEXT NOT NULL,\n'
+ '            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\n'
+ '        )',
+ 'CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations (\n'
+ '            migration_id TEXT PRIMARY KEY,\n'
+ '            from_version TEXT,\n'
+ '            to_version TEXT NOT NULL,\n'
+ '            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n'
+ '            checksum TEXT NOT NULL\n'
+ '        )',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_signal_id TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_id TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS snapshot_id TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS lineage_id TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS symbol TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS signal_time TIMESTAMPTZ',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS reference_price DOUBLE PRECISION',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_state TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_position_state TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_name TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS feature_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS cost_model_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_contract_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_only BOOLEAN',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS live_order BOOLEAN',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS payload JSONB',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS calendar_version TEXT',
+ 'ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS calendar_content_hash TEXT',
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS trade_date DATE',
+ "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS market TEXT NOT NULL DEFAULT 'ASHARE'",
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS is_trading_day BOOLEAN',
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source TEXT',
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source_timestamp TIMESTAMPTZ',
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS calendar_version TEXT NOT NULL DEFAULT '
+ "'CN_A_SHARE_2026_V1'",
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT '
+ 'NOW()',
+ "UPDATE trading_calendar SET market = 'ASHARE' WHERE market IS NULL OR BTRIM(market) = ''",
+ "UPDATE trading_calendar SET calendar_version = 'CN_A_SHARE_2026_V1' WHERE calendar_version IS "
+ "NULL OR BTRIM(calendar_version) = ''",
+ 'UPDATE trading_calendar SET source_timestamp = COALESCE(source_timestamp, created_at, NOW()) '
+ 'WHERE source_timestamp IS NULL',
+ 'ALTER TABLE trading_calendar ALTER COLUMN source_timestamp SET NOT NULL',
+ 'ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS payload JSONB',
+ 'ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT',
+ 'ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB',
+ 'ALTER TABLE returns ADD COLUMN IF NOT EXISTS calendar_version TEXT',
+ 'ALTER TABLE returns ADD COLUMN IF NOT EXISTS calendar_content_hash TEXT',
+ 'ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT',
+ 'CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id '
+ 'IS NOT NULL',
+ 'CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)',
+ 'CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) '
+ 'WHERE decision_id IS NOT NULL',
+ 'CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time ON paper_observations(signal_time)',
+ 'CREATE INDEX IF NOT EXISTS idx_trading_calendar_open_days ON trading_calendar(trade_date) WHERE '
+ 'is_trading_day',
+ 'CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)',
+ 'CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)',
+ 'CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)',
+ 'CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_lineage_id ON '
+ 'canonical_historical_snapshots (lineage_id)',
+ 'CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_date ON '
+ 'canonical_historical_snapshots (trade_date, symbol)')
+SCHEMA_V3_STATEMENTS = (
+    "ALTER TABLE xiaogu_schema_migrations ADD COLUMN IF NOT EXISTS migration_type TEXT",
+    "UPDATE xiaogu_schema_migrations SET migration_type = 'PRODUCTION_SCHEMA_MIGRATION' "
+    "WHERE migration_type IS NULL OR BTRIM(migration_type) = ''",
+    "ALTER TABLE xiaogu_schema_migrations ALTER COLUMN migration_type SET DEFAULT 'PRODUCTION_SCHEMA_MIGRATION'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol)",
+)
 
 
 @contextmanager
@@ -53,7 +201,6 @@ def init_db(sql_path: str = "scripts/xiaogu_db_init.sql") -> None:
     with engine.begin() as connection:
         connection.execute(text(open(sql_path, encoding="utf-8").read()))
     ensure_production_schema()
-    migrate_historical_snapshot_identity()
     seed_authoritative_a_share_calendar()
 
 
@@ -287,10 +434,11 @@ def audit_production_schema() -> Dict[str, Any]:
         "xiaogu_schema_version": ("singleton", "schema_version", "updated_at"),
         "xiaogu_schema_migrations": (
             "migration_id", "from_version", "to_version", "applied_at", "checksum",
+            "migration_type",
         ),
     }
     required_unique = {
-        "snapshots": {("snapshot_id",)},
+        "snapshots": {("snapshot_id",), ("lineage_id", "symbol")},
         "picks": {("decision_id",)},
         "paper_observations": {("paper_signal_id",), ("decision_id",)},
         "returns": {("decision_id", "trade_date")},
@@ -346,7 +494,7 @@ def audit_production_schema() -> Dict[str, Any]:
             }
         column_audit = {column: _exists_label(column in present_columns) for column in columns}
         unique_audit = {
-            ",".join(expected): _exists_label(expected in unique_keys)
+            expected: _exists_label(expected in unique_keys)
             for expected in required_unique.get(table_name, set())
         }
         index_audit = {name: _exists_label(name in index_names) for name in required_indexes.get(table_name, ())}
@@ -407,173 +555,161 @@ def audit_production_schema() -> Dict[str, Any]:
         ).scalar()
     schema_ok = str(schema_version or "") == SCHEMA_VERSION
     ok = ok and schema_ok
+    last_migration = _last_schema_migration()
     return {
         "ok": ok,
+        "audit": "PASS" if ok else "FAIL",
         "tables": tables,
         "historical_anomalies": anomalies,
         "schema_version": schema_version,
         "schema_version_status": "EXISTS" if schema_ok else "CONFLICT",
+        "last_migration": last_migration,
     }
 
 
-def ensure_production_schema() -> None:
-    """ADD-only production identity. ALTER failure raises and blocks production."""
-    statements = [
-        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
-        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT",
-        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT",
-        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT",
-        "ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS payload_hash TEXT",
-        "ALTER TABLE canonical_historical_snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
-        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT",
-        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT",
-        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT",
-        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB",
-        """CREATE TABLE IF NOT EXISTS paper_observations (
-            paper_signal_id TEXT PRIMARY KEY,
-            decision_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            lineage_id TEXT NOT NULL,
-            symbol TEXT NOT NULL,
-            signal_time TIMESTAMPTZ NOT NULL,
-            reference_price DOUBLE PRECISION NOT NULL,
-            paper_observation_state TEXT NOT NULL,
-            paper_position_state TEXT NOT NULL,
-            alpha_name TEXT NOT NULL,
-            alpha_version TEXT,
-            feature_version TEXT,
-            decision_version TEXT NOT NULL,
-            cost_model_version TEXT NOT NULL,
-            paper_observation_contract_version TEXT NOT NULL,
-            paper_only BOOLEAN NOT NULL DEFAULT TRUE,
-            live_order BOOLEAN NOT NULL DEFAULT FALSE,
-            calendar_version TEXT,
-            calendar_content_hash TEXT,
-            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE (decision_id)
-        )""",
-        """CREATE TABLE IF NOT EXISTS trading_calendar (
-            trade_date DATE PRIMARY KEY,
-            market TEXT NOT NULL DEFAULT 'ASHARE',
-            is_trading_day BOOLEAN NOT NULL,
-            source TEXT NOT NULL,
-            source_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1',
-            payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )""",
-        """CREATE TABLE IF NOT EXISTS trading_calendar_migrations (
-            id BIGSERIAL PRIMARY KEY,
-            migration_id TEXT NOT NULL,
-            trade_date DATE NOT NULL,
-            market TEXT NOT NULL,
-            previous_is_trading_day BOOLEAN,
-            previous_source TEXT,
-            previous_calendar_version TEXT,
-            new_is_trading_day BOOLEAN NOT NULL,
-            new_source TEXT NOT NULL,
-            new_calendar_version TEXT NOT NULL,
-            source_timestamp TIMESTAMPTZ NOT NULL,
-            reason TEXT NOT NULL,
-            applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )""",
-        """CREATE TABLE IF NOT EXISTS trading_calendar_versions (
-            calendar_version TEXT NOT NULL,
-            market TEXT NOT NULL,
-            effective_year INTEGER NOT NULL,
-            source TEXT NOT NULL,
-            source_timestamp TIMESTAMPTZ NOT NULL,
-            content_hash TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            status TEXT NOT NULL CHECK (status IN ('REGISTERED', 'ACTIVE', 'SUPERSEDED')),
-            PRIMARY KEY (calendar_version, market, effective_year)
-        )""",
-        """CREATE TABLE IF NOT EXISTS xiaogu_schema_version (
+def _schema_version_ordinal(version: str | None) -> int:
+    if not version:
+        return 0
+    match = re.search(r"v(\d+)$", str(version))
+    if not match:
+        raise RuntimeError(f"SCHEMA_VERSION_INVALID:{version}")
+    return int(match.group(1))
+
+
+def _migration_checksum(statements: tuple[str, ...] | list[str]) -> str:
+    return hashlib.sha256("\n".join(statements).encode("utf-8")).hexdigest()
+
+
+def _schema_migrations() -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "migration_id": "schema-xiaogu_production_schema_v2",
+            "from_version": None,
+            "to_version": "xiaogu_production_schema_v2",
+            "statements": SCHEMA_V2_STATEMENTS,
+            "apply": _apply_v2_schema,
+        },
+        {
+            "migration_id": "schema-xiaogu_production_schema_v3",
+            "from_version": "xiaogu_production_schema_v2",
+            "to_version": "xiaogu_production_schema_v3",
+            "statements": SCHEMA_V3_STATEMENTS,
+            "apply": _apply_identity_constraints,
+        },
+    )
+
+
+def _schema_version() -> str | None:
+    if "schema_version" not in _table_columns("xiaogu_schema_version"):
+        return None
+    with engine.connect() as db:
+        value = db.execute(
+            text("SELECT schema_version FROM xiaogu_schema_version WHERE singleton = TRUE")
+        ).scalar()
+    return str(value) if value else None
+
+
+def _applied_migration(migration_id: str) -> Dict[str, Any] | None:
+    if "migration_id" not in _table_columns("xiaogu_schema_migrations"):
+        return None
+    with engine.connect() as db:
+        row = db.execute(
+            text(
+                "SELECT migration_id, from_version, to_version, checksum, applied_at, "
+                + (
+                    "migration_type "
+                    if "migration_type" in _table_columns("xiaogu_schema_migrations")
+                    else "CAST(NULL AS text) AS migration_type "
+                )
+                + "FROM xiaogu_schema_migrations WHERE migration_id = :migration_id"
+            ),
+            {"migration_id": migration_id},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def _last_schema_migration() -> Dict[str, Any] | None:
+    if "migration_id" not in _table_columns("xiaogu_schema_migrations"):
+        return None
+    type_sql = (
+        "migration_type"
+        if "migration_type" in _table_columns("xiaogu_schema_migrations")
+        else "CAST(NULL AS text) AS migration_type"
+    )
+    with engine.connect() as db:
+        row = db.execute(
+            text(
+                f"""
+                SELECT migration_id, from_version, to_version, checksum, applied_at, {type_sql}
+                FROM xiaogu_schema_migrations
+                ORDER BY applied_at DESC, migration_id DESC
+                LIMIT 1
+                """
+            )
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def _ensure_schema_registry() -> None:
+    _exec_schema(
+        """
+        CREATE TABLE IF NOT EXISTS xiaogu_schema_version (
             singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
             schema_version TEXT NOT NULL,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )""",
-        """CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations (
+        )
+        """
+    )
+    _exec_schema(
+        """
+        CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations (
             migration_id TEXT PRIMARY KEY,
             from_version TEXT,
             to_version TEXT NOT NULL,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             checksum TEXT NOT NULL
-        )""",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_signal_id TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_id TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS snapshot_id TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS lineage_id TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS symbol TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS signal_time TIMESTAMPTZ",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS reference_price DOUBLE PRECISION",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_state TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_position_state TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_name TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS alpha_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS feature_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS decision_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS cost_model_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_observation_contract_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS paper_only BOOLEAN",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS live_order BOOLEAN",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS payload JSONB",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS calendar_version TEXT",
-        "ALTER TABLE paper_observations ADD COLUMN IF NOT EXISTS calendar_content_hash TEXT",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS trade_date DATE",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS market TEXT NOT NULL DEFAULT 'ASHARE'",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS is_trading_day BOOLEAN",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source TEXT",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS source_timestamp TIMESTAMPTZ",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS calendar_version TEXT NOT NULL DEFAULT 'CN_A_SHARE_2026_V1'",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
-        "UPDATE trading_calendar SET market = 'ASHARE' WHERE market IS NULL OR BTRIM(market) = ''",
-        "UPDATE trading_calendar SET calendar_version = 'CN_A_SHARE_2026_V1' WHERE calendar_version IS NULL OR BTRIM(calendar_version) = ''",
-        "UPDATE trading_calendar SET source_timestamp = COALESCE(source_timestamp, created_at, NOW()) WHERE source_timestamp IS NULL",
-        "ALTER TABLE trading_calendar ALTER COLUMN source_timestamp SET NOT NULL",
-        "ALTER TABLE trading_calendar ADD COLUMN IF NOT EXISTS payload JSONB",
-        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT",
-        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB",
-        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS calendar_version TEXT",
-        "ALTER TABLE returns ADD COLUMN IF NOT EXISTS calendar_content_hash TEXT",
-        "ALTER TABLE canonical_future_prices ADD COLUMN IF NOT EXISTS price_fact_hash TEXT",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL",
-        "CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL",
-        "CREATE INDEX IF NOT EXISTS idx_paper_observations_signal_time ON paper_observations(signal_time)",
-        "CREATE INDEX IF NOT EXISTS idx_trading_calendar_open_days ON trading_calendar(trade_date) WHERE is_trading_day",
-        "CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date)",
-        "CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id)",
-        "CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol)",
-        "CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_lineage_id ON canonical_historical_snapshots (lineage_id)",
-        "CREATE INDEX IF NOT EXISTS idx_canonical_historical_snapshots_date ON canonical_historical_snapshots (trade_date, symbol)",
-    ]
-    for statement in statements:
-        _exec_schema(statement)
-    schema_checksum = hashlib.sha256("\n".join(statements).encode("utf-8")).hexdigest()
+        )
+        """
+    )
+
+
+def _record_schema_migration(
+    *,
+    migration_id: str,
+    from_version: str | None,
+    to_version: str,
+    checksum: str,
+    migration_type: str = MIGRATION_TYPE_SCHEMA,
+    update_schema_version: bool = True,
+) -> None:
+    existing = _applied_migration(migration_id)
+    if existing:
+        if str(existing.get("checksum") or "") != checksum:
+            raise RuntimeError("SCHEMA_MIGRATION_CHECKSUM_CONFLICT")
+        return
+    columns = _table_columns("xiaogu_schema_migrations")
+    fields = ["migration_id", "from_version", "to_version", "checksum"]
+    params: Dict[str, Any] = {
+        "migration_id": migration_id,
+        "from_version": from_version,
+        "to_version": to_version,
+        "checksum": checksum,
+    }
+    if "migration_type" in columns:
+        fields.append("migration_type")
+        params["migration_type"] = migration_type
     with engine.begin() as db:
-        current = db.execute(
-            text("SELECT schema_version FROM xiaogu_schema_version WHERE singleton = TRUE")
-        ).scalar()
-        if str(current or "") != SCHEMA_VERSION:
-            migration_id = f"schema-{SCHEMA_VERSION}"
-            db.execute(
-                text(
-                    """
-                    INSERT INTO xiaogu_schema_migrations
-                        (migration_id, from_version, to_version, checksum)
-                    VALUES (:migration_id, :from_version, :to_version, :checksum)
-                    ON CONFLICT (migration_id) DO NOTHING
-                    """
-                ),
-                {
-                    "migration_id": migration_id,
-                    "from_version": str(current) if current else None,
-                    "to_version": SCHEMA_VERSION,
-                    "checksum": schema_checksum,
-                },
-            )
+        db.execute(
+            text(
+                "INSERT INTO xiaogu_schema_migrations ("
+                + ", ".join(fields)
+                + ") VALUES ("
+                + ", ".join(f":{field}" for field in fields)
+                + ")"
+            ),
+            params,
+        )
+        if update_schema_version:
             db.execute(
                 text(
                     """
@@ -584,11 +720,28 @@ def ensure_production_schema() -> None:
                         updated_at = NOW()
                     """
                 ),
-                {"schema_version": SCHEMA_VERSION},
+                {"schema_version": to_version},
             )
+
+
+def _assert_applied_migration_checksums() -> None:
+    for migration in _schema_migrations():
+        applied = _applied_migration(str(migration["migration_id"]))
+        if not applied:
+            continue
+        expected = _migration_checksum(migration["statements"])
+        if str(applied.get("checksum") or "") != expected:
+            raise RuntimeError("SCHEMA_MIGRATION_CHECKSUM_CONFLICT")
+
+
+def _backfill_future_price_hashes() -> None:
+    columns = _table_columns("canonical_future_prices")
+    if "price_fact_hash" not in columns:
+        return
     with engine.begin() as db:
         legacy_rows = [
-            dict(row) for row in db.execute(
+            dict(row)
+            for row in db.execute(
                 text(
                     "SELECT symbol, date, open, high, low, close, volume, amount, "
                     "source, source_timestamp, price_basis, price_fact_hash "
@@ -605,6 +758,9 @@ def ensure_production_schema() -> None:
                 ),
                 fact,
             )
+
+
+def _apply_identity_constraints() -> None:
     _ensure_snapshot_primary_key("snapshots")
     _ensure_table_primary_key("paper_observations", ("paper_signal_id",))
     _ensure_table_primary_key("trading_calendar", ("trade_date",))
@@ -656,6 +812,60 @@ def ensure_production_schema() -> None:
             "ALTER TABLE returns ADD CONSTRAINT returns_decision_id_fkey "
             "FOREIGN KEY (decision_id) REFERENCES picks (decision_id)"
         )
+
+
+def _apply_v2_schema() -> None:
+    _backfill_future_price_hashes()
+    _apply_identity_constraints()
+
+
+def _apply_schema_migration(migration: Dict[str, Any]) -> None:
+    migration_id = str(migration["migration_id"])
+    checksum = _migration_checksum(migration["statements"])
+    applied = _applied_migration(migration_id)
+    if applied:
+        if str(applied.get("checksum") or "") != checksum:
+            raise RuntimeError("SCHEMA_MIGRATION_CHECKSUM_CONFLICT")
+        return
+    for statement in migration["statements"]:
+        _exec_schema(statement)
+    apply_hook = migration.get("apply")
+    if callable(apply_hook):
+        apply_hook()
+    _record_schema_migration(
+        migration_id=migration_id,
+        from_version=migration.get("from_version"),
+        to_version=str(migration["to_version"]),
+        checksum=checksum,
+        migration_type=MIGRATION_TYPE_SCHEMA,
+    )
+
+
+def _apply_pending_schema_migrations() -> None:
+    current = _schema_version()
+    if current and _schema_version_ordinal(current) > _schema_version_ordinal(SCHEMA_VERSION):
+        raise RuntimeError("SCHEMA_VERSION_AHEAD")
+    _assert_applied_migration_checksums()
+    for migration in _schema_migrations():
+        current = _schema_version()
+        if current and _schema_version_ordinal(current) > _schema_version_ordinal(SCHEMA_VERSION):
+            raise RuntimeError("SCHEMA_VERSION_AHEAD")
+        if current == SCHEMA_VERSION:
+            break
+        target = str(migration["to_version"])
+        if _schema_version_ordinal(current) >= _schema_version_ordinal(target):
+            continue
+        _apply_schema_migration(migration)
+    current = _schema_version()
+    if current != SCHEMA_VERSION:
+        raise RuntimeError("PRODUCTION_SCHEMA_CONTRACT_FAILED")
+    _assert_applied_migration_checksums()
+
+
+def ensure_production_schema() -> None:
+    """Read schema version, apply pending migrations, then audit. ALTER failure blocks production."""
+    _ensure_schema_registry()
+    _apply_pending_schema_migrations()
     audit = audit_production_schema()
     if not audit["ok"]:
         raise RuntimeError("PRODUCTION_SCHEMA_CONTRACT_FAILED")
@@ -812,7 +1022,11 @@ def _recover_historical_snapshot_id(row: Dict[str, Any]) -> str:
 
 
 def migrate_historical_snapshot_identity() -> Dict[str, Any]:
-    """Recover snapshot_id from payload identity. Never copy lineage_id. Never rewrite payload."""
+    """RESEARCH / DATA MIGRATION ONLY.
+
+    Recover snapshot_id from existing historical facts. Never copy lineage_id.
+    Never rewrite payload or historical prices. Production init must not call this.
+    """
     ensure_production_schema()
     columns = _table_columns("canonical_historical_snapshots")
     if "snapshot_id" not in columns:
@@ -864,12 +1078,30 @@ def migrate_historical_snapshot_identity() -> Dict[str, Any]:
             recovered += 1
     if conflicts:
         raise ValueError("SNAPSHOT_IDENTITY_CONFLICT")
-    _ensure_snapshot_primary_key("canonical_historical_snapshots")
+    try:
+        _ensure_snapshot_primary_key("canonical_historical_snapshots")
+        _record_schema_migration(
+            migration_id=HISTORICAL_SNAPSHOT_MIGRATION_ID,
+            from_version=_schema_version(),
+            to_version=_schema_version() or SCHEMA_VERSION,
+            checksum=_migration_checksum((
+                "historical-snapshot-identity",
+                "never-copy-lineage-id",
+                "never-rewrite-payload",
+            )),
+            migration_type=MIGRATION_TYPE_HISTORICAL,
+            update_schema_version=False,
+        )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("MIGRATION_FAILED") from exc
     return {
         "recovered": recovered,
         "unresolved": unresolved,
         "conflicts": conflicts,
         "primary_key": _constraint_columns("canonical_historical_snapshots", "PRIMARY KEY"),
+        "migration_type": MIGRATION_TYPE_HISTORICAL,
     }
 
 
@@ -943,45 +1175,43 @@ def verify_persisted_snapshot(
 
 
 def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]:
-    """Load DB-verified canonical snapshots for one T-day."""
+    """Load DB-verified canonical snapshots for one T-day. Ambiguity is fail-closed."""
     ensure_production_schema()
-    try:
-        from xiaogu_forward_snapshot import select_unique_canonical_snapshots, validate_and_build_canonical_snapshot
-        with engine.connect() as db:
-            rows = [
-                dict(row)
-                for row in db.execute(
-                    text(
-                        """
-                        SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time, symbol
-                        FROM snapshots
-                        WHERE trade_date = CAST(:trade_date AS date)
-                        ORDER BY source_time DESC NULLS LAST, created_at DESC
-                        """
-                    ),
-                    {"trade_date": trade_date},
-                ).mappings()
-            ]
-        snapshots = []
-        for row in rows:
-            payload = row.get("payload")
-            if isinstance(payload, str):
-                payload = json.loads(payload)
-            if not isinstance(payload, dict):
-                continue
-            payload.setdefault("lineage_id", row.get("lineage_id"))
-            payload.setdefault("trade_date", str(row.get("trade_date") or trade_date))
-            payload.setdefault("snapshot_id", row.get("snapshot_id") or payload.get("snapshot_id"))
-            payload.setdefault("source", row.get("source") or payload.get("source"))
-            payload.setdefault("source_time", row.get("source_time") or payload.get("source_time"))
-            payload.setdefault("symbol", row.get("symbol") or payload.get("symbol"))
-            try:
-                snapshots.append(validate_and_build_canonical_snapshot(payload, target_trade_date=trade_date))
-            except (TypeError, ValueError):
-                continue
-        return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
-    except SQLAlchemyError:
+    from xiaogu_forward_snapshot import select_unique_canonical_snapshots, validate_and_build_canonical_snapshot
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    """
+                    SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time, symbol
+                    FROM snapshots
+                    WHERE trade_date = CAST(:trade_date AS date)
+                    """
+                ),
+                {"trade_date": trade_date},
+            ).mappings()
+        ]
+    snapshots = []
+    for row in rows:
+        payload = row.get("payload")
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            continue
+        payload.setdefault("lineage_id", row.get("lineage_id"))
+        payload.setdefault("trade_date", str(row.get("trade_date") or trade_date))
+        payload.setdefault("snapshot_id", row.get("snapshot_id") or payload.get("snapshot_id"))
+        payload.setdefault("source", row.get("source") or payload.get("source"))
+        payload.setdefault("source_time", row.get("source_time") or payload.get("source_time"))
+        payload.setdefault("symbol", row.get("symbol") or payload.get("symbol"))
+        try:
+            snapshots.append(validate_and_build_canonical_snapshot(payload, target_trade_date=trade_date))
+        except (TypeError, ValueError):
+            continue
+    if not snapshots:
         return []
+    return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
 
 
 def record_snapshot(snapshot: Dict[str, Any]) -> None:

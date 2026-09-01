@@ -1051,6 +1051,7 @@ def test_authoritative_calendar_records_include_provenance():
 
 
 def _annual_calendar_fixture(year: int) -> dict:
+    """TEST_FIXTURE_ONLY synthetic calendar. Not the official ASHARE dataset."""
     return {
         "source": f"official_{year}",
         "source_timestamp": f"{year - 1}-12-22T00:00:00+08:00",

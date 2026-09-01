@@ -285,9 +285,16 @@ def main() -> None:
         rows = payload.get("canonical_snapshots") or [payload]
     elif mode == "PRODUCTION":
         from xiaogu_db import fetch_persisted_canonical_snapshots
-        rows = fetch_persisted_canonical_snapshots(args.date)
+        try:
+            rows = fetch_persisted_canonical_snapshots(args.date)
+        except ValueError as exc:
+            reason = str(exc)
+            if "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason:
+                raise
+            print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+            return
         if not rows:
-            print(json.dumps(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"), ensure_ascii=False, default=str))
+            print(json.dumps(_empty_observation_output(args.date, "CANONICAL_SNAPSHOT_NOT_FOUND"), ensure_ascii=False, default=str))
             return
     else:
         payload = load_latest_snapshot_bundle(args.date)
@@ -302,18 +309,34 @@ def main() -> None:
             trusted.append(validate_and_build_canonical_snapshot(row, target_trade_date=args.date))
         except (TypeError, ValueError):
             continue
-    canonical_rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
+    try:
+        canonical_rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
+    except ValueError as exc:
+        reason = str(exc)
+        if "CANONICAL_SNAPSHOT_AMBIGUOUS" in reason and mode != "PRODUCTION":
+            reason = "RESEARCH_AMBIGUOUS"
+        elif "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason:
+            raise
+        print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+        return
     canonical_count = len(canonical_rows)
     if canonical_count == 0:
         print(json.dumps(
-            _empty_observation_output(args.date, "CANONICAL_SNAPSHOT_UNAVAILABLE"),
+            _empty_observation_output(args.date, "CANONICAL_SNAPSHOT_NOT_FOUND"),
             ensure_ascii=False,
             default=str,
         ))
         return
     if args.symbol:
-        selected = select_canonical_snapshot(canonical_rows, symbol=args.symbol, trade_date=args.date)
-        canonical_rows = [selected] if selected is not None else []
+        try:
+            selected = select_canonical_snapshot(canonical_rows, symbol=args.symbol, trade_date=args.date)
+        except ValueError as exc:
+            reason = str(exc)
+            if "CANONICAL_SNAPSHOT_AMBIGUOUS" in reason and mode != "PRODUCTION":
+                reason = "RESEARCH_AMBIGUOUS"
+            print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+            return
+        canonical_rows = [selected]
     eligible_rows, universe = candidate_universe(canonical_rows)
     routed_rows = [
         row for row in eligible_rows

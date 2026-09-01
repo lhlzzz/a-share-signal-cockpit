@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     payload_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_lineage_symbol ON snapshots (lineage_id, symbol);
 CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
 CREATE INDEX IF NOT EXISTS idx_snapshots_date_symbol ON snapshots (trade_date, symbol);
@@ -25,10 +26,10 @@ CREATE TABLE IF NOT EXISTS picks (
     symbol TEXT NOT NULL,
     state TEXT NOT NULL,
     position_state TEXT,
+    decision_id TEXT UNIQUE,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS paper_observations (
     paper_signal_id TEXT PRIMARY KEY,
@@ -107,7 +108,8 @@ CREATE TABLE IF NOT EXISTS xiaogu_schema_migrations (
     from_version TEXT,
     to_version TEXT NOT NULL,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    checksum TEXT NOT NULL
+    checksum TEXT NOT NULL,
+    migration_type TEXT NOT NULL DEFAULT 'PRODUCTION_SCHEMA_MIGRATION'
 );
 CREATE TABLE IF NOT EXISTS returns (
     id BIGSERIAL PRIMARY KEY,
@@ -117,8 +119,12 @@ CREATE TABLE IF NOT EXISTS returns (
     calendar_version TEXT,
     calendar_content_hash TEXT,
     payload JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (decision_id) REFERENCES picks (decision_id)
 );
+CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date
+    ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS ledger (
     id BIGSERIAL PRIMARY KEY,
     payload JSONB NOT NULL,
@@ -179,19 +185,3 @@ CREATE TABLE IF NOT EXISTS canonical_future_prices (
 );
 CREATE INDEX IF NOT EXISTS idx_canonical_future_prices_date
     ON canonical_future_prices(date, symbol);
-
-ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT;
-ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT;
-ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT;
-ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS symbol TEXT;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS decision_id TEXT;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS state TEXT;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS position_state TEXT;
-ALTER TABLE picks ADD COLUMN IF NOT EXISTS payload JSONB;
-ALTER TABLE returns ADD COLUMN IF NOT EXISTS decision_id TEXT;
-ALTER TABLE returns ADD COLUMN IF NOT EXISTS payload JSONB;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_decision_id ON picks (decision_id) WHERE decision_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_returns_decision_id ON returns (decision_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_decision_date ON returns (decision_id, trade_date) WHERE decision_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_snapshots_trade_date ON snapshots (trade_date);
-CREATE INDEX IF NOT EXISTS idx_snapshots_lineage_id ON snapshots (lineage_id);

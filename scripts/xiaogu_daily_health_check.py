@@ -177,10 +177,11 @@ def check_production_schema_audit():
         and audit["tables"]["returns"]["columns"]["calendar_content_hash"] == "EXISTS"
         and audit["tables"]["paper_observations"]["columns"]["paper_signal_id"] == "EXISTS"
         and audit["tables"]["paper_observations"]["columns"]["paper_observation_state"] == "EXISTS"
-        and snapshots["unique"]["snapshot_id"] == "EXISTS"
+        and snapshots["unique"][("snapshot_id",)] == "EXISTS"
+        and snapshots["unique"][("lineage_id", "symbol")] == "EXISTS"
         and snapshots["primary_key"]["status"] == "EXISTS"
         and historical["columns"]["snapshot_id"] == "EXISTS"
-        and historical["unique"]["snapshot_id"] == "EXISTS"
+        and historical["unique"][("snapshot_id",)] == "EXISTS"
         and historical["primary_key"]["status"] == "EXISTS"
         and ("decision_id", "trade_date") in audit["tables"]["returns"]["unique_constraints"]
         and audit.get("schema_version_status") == "EXISTS"
@@ -196,11 +197,23 @@ def check_production_schema_audit():
         and calendar["indexes"]["idx_trading_calendar_open_days"] == "EXISTS"
         and paper_only_check == "CHECK paper_only"
         and live_order_check == "CHECK NOT live_order"
+        and audit.get("audit") == "PASS"
+        and audit.get("ok") is True
+    )
+    from inspect import getsource
+    import xiaogu_db as db_mod
+    production_init = getsource(db_mod.init_db)
+    required = (
+        required
+        and "migrate_historical_snapshot_identity()" not in production_init
+        and "ORDER BY source_time DESC" not in getsource(db_mod.fetch_persisted_canonical_snapshots)
     )
     return required, json.dumps(
         {
             "schema_version": audit.get("schema_version"),
             "schema_ok": audit.get("ok"),
+            "schema_audit": audit.get("audit"),
+            "last_migration": audit.get("last_migration"),
             "composite_unique": audit["tables"]["returns"]["unique_constraints"],
             "status": "PASS" if required else "FAIL",
         },
