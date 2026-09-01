@@ -295,7 +295,7 @@ def check_position_review_contract():
 
     review = getsource(runner.daily_position_review)
     resolver = getsource(db.get_current_position_review_snapshot)
-    ok = (
+    static_ok = (
         "get_current_position_review_snapshot" in review
         and "original_snapshot_id" in review
         and "review_snapshot_id" in review
@@ -304,40 +304,137 @@ def check_position_review_contract():
         and "ORDER BY source_time DESC" not in resolver
         and "CURRENT_REVIEW_SNAPSHOT_NOT_FOUND" in resolver
         and "CURRENT_REVIEW_SNAPSHOT_AMBIGUOUS" in resolver
+        and "fetch_decision_snapshot(prior_id)" not in review
     )
-    return ok, "ok" if ok else "position review still uses original snapshot or latest-wins"
+    return static_ok, "ok" if static_ok else "position review still uses original snapshot or latest-wins"
+
+
+def check_paper_position_review_contract():
+    from inspect import getsource
+    import xiaogu_forward_runner as runner
+    from xiaogu_forward_features import _evidence, validate_evidence_identity
+
+    paper = getsource(runner.daily_paper_position_review)
+    static_ok = (
+        "get_current_position_review_snapshot" in paper
+        and 'mode="PRODUCTION"' in paper
+        and 'mode="REPLAY"' not in paper
+        and "original_snapshot_id" in paper
+        and "review_snapshot_id" in paper
+        and "review_trade_date" in paper
+        and "paper_signal_id" in paper
+        and "PAPER_POSITION_REVIEW_BLOCKED" in paper
+        and "fetch_decision_snapshot(prior_id)" not in paper
+    )
+    missing = _evidence(
+        observed=True, source="x", available_at="2026-08-26T14:50:00+08:00",
+        evidence_family="DIRECT_INSTITUTION", source_id="x", event_id="", mechanism="",
+    )
+    behavior_ok = missing["evidence_identity"] is None and validate_evidence_identity(missing) is None
+    ok = static_ok and behavior_ok
+    return ok, "ok" if ok else "paper position review contract mismatch"
 
 
 def check_production_clock_contract():
+    from datetime import datetime, timedelta, timezone
     from inspect import getsource
     import xiaogu_forward_runner as runner
     import xiaogu_forward_snapshot as snap
 
-    ok = (
+    static_ok = (
         "datetime.now(timezone.utc)" in getsource(snap.production_now)
         and "production_now()" in getsource(snap.production_decision_clock)
         and "production_decision_clock(decision_clock)" in getsource(runner.run_production_decision)
         and "decision_clock=_parse_clock" not in getsource(runner.daily_position_review)
+        and 'mode="REPLAY"' not in getsource(runner.daily_paper_position_review)
     )
+    source_time = datetime.fromisoformat("2026-08-26T10:00:00+08:00")
+    clock = snap.production_now()
+    age = snap.snapshot_age(source_time, clock)
+    behavior_ok = age is not None and age > timedelta(minutes=120) and clock != source_time.astimezone(timezone.utc)
+    ok = static_ok and behavior_ok
     return ok, "ok" if ok else "production clock contract mismatch"
 
 
 def check_negative_evidence_contract():
+    from datetime import datetime
     from inspect import getsource
     from xiaogu_portfolio_decision import (
+        build_confirmed_negative_blocker,
         collect_production_negative_evidence,
         evaluate_candidate_bundle,
         evaluate_production_gates,
     )
 
-    ok = (
+    static_ok = (
         "collect_production_negative_evidence" in getsource(evaluate_production_gates)
-        and "CONFIRMED_DISTRIBUTION" in getsource(collect_production_negative_evidence)
+        and "build_confirmed_negative_blocker" in getsource(collect_production_negative_evidence)
         and "UNKNOWN" in getsource(collect_production_negative_evidence)
         and "RESEARCH_ONLY_DECISION_BLOCKERS" not in getsource(evaluate_candidate_bundle)
         and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
     )
-    return ok, "ok" if ok else "negative evidence is still filtered out"
+    as_of = datetime.fromisoformat("2026-08-26T15:00:00+08:00")
+    future_item = {
+        "source_id": "lhb", "event_id": "future-1", "mechanism": "lhb_event",
+        "evidence_identity": ("lhb", "future-1", "lhb_event"), "observed": True,
+        "direction": "SELL", "observed_at": "2026-08-27T10:00:00+08:00",
+        "available_at": "2026-08-27T10:00:00+08:00", "event_time": "2026-08-27T10:00:00+08:00",
+        "pit_status": "OK", "confirmation_status": "CONFIRMED",
+    }
+    unknown_item = {
+        "source_id": "lhb", "event_id": "unk-1", "mechanism": "lhb_event",
+        "evidence_identity": ("lhb", "unk-1", "lhb_event"), "observed": False,
+        "direction": "SELL", "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00", "event_time": "2026-08-26T14:45:00+08:00",
+        "pit_status": "OK", "confirmation_status": "UNKNOWN",
+    }
+    confirmed_item = {
+        "source_id": "lhb", "event_id": "conf-1", "mechanism": "lhb_event",
+        "evidence_identity": ("lhb", "conf-1", "lhb_event"), "observed": True,
+        "direction": "SELL", "observed_at": "2026-08-26T14:45:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00", "event_time": "2026-08-26T14:45:00+08:00",
+        "as_of": as_of.isoformat(), "pit_status": "OK", "confirmation_status": "CONFIRMED",
+    }
+    future_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [future_item]}}}, {}, as_of=as_of)
+    unknown_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [unknown_item]}}}, {}, as_of=as_of)
+    confirmed_records = collect_production_negative_evidence({}, {"CAPITAL": {"institution_behavior": {"evidence": [confirmed_item]}}}, {}, as_of=as_of)
+    behavior_ok = (
+        future_records == []
+        and unknown_records == []
+        and any(item["blocker"] == "CONFIRMED_DISTRIBUTION" for item in confirmed_records)
+        and build_confirmed_negative_blocker("REPRICING_COMPLETED", confirmed_item, as_of=as_of) is None
+    )
+    ok = static_ok and behavior_ok
+    return ok, "ok" if ok else "negative evidence is still filtered out or unbound"
+
+
+def check_evidence_identity_contract():
+    from xiaogu_forward_features import _evidence, validate_evidence_identity
+
+    missing_event = _evidence(
+        observed=True, source="x", available_at="2026-08-26T14:50:00+08:00",
+        evidence_family="DIRECT_INSTITUTION", source_id="x", event_id="", mechanism="lhb_event",
+    )
+    missing_mechanism = _evidence(
+        observed=True, source="x", available_at="2026-08-26T14:50:00+08:00",
+        evidence_family="DIRECT_INSTITUTION", source_id="x", event_id="evt", mechanism="",
+    )
+    complete = _evidence(
+        observed=True, source="lhb", available_at="2026-08-26T14:50:00+08:00",
+        evidence_family="DIRECT_INSTITUTION", source_id="lhb", event_id="evt-1", mechanism="lhb_event",
+        observed_at="2026-08-26T14:45:00+08:00",
+    )
+    ok = (
+        missing_event["evidence_identity"] is None
+        and missing_mechanism["evidence_identity"] is None
+        and missing_event["event_id"] == ""
+        and missing_mechanism["mechanism"] == ""
+        and validate_evidence_identity(missing_event) is None
+        and complete["evidence_identity"] == ("lhb", "evt-1", "lhb_event")
+        and validate_evidence_identity({"source_id": "lhb", "event_id": "evt-1", "mechanism": "lhb_event", "evidence_identity": ("lhb", "evt-1", "lhb_event")}) == ("lhb", "evt-1", "lhb_event")
+        and validate_evidence_identity({"source_id": "lhb", "event_id": "evt-1", "mechanism": "lhb_event", "evidence_identity": ("lhb", "evt-1", "other")}) is None
+    )
+    return ok, "ok" if ok else "evidence identity still fabricates fallbacks"
 
 
 def check_gate_contract():
@@ -352,25 +449,55 @@ def check_gate_contract():
         and "evaluate_production_gates(" in getsource(evaluate_candidate_bundle)
         and "oos_pass" not in getsource(evaluate_candidate_bundle)
         and "def evaluate_production_gates" in getsource(evaluate_production_gates)
+        and "NEGATIVE_EVIDENCE_CLEAR" in getsource(evaluate_production_gates)
     )
     return ok, "ok" if ok else "gate owner contract mismatch"
 
 
 def check_capital_identity_contract():
-    from inspect import getsource
-    import xiaogu_core_alpha as alpha
-    import xiaogu_forward_features as features
+    from xiaogu_core_alpha import _capital_convergence
 
-    conv = getsource(alpha._capital_convergence)
-    evidence = getsource(features._evidence)
+    shared = {
+        "source_id": "lhb", "event_id": "same-event", "mechanism": "lhb_event",
+        "evidence_identity": ("lhb", "same-event", "lhb_event"),
+        "observed": True, "evidence_family": "DIRECT_INSTITUTION",
+        "available_at": "2026-08-26T14:50:00+08:00",
+    }
+    institution = {**shared, "evidence_family": "DIRECT_INSTITUTION"}
+    hot_money = {**shared, "evidence_family": "DIRECT_HOT_MONEY"}
+    capital = {
+        "institution_behavior": {"evidence_status": "OBSERVED", "strength": 0.8, "direction": "BUYING", "evidence": [institution], "confidence": 0.8},
+        "main_force_behavior": {},
+        "hot_money_behavior": {"evidence_status": "OBSERVED", "strength": 0.8, "direction": "BUYING", "evidence": [hot_money], "confidence": 0.8},
+    }
+    # hot_money evidence family must start with DIRECT_
+    hot_money["evidence_family"] = "DIRECT_HOT_MONEY"
+    result = _capital_convergence(capital)
     ok = (
-        "evidence_identity" in evidence
-        and "independent_origin_count" in conv
-        and "confirmed_channel_count" in conv
-        and "directional_alignment" in conv
-        and "evidence_identity_count" in conv
+        result["independent_origin_count"] == 1
+        and result["evidence_identity_count"] == 1
+        and result["confirmed_channel_count"] >= 1
+        and "directional_alignment" in result
     )
-    return ok, "ok" if ok else "capital identity contract mismatch"
+    return ok, "ok" if ok else "capital identity still splits one LHB event"
+
+
+def check_position_identity_contract():
+    from inspect import getsource
+    import xiaogu_db as db
+
+    open_src = getsource(db.fetch_open_positions)
+    state_src = getsource(db.fetch_position_state)
+    by_id_src = getsource(db.fetch_position_by_decision_id)
+    ok = (
+        "DISTINCT ON" not in open_src
+        and "ORDER BY id DESC" not in state_src
+        and "LIMIT 1" not in state_src
+        and "decision_id" in open_src
+        and "def fetch_position_by_decision_id" in by_id_src
+        and "Not the position identity owner" in state_src
+    )
+    return ok, "ok" if ok else "position identity still depends on latest symbol row"
 
 
 CHECKS = [
@@ -389,10 +516,13 @@ CHECKS = [
     ("snapshot_identity_lock", check_snapshot_identity_lock),
     ("calendar_truth", check_calendar_truth),
     ("position_review_contract", check_position_review_contract),
+    ("paper_position_review_contract", check_paper_position_review_contract),
     ("production_clock_contract", check_production_clock_contract),
     ("negative_evidence_contract", check_negative_evidence_contract),
-    ("gate_contract", check_gate_contract),
+    ("evidence_identity_contract", check_evidence_identity_contract),
     ("capital_identity_contract", check_capital_identity_contract),
+    ("position_identity_contract", check_position_identity_contract),
+    ("gate_contract", check_gate_contract),
 ]
 
 

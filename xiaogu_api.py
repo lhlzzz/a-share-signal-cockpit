@@ -81,6 +81,10 @@ def _paper_views() -> List[Dict[str, Any]]:
             "paper_signal_id": key,
             "decision_id": record["decision_id"],
             "snapshot_id": record.get("snapshot_id"),
+            "original_snapshot_id": record.get("original_snapshot_id") or record.get("snapshot_id"),
+            "review_snapshot_id": record.get("review_snapshot_id"),
+            "review_trade_date": record.get("review_trade_date"),
+            "decision_clock": record.get("decision_clock"),
             "lineage_id": record.get("lineage_id"),
             "symbol": record.get("symbol"),
             "signal_time": record.get("signal_time") or record.get("asof_time"),
@@ -195,9 +199,11 @@ def current_state() -> Dict[str, Any]:
     for row in fetch_open_positions():
         position = _payload(row)
         position.setdefault("decision", position.get("action") or position.get("state"))
+        position["decision_id"] = position.get("decision_id")
         position["original_snapshot_id"] = position.get("original_snapshot_id")
         position["review_snapshot_id"] = position.get("review_snapshot_id")
         position["review_trade_date"] = position.get("review_trade_date")
+        position["decision_clock"] = position.get("decision_clock")
         positions.append(_production_view(position))
     return {
         "market_state": "UNKNOWN",
@@ -212,9 +218,11 @@ def current_decision() -> Dict[str, Any]:
     if not records:
         return {"found": False}
     record = dict(records[0])
+    record["decision_id"] = record.get("decision_id")
     record["original_snapshot_id"] = record.get("original_snapshot_id")
     record["review_snapshot_id"] = record.get("review_snapshot_id")
     record["review_trade_date"] = record.get("review_trade_date")
+    record["decision_clock"] = record.get("decision_clock")
     return _production_view(record)
 
 
@@ -232,6 +240,7 @@ def trades() -> List[Dict[str, Any]]:
         "original_snapshot_id": record.get("original_snapshot_id"),
         "review_snapshot_id": record.get("review_snapshot_id"),
         "review_trade_date": record.get("review_trade_date"),
+        "decision_clock": record.get("decision_clock"),
         "decision": record.get("decision"),
         "signal_time": record.get("signal_time") or record.get("asof_time"),
         "entry_price": record.get("entry_price"),

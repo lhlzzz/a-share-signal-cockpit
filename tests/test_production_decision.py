@@ -161,7 +161,7 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
     assert decision["core_alpha"]["low_price"] is False
 
     one_event = evaluate_candidate_bundle(
-        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"}]},
+        ready | {"lhb": [{"EXPLAIN": "1家机构买入", "institution": True, "event_id": "lhb-one", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:45:00+08:00"}]},
         position_state="FLAT", as_of=AS_OF,
     )
     assert one_event["core_alpha"]["capital_convergence"]["status"] == "PARTIAL"
@@ -169,8 +169,8 @@ def test_capital_convergence_exposes_formal_levels_and_conflict():
 
     evidenced = ready | {
         "lhb": [
-            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
-            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+            {"EXPLAIN": "1家机构买入", "institution": True, "NET_BS_AMT": 100, "event_id": "lhb-conv-a", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:45:00+08:00"},
+            {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "NET_BS_AMT": 80, "event_id": "lhb-conv-b", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:46:00+08:00"},
         ],
     }
     evidenced_decision = evaluate_candidate_bundle(evidenced, position_state="FLAT", as_of=AS_OF)
@@ -232,7 +232,7 @@ def test_same_lhb_event_is_one_independent_origin():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "1家机构买入 游资", "institution": True, "hot_money": True, "游资": True, "NET_BS_AMT": 100, "event_id": "lhb-same-1", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:45:00+08:00"},
             ],
         },
         as_of=AS_OF,
@@ -254,8 +254,8 @@ def test_duplicate_evidence_family_does_not_inflate_independent_channels():
     decision = evaluate_candidate_bundle(
         _repricing_ready_snapshot() | {
             "lhb": [
-                {"EXPLAIN": "1家机构买入", "institution": True, "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
-                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00"},
+                {"EXPLAIN": "1家机构买入", "institution": True, "event_id": "lhb-a", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:45:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:45:00+08:00"},
+                {"EXPLAIN": "游资买入", "hot_money": True, "游资": True, "event_id": "lhb-b", "source_id": "lhb", "mechanism": "lhb_event", "event_time": "2026-08-26T14:46:00+08:00", "available_at": "2026-08-26T14:50:00+08:00", "observed_at": "2026-08-26T14:46:00+08:00"},
             ],
         },
         as_of=AS_OF,

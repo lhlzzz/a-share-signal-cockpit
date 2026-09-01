@@ -2135,9 +2135,38 @@ def _table_columns(table_name: str) -> set[str]:
         }
 
 
+def _position_payload(row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        payload = {}
+    action = str(row.get("state") or row.get("decision") or payload.get("action") or payload.get("state") or "")
+    position_state = str(row.get("position_state") or payload.get("position_state") or "")
+    decision_id = str(payload.get("decision_id") or row.get("decision_id") or "").strip()
+    return {
+        **payload,
+        "id": row.get("id"),
+        "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
+        "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
+        "state": action,
+        "action": payload.get("action") or action,
+        "previous_action": payload.get("action") or payload.get("previous_action"),
+        "position_state": position_state,
+        "decision": action,
+        "decision_id": decision_id,
+        "original_snapshot_id": payload.get("original_snapshot_id") or payload.get("snapshot_id"),
+        "snapshot_id": payload.get("snapshot_id") or row.get("snapshot_id"),
+    }
+
+
 def fetch_open_positions() -> List[Dict[str, Any]]:
-    """Latest DB decision per symbol that still has a LONG position."""
+    """Return every LONG position keyed by decision identity."""
     columns = _table_columns("picks")
+    if "position_state" not in columns:
+        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
+    if "decision_id" not in columns:
+        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
     if "state" in columns and "decision" in columns:
         select_state = "COALESCE(state, decision) AS state"
     elif "state" in columns:
@@ -2145,74 +2174,115 @@ def fetch_open_positions() -> List[Dict[str, Any]]:
     else:
         select_state = "decision AS state"
     select_payload = ", payload" if "payload" in columns else ""
-    select_decision_id = ", decision_id" if "decision_id" in columns else ""
-    select_position_state = ", position_state" if "position_state" in columns else ""
     with engine.connect() as db:
         rows = [
             dict(row)
             for row in db.execute(
                 text(
                     f"""
-                    SELECT DISTINCT ON (symbol) id, trade_date, symbol, {select_state}{select_payload}{select_decision_id}{select_position_state}
+                    SELECT id, trade_date, symbol, {select_state}{select_payload}, decision_id, position_state
                     FROM picks
-                    ORDER BY symbol, id DESC
+                    WHERE position_state = 'LONG'
+                      AND decision_id IS NOT NULL
+                      AND BTRIM(CAST(decision_id AS text)) <> ''
                     """
                 )
             ).mappings()
         ]
     positions = []
+    seen = set()
     for row in rows:
-        action = str(row.get("state") or row.get("decision") or "")
-        position_state = str(row.get("position_state") or "")
-        if position_state != "LONG":
+        position = _position_payload(row)
+        decision_id = position.get("decision_id")
+        if not decision_id or decision_id in seen:
             continue
-        payload = row.get("payload")
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        if not isinstance(payload, dict):
-            payload = {}
-        positions.append({
-            **payload,
-            "id": row.get("id"),
-            "trade_date": str(row.get("trade_date") or payload.get("trade_date") or ""),
-            "symbol": str(row.get("symbol") or payload.get("symbol") or ""),
-            "state": action,
-            "action": payload.get("action"),
-            "previous_action": payload.get("action"),
-            "position_state": position_state,
-            "decision": action,
-            "decision_id": payload.get("decision_id") or row.get("decision_id"),
-        })
+        if position.get("position_state") != "LONG":
+            continue
+        seen.add(decision_id)
+        positions.append(position)
     return positions
 
 
+def fetch_position_by_decision_id(decision_id: str) -> Dict[str, Any] | None:
+    """Load one position by decision identity. This is the position identity owner."""
+    wanted = str(decision_id or "").strip()
+    if not wanted:
+        return None
+    columns = _table_columns("picks")
+    if "position_state" not in columns:
+        raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
+    if "decision_id" not in columns:
+        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
+    if "state" in columns and "decision" in columns:
+        select_state = "COALESCE(state, decision) AS state"
+    elif "state" in columns:
+        select_state = "state"
+    else:
+        select_state = "decision AS state"
+    select_payload = ", payload" if "payload" in columns else ""
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    f"""
+                    SELECT id, trade_date, symbol, {select_state}{select_payload}, decision_id, position_state
+                    FROM picks
+                    WHERE decision_id = :decision_id
+                    """
+                ),
+                {"decision_id": wanted},
+            ).mappings()
+        ]
+    if not rows:
+        return None
+    if len(rows) > 1:
+        raise RuntimeError("POSITION_IDENTITY_AMBIGUOUS")
+    position = _position_payload(rows[0])
+    state = str(position.get("position_state") or "").upper()
+    if state not in {"FLAT", "LONG"}:
+        raise ValueError(f"INVALID_POSITION_STATE:{state}")
+    position["position_state"] = state
+    return position
+
+
 def fetch_position_state(symbol: str) -> str | None:
-    """Read the latest explicit PostgreSQL position state for one symbol."""
+    """Read-only derived symbol status. Not the position identity owner."""
     wanted = str(symbol or "").strip()
     if not wanted:
         return None
     columns = _table_columns("picks")
     if "position_state" not in columns:
         raise RuntimeError("POSITION_STATE_SCHEMA_MISSING")
+    if "decision_id" not in columns:
+        raise RuntimeError("DECISION_ID_SCHEMA_MISSING")
     with engine.connect() as db:
-        row = db.execute(
-            text(
-                """
-                SELECT position_state
-                FROM picks
-                WHERE symbol = :symbol
-                ORDER BY id DESC
-                LIMIT 1
-                """
-            ),
-            {"symbol": wanted},
-        ).mappings().first()
-    if not row or row.get("position_state") in (None, ""):
-        return None
-    state = str(row["position_state"]).upper()
-    if state not in {"FLAT", "LONG"}:
-        raise ValueError(f"INVALID_POSITION_STATE:{state}")
-    return state
+        rows = [
+            dict(row)
+            for row in db.execute(
+                text(
+                    """
+                    SELECT decision_id, position_state
+                    FROM picks
+                    WHERE symbol = :symbol
+                      AND position_state IN ('FLAT', 'LONG')
+                    """
+                ),
+                {"symbol": wanted},
+            ).mappings()
+        ]
+    long_ids = {
+        str(row.get("decision_id") or "").strip()
+        for row in rows
+        if str(row.get("position_state") or "").upper() == "LONG" and str(row.get("decision_id") or "").strip()
+    }
+    if len(long_ids) > 1:
+        raise RuntimeError("POSITION_STATE_AMBIGUOUS")
+    if len(long_ids) == 1:
+        return "LONG"
+    if any(str(row.get("position_state") or "").upper() == "FLAT" for row in rows):
+        return "FLAT"
+    return None
 
 
 def _calendar_date(value: Any) -> date:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from xiaogu_forward_features import FEATURE_GROUPS
+from xiaogu_forward_features import FEATURE_GROUPS, validate_evidence_identity
 
 MODEL_ID = "profit_window_alpha_5d_v4"
 MODEL_VERSION = "v4"
@@ -126,18 +126,13 @@ def _capital_convergence(capital: Dict[str, Any]) -> Dict[str, Any]:
     grouping_origins = set()
     independent_mechanisms = set()
     for item in evidence_items:
-        source_id = str(item.get("source_id") or item.get("source") or "").strip()
-        event_id = str(item.get("event_id") or "").strip()
-        mechanism = str(item.get("mechanism") or "").strip()
-        identity = item.get("evidence_identity")
-        if isinstance(identity, (list, tuple)) and len(identity) == 3:
-            source_id, event_id, mechanism = [str(part or "").strip() for part in identity]
-        if source_id and event_id and mechanism:
-            evidence_identities.add((source_id, event_id, mechanism))
-        if item.get("economic_origin_id"):
-            grouping_origins.add(str(item.get("economic_origin_id")))
-        if mechanism:
-            independent_mechanisms.add(mechanism)
+        identity = validate_evidence_identity(item)
+        if identity is not None:
+            evidence_identities.add(identity)
+            independent_mechanisms.add(identity[2])
+        origin = str(item.get("economic_origin_id") or "").strip()
+        if origin:
+            grouping_origins.add(origin)
     independent_origin_count = len(evidence_identities)
     independent_channel_count = independent_origin_count
     independent_origins = grouping_origins

@@ -228,7 +228,9 @@ def write_daily_paper_memory(
         paper = signal.get("paper_observation") if isinstance(signal.get("paper_observation"), dict) else signal
         rows.append(
             f"- `{paper.get('paper_signal_id')}` decision=`{paper.get('decision_id')}` "
-            f"`{signal.get('symbol')}` reference={paper.get('reference_price')} "
+            f"`{signal.get('symbol')}` original_snapshot=`{paper.get('original_snapshot_id') or paper.get('snapshot_id')}` "
+            f"review_snapshot=`{paper.get('review_snapshot_id')}` "
+            f"reference={paper.get('reference_price')} "
             f"price_strength={paper.get('price_strength')} "
             f"state={paper.get('paper_observation_state') or 'OBSERVED'} "
             f"reason={paper.get('signal_reason') or 'CURRENT_PRODUCTION_DECISION'}"

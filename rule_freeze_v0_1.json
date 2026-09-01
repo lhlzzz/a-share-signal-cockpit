@@ -199,5 +199,16 @@
     "source_id",
     "event_id",
     "mechanism"
-  ]
+  ],
+  "architecture_freeze": {
+    "POSITION_REVIEW_CONTRACT": "FROZEN",
+    "PAPER_REVIEW_CONTRACT": "FROZEN",
+    "PRODUCTION_CLOCK": "FROZEN",
+    "EVIDENCE_IDENTITY": "FROZEN",
+    "NEGATIVE_EVIDENCE": "FROZEN",
+    "POSITION_IDENTITY": "FROZEN",
+    "PRODUCTION_GATES": "FROZEN",
+    "status": "ARCHITECTURE FROZEN",
+    "paper_observation": "ACTIVE"
+  }
 }

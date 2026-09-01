@@ -163,10 +163,10 @@ def pit_record_audit(record: Any, as_of: str | datetime | None) -> Dict[str, Any
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         if parsed > as_of_ts:
-            audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TIMESTAMP")
+            audit.update(pit_status="EXCLUDED_FROM_PRODUCTION", exclusion_reason="FUTURE_TIMESTAMP")
             return audit
     if source_ts > as_of_ts or available_ts > as_of_ts:
-        audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="FUTURE_TIMESTAMP")
+        audit.update(pit_status="EXCLUDED_FROM_PRODUCTION", exclusion_reason="FUTURE_TIMESTAMP")
     elif available_ts < source_ts:
         audit.update(pit_status="EXCLUDED_FROM_FEATURES", exclusion_reason="AVAILABILITY_BEFORE_EVENT")
     trade_date_value = record.get("trade_date")
@@ -205,11 +205,12 @@ def filter_point_in_time_records(
     kept: list[Dict[str, Any]] = []
     excluded: list[Dict[str, Any]] = []
     for record in records or []:
-        if assert_point_in_time_evidence(record, as_of) is None:
+        enriched = assert_point_in_time_evidence(record, as_of)
+        if enriched is None:
             if isinstance(record, dict):
                 excluded.append(record)
             continue
-        kept.append(record)
+        kept.append(enriched)
     return kept, excluded
 
 

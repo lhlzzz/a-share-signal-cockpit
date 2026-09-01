@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable
 
@@ -26,10 +25,24 @@ DIRECT_EVIDENCE_FAMILIES = (
 )
 
 
-def _event_id(source_id: str, payload: Any, index: int = 0) -> str:
-    return hashlib.sha256(
-        json.dumps({"source": source_id, "payload": payload, "index": index}, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:16]
+def validate_evidence_identity(item: Any) -> tuple[str, str, str] | None:
+    """Accept only a real (source_id, event_id, mechanism) triple that matches the fields."""
+    if not isinstance(item, dict):
+        return None
+    source_id = str(item.get("source_id") or "").strip()
+    event_id = str(item.get("event_id") or "").strip()
+    mechanism = str(item.get("mechanism") or "").strip()
+    if not (source_id and event_id and mechanism):
+        return None
+    identity = item.get("evidence_identity")
+    if identity is None:
+        return source_id, event_id, mechanism
+    if not isinstance(identity, (list, tuple)) or len(identity) != 3:
+        return None
+    parts = tuple(str(part or "").strip() for part in identity)
+    if parts != (source_id, event_id, mechanism):
+        return None
+    return parts
 
 
 def _evidence(
@@ -46,16 +59,47 @@ def _evidence(
     interpretation: str = "",
     **extra: Any,
 ) -> Dict[str, Any]:
-    source_id = str(source_id or source or "")
-    event_id = str(event_id or source_id)
-    mechanism = str(mechanism or evidence_family)
-    economic_origin_id = str(extra.pop("economic_origin_id", "") or event_id)
-    observed_at = str(observed_at or available_at or "")
-    identity = (source_id, event_id, mechanism)
-    as_of = str(extra.pop("as_of", "") or available_at or observed_at or "")
+    source_id = str(source_id or "").strip()
+    event_id = str(event_id or "").strip()
+    mechanism = str(mechanism or "").strip()
+    economic_origin_id = str(extra.pop("economic_origin_id", "") or "").strip() or None
+    observed_at = str(observed_at or "").strip()
+    available_at = str(available_at or "").strip()
+    as_of = str(extra.pop("as_of", "") or "").strip()
     direction = extra.pop("direction", "")
     strength = extra.pop("strength", None)
     confidence = extra.pop("confidence", None)
+    extra.pop("evidence_identity", None)
+    extra.pop("evidence_id", None)
+    identity = (source_id, event_id, mechanism) if source_id and event_id and mechanism else None
+    pit_status = extra.pop("pit_status", None)
+    time_basis = extra.pop("time_basis", None)
+    source_time = extra.pop("source_time", None)
+    exclusion_reason = extra.pop("exclusion_reason", None)
+    primary_event_field = extra.pop("primary_event_field", None)
+    availability_field = extra.pop("availability_field", None)
+    if as_of:
+        audit = pit_record_audit(
+            {
+                "source_id": source_id or source,
+                "event_time": extra.get("event_time"),
+                "publication_time": extra.get("publication_time"),
+                "observed_at": observed_at,
+                "available_at": available_at,
+                "trade_date": extra.get("trade_date"),
+            },
+            as_of,
+        )
+        pit_status = audit.get("pit_status")
+        time_basis = time_basis or audit.get("time_basis")
+        source_time = source_time if source_time not in (None, "") else audit.get("source_time")
+        exclusion_reason = exclusion_reason if exclusion_reason not in (None, "") else audit.get("exclusion_reason")
+        primary_event_field = primary_event_field or audit.get("primary_event_field")
+        availability_field = availability_field or audit.get("availability_field")
+    elif str(pit_status or "").strip():
+        pit_status = str(pit_status).upper()
+    else:
+        pit_status = "UNKNOWN"
     return {
         "observed": bool(observed),
         "source": source,
@@ -64,7 +108,7 @@ def _evidence(
         "economic_origin_id": economic_origin_id,
         "mechanism": mechanism,
         "evidence_identity": identity,
-        "evidence_id": hashlib.sha256("|".join(identity).encode("utf-8")).hexdigest()[:16],
+        "evidence_id": hashlib.sha256("|".join(identity).encode("utf-8")).hexdigest()[:16] if identity else None,
         "evidence_family": evidence_family,
         "observed_at": observed_at,
         "available_at": available_at,
@@ -72,10 +116,12 @@ def _evidence(
         "direction": direction,
         "strength": strength,
         "confidence": confidence,
-        "pit_status": "OK" if available_at else "UNKNOWN",
-        "time_basis": "observed_at/available_at" if observed_at or available_at else "UNKNOWN",
-        "source_time": observed_at or None,
-        "exclusion_reason": None,
+        "pit_status": pit_status,
+        "time_basis": time_basis or ("UNKNOWN" if not (observed_at or available_at) else "observed_at/available_at"),
+        "source_time": source_time if source_time not in (None, "") else (observed_at or None),
+        "primary_event_field": primary_event_field,
+        "availability_field": availability_field,
+        "exclusion_reason": exclusion_reason,
         "lineage_id": lineage_id,
         "interpretation": interpretation,
         **extra,
@@ -683,97 +729,134 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     lineage_id = str(snap.get("lineage_id") or "")
     institution_rows = [row for row in lhb_rows if _institution_row(row)]
     hot_money_rows = [row for row in lhb_rows if _hot_money_row(row)]
+    def _payload_identity(payload: Any, default_source: str) -> tuple[str, str, str]:
+        if not isinstance(payload, dict):
+            return "", "", ""
+        return (
+            str(payload.get("source_id") or "").strip(),
+            str(payload.get("event_id") or "").strip(),
+            str(payload.get("mechanism") or "").strip(),
+        )
+
     institution_direct = []
     hot_money_direct = []
-    for index, row in enumerate(lhb_rows):
-        event_id = _event_id("lhb", row, index)
-        record_available_at = _record_available_at(row, available_at)
+    for row in lhb_rows:
+        source_id = str(row.get("source_id") or "").strip()
+        event_id = str(row.get("event_id") or "").strip()
+        mechanism = str(row.get("mechanism") or "").strip()
+        record_available_at = str(row.get("available_at") or "").strip()
+        observed_at = str(row.get("observed_at") or row.get("event_time") or "").strip()
+        pit = row.get("pit_audit") if isinstance(row.get("pit_audit"), dict) else {}
+        origin = str(row.get("economic_origin_id") or "").strip() or None
         if _institution_row(row):
-            pit = row.get("pit_audit") if isinstance(row.get("pit_audit"), dict) else {}
             institution_direct.append(_evidence(
                 observed=True, source="lhb", available_at=record_available_at,
                 evidence_family="DIRECT_INSTITUTION", detail="lhb_institution",
-                source_id="lhb", event_id=event_id, mechanism="lhb_event",
-                observed_at=record_available_at, lineage_id=lineage_id,
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
+                observed_at=observed_at, lineage_id=lineage_id,
                 interpretation="INSTITUTION",
+                as_of=str(as_of or ""),
+                economic_origin_id=origin,
+                event_time=row.get("event_time"),
                 pit_status=pit.get("pit_status"), time_basis=pit.get("time_basis"),
                 source_time=pit.get("source_time"), exclusion_reason=pit.get("exclusion_reason"),
+                primary_event_field=pit.get("primary_event_field"),
+                availability_field=pit.get("availability_field"),
             ))
         if _hot_money_row(row):
-            pit = row.get("pit_audit") if isinstance(row.get("pit_audit"), dict) else {}
             hot_money_direct.append(_evidence(
                 observed=True, source="lhb", available_at=record_available_at,
                 evidence_family="DIRECT_HOT_MONEY", detail="lhb_hot_money",
-                source_id="lhb", event_id=event_id, mechanism="lhb_event",
-                observed_at=record_available_at, lineage_id=lineage_id,
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
+                observed_at=observed_at, lineage_id=lineage_id,
                 interpretation="HOT_MONEY",
+                as_of=str(as_of or ""),
+                economic_origin_id=origin,
+                event_time=row.get("event_time"),
                 pit_status=pit.get("pit_status"), time_basis=pit.get("time_basis"),
                 source_time=pit.get("source_time"), exclusion_reason=pit.get("exclusion_reason"),
+                primary_event_field=pit.get("primary_event_field"),
+                availability_field=pit.get("availability_field"),
             ))
     for key in ("institution_position_change", "institution_holding_change", "institution_flow_evidence", "institution_trade_evidence"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
+            source_id, event_id, mechanism = _payload_identity(raw.get(key), key)
             institution_direct.append(_evidence(
                 observed=True, source=key, available_at=available_at,
                 evidence_family="DIRECT_INSTITUTION", detail=key,
-                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="institution_identity",
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
                 observed_at=available_at, lineage_id=lineage_id, interpretation="INSTITUTION",
+                as_of=str(as_of or ""),
             ))
     for key in ("hot_money_evidence", "hot_money_trade_evidence"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
+            source_id, event_id, mechanism = _payload_identity(raw.get(key), key)
             hot_money_direct.append(_evidence(
                 observed=True, source=key, available_at=available_at,
                 evidence_family="DIRECT_HOT_MONEY", detail=key,
-                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="hot_money_identity",
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
                 observed_at=available_at, lineage_id=lineage_id, interpretation="HOT_MONEY",
+                as_of=str(as_of or ""),
             ))
     capital_flow_observation = []
     if amount is not None and amount > 0 and main_flow is not None:
+        flow_payload = flow if isinstance(flow, dict) else {}
+        source_id, event_id, mechanism = _payload_identity(flow_payload, flow_source)
         capital_flow_observation.append(_evidence(
             observed=True, source=flow_source, available_at=flow_available_at,
             evidence_family="DIRECT_CAPITAL_FLOW", detail="main_net_inflow",
-            source_id=flow_source, event_id=_event_id(flow_source, {"main_net_inflow": main_flow}),
-            mechanism="capital_flow", observed_at=flow_available_at, lineage_id=lineage_id,
+            source_id=source_id, event_id=event_id, mechanism=mechanism,
+            observed_at=flow_available_at, lineage_id=lineage_id,
             interpretation="CAPITAL_FLOW_POSITIVE" if main_flow > 0 else "CAPITAL_FLOW_NEGATIVE",
+            as_of=str(as_of or ""),
         ))
     main_force_direct = []
     for key in ("main_force_identity", "direct_main_force", "large_order_structure", "main_force_seat", "主力席位"):
         if raw.get(key) not in (None, "", False, 0, 0.0):
+            source_id, event_id, mechanism = _payload_identity(raw.get(key), key)
             main_force_direct.append(_evidence(
                 observed=True, source=key, available_at=available_at,
                 evidence_family="DIRECT_MAIN_FORCE", detail=key,
-                source_id=key, event_id=_event_id(key, raw.get(key)), mechanism="main_force_identity",
+                source_id=source_id, event_id=event_id, mechanism=mechanism,
                 observed_at=available_at, lineage_id=lineage_id, interpretation="MAIN_FORCE",
+                as_of=str(as_of or ""),
             ))
     price_volume_evidence = []
     if turnover:
         price_volume_evidence.append(_evidence(
             observed=True, source="quote_turnover", available_at=available_at,
             evidence_family="PRICE_VOLUME", detail="turnover",
-            source_id="quote_turnover", event_id=_event_id("quote_turnover", turnover),
-            mechanism="price_volume", observed_at=available_at, lineage_id=lineage_id,
+            source_id="quote_turnover", event_id="", mechanism="",
+            observed_at=available_at, lineage_id=lineage_id,
+            as_of=str(as_of or ""),
         ))
     if snap.get("volume"):
         price_volume_evidence.append(_evidence(
             observed=True, source="quote_volume", available_at=available_at,
             evidence_family="PRICE_VOLUME", detail="volume",
-            source_id="quote_volume", event_id=_event_id("quote_volume", snap.get("volume")),
-            mechanism="price_volume", observed_at=available_at, lineage_id=lineage_id,
+            source_id="quote_volume", event_id="", mechanism="",
+            observed_at=available_at, lineage_id=lineage_id,
+            as_of=str(as_of or ""),
         ))
     persistence_evidence = []
     if raw.get("fund_flow_persistence") not in (None, ""):
+        source_id, event_id, mechanism = _payload_identity(raw.get("fund_flow_persistence"), "fund_flow_persistence")
         persistence_evidence.append(_evidence(
             observed=True, source="fund_flow_persistence", available_at=available_at,
             evidence_family="FLOW_PERSISTENCE", detail="fund_flow_persistence",
-            source_id="fund_flow_persistence", event_id=_event_id("fund_flow_persistence", raw.get("fund_flow_persistence")),
-            mechanism="flow_persistence", observed_at=available_at, lineage_id=lineage_id,
+            source_id=source_id, event_id=event_id, mechanism=mechanism,
+            observed_at=available_at, lineage_id=lineage_id,
+            as_of=str(as_of or ""),
         ))
     industry_capital_evidence = []
     if industry_source:
+        source_id, event_id, mechanism = _payload_identity(industry_flow, industry_source)
         industry_capital_evidence.append(_evidence(
             observed=True, source=industry_source, available_at=available_at,
             evidence_family="INDUSTRY_CAPITAL", detail="industry_flow",
-            source_id=industry_source, event_id=_event_id(industry_source, industry_flow),
-            mechanism="industry_capital", observed_at=available_at, lineage_id=lineage_id,
+            source_id=source_id, event_id=event_id, mechanism=mechanism,
+            observed_at=available_at, lineage_id=lineage_id,
+            as_of=str(as_of or ""),
         ))
 
     institution_direction_hint = _lhb_direction(institution_rows)
@@ -835,15 +918,13 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         freshness = 1.0 if available_at else 0.5
         confidence = round(_clip(min(1.0, count / 2.0) * source_trust * freshness), 8)
         for item in evidence:
-            item.setdefault("direction", direction)
+            if not str(item.get("direction") or "").strip():
+                item["direction"] = direction
             item.setdefault("strength", None if not count or strength is None else round(_clip(strength), 8))
             item.setdefault("confidence", confidence)
-            item.setdefault("as_of", available_at)
-            item.setdefault("evidence_identity", (
-                str(item.get("source_id") or item.get("source") or ""),
-                str(item.get("event_id") or ""),
-                str(item.get("mechanism") or ""),
-            ))
+            if not str(item.get("as_of") or "").strip():
+                item["as_of"] = available_at
+            item["evidence_identity"] = validate_evidence_identity(item)
         return {
             "direction": direction,
             "strength": None if not count or strength is None else round(_clip(strength), 8),

@@ -7,8 +7,8 @@ from typing import Any, Dict
 
 from xiaogu_core_alpha import COST_MODEL_VERSION, build_core_alpha
 from xiaogu_forward_eligibility import eligibility_blockers
-from xiaogu_forward_features import build_feature_vector
-from xiaogu_forward_snapshot import CanonicalSnapshot, validate_and_build_canonical_snapshot
+from xiaogu_forward_features import build_feature_vector, validate_evidence_identity
+from xiaogu_forward_snapshot import CanonicalSnapshot, pit_record_audit, validate_and_build_canonical_snapshot
 from xiaogu_research_context import build_integrated_research_context
 
 PORTFOLIO_STATES = ("WATCH", "READY", "BUY", "HOLD", "REDUCE", "SELL")
@@ -63,16 +63,7 @@ def _at_least(value: Any, threshold: float) -> bool:
 
 
 def _evidence_identity(item: Dict[str, Any]) -> tuple[str, str, str] | None:
-    identity = item.get("evidence_identity")
-    if isinstance(identity, (list, tuple)) and len(identity) == 3:
-        source_id, event_id, mechanism = [str(part or "").strip() for part in identity]
-    else:
-        source_id = str(item.get("source_id") or item.get("source") or "").strip()
-        event_id = str(item.get("event_id") or "").strip()
-        mechanism = str(item.get("mechanism") or "").strip()
-    if not (source_id and event_id and mechanism):
-        return None
-    return source_id, event_id, mechanism
+    return validate_evidence_identity(item)
 
 
 def _confirmation_status(item: Dict[str, Any]) -> str:
@@ -93,22 +84,54 @@ def _confirmation_status(item: Dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
-def _evidence_confirmed(item: Any) -> bool:
+def _evidence_confirmed(item: Any, as_of: datetime | None = None) -> bool:
     if not isinstance(item, dict):
         return False
-    status = _confirmation_status(item)
-    if status in {"UNKNOWN", "UNCONFIRMED", "MISSING", ""}:
+    if str(item.get("source_id") or "").strip() == "":
         return False
+    if str(item.get("event_id") or "").strip() == "":
+        return False
+    if str(item.get("mechanism") or "").strip() == "":
+        return False
+    if validate_evidence_identity(item) is None:
+        return False
+    if item.get("evidence_identity") is None:
+        return False
+    observed_at = str(item.get("observed_at") or "").strip()
+    available_at = str(item.get("available_at") or "").strip()
+    if not observed_at or not available_at:
+        return False
+    as_of_value = as_of if as_of is not None else item.get("as_of")
+    if as_of_value in (None, ""):
+        return False
+    audit = pit_record_audit(item, as_of_value)
+    if audit.get("pit_status") != "OK":
+        return False
+    item_pit = str(item.get("pit_status") or "").upper()
+    if item_pit != "OK":
+        return False
+    status = _confirmation_status(item)
     if status not in {"CONFIRMED", "OBSERVED", "EVIDENCE_BACKED"}:
         return False
-    if _evidence_identity(item) is None:
-        return False
-    if not str(item.get("available_at") or "").strip():
-        return False
-    pit_status = str(item.get("pit_status") or "OK").upper()
-    if pit_status in {"UNKNOWN", "EXCLUDED", "FAILED", "INVALID"}:
-        return False
     return True
+
+
+def _nested_evidence_items(container: Any) -> list[Dict[str, Any]]:
+    items: list[Dict[str, Any]] = []
+    if isinstance(container, dict):
+        evidence = container.get("evidence")
+        if isinstance(evidence, list):
+            items.extend(item for item in evidence if isinstance(item, dict))
+        for value in container.values():
+            if value is evidence:
+                continue
+            if isinstance(value, dict):
+                items.extend(_nested_evidence_items(value))
+            elif isinstance(value, list):
+                items.extend(item for item in value if isinstance(item, dict) and "source_id" in item)
+    elif isinstance(container, list):
+        items.extend(item for item in container if isinstance(item, dict) and "source_id" in item)
+    return items
 
 
 def _capital_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -122,21 +145,55 @@ def _capital_evidence_items(features: Dict[str, Any]) -> list[Dict[str, Any]]:
     return items
 
 
-def _negative_record(blocker: str, item: Dict[str, Any], mechanism: str) -> Dict[str, Any]:
-    identity = _evidence_identity(item)
-    source_id, event_id, item_mechanism = identity or ("", "", mechanism)
+BLOCKER_REQUIRED_MECHANISMS = {
+    "CONFIRMED_DISTRIBUTION": None,
+    "CONFIRMED_SUPPLY_REVERSAL": {"supply_reversal"},
+    "BUYER_EXHAUSTION_OR_CLIMAX": {"buyer_exhaustion"},
+    "REPRICING_COMPLETED": {"completed_repricing", "repricing_completion"},
+    "TRADINGAGENTS_CONTRADICTION": {"critical_contradiction", "contradiction"},
+}
+
+
+def build_confirmed_negative_blocker(
+    blocker: str,
+    item: Any,
+    *,
+    as_of: datetime | None = None,
+    required_mechanisms: set[str] | None = None,
+) -> Dict[str, Any] | None:
+    """Confirm one blocker only against its own evidence identity, PIT, and mechanism."""
+    if not isinstance(item, dict):
+        return None
+    identity = validate_evidence_identity(item)
+    if identity is None or item.get("evidence_identity") is None:
+        return None
+    source_id, event_id, mechanism = identity
+    allowed = required_mechanisms if required_mechanisms is not None else BLOCKER_REQUIRED_MECHANISMS.get(blocker)
+    if allowed is not None and mechanism not in allowed:
+        return None
+    if not _evidence_confirmed(item, as_of=as_of):
+        return None
+    as_of_value = as_of if as_of is not None else item.get("as_of")
+    audit = pit_record_audit(item, as_of_value)
+    if audit.get("pit_status") != "OK":
+        return None
     return {
         "blocker": blocker,
         "kind": "CONFIRMED_NEGATIVE_PRODUCTION_BLOCKER",
         "status": "CONFIRMED",
-        "evidence_identity": identity,
+        "evidence_identity": list(identity),
         "source_id": source_id,
         "event_id": event_id,
-        "mechanism": item_mechanism or mechanism,
+        "mechanism": mechanism,
         "observed_at": item.get("observed_at") or "",
         "available_at": item.get("available_at") or "",
-        "as_of": item.get("as_of") or item.get("available_at") or "",
+        "as_of": audit.get("as_of") or str(as_of_value or ""),
         "confidence": item.get("confidence"),
+        "pit_status": audit.get("pit_status"),
+        "time_basis": audit.get("time_basis"),
+        "source_time": audit.get("source_time"),
+        "primary_event_field": audit.get("primary_event_field"),
+        "availability_field": audit.get("availability_field"),
     }
 
 
@@ -144,66 +201,56 @@ def collect_production_negative_evidence(
     alpha: Dict[str, Any],
     features: Dict[str, Any],
     research: Dict[str, Any],
+    as_of: datetime | None = None,
 ) -> list[Dict[str, Any]]:
     """Confirmed negative evidence only. UNKNOWN/None/MISSING never become blockers."""
     records = []
-    capital_items = [item for item in _capital_evidence_items(features) if _evidence_confirmed(item)]
+    capital_items = _capital_evidence_items(features)
     distributing = [
         item for item in capital_items
         if str(item.get("direction") or item.get("interpretation") or "").upper()
         in {"DISTRIBUTING", "EXITING", "DISTRIBUTION", "SELL"}
     ]
-    if distributing:
-        records.append(_negative_record("CONFIRMED_DISTRIBUTION", distributing[0], "distribution"))
-    supply = features.get("SUPPLY") or {}
-    capital = features.get("CAPITAL") or {}
-    supply_evidence = bool(supply.get("SUPPLY_OBSERVED") or supply.get("supply_evidence_count"))
-    capital_evidence = bool(capital_items)
-    turnover_evidence = bool(supply.get("turnover") not in (None, 0) or "turnover" in (supply.get("evidence") or []))
-    price_response = bool(supply.get("PRICE_RESPONSE_OBSERVED") or "price_response" in (supply.get("evidence") or []))
-    distribution_risk = capital.get("distribution_risk")
-    if (
-        supply.get("supply_absorption_state") == "RELEASING"
-        and distribution_risk not in (None, 0)
-        and float(distribution_risk) >= 0.70
-        and supply_evidence
-        and capital_evidence
-        and turnover_evidence
-        and price_response
-        and capital_items
-    ):
-        records.append(_negative_record("CONFIRMED_SUPPLY_REVERSAL", capital_items[0], "supply_reversal"))
-    exhaustion_status = str((features.get("REFLEXIVITY") or {}).get("buyer_exhaustion_status") or "").upper()
+    for item in distributing:
+        record = build_confirmed_negative_blocker("CONFIRMED_DISTRIBUTION", item, as_of=as_of)
+        if record:
+            records.append(record)
+    supply_items = _nested_evidence_items(features.get("SUPPLY") or {})
+    for item in supply_items:
+        record = build_confirmed_negative_blocker("CONFIRMED_SUPPLY_REVERSAL", item, as_of=as_of)
+        if record:
+            records.append(record)
+    exhaustion_items = [
+        item for item in (_nested_evidence_items(features.get("REFLEXIVITY") or {}) + capital_items)
+        if str(item.get("mechanism") or "").strip() == "buyer_exhaustion"
+    ]
     buyer_exhaustion = alpha.get("buyer_exhaustion")
-    if buyer_exhaustion is True and exhaustion_status in {"OBSERVED", "EVIDENCE_BACKED", "CONFIRMED"} and capital_items:
-        records.append(_negative_record("BUYER_EXHAUSTION_OR_CLIMAX", capital_items[0], "buyer_exhaustion"))
-    repricing_state = str(alpha.get("repricing_state") or "").upper()
-    if repricing_state in {"CLIMAX", "DISTRIBUTION"} and capital_items:
-        blocker = "CONFIRMED_DISTRIBUTION" if repricing_state == "DISTRIBUTION" else "BUYER_EXHAUSTION_OR_CLIMAX"
-        records.append(_negative_record(blocker, capital_items[0], repricing_state.lower()))
+    if isinstance(buyer_exhaustion, dict):
+        exhaustion_items.append(buyer_exhaustion)
+    for item in exhaustion_items:
+        record = build_confirmed_negative_blocker("BUYER_EXHAUSTION_OR_CLIMAX", item, as_of=as_of)
+        if record:
+            records.append(record)
     completion = alpha.get("repricing_completion") or {}
-    if completion.get("completed") is True and capital_items:
-        records.append(_negative_record("REPRICING_COMPLETED", capital_items[0], "completed_repricing"))
+    completion_items = _nested_evidence_items(completion)
+    if isinstance(completion, dict) and completion.get("source_id"):
+        completion_items.append(completion)
+    for item in completion_items:
+        record = build_confirmed_negative_blocker("REPRICING_COMPLETED", item, as_of=as_of)
+        if record:
+            records.append(record)
     contradiction = (research or {}).get("contradiction") or (research or {}).get("integrated") or {}
+    contradiction_items = _nested_evidence_items(contradiction)
     if isinstance(contradiction, dict):
-        contradiction_status = str(
-            contradiction.get("confirmation_status")
-            or contradiction.get("contradiction_status")
-            or ""
-        ).upper()
-        confirmed_contradiction = (
-            contradiction_status == "CONFIRMED"
-            or (
-                contradiction.get("veto") is True
-                and _evidence_confirmed(contradiction)
-            )
-        )
-        if confirmed_contradiction:
-            records.append(_negative_record("TRADINGAGENTS_CONTRADICTION", contradiction, "critical_contradiction"))
+        contradiction_items.append(contradiction)
+    for item in contradiction_items:
+        record = build_confirmed_negative_blocker("TRADINGAGENTS_CONTRADICTION", item, as_of=as_of)
+        if record:
+            records.append(record)
     unique = []
     seen = set()
     for record in records:
-        key = (record["blocker"], record.get("evidence_identity"))
+        key = (record["blocker"], tuple(record.get("evidence_identity") or ()))
         if key in seen:
             continue
         seen.add(key)
@@ -298,7 +345,7 @@ def evaluate_production_gates(
     if gates.get("full_alpha_baseline_increment") is False:
         failed_gates.append("BASELINE_INCREMENT_PASS")
         production_blockers.append("BASELINE_INCREMENT_FAIL")
-    negative_evidence = collect_production_negative_evidence(alpha, features, research)
+    negative_evidence = collect_production_negative_evidence(alpha, features, research, as_of=as_of)
     if negative_evidence:
         failed_gates.append("NEGATIVE_EVIDENCE_CLEAR")
         production_blockers.extend(record["blocker"] for record in negative_evidence)
@@ -382,6 +429,7 @@ def _paper_observation(
         "paper_signal_id": _paper_signal_id(decision_id),
         "decision_id": decision_id,
         "snapshot_id": snapshot.get("snapshot_id"),
+        "original_snapshot_id": snapshot.get("snapshot_id"),
         "lineage_id": snapshot.get("lineage_id"),
         "symbol": snapshot.get("symbol"),
         "signal_time": snapshot.get("signal_time") or snapshot.get("source_time"),

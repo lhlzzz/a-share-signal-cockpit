@@ -634,6 +634,8 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
         "action": "BUY",
         "decision_id": "d1",
         "position_state": "LONG",
+        "snapshot_id": "orig-1",
+        "original_snapshot_id": "orig-1",
     }])
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
@@ -670,15 +672,25 @@ def test_position_review_keeps_previous_state_and_action_separate(monkeypatch):
 def test_position_review_exact_snapshot_identity(monkeypatch):
     import xiaogu_forward_runner as runner
 
-    snapshot = validate_and_build_canonical_snapshot(_paper_observation_snapshot())
+    original = validate_and_build_canonical_snapshot(_paper_observation_snapshot())
+    current = validate_and_build_canonical_snapshot({
+        **_paper_observation_snapshot(),
+        "price": 11,
+        "trade_date": "2026-08-27",
+        "source_time": "2026-08-27T14:50:00+08:00",
+    })
     seen = {}
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
-        "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26",
+        "paper_signal_id": "paper-1",
+        "decision_id": "decision-1",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "snapshot_id": original["snapshot_id"],
+        "original_snapshot_id": original["snapshot_id"],
+        "paper_position_state": "PAPER_LONG",
+        "paper_entry_contract": {"entry_price": 10},
     }])
-    monkeypatch.setattr(
-        "xiaogu_db.fetch_decision_snapshot",
-        lambda decision_id: seen.setdefault("decision_id", decision_id) and snapshot,
-    )
+    monkeypatch.setattr("xiaogu_db.get_current_position_review_snapshot", lambda **_kwargs: current)
     monkeypatch.setattr("xiaogu_db.fetch_position_outcome", lambda _decision_id: {})
     monkeypatch.setattr("xiaogu_db.trading_days_between", lambda *_args, **_kwargs: 1)
     monkeypatch.setattr(
@@ -690,24 +702,21 @@ def test_position_review_exact_snapshot_identity(monkeypatch):
     )
     reviewed = runner.daily_paper_position_review("2026-08-27")
     assert len(reviewed) == 1
-    assert seen["decision_id"] == "decision-1"
-    assert seen["snapshot_id"] == snapshot["snapshot_id"]
-    assert seen["mode"] == "REPLAY"
+    assert seen["snapshot_id"] == current["snapshot_id"]
+    assert seen["snapshot_id"] != original["snapshot_id"]
+    assert seen["mode"] == "PRODUCTION"
+    assert reviewed[0]["paper_signal_id"] == "paper-1"
+    assert reviewed[0]["original_snapshot_id"] == original["snapshot_id"]
+    assert reviewed[0]["review_snapshot_id"] == current["snapshot_id"]
 
 
 def test_missing_snapshot_id_blocks_review(monkeypatch):
     import xiaogu_forward_runner as runner
 
     monkeypatch.setattr("xiaogu_db.fetch_open_paper_positions", lambda: [{
-        "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26",
+        "paper_signal_id": "paper-1", "decision_id": "decision-1", "trade_date": "2026-08-26", "symbol": "600001",
     }])
-    monkeypatch.setattr(
-        "xiaogu_db.fetch_decision_snapshot",
-        lambda _decision_id: (_ for _ in ()).throw(
-            RuntimeError("POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE")
-        ),
-    )
-    with pytest.raises(RuntimeError, match="SNAPSHOT_IDENTITY_UNAVAILABLE"):
+    with pytest.raises(RuntimeError, match="PAPER_POSITION_REVIEW_BLOCKED:SNAPSHOT_IDENTITY_UNAVAILABLE"):
         runner.daily_paper_position_review("2026-08-27")
 
 
@@ -721,6 +730,8 @@ def test_position_review_blocks_when_calendar_input_is_unavailable(monkeypatch):
         "action": "HOLD",
         "decision_id": "decision-1",
         "position_state": "LONG",
+        "snapshot_id": "orig-1",
+        "original_snapshot_id": "orig-1",
     }])
     monkeypatch.setattr(
         "xiaogu_db.fetch_decision_snapshot",
@@ -866,6 +877,8 @@ def test_position_review_reads_postgres_not_jsonl(monkeypatch):
             "decision": "HOLD",
             "decision_id": "d1",
             "position_state": "LONG",
+            "snapshot_id": "orig-1",
+            "original_snapshot_id": "orig-1",
         }]
 
     monkeypatch.setattr("xiaogu_db.fetch_open_positions", fake_positions)

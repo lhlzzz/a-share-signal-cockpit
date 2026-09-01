@@ -69,3 +69,13 @@ jobs:
       - run: python -m compileall -q scrapy_scanner scripts xiaogu_*.py
       - run: pytest tests/test_schema_snapshot_truth.py tests/test_snapshot_identity_lock.py tests/test_production_contract.py tests/test_production_decision.py tests/test_production_hardening.py tests/test_data_contract.py -x -q
       - run: python scripts/xiaogu_daily_health_check.py
+      - name: production path anti-regressions
+        run: |
+          if git grep -n -E 'fetch_decision_snapshot\(prior_id\)|event_id = source_id|mechanism = evidence_family|DISTINCT ON\(symbol\)' -- '*.py' | grep -E 'xiaogu_forward_runner.py|xiaogu_portfolio_decision.py|xiaogu_forward_features.py|xiaogu_db.py'; then
+            echo "forbidden production-path identity fallback detected" >&2
+            exit 1
+          fi
+          if git grep -n 'mode="REPLAY"' -- xiaogu_forward_runner.py | grep daily_paper_position_review; then
+            echo "paper review still uses REPLAY" >&2
+            exit 1
+          fi
