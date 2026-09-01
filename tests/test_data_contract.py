@@ -1059,7 +1059,7 @@ def _annual_calendar_fixture(year: int) -> dict:
             {
                 "trade_date": (date(year, 1, 1) + timedelta(days=offset)).isoformat(),
                 "market": "ASHARE",
-                "is_trading_day": (date(year, 1, 1) + timedelta(days=offset)).weekday() < 5,
+                "is_trading_day": True,
             }
             for offset in range(366 if calendar_module.isleap(year) else 365)
         ],
