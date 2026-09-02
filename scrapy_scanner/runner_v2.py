@@ -38,12 +38,19 @@ MAX_PAGES = 100
 MARKET_TIMEZONE = ZoneInfo("Asia/Shanghai")
 LIGHT_STOCK_FIELDS = ",".join([
     "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f13", "f14", "f15", "f16", "f17",
-    "f43", "f44", "f45", "f46", "f100", "f62",
+    "f1", "f18", "f26", "f43", "f44", "f45", "f46", "f100", "f62", "f125", "f148",
 ])
 STOCK_ALL_A_FS = "m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048"
 CLIST_SORT_FIELD = "f12"
 API_GET_RETRIES = 2
 MARKET_CODES = {0: "SZ", 1: "SH", 2: "BJ"}
+UNIVERSE_ACTIVE = "ACTIVE"
+UNIVERSE_HALTED = "HALTED"
+UNIVERSE_DELISTED = "DELISTED"
+UNIVERSE_NOT_YET_OPEN = "NOT_YET_OPEN"
+UNIVERSE_OTHER_NON_TRADABLE = "OTHER_NON_TRADABLE"
+UNIVERSE_UNKNOWN = "UNKNOWN"
+SOURCE_UNIVERSE_STATUS_FIELDS = ("f125", "f1", "f148", "f26", "source_trade_status", "listing_date", "security_class")
 STOCK_FIELDS = LIGHT_STOCK_FIELDS
 CAPITAL_FIELDS = ",".join(["f1", "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f14"] + [f"f{i}" for i in range(51, 76)])
 CAPITAL_HISTORY_FIELDS = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
@@ -725,13 +732,167 @@ def _market_name(row: Dict[str, Any]) -> str | None:
 
 
 def _trade_status(row: Dict[str, Any]) -> str:
-    if row.get("halted") or row.get("is_suspended") or row.get("in_halted"):
-        return "HALTED"
-    price = _quote_number(row, "f2", "price")
-    volume = _quote_number(row, "f5", "volume")
-    if price is None or volume is None or volume <= 0:
-        return "HALTED"
-    return "TRADING"
+    return classify_universe_row(row)["trade_status"]
+
+
+def _source_int(row: Dict[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        if key not in row:
+            continue
+        value = row.get(key)
+        if value in (None, "", "-"):
+            return None
+        try:
+            return int(float(str(value)))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _listing_date_yyyymmdd(row: Dict[str, Any]) -> str | None:
+    if "listing_date" not in row and "f26" not in row:
+        return None
+    value = row.get("listing_date")
+    if value in (None, "", "-"):
+        value = row.get("f26")
+    if value in (None, "", "-"):
+        return None
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if len(digits) < 8:
+        return None
+    return digits[:8]
+
+
+def _has_source_status(row: Dict[str, Any]) -> bool:
+    return any(key in row for key in SOURCE_UNIVERSE_STATUS_FIELDS)
+
+
+def _session_quote_complete(row: Dict[str, Any]) -> bool:
+    return (
+        _quote_number(row, "f2", "price") is not None
+        and _quote_number(row, "f5", "volume") is not None
+        and _quote_number(row, "f6", "amount") is not None
+        and _quote_number(row, "f62", "main_net_inflow") is not None
+    )
+
+
+def classify_universe_row(row: Dict[str, Any], trade_date: str = "") -> Dict[str, Any]:
+    """Map Eastmoney source metadata onto one exclusive universe_state.
+
+    f125 is the clist trade/listing status: 0 trading, 1 non-trading/delisted,
+    2 halted-but-listed, 4 not yet listed. f1=2 is an A-share stock. Session
+    quotes are never inferred from previous close (f18).
+    """
+    symbol = (stock_codes_from_row(row) or [None])[0]
+    security_class = _source_int(row, "security_class", "f1")
+    status_code = _source_int(row, "source_trade_status", "f125")
+    type_code = _source_int(row, "security_type", "f148")
+    listing_date = _listing_date_yyyymmdd(row)
+    today = "".join(ch for ch in str(trade_date or datetime.now(MARKET_TIMEZONE).strftime("%Y%m%d")) if ch.isdigit())[:8]
+    session_complete = _session_quote_complete(row)
+    if not symbol:
+        state = UNIVERSE_UNKNOWN
+    elif not _has_source_status(row):
+        state = UNIVERSE_ACTIVE if session_complete else UNIVERSE_UNKNOWN
+    elif security_class is not None and security_class != 2:
+        state = UNIVERSE_OTHER_NON_TRADABLE
+    elif status_code == 4 or (type_code is not None and type_code & 16):
+        state = UNIVERSE_NOT_YET_OPEN
+    elif listing_date is None and not session_complete and status_code not in {1, 2}:
+        state = UNIVERSE_NOT_YET_OPEN
+    elif listing_date is not None and today and listing_date > today:
+        state = UNIVERSE_NOT_YET_OPEN
+    elif status_code == 1:
+        state = UNIVERSE_DELISTED
+    elif status_code == 2:
+        state = UNIVERSE_HALTED
+    elif status_code == 0 or session_complete:
+        state = UNIVERSE_ACTIVE
+    else:
+        state = UNIVERSE_UNKNOWN
+    production_required = state == UNIVERSE_ACTIVE
+    if state == UNIVERSE_ACTIVE and session_complete:
+        trade_status = "TRADING"
+    elif state == UNIVERSE_NOT_YET_OPEN:
+        trade_status = "NOT_YET_OPEN"
+    elif state in {UNIVERSE_HALTED, UNIVERSE_DELISTED, UNIVERSE_OTHER_NON_TRADABLE}:
+        trade_status = "HALTED"
+    elif row.get("halted") or row.get("is_suspended") or row.get("in_halted"):
+        trade_status = "HALTED"
+    elif _quote_number(row, "f2", "price") is None or (_quote_number(row, "f5", "volume") or 0) <= 0:
+        trade_status = "HALTED"
+    else:
+        trade_status = "TRADING"
+    halted = state in {UNIVERSE_HALTED, UNIVERSE_DELISTED} or trade_status == "HALTED"
+    buyable = False if state in {UNIVERSE_NOT_YET_OPEN, UNIVERSE_OTHER_NON_TRADABLE, UNIVERSE_DELISTED, UNIVERSE_HALTED, UNIVERSE_UNKNOWN} else None
+    return {
+        "symbol": symbol,
+        "universe_state": state,
+        "listing_status": state,
+        "production_required": production_required,
+        "trade_status": trade_status,
+        "halted": halted,
+        "buyable": buyable,
+        "security_class": security_class,
+        "source_trade_status": status_code,
+        "listing_date": listing_date,
+        "session_quote_complete": session_complete,
+    }
+
+
+def _annotate_source_row(row: Dict[str, Any], trade_date: str = "") -> Dict[str, Any]:
+    item = dict(row)
+    classified = classify_universe_row(item, trade_date=trade_date)
+    item["universe_state"] = classified["universe_state"]
+    item["listing_status"] = classified["listing_status"]
+    item["production_required"] = classified["production_required"]
+    item["trade_status"] = classified["trade_status"]
+    item["halted"] = classified["halted"]
+    item["previous_close"] = _quote_number(item, "previous_close", "f18")
+    if classified["buyable"] is False:
+        item["buyable"] = False
+    return item
+
+
+def universe_audit(rows: list[Dict[str, Any]], trade_date: str = "") -> Dict[str, Any]:
+    exclusive = {
+        UNIVERSE_ACTIVE: 0,
+        UNIVERSE_HALTED: 0,
+        UNIVERSE_DELISTED: 0,
+        UNIVERSE_NOT_YET_OPEN: 0,
+        UNIVERSE_OTHER_NON_TRADABLE: 0,
+        UNIVERSE_UNKNOWN: 0,
+    }
+    active_complete = 0
+    active_incomplete = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        classified = classify_universe_row(row, trade_date=trade_date)
+        state = classified["universe_state"]
+        exclusive[state] = exclusive.get(state, 0) + 1
+        if classified["production_required"]:
+            if classified["session_quote_complete"]:
+                active_complete += 1
+            else:
+                active_incomplete += 1
+    source_observed = sum(exclusive.values())
+    production_universe = exclusive[UNIVERSE_ACTIVE]
+    return {
+        "source_observed": source_observed,
+        "production_universe": production_universe,
+        "non_production_observed": source_observed - production_universe,
+        "active_required": production_universe,
+        "active_required_complete": active_complete,
+        "active_required_incomplete": active_incomplete,
+        "exclusive_classification": exclusive,
+        "HALTED": exclusive[UNIVERSE_HALTED],
+        "DELISTED": exclusive[UNIVERSE_DELISTED],
+        "NOT_YET_OPEN": exclusive[UNIVERSE_NOT_YET_OPEN],
+        "OTHER_NON_TRADABLE": exclusive[UNIVERSE_OTHER_NON_TRADABLE],
+        "UNKNOWN": exclusive[UNIVERSE_UNKNOWN],
+        "ACTIVE": exclusive[UNIVERSE_ACTIVE],
+    }
 
 
 def detect_capital_candidates(
@@ -868,6 +1029,8 @@ def build_canonical_snapshots(
     snapshots = []
     for row in stocks:
         code = normalize_stock_code(row.get("f12"))
+        if row.get("production_required") is False:
+            continue
         sector = str(row.get("f100") or row.get("industry") or "").strip()
         deep = symbols is None or code in selected_symbols
         visible = dict(row)
@@ -980,14 +1143,19 @@ def _critical_row_gaps(row: Dict[str, Any]) -> list[str]:
     gaps = []
     if not stock_codes_from_row(row):
         gaps.append("MISSING_SYMBOL")
-    if _quote_number(row, "f2", "price") is None:
-        gaps.append("MISSING_PRICE")
-    if _quote_number(row, "f5", "volume") is None:
-        gaps.append("MISSING_VOLUME")
-    if _quote_number(row, "f6", "amount") is None:
-        gaps.append("MISSING_AMOUNT")
-    if _quote_number(row, "f62", "main_net_inflow") is None:
-        gaps.append("MISSING_MAIN_NET_INFLOW")
+    classified = classify_universe_row(row)
+    require_session = classified["production_required"] or classified["universe_state"] == UNIVERSE_UNKNOWN
+    if require_session:
+        if _quote_number(row, "f2", "price") is None:
+            gaps.append("MISSING_PRICE")
+        if _quote_number(row, "f5", "volume") is None:
+            gaps.append("MISSING_VOLUME")
+        if _quote_number(row, "f6", "amount") is None:
+            gaps.append("MISSING_AMOUNT")
+        if _quote_number(row, "f62", "main_net_inflow") is None:
+            gaps.append("MISSING_MAIN_NET_INFLOW")
+        if classified["universe_state"] == UNIVERSE_UNKNOWN and len(gaps) > (1 if "MISSING_SYMBOL" in gaps else 0):
+            gaps.append("UNKNOWN_SECURITY_STATE")
     return gaps
 
 
@@ -1005,10 +1173,13 @@ def _incomplete_audit(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
         for gap in gaps:
             distribution[gap] = distribution.get(gap, 0) + 1
         codes = stock_codes_from_row(row)
+        classified = classify_universe_row(row)
         compact.append({
             "symbol": codes[0] if codes else None,
             "name": row.get("f14") or row.get("name"),
             "missing": gaps,
+            "universe_state": classified["universe_state"],
+            "production_required": classified["production_required"],
             "raw_field_status": {key: _raw_field_status(row, key) for key in ("f2", "f5", "f6", "f62", "f12")},
             "raw_f2": row.get("f2"),
             "raw_f5": row.get("f5"),
@@ -1041,19 +1212,26 @@ def _collect(
         if critical and item_count == 0:
             raise CriticalSourceError(f"CRITICAL_SOURCE_EMPTY:{name}")
         if critical:
+            trade_date = domain_finished_at[:10]
+            if isinstance(value, list):
+                value = [
+                    _annotate_source_row(row, trade_date=trade_date) if isinstance(row, dict) else row
+                    for row in value
+                ]
+            universe = universe_audit(value if isinstance(value, list) else [], trade_date=trade_date)
             invalid = [
-                row for row in value
-                if isinstance(value, list)
-                and isinstance(row, dict)
-                and _critical_row_gaps(row)
+                row for row in (value if isinstance(value, list) else [])
+                if isinstance(row, dict) and _critical_row_gaps(row)
             ]
             if invalid:
                 audit = _incomplete_audit(value if isinstance(value, list) else [])
+                audit["universe"] = universe
                 timings[name] = {
                     "status": "ERROR",
                     "item_count": item_count,
                     "incomplete_row_count": audit["incomplete_row_count"],
                     "incomplete_reason_distribution": audit["incomplete_reason_distribution"],
+                    "universe_audit": universe,
                     "elapsed_seconds": round(time.monotonic() - started, 4),
                     "domain_started_at": domain_started_at,
                     "domain_finished_at": domain_finished_at,
@@ -1083,6 +1261,8 @@ def _collect(
             "available_at": domain_finished_at,
             "critical": critical,
         }
+        if critical and isinstance(value, list):
+            timings[name]["universe_audit"] = universe_audit(value, trade_date=domain_finished_at[:10])
         return value
     except Exception as exc:
         domain_finished_at = _iso_now()
@@ -1416,6 +1596,10 @@ def main() -> Dict[str, Any]:
             "fields": LIGHT_STOCK_FIELDS,
             "fs": STOCK_ALL_A_FS,
         },
+        "universe_audit": (
+            (source_audit.get("universe") if isinstance(source_audit, dict) else None)
+            or (l0_time.get("universe_audit") or {})
+        ),
         "database_persistence": persistence, "files": files,
         "elapsed_seconds": round(time.monotonic() - started, 4),
     }

@@ -688,6 +688,10 @@ def test_fetch_paginated_uses_stable_sort_and_production_fields(monkeypatch):
     assert "fid=f3" not in seen[0]
     assert "f62" in seen[0]
     assert "f2" in seen[0]
+    assert "f125" in seen[0]
+    assert "f1" in seen[0]
+    assert "f26" in seen[0]
+    assert "f18" in seen[0]
 
 
 def test_api_get_retries_transport_then_succeeds(monkeypatch):
@@ -714,3 +718,126 @@ def test_api_get_retries_transport_then_succeeds(monkeypatch):
     monkeypatch.setattr(scanner.time, "sleep", lambda *_args, **_kwargs: None)
     assert scanner.api_get("https://example.invalid") == {"ok": 1}
     assert calls["n"] == 2
+
+
+def _active_row(symbol, **overrides):
+    row = _quote_row(symbol, f1=2, f125=0, f26=20100101, f148=65, f18=10.0)
+    row.update(overrides)
+    return row
+
+
+def _non_quote(**overrides):
+    return {"f2": "-", "f5": "-", "f6": "-", "f62": "-", **overrides}
+
+
+def test_source_universe_keeps_non_production_quote_state_without_blocking():
+    from scrapy_scanner.runner_v2 import _collect, universe_audit
+
+    active = [_active_row(f"{i:06d}") for i in range(1, 5548)]
+    delisted = [_quote_row(f"{900000 + i}", f14="非交易", **_non_quote(), f1=2, f125=1, f148=2, f26=20100101, f18=0.4) for i in range(339)]
+    halted = [_quote_row(f"{800000 + i}", **_non_quote(), f1=2, f125=2, f148=577, f26=20100101, f18=10.0) for i in range(7)]
+    unlisted = [_quote_row(f"{700000 + i}", **_non_quote(), f1=2, f125=4, f148=16, f26="-", f18=20.0) for i in range(8)]
+    pending = [_quote_row(f"{920000 + i}", **_non_quote(), f1=2, f125=0, f148=1, f26="-", f18=17.0) for i in range(4)]
+    other = [_quote_row(f"{810000 + i}", **_non_quote(), f1=3, f125=0, f148=1, f26=20250101, f18=100.0) for i in range(3)]
+    rows = active + delisted + halted + unlisted + pending + other
+    assert len(rows) == 5908
+    timings = {}
+    accepted = _collect("stock_all_a", timings, lambda: rows, [], critical=True)
+    assert len(accepted) == 5908
+    audit = timings["stock_all_a"]["universe_audit"]
+    assert audit["source_observed"] == 5908
+    assert audit["production_universe"] == 5547
+    assert audit["non_production_observed"] == 361
+    assert audit["active_required_complete"] == 5547
+    assert audit["active_required_incomplete"] == 0
+    assert audit["DELISTED"] == 339
+    assert audit["HALTED"] == 7
+    assert audit["NOT_YET_OPEN"] == 12
+    assert audit["OTHER_NON_TRADABLE"] == 3
+    assert audit["UNKNOWN"] == 0
+    assert universe_audit(accepted)["active_required_incomplete"] == 0
+
+
+def test_active_required_missing_price_still_blocks():
+    from scrapy_scanner.runner_v2 import CriticalSourceError, _collect
+
+    rows = [_active_row("600001"), _active_row("600002", **_non_quote())]
+    timings = {}
+    with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_INCOMPLETE:stock_all_a:1"):
+        _collect("stock_all_a", timings, lambda: rows, [], critical=True)
+    assert timings["stock_all_a"]["universe_audit"]["active_required_incomplete"] == 1
+
+
+def test_halted_missing_price_is_observed_and_l1_halted():
+    from scrapy_scanner.runner_v2 import _collect
+    from xiaogu_forward_eligibility import cheap_eligibility_blockers, candidate_universe
+
+    rows = [
+        _active_row("600001"),
+        _quote_row("688432", f14="有研硅", **_non_quote(), f1=2, f125=2, f148=577, f26=20221110, f18=45.22),
+    ]
+    accepted = _collect("stock_all_a", {}, lambda: rows, [], critical=True)
+    halted = next(row for row in accepted if row["f12"] == "688432")
+    assert halted["universe_state"] == "HALTED"
+    assert halted["trade_status"] == "HALTED"
+    assert halted["production_required"] is False
+    assert halted["previous_close"] == pytest.approx(45.22)
+    assert halted.get("price") in (None, "-", halted.get("f2"))
+    blockers = cheap_eligibility_blockers(halted)
+    assert "HALTED" in blockers
+    eligible, audit = candidate_universe(accepted)
+    assert [row["f12"] for row in eligible] == ["600001"]
+    assert audit["rejected"][0]["blockers"]
+
+
+def test_delisted_is_not_production_universe():
+    from scrapy_scanner.runner_v2 import classify_universe_row, _collect
+
+    row = _quote_row("603996", f14="退市中新", **_non_quote(), f1=2, f125=1, f148=2, f26=20151222, f18=0.39)
+    classified = classify_universe_row(row)
+    assert classified["universe_state"] == "DELISTED"
+    assert classified["production_required"] is False
+    accepted = _collect("stock_all_a", {}, lambda: [_active_row("600001"), row], [], critical=True)
+    delisted = next(item for item in accepted if item["f12"] == "603996")
+    assert delisted["universe_state"] == "DELISTED"
+    assert delisted["production_required"] is False
+
+
+def test_unknown_security_state_with_missing_quote_blocks():
+    from scrapy_scanner.runner_v2 import CriticalSourceError, classify_universe_row, _collect
+
+    row = _quote_row("600001", **_non_quote())
+    assert classify_universe_row(row)["universe_state"] == "UNKNOWN"
+    with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_INCOMPLETE:stock_all_a:1"):
+        _collect("stock_all_a", {}, lambda: [row], [], critical=True)
+
+
+def test_st_active_is_not_auto_removed_from_production_universe():
+    from scrapy_scanner.runner_v2 import _collect
+
+    row = _active_row("300001", f14="*ST示例", f148=4)
+    accepted = _collect("stock_all_a", {}, lambda: [row], [], critical=True)
+    assert accepted[0]["universe_state"] == "ACTIVE"
+    assert accepted[0]["production_required"] is True
+    assert accepted[0]["f148"] == 4
+
+
+def test_st_halted_is_kept_in_l0_and_excluded_by_l1():
+    from scrapy_scanner.runner_v2 import _collect
+    from xiaogu_forward_eligibility import cheap_eligibility_blockers
+
+    row = _quote_row("301139", f14="*ST元道", **_non_quote(), f1=2, f125=2, f148=4, f26=20220708, f18=3.31)
+    accepted = _collect("stock_all_a", {}, lambda: [_active_row("600001"), row], [], critical=True)
+    halted = next(item for item in accepted if item["f12"] == "301139")
+    assert halted["universe_state"] == "HALTED"
+    assert "HALTED" in cheap_eligibility_blockers(halted)
+
+
+def test_previous_close_is_not_session_price():
+    from scrapy_scanner.runner_v2 import _quote_number, classify_universe_row
+
+    row = _quote_row("688801", f14="燧原科技", **_non_quote(), f1=2, f125=4, f148=16, f26="-", f18=142.18)
+    classified = classify_universe_row(row)
+    assert classified["universe_state"] == "NOT_YET_OPEN"
+    assert _quote_number(row, "f2", "price") is None
+    assert _quote_number(row, "f18", "previous_close") == pytest.approx(142.18)

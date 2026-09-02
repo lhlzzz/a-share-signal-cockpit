@@ -30,6 +30,8 @@ def cheap_eligibility_blockers(row: Dict[str, Any]) -> List[str]:
         blockers.append("INCOMPLETE_MARKET_DATA")
     if row.get("halted") or row.get("is_suspended") or row.get("in_halted"):
         blockers.append("HALTED")
+    if row.get("trade_status") == "HALTED" or row.get("universe_state") in {"HALTED", "DELISTED"}:
+        blockers.append("HALTED")
     if row.get("regulatory_hard_block") or row.get("risk_hard_block"):
         blockers.append("REGULATORY_HARD_RISK")
     if row.get("buyable") is False or row.get("sealed_limit_up"):
