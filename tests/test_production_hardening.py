@@ -549,3 +549,168 @@ def test_historical_unresolved_not_rewritten():
     from xiaogu_backtest_v0_1 import _historical_decision_id
     assert _historical_decision_id(pick={"id": 7}) == ""
     assert _historical_decision_id(pick={"decision_id": "abc"}) == "abc"
+
+
+def _quote_row(symbol, **overrides):
+    row = {
+        "f12": symbol, "f14": "示例", "f2": 10.0, "f3": 1.0, "f5": 100, "f6": 1000,
+        "f8": 1.0, "f10": 1.0, "f13": 1, "f15": 10.5, "f16": 9.5, "f17": 9.8,
+        "f62": 400, "f100": "示例行业",
+    }
+    row.update(overrides)
+    return row
+
+
+def _clist_pages(pages, total=None):
+    payloads = []
+    counted = sum(len(page) for page in pages)
+    reported = counted if total is None else total
+    for page in pages:
+        payloads.append({"data": {"total": reported, "diff": page}})
+    return payloads
+
+
+def test_critical_source_accepts_complete_required_fields():
+    from scrapy_scanner.runner_v2 import _collect
+
+    rows = [_quote_row("600001"), _quote_row("000001")]
+    timings = {}
+    accepted = _collect("stock_all_a", timings, lambda: rows, [], critical=True)
+    assert [row["f12"] for row in accepted] == ["600001", "000001"]
+    assert all(row.get("available_at") for row in accepted)
+    assert timings["stock_all_a"]["status"] == "PASS"
+
+
+def test_critical_source_incomplete_keeps_fail_closed():
+    from scrapy_scanner.runner_v2 import CriticalSourceError, _collect
+
+    rows = [_quote_row("600001")] + [
+        _quote_row(f"{i:06d}", f2="-", f5="-", f6="-", f62="-") for i in range(360)
+    ]
+    timings = {}
+    with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_INCOMPLETE:stock_all_a:360"):
+        _collect("stock_all_a", timings, lambda: rows, [], critical=True)
+    assert timings["stock_all_a"]["incomplete_row_count"] == 360
+    assert timings["stock_all_a"]["item_count"] == 361
+    dist = timings["stock_all_a"]["incomplete_reason_distribution"]
+    assert dist["MISSING_PRICE"] == 360
+    assert dist["MISSING_VOLUME"] == 360
+    assert dist["MISSING_AMOUNT"] == 360
+    assert dist["MISSING_MAIN_NET_INFLOW"] == 360
+
+
+def test_parser_maps_raw_quote_fields():
+    from scrapy_scanner.runner_v2 import _quote_number
+
+    row = {"f2": "10.50", "f5": "100", "f6": "1000.0", "f62": "-12.5", "price": None}
+    assert _quote_number(row, "f2", "price") == pytest.approx(10.5)
+    assert _quote_number(row, "f5", "volume") == pytest.approx(100)
+    assert _quote_number(row, "f6", "amount") == pytest.approx(1000)
+    assert _quote_number(row, "f62", "main_net_inflow") == pytest.approx(-12.5)
+
+
+def test_symbol_identity_keeps_leading_zeros_and_bj_secid():
+    from scrapy_scanner.runner_v2 import _secid, normalize_stock_code
+
+    assert normalize_stock_code("000001") == "000001"
+    assert normalize_stock_code("SZ000001") == "000001"
+    assert _secid("000001") == "0.000001"
+    assert _secid("600001") == "1.600001"
+    assert _secid("920298") == "0.920298"
+    assert _secid("830001") == "0.830001"
+    assert _secid("510300") == "1.510300"
+
+
+def test_pagination_overlap_is_fail_closed(monkeypatch):
+    from scrapy_scanner.runner_v2 import CriticalSourceError, fetch_paginated
+
+    pages = _clist_pages([
+        [_quote_row("600001"), _quote_row("600002")],
+        [_quote_row("600002"), _quote_row("600003")],
+    ], total=4)
+    monkeypatch.setattr("scrapy_scanner.runner_v2.api_get", lambda *args, **kwargs: pages.pop(0))
+    with pytest.raises(CriticalSourceError, match="PAGING_OR_PROVIDER_PAGE_FAILURE:duplicate_symbols"):
+        fetch_paginated("m:1+t:2", page_size=2, fields="f12,f2,f5,f6,f62")
+
+
+def test_pagination_missing_page_is_fail_closed(monkeypatch):
+    from scrapy_scanner.runner_v2 import CriticalSourceError, fetch_paginated
+
+    pages = [
+        {"data": {"total": 4, "diff": [_quote_row("600001"), _quote_row("600002")]}},
+        {"data": {"total": 4, "diff": []}},
+    ]
+    monkeypatch.setattr("scrapy_scanner.runner_v2.api_get", lambda *args, **kwargs: pages.pop(0))
+    with pytest.raises(CriticalSourceError, match="PAGING_OR_PROVIDER_PAGE_FAILURE:missing_page"):
+        fetch_paginated("m:1+t:2", page_size=2, fields="f12,f2,f5,f6,f62")
+
+
+def test_ulist_join_uses_normalized_secid(monkeypatch):
+    from scrapy_scanner.runner_v2 import fetch_ulist
+
+    seen = []
+
+    def fake_api(url, timeout=30):
+        seen.append(url)
+        return {"data": {"diff": [_quote_row("920298")]}}
+
+    monkeypatch.setattr("scrapy_scanner.runner_v2.api_get", fake_api)
+    rows = fetch_ulist(["920298"], "f12,f2,f5,f6,f62")
+    assert rows and rows[0]["f12"] == "920298"
+    assert "0.920298" in seen[0]
+    assert "1.920298" not in seen[0]
+
+
+def test_special_security_rows_are_not_silently_dropped():
+    from scrapy_scanner.runner_v2 import CriticalSourceError, _collect
+
+    rows = [
+        _quote_row("600001"),
+        _quote_row("603996", f14="退市中新", f2="-", f5="-", f6="-", f62="-"),
+    ]
+    with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_INCOMPLETE:stock_all_a:1"):
+        _collect("stock_all_a", {}, lambda: rows, [], critical=True)
+
+
+def test_fetch_paginated_uses_stable_sort_and_production_fields(monkeypatch):
+    from scrapy_scanner.runner_v2 import CLIST_SORT_FIELD, LIGHT_STOCK_FIELDS, STOCK_ALL_A_FS, fetch_paginated
+
+    seen = []
+
+    def fake_api(url, timeout=30):
+        seen.append(url)
+        return {"data": {"total": 1, "diff": [_quote_row("600001")]}}
+
+    monkeypatch.setattr("scrapy_scanner.runner_v2.api_get", fake_api)
+    fetch_paginated(STOCK_ALL_A_FS, 100, LIGHT_STOCK_FIELDS)
+    assert seen
+    assert f"fid={CLIST_SORT_FIELD}" in seen[0]
+    assert "fid=f3" not in seen[0]
+    assert "f62" in seen[0]
+    assert "f2" in seen[0]
+
+
+def test_api_get_retries_transport_then_succeeds(monkeypatch):
+    from urllib.error import URLError
+    import scrapy_scanner.runner_v2 as scanner
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def read(self):
+            return b'{"ok": 1}'
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(request, timeout=30):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise URLError("temporary")
+        return _Resp()
+
+    monkeypatch.setattr(scanner, "urlopen", fake_urlopen)
+    monkeypatch.setattr(scanner.time, "sleep", lambda *_args, **_kwargs: None)
+    assert scanner.api_get("https://example.invalid") == {"ok": 1}
+    assert calls["n"] == 2

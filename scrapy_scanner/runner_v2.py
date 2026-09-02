@@ -16,8 +16,10 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+import http.client
 from zoneinfo import ZoneInfo
 
 import sys
@@ -38,6 +40,9 @@ LIGHT_STOCK_FIELDS = ",".join([
     "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f13", "f14", "f15", "f16", "f17",
     "f43", "f44", "f45", "f46", "f100", "f62",
 ])
+STOCK_ALL_A_FS = "m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048"
+CLIST_SORT_FIELD = "f12"
+API_GET_RETRIES = 2
 MARKET_CODES = {0: "SZ", 1: "SH", 2: "BJ"}
 STOCK_FIELDS = LIGHT_STOCK_FIELDS
 CAPITAL_FIELDS = ",".join(["f1", "f2", "f3", "f5", "f6", "f8", "f10", "f12", "f14"] + [f"f{i}" for i in range(51, 76)])
@@ -77,7 +82,12 @@ def _secid(code: str | None) -> str | None:
     normalized = normalize_stock_code(code)
     if not normalized:
         return None
-    prefix = "1" if normalized.startswith(("5", "6", "9")) else "0"
+    if normalized.startswith(("4", "8", "92")):
+        prefix = "0"
+    elif normalized.startswith(("5", "6", "9")):
+        prefix = "1"
+    else:
+        prefix = "0"
     return f"{prefix}.{normalized}"
 
 
@@ -105,12 +115,23 @@ def _json_payload(text: str) -> Any:
 
 def api_get(url: str, timeout: int = 30) -> Dict[str, Any]:
     """Fetch one Eastmoney response through the direct HTTP transport."""
-    request = Request(url, headers=HEADERS)
-    with urlopen(request, timeout=timeout) as response:
-        payload = _json_payload(response.read().decode("utf-8", "replace"))
-    if not isinstance(payload, dict):
-        raise ValueError("EASTMONEY_RESPONSE_NOT_OBJECT")
-    return payload
+    last_exc: Exception | None = None
+    for attempt in range(API_GET_RETRIES + 1):
+        request = Request(url, headers=HEADERS)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = _json_payload(response.read().decode("utf-8", "replace"))
+            if not isinstance(payload, dict):
+                raise ValueError("EASTMONEY_RESPONSE_NOT_OBJECT")
+            return payload
+        except HTTPError:
+            raise
+        except (URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            last_exc = exc
+            if attempt >= API_GET_RETRIES:
+                break
+            time.sleep(0.2 * (attempt + 1))
+    raise last_exc if last_exc is not None else RuntimeError("EASTMONEY_TRANSPORT_FAILED")
 
 
 def normalize_stock_code(value: Any) -> str | None:
@@ -292,6 +313,24 @@ def fetch_capital_history(
     return rows
 
 
+def _row_identity(row: Dict[str, Any]) -> str | None:
+    codes = stock_codes_from_row(row)
+    if codes:
+        return codes[0]
+    marker = str(row.get("f12") or "").strip()
+    return marker or None
+
+
+def _clist_diff(data: Dict[str, Any] | None) -> list[Dict[str, Any]]:
+    batch = (data or {}).get("diff")
+    if isinstance(batch, dict):
+        ordered = sorted(batch, key=lambda key: int(key) if str(key).isdigit() else str(key))
+        return [batch[key] for key in ordered if isinstance(batch.get(key), dict)]
+    if isinstance(batch, list):
+        return [item for item in batch if isinstance(item, dict)]
+    return []
+
+
 def fetch_paginated(
     fs: str,
     page_size: int = 100,
@@ -299,14 +338,18 @@ def fetch_paginated(
     diagnostics: Dict[str, Any] | None = None,
 ) -> list[Dict[str, Any]]:
     _start_diagnostic(diagnostics)
-    rows = []
+    rows: list[Dict[str, Any]] = []
+    seen: Dict[str, int] = {}
+    duplicates: list[str] = []
+    unidentified = 0
+    short_nonlast_pages: list[int] = []
     total = None
     pages = 0
     for page in range(1, MAX_PAGES + 1):
         payload = api_get("https://push2delay.eastmoney.com/api/qt/clist/get?" + urlencode({
             "pn": page, "pz": page_size, "po": 1, "np": 1,
             "ut": "bd1d9ddb04089700cf9c27f6f7426281", "fltt": 2,
-            "invt": 2, "fid": "f3", "fs": fs, "fields": fields,
+            "invt": 2, "fid": CLIST_SORT_FIELD, "fs": fs, "fields": fields,
         }))
         data = payload.get("data") or {}
         if page == 1:
@@ -314,15 +357,80 @@ def fetch_paginated(
                 total = int(data.get("total"))
             except (TypeError, ValueError):
                 total = None
-        batch = data.get("diff") or []
-        if not isinstance(batch, list) or not batch:
+        batch = _clist_diff(data if isinstance(data, dict) else {})
+        if not batch:
+            if total is not None and len(rows) < total:
+                _store_diagnostic(
+                    diagnostics, pages=page, reported_total=total, row_count=len(rows),
+                    expected_universe_count=total, observed_universe_count=len(seen),
+                    duplicate_symbol_count=len(set(duplicates)), missing_symbol_count=max(0, (total or 0) - len(seen)),
+                    sort_field=CLIST_SORT_FIELD, status="PAGING_OR_PROVIDER_PAGE_FAILURE",
+                )
+                raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:missing_page:{page}:rows={len(rows)}:total={total}")
             break
-        rows.extend(item for item in batch if isinstance(item, dict))
+        for item in batch:
+            ident = _row_identity(item)
+            if ident is None:
+                unidentified += 1
+            elif ident in seen:
+                duplicates.append(ident)
+            else:
+                seen[ident] = page
+            rows.append(item)
         pages = page
-        if (total is not None and len(rows) >= total) or len(batch) < page_size:
+        is_last = (total is not None and len(rows) >= total) or len(batch) < page_size
+        if not is_last and len(batch) != page_size:
+            short_nonlast_pages.append(page)
+        if is_last:
             break
         time.sleep(0.03)
-    _store_diagnostic(diagnostics, pages=pages, reported_total=total, row_count=len(rows), status="PASS" if rows else "EMPTY")
+    if pages and short_nonlast_pages:
+        _store_diagnostic(
+            diagnostics, pages=pages, reported_total=total, row_count=len(rows),
+            expected_universe_count=total, observed_universe_count=len(seen),
+            duplicate_symbol_count=len(set(duplicates)), missing_symbol_count=None,
+            sort_field=CLIST_SORT_FIELD, status="PAGING_OR_PROVIDER_PAGE_FAILURE",
+        )
+        raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:short_page:{short_nonlast_pages}")
+    if unidentified:
+        _store_diagnostic(
+            diagnostics, pages=pages, reported_total=total, row_count=len(rows),
+            expected_universe_count=total, observed_universe_count=len(seen),
+            duplicate_symbol_count=len(set(duplicates)), missing_symbol_count=None,
+            sort_field=CLIST_SORT_FIELD, status="PAGING_OR_PROVIDER_PAGE_FAILURE",
+        )
+        raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:unidentified_rows:{unidentified}")
+    if duplicates:
+        _store_diagnostic(
+            diagnostics, pages=pages, reported_total=total, row_count=len(rows),
+            expected_universe_count=total, observed_universe_count=len(seen),
+            duplicate_symbol_count=len(set(duplicates)),
+            missing_symbol_count=None if total is None else max(0, total - len(seen)),
+            sort_field=CLIST_SORT_FIELD, status="PAGING_OR_PROVIDER_PAGE_FAILURE",
+        )
+        raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:duplicate_symbols:{len(set(duplicates))}")
+    if total is not None and len(seen) != total:
+        _store_diagnostic(
+            diagnostics, pages=pages, reported_total=total, row_count=len(rows),
+            expected_universe_count=total, observed_universe_count=len(seen),
+            duplicate_symbol_count=0, missing_symbol_count=max(0, total - len(seen)),
+            sort_field=CLIST_SORT_FIELD, status="PAGING_OR_PROVIDER_PAGE_FAILURE",
+        )
+        raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:missing_symbols:{max(0, total - len(seen))}")
+    if total is not None and pages >= MAX_PAGES and len(rows) < total:
+        raise CriticalSourceError(f"PAGING_OR_PROVIDER_PAGE_FAILURE:truncated:{len(rows)}:{total}")
+    _store_diagnostic(
+        diagnostics,
+        pages=pages,
+        reported_total=total,
+        row_count=len(rows),
+        expected_universe_count=total,
+        observed_universe_count=len(seen),
+        duplicate_symbol_count=0,
+        missing_symbol_count=0 if total is not None else None,
+        sort_field=CLIST_SORT_FIELD,
+        status="PASS" if rows else "EMPTY",
+    )
     return rows
 
 
@@ -855,6 +963,67 @@ def _stamp_available_at(value: Any, available_at: str) -> Any:
     return value
 
 
+def _raw_field_status(row: Dict[str, Any], key: str) -> str:
+    if key not in row:
+        return "RAW_FIELD_MISSING"
+    value = row.get(key)
+    if value is None or value in ("", "-"):
+        return "NULL_VALUE"
+    try:
+        float(str(value).replace(",", "").replace("%", ""))
+        return "OK"
+    except (TypeError, ValueError):
+        return "INVALID_VALUE"
+
+
+def _critical_row_gaps(row: Dict[str, Any]) -> list[str]:
+    gaps = []
+    if not stock_codes_from_row(row):
+        gaps.append("MISSING_SYMBOL")
+    if _quote_number(row, "f2", "price") is None:
+        gaps.append("MISSING_PRICE")
+    if _quote_number(row, "f5", "volume") is None:
+        gaps.append("MISSING_VOLUME")
+    if _quote_number(row, "f6", "amount") is None:
+        gaps.append("MISSING_AMOUNT")
+    if _quote_number(row, "f62", "main_net_inflow") is None:
+        gaps.append("MISSING_MAIN_NET_INFLOW")
+    return gaps
+
+
+def _incomplete_audit(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    distribution: Dict[str, int] = {}
+    compact = []
+    for index, row in enumerate(rows):
+        gaps = _critical_row_gaps(row)
+        if not gaps:
+            continue
+        key = "+".join(gaps)
+        distribution[key] = distribution.get(key, 0) + 1
+        if len(gaps) > 1:
+            distribution["MULTIPLE_REQUIRED_FIELDS_MISSING"] = distribution.get("MULTIPLE_REQUIRED_FIELDS_MISSING", 0) + 1
+        for gap in gaps:
+            distribution[gap] = distribution.get(gap, 0) + 1
+        codes = stock_codes_from_row(row)
+        compact.append({
+            "symbol": codes[0] if codes else None,
+            "name": row.get("f14") or row.get("name"),
+            "missing": gaps,
+            "raw_field_status": {key: _raw_field_status(row, key) for key in ("f2", "f5", "f6", "f62", "f12")},
+            "raw_f2": row.get("f2"),
+            "raw_f5": row.get("f5"),
+            "raw_f6": row.get("f6"),
+            "raw_f62": row.get("f62"),
+            "row_index": index,
+            "approx_page": index // 100 + 1,
+        })
+    return {
+        "incomplete_row_count": len(compact),
+        "incomplete_reason_distribution": distribution,
+        "rows": compact,
+    }
+
+
 def _collect(
     name: str,
     timings: Dict[str, Any],
@@ -876,16 +1045,30 @@ def _collect(
                 row for row in value
                 if isinstance(value, list)
                 and isinstance(row, dict)
-                and (
-                    not stock_codes_from_row(row)
-                    or _quote_number(row, "f2", "price") is None
-                    or _quote_number(row, "f5", "volume") is None
-                    or _quote_number(row, "f6", "amount") is None
-                    or _quote_number(row, "f62", "main_net_inflow") is None
-                )
+                and _critical_row_gaps(row)
             ]
             if invalid:
-                raise CriticalSourceError(f"CRITICAL_SOURCE_INCOMPLETE:{name}:{len(invalid)}")
+                audit = _incomplete_audit(value if isinstance(value, list) else [])
+                timings[name] = {
+                    "status": "ERROR",
+                    "item_count": item_count,
+                    "incomplete_row_count": audit["incomplete_row_count"],
+                    "incomplete_reason_distribution": audit["incomplete_reason_distribution"],
+                    "elapsed_seconds": round(time.monotonic() - started, 4),
+                    "domain_started_at": domain_started_at,
+                    "domain_finished_at": domain_finished_at,
+                    "fetch_started_at": domain_started_at,
+                    "fetch_completed_at": domain_finished_at,
+                    "fetch_finished_at": domain_finished_at,
+                    "source_time": domain_finished_at,
+                    "available_at": None,
+                    "critical": True,
+                    "evidence_status": "BLOCKED",
+                    "error": f"CRITICAL_SOURCE_INCOMPLETE:{name}:{len(invalid)}",
+                }
+                error = CriticalSourceError(f"CRITICAL_SOURCE_INCOMPLETE:{name}:{len(invalid)}")
+                error.audit = audit
+                raise error
         value = _stamp_available_at(value, domain_finished_at)
         timings[name] = {
             "status": "PASS" if item_count else "EMPTY",
@@ -903,22 +1086,28 @@ def _collect(
         return value
     except Exception as exc:
         domain_finished_at = _iso_now()
-        timings[name] = {
-            "status": "ERROR",
-            "item_count": 0,
-            "elapsed_seconds": round(time.monotonic() - started, 4),
-            "error": repr(exc),
-            "domain_started_at": domain_started_at,
-            "domain_finished_at": domain_finished_at,
-            "fetch_started_at": domain_started_at,
-            "fetch_completed_at": domain_finished_at,
-            "fetch_finished_at": domain_finished_at,
-            "source_time": None,
-            "available_at": None,
-            "critical": critical,
-            "evidence_status": "UNKNOWN" if not critical else "BLOCKED",
-        }
+        if name not in timings:
+            timings[name] = {
+                "status": "ERROR",
+                "item_count": 0,
+                "elapsed_seconds": round(time.monotonic() - started, 4),
+                "error": repr(exc),
+                "domain_started_at": domain_started_at,
+                "domain_finished_at": domain_finished_at,
+                "fetch_started_at": domain_started_at,
+                "fetch_completed_at": domain_finished_at,
+                "fetch_finished_at": domain_finished_at,
+                "source_time": None,
+                "available_at": None,
+                "critical": critical,
+                "evidence_status": "UNKNOWN" if not critical else "BLOCKED",
+            }
+        else:
+            timings[name].setdefault("elapsed_seconds", round(time.monotonic() - started, 4))
+            timings[name].setdefault("error", repr(exc))
         if critical:
+            if isinstance(exc, CriticalSourceError):
+                raise
             raise CriticalSourceError(f"CRITICAL_SOURCE_FAILURE:{name}:{exc}") from exc
         return default
 
@@ -966,14 +1155,19 @@ def main() -> Dict[str, Any]:
         results["stock_all_a"] = _collect(
             "stock_all_a",
             timings,
-            lambda: fetch_paginated("m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048", 100, LIGHT_STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})),
+            lambda: fetch_paginated(STOCK_ALL_A_FS, 100, LIGHT_STOCK_FIELDS, diagnostics.setdefault("stock_all_a", {})),
             [],
             critical=True,
         )
     except CriticalSourceError as exc:
         production_scan = "BLOCKED"
-        block_reason = block_reason or "CRITICAL_SOURCE_FAILURE"
+        block_reason = block_reason or str(exc) or "CRITICAL_SOURCE_FAILURE"
         timings.setdefault("stock_all_a", {"status": "ERROR", "error": repr(exc), "critical": True})
+        audit = getattr(exc, "audit", None)
+        if isinstance(audit, dict):
+            results["_source_completeness_audit"] = audit
+            timings["stock_all_a"]["incomplete_row_count"] = audit.get("incomplete_row_count")
+            timings["stock_all_a"]["incomplete_reason_distribution"] = audit.get("incomplete_reason_distribution")
         results["stock_all_a"] = []
 
     if production_scan != "BLOCKED":
@@ -1074,8 +1268,17 @@ def main() -> Dict[str, Any]:
         results["level_2_audit"] = {"purpose": "RESOURCE_ROUTER", "selection": False, "ranking": False, "alpha": False}
 
     files = {}
+    source_audit = results.pop("_source_completeness_audit", None)
     for name, rows in results.items():
         files[name] = _write_jsonl(output_dir / f"{name}.jsonl", rows if isinstance(rows, list) else [rows])
+    if isinstance(source_audit, dict):
+        audit_path = output_dir / "source_completeness_audit.json"
+        audit_path.write_text(json.dumps(source_audit, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        files["source_completeness_audit"] = str(audit_path)
+        files["source_completeness_incomplete"] = _write_jsonl(
+            output_dir / "source_completeness_incomplete.jsonl",
+            source_audit.get("rows") or [],
+        )
     stocks = results.get("stock_all_a") or []
     scan_lineage_id = build_scan_lineage_id(
         source="eastmoney_api_scan_v2",
@@ -1139,6 +1342,8 @@ def main() -> Dict[str, Any]:
         if scan_status == "SCAN_BLOCKED"
         else "SCANNER_SUCCESS_AWAITING_DECISION"
     )
+    l0_diag = diagnostics.get("stock_all_a") or {}
+    l0_time = timings.get("stock_all_a") or {}
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
         "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
@@ -1196,6 +1401,21 @@ def main() -> Dict[str, Any]:
             "source_version": "market_reality_capture_v1",
         },
         "domain_timings": timings, "fetch_diagnostics": diagnostics,
+        "source_audit": {
+            "expected_universe_count": l0_diag.get("expected_universe_count"),
+            "observed_universe_count": l0_diag.get("observed_universe_count"),
+            "duplicate_symbol_count": l0_diag.get("duplicate_symbol_count"),
+            "missing_symbol_count": l0_diag.get("missing_symbol_count"),
+            "incomplete_row_count": l0_time.get("incomplete_row_count") if not isinstance(source_audit, dict) else source_audit.get("incomplete_row_count"),
+            "incomplete_reason_distribution": (
+                source_audit.get("incomplete_reason_distribution")
+                if isinstance(source_audit, dict)
+                else l0_time.get("incomplete_reason_distribution")
+            ),
+            "sort_field": l0_diag.get("sort_field") or CLIST_SORT_FIELD,
+            "fields": LIGHT_STOCK_FIELDS,
+            "fs": STOCK_ALL_A_FS,
+        },
         "database_persistence": persistence, "files": files,
         "elapsed_seconds": round(time.monotonic() - started, 4),
     }
