@@ -181,6 +181,7 @@ def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypa
         },
     }])
     monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: list(stored_returns))
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [])
     assert filler.fill_pending_results(end_date="2026-08-10")["filled"] == 1
     assert filler.fill_pending_results(end_date="2026-08-10")["filled"] == 0
 

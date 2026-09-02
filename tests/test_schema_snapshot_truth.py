@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import inspect
+import os
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine.url import make_url
 
 from xiaogu_forward_snapshot import (
     select_canonical_snapshot,
@@ -16,7 +19,55 @@ from xiaogu_forward_snapshot import (
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 
+
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def _temporary_database(name: str):
+    """Create an isolated PostgreSQL database and rebind xiaogu_db.engine to it."""
+    import xiaogu_db as db
+
+    base = os.environ.get("DATABASE_URL", "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu")
+    candidates = [
+        str(make_url(base).set(database="postgres")),
+        "postgresql://postgres:postgres@localhost:5432/postgres",
+    ]
+    admin = None
+    last_error = None
+    for url in candidates:
+        engine = create_engine(url, isolation_level="AUTOCOMMIT", connect_args={"connect_timeout": 5})
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+                connection.execute(
+                    text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :name AND pid <> pg_backend_pid()"),
+                    {"name": name},
+                )
+                connection.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+                connection.execute(text(f'CREATE DATABASE "{name}" OWNER xiaogu'))
+            admin = engine
+            break
+        except Exception as exc:
+            last_error = exc
+            engine.dispose()
+    if admin is None:
+        raise last_error
+    temp = create_engine(str(make_url(base).set(database=name)), connect_args={"connect_timeout": 5})
+    previous = db.engine
+    db.engine = temp
+    try:
+        yield temp
+    finally:
+        db.engine = previous
+        temp.dispose()
+        with admin.connect() as connection:
+            connection.execute(
+                text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :name AND pid <> pg_backend_pid()"),
+                {"name": name},
+            )
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
 
 
 def _snapshot(*, symbol: str, trade_date: str, lineage_id: str, source_time: str | None = None):
@@ -117,6 +168,10 @@ def test_bootstrap_creates_latest_schema():
     assert "position_id TEXT PRIMARY KEY" in sql
     assert "snapshots_identity_immutable" in sql
     assert "xiaogu_protect_snapshot_identity" in sql
+    assert "CREATE TABLE IF NOT EXISTS production_runs" in sql
+    assert "production_run_id TEXT PRIMARY KEY" in sql
+    assert "lineage_id TEXT" in sql
+    assert "id BIGSERIAL PRIMARY KEY,\n    trade_date DATE NOT NULL,\n    status TEXT NOT NULL,\n    payload JSONB" not in sql
 
 
 def test_runtime_migration_upgrade():
@@ -125,20 +180,23 @@ def test_runtime_migration_upgrade():
     db.ensure_production_schema()
     with db.engine.begin() as connection:
         connection.execute(
-            text("UPDATE xiaogu_schema_version SET schema_version = 'xiaogu_production_schema_v4'")
+            text("UPDATE xiaogu_schema_version SET schema_version = 'xiaogu_production_schema_v5'")
         )
         connection.execute(
             text("DELETE FROM xiaogu_schema_migrations WHERE migration_id = :migration_id"),
-            {"migration_id": "schema-xiaogu_production_schema_v5"},
+            {"migration_id": "schema-xiaogu_production_schema_v6"},
         )
     try:
         db.ensure_production_schema()
         audit = db.audit_production_schema()
         assert audit["schema_version"] == db.SCHEMA_VERSION
         assert audit["ok"] is True
-        applied = db._applied_migration("schema-xiaogu_production_schema_v5")
+        applied = db._applied_migration("schema-xiaogu_production_schema_v6")
         assert applied is not None
-        assert applied["checksum"] == db._migration_checksum(db.SCHEMA_V5_STATEMENTS)
+        assert applied["checksum"] == db._migration_checksum(db.SCHEMA_V6_STATEMENTS)
+        assert audit["tables"]["production_runs"]["primary_key"]["status"] == "EXISTS"
+        assert audit["tables"]["production_runs"]["columns"]["production_run_id"] == "EXISTS"
+        assert audit["tables"]["production_runs"]["columns"]["lineage_id"] == "EXISTS"
         assert audit["tables"]["positions"]["primary_key"]["status"] == "EXISTS"
     finally:
         db.ensure_production_schema()
@@ -302,3 +360,292 @@ def test_outcome_reuses_decision_identity():
     assert "select_canonical_snapshot" not in filler
     assert "get_latest_snapshot" not in filler
     assert "ORDER BY source_time" not in filler
+
+
+
+def test_insert_scan_session_matches_production_schema():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    audit = db.audit_production_schema()
+    assert audit["schema_version"] == "xiaogu_production_schema_v6"
+    assert audit["tables"]["production_runs"]["columns"]["production_run_id"] == "EXISTS"
+    assert audit["tables"]["production_runs"]["columns"]["lineage_id"] == "EXISTS"
+    assert audit["tables"]["production_runs"]["primary_key"]["columns"] == ["production_run_id"]
+    source = inspect.getsource(db.insert_scan_session)
+    assert "INSERT INTO production_runs" in source
+    assert "RETURNING production_run_id" in source
+    assert "RETURNING id" not in source
+    assert "payload" not in source or "CAST(:payload AS jsonb)" not in source
+    lineage_id = "test-persist-lineage-insert"
+    scan_dir = "data/test/production_runs_contract/insert"
+    run_id = db.insert_scan_session(
+        trade_date="2026-09-02",
+        scan_time="2026-09-02T14:50:00+08:00",
+        source_id="test_persist",
+        quotes_count=3,
+        captured_count=3,
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+        market_snapshot={"test": True},
+    )
+    try:
+        assert run_id
+        assert run_id != lineage_id
+        run = db.fetch_production_run(run_id)
+        assert run is not None
+        assert run["production_run_id"] == run_id
+        assert str(run["lineage_id"]) == lineage_id
+        assert str(run["status"]) == "SNAPSHOT_CAPTURED"
+        assert "payload" not in run
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_insert_scan_session_new_run_id_on_retry():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    lineage_one = "test-persist-lineage-retry-1"
+    lineage_two = "test-persist-lineage-retry-2"
+    scan_dir = "data/test/production_runs_contract/retry"
+    first = db.insert_scan_session(
+        trade_date="2026-09-02",
+        scan_time="2026-09-02T14:50:00+08:00",
+        scan_dir=scan_dir,
+        lineage_id=lineage_one,
+    )
+    second = db.insert_scan_session(
+        trade_date="2026-09-02",
+        scan_time="2026-09-02T14:55:00+08:00",
+        scan_dir=scan_dir,
+        lineage_id=lineage_two,
+    )
+    try:
+        assert first and second
+        assert first != second
+        assert db.fetch_production_run(first)["lineage_id"] == lineage_one
+        assert db.fetch_production_run(second)["lineage_id"] == lineage_two
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM production_runs WHERE production_run_id IN (:a, :b)"),
+                {"a": first, "b": second},
+            )
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_insert_scan_session_invalid_metadata_fails_closed():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    with pytest.raises(ValueError, match="PRODUCTION_SCAN_BLOCKED:TRADE_DATE_REQUIRED"):
+        db.insert_scan_session(lineage_id="test-persist-missing-date")
+    with pytest.raises(ValueError, match="PRODUCTION_SCAN_BLOCKED:LINEAGE_ID_REQUIRED"):
+        db.insert_scan_session(trade_date="2026-09-02")
+
+
+def test_persist_scan_capture_rolls_back_run_on_snapshot_failure():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    lineage_id = "test-persist-lineage-rollback"
+    scan_dir = "data/test/production_runs_contract/rollback"
+    with db.engine.connect() as connection:
+        before = int(
+            connection.execute(
+                text("SELECT count(*) FROM production_runs WHERE lineage_id = :lineage_id"),
+                {"lineage_id": lineage_id},
+            ).scalar_one()
+        )
+    with pytest.raises((ValueError, RuntimeError)):
+        db.persist_scan_capture(
+            trade_date="2026-09-02",
+            scan_time="2026-09-02T14:50:00+08:00",
+            scan_dir=scan_dir,
+            lineage_id=lineage_id,
+            snapshots=[{"symbol": "600000", "trade_date": "2026-09-02"}],
+        )
+    with db.engine.connect() as connection:
+        after = int(
+            connection.execute(
+                text("SELECT count(*) FROM production_runs WHERE lineage_id = :lineage_id"),
+                {"lineage_id": lineage_id},
+            ).scalar_one()
+        )
+        leftover_sessions = int(
+            connection.execute(
+                text("SELECT count(*) FROM scan_sessions WHERE scan_dir = :scan_dir"),
+                {"scan_dir": scan_dir},
+            ).scalar_one()
+        )
+    assert after == before
+    assert leftover_sessions == 0
+
+
+def test_persist_scan_capture_writes_run_and_snapshot():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    lineage_id = "test-persist-lineage-success"
+    scan_dir = "data/test/production_runs_contract/success"
+    snapshot = _snapshot(symbol="600000", trade_date="2026-09-02", lineage_id=lineage_id)
+    try:
+        result = db.persist_scan_capture(
+            trade_date="2026-09-02",
+            scan_time="2026-09-02T14:50:00+08:00",
+            scan_dir=scan_dir,
+            lineage_id=lineage_id,
+            snapshots=(item for item in [snapshot]),
+        )
+        assert result["status"] == "PASS"
+        assert result["run_id"]
+        assert result["run_id"] != lineage_id
+        assert result["snapshot_count"] == 1
+        run = db.fetch_production_run(result["run_id"])
+        assert run is not None
+        assert str(run["lineage_id"]) == lineage_id
+        assert "payload" not in run
+        assert db.verify_persisted_snapshot(
+            snapshot_id=snapshot["snapshot_id"],
+            lineage_id=lineage_id,
+            trade_date="2026-09-02",
+            source=snapshot["source"],
+            source_time=snapshot["source_time"],
+            symbol=snapshot["symbol"],
+            payload_hash=snapshot["payload_hash"],
+        )
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM snapshots WHERE lineage_id = :lineage_id"), {"lineage_id": lineage_id})
+            connection.execute(text("DELETE FROM production_runs WHERE lineage_id = :lineage_id"), {"lineage_id": lineage_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_persist_scan_capture_empty_snapshots_fails_closed():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    lineage_id = "test-persist-lineage-empty"
+    scan_dir = "data/test/production_runs_contract/empty"
+    with pytest.raises(RuntimeError, match="PRODUCTION_SCAN_BLOCKED:CANONICAL_SNAPSHOT_NOT_FOUND"):
+        db.persist_scan_capture(
+            trade_date="2026-09-02",
+            scan_time="2026-09-02T14:50:00+08:00",
+            scan_dir=scan_dir,
+            lineage_id=lineage_id,
+            snapshots=[],
+        )
+    with db.engine.connect() as connection:
+        leftover_runs = int(
+            connection.execute(
+                text("SELECT count(*) FROM production_runs WHERE lineage_id = :lineage_id"),
+                {"lineage_id": lineage_id},
+            ).scalar_one()
+        )
+        leftover_sessions = int(
+            connection.execute(
+                text("SELECT count(*) FROM scan_sessions WHERE scan_dir = :scan_dir"),
+                {"scan_dir": scan_dir},
+            ).scalar_one()
+        )
+    assert leftover_runs == 0
+    assert leftover_sessions == 0
+
+
+def test_insert_scan_session_invalid_trade_date_fails_closed():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    with pytest.raises(RuntimeError, match="PRODUCTION_SCAN_BLOCKED"):
+        db.insert_scan_session(trade_date="not-a-date", lineage_id="test-persist-bad-date")
+
+
+def test_fresh_db_insert_scan_session_matches_schema():
+    import xiaogu_db as db
+
+    with _temporary_database("xiaogu_tmp_persist_fresh"):
+        db.init_db()
+        audit = db.audit_production_schema()
+        assert audit["ok"] is True
+        assert audit["schema_version"] == "xiaogu_production_schema_v6"
+        lineage_id = "fresh-db-lineage"
+        run_id = db.insert_scan_session(
+            trade_date="2026-09-02",
+            scan_time="2026-09-02T14:50:00+08:00",
+            scan_dir="data/test/production_runs_contract/fresh",
+            lineage_id=lineage_id,
+        )
+        assert run_id
+        assert run_id != lineage_id
+        run = db.fetch_production_run(run_id)
+        assert run is not None
+        assert run["production_run_id"] == run_id
+        assert str(run["lineage_id"]) == lineage_id
+        assert "payload" not in run
+
+
+def test_v5_payload_table_migrates_without_rewriting_rows():
+    import xiaogu_db as db
+
+    with _temporary_database("xiaogu_tmp_persist_v5"):
+        db.init_db()
+        with db.engine.begin() as connection:
+            connection.execute(text("ALTER TABLE production_runs DROP CONSTRAINT IF EXISTS production_runs_scan_session_id_fkey"))
+            connection.execute(text("DROP TABLE production_runs"))
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE production_runs (
+                        id BIGSERIAL PRIMARY KEY,
+                        trade_date DATE NOT NULL,
+                        status TEXT NOT NULL,
+                        payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO production_runs (trade_date, status, payload)
+                    VALUES (CAST('2026-08-25' AS date), 'PASS', CAST(:payload AS jsonb))
+                    """
+                ),
+                {"payload": '{"historical": true}'},
+            )
+            connection.execute(text("UPDATE xiaogu_schema_version SET schema_version = 'xiaogu_production_schema_v5'"))
+            connection.execute(
+                text("DELETE FROM xiaogu_schema_migrations WHERE migration_id = :migration_id"),
+                {"migration_id": "schema-xiaogu_production_schema_v6"},
+            )
+        db.ensure_production_schema()
+        audit = db.audit_production_schema()
+        assert audit["ok"] is True
+        assert audit["schema_version"] == "xiaogu_production_schema_v6"
+        with db.engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT production_run_id, status, payload FROM production_runs WHERE status = 'PASS'")
+            ).mappings().first()
+            count = int(connection.execute(text("SELECT count(*) FROM production_runs")).scalar_one())
+        assert count == 1
+        assert row is not None
+        assert str(row["production_run_id"]).startswith("legacy-")
+        assert str(row["status"]) == "PASS"
+        assert row["payload"]["historical"] is True
+        lineage_id = "migrated-v5-lineage"
+        run_id = db.insert_scan_session(
+            trade_date="2026-09-02",
+            scan_time="2026-09-02T14:50:00+08:00",
+            scan_dir="data/test/production_runs_contract/v5",
+            lineage_id=lineage_id,
+        )
+        assert run_id
+        assert run_id != lineage_id
+        run = db.fetch_production_run(run_id)
+        assert run is not None
+        assert str(run["lineage_id"]) == lineage_id
+        assert str(run["production_run_id"]) == run_id

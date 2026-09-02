@@ -195,6 +195,9 @@ def check_production_schema_audit():
         and audit["tables"]["snapshot_identity_conflicts"]["columns"]["incoming_payload_hash"] == "EXISTS"
         and ("decision_id", "trade_date") in audit["tables"]["returns"]["unique_constraints"]
         and audit.get("schema_version_status") == "EXISTS"
+        and audit["tables"]["production_runs"]["columns"]["production_run_id"] == "EXISTS"
+        and audit["tables"]["production_runs"]["columns"]["lineage_id"] == "EXISTS"
+        and audit["tables"]["production_runs"]["primary_key"]["status"] == "EXISTS"
     )
     returns_fk = audit["tables"]["returns"]["foreign_keys"].get("decision_id->picks.decision_id")
     paper_fk = audit["tables"]["paper_observations"]["foreign_keys"].get("decision_id->picks.decision_id")

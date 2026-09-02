@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 import calendar as calendar_module
 import re
 from contextlib import contextmanager
@@ -36,7 +37,8 @@ INVALID_CALENDAR_YEAR = "INVALID_CALENDAR_YEAR"
 CALENDAR_DATASET_DIR = Path(__file__).resolve().parent / "data" / "trading_calendar"
 # Test/import override. Normal runtime always resolves the year-specific path.
 CALENDAR_DATASET_PATH: Path | None = None
-SCHEMA_VERSION = "xiaogu_production_schema_v5"
+SCHEMA_VERSION = "xiaogu_production_schema_v6"
+PRODUCTION_SCAN_BLOCKED = "PRODUCTION_SCAN_BLOCKED"
 MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
 MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
 HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
@@ -271,6 +273,69 @@ SCHEMA_V5_STATEMENTS = (
     """.strip(),
     "CREATE INDEX IF NOT EXISTS idx_positions_symbol ON positions (symbol)",
     "CREATE INDEX IF NOT EXISTS idx_positions_decision_id ON positions (decision_id)",
+)
+SCHEMA_V6_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS scan_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        trade_date DATE NOT NULL,
+        scan_time TIMESTAMPTZ NOT NULL,
+        source_id TEXT,
+        quotes_count INTEGER DEFAULT 0,
+        scored_count INTEGER DEFAULT 0,
+        passed_count INTEGER DEFAULT 0,
+        scan_dir TEXT,
+        status TEXT DEFAULT 'completed',
+        error_message TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        data_version TEXT,
+        market_snapshot JSONB DEFAULT CAST('{}' AS jsonb),
+        source_status JSONB DEFAULT CAST('{}' AS jsonb),
+        source_counts JSONB DEFAULT CAST('{}' AS jsonb),
+        source_diagnostics JSONB DEFAULT CAST('{}' AS jsonb),
+        production_run_id TEXT
+    )
+    """.strip(),
+    """
+    CREATE TABLE IF NOT EXISTS production_runs (
+        production_run_id TEXT PRIMARY KEY,
+        trade_date DATE NOT NULL,
+        scan_session_id INTEGER,
+        run_mode TEXT NOT NULL DEFAULT 'PRODUCTION',
+        rule_version TEXT,
+        runner_version TEXT,
+        scanner_version TEXT,
+        schema_version TEXT,
+        scoring_config_snapshot JSONB DEFAULT CAST('{}' AS jsonb),
+        scoring_config_hash TEXT,
+        input_payload_hash TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        error_message TEXT,
+        retry_command TEXT,
+        lineage_id TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ
+    )
+    """.strip(),
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS production_run_id TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS trade_date DATE",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS scan_session_id INTEGER",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS run_mode TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS status TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS lineage_id TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS scanner_version TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS schema_version TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS runner_version TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS input_payload_hash TEXT",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ",
+    "ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS idx_production_runs_trade_date ON production_runs (trade_date, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_production_runs_status ON production_runs (status)",
+    "CREATE INDEX IF NOT EXISTS idx_production_runs_lineage_id ON production_runs (lineage_id)",
 )
 
 
@@ -531,6 +596,10 @@ def audit_production_schema() -> Dict[str, Any]:
             "position_state", "opened_trade_date", "closed_trade_date",
             "created_at", "updated_at",
         ),
+        "production_runs": (
+            "production_run_id", "trade_date", "status", "run_mode", "lineage_id",
+            "created_at",
+        ),
     }
     required_unique = {
         "snapshots": {("snapshot_id",), ("lineage_id", "symbol")},
@@ -543,6 +612,7 @@ def audit_production_schema() -> Dict[str, Any]:
             ("calendar_version", "market", "effective_year"),
         },
         "positions": {("position_id",), ("decision_id",)},
+        "production_runs": {("production_run_id",)},
     }
     required_indexes = {
         "snapshots": ("idx_snapshots_trade_date", "idx_snapshots_lineage_id"),
@@ -556,6 +626,7 @@ def audit_production_schema() -> Dict[str, Any]:
         "trading_calendar": ("idx_trading_calendar_open_days",),
         "snapshot_identity_conflicts": ("idx_snapshot_identity_conflicts_snapshot_id",),
         "positions": ("idx_positions_symbol", "idx_positions_decision_id"),
+        "production_runs": ("idx_production_runs_trade_date", "idx_production_runs_lineage_id"),
     }
     required_triggers = {
         "snapshots": ("snapshots_identity_immutable",),
@@ -573,6 +644,7 @@ def audit_production_schema() -> Dict[str, Any]:
         "xiaogu_schema_version": ("singleton",),
         "xiaogu_schema_migrations": ("migration_id",),
         "positions": ("position_id",),
+        "production_runs": ("production_run_id",),
     }
     tables = {}
     ok = True
@@ -747,6 +819,13 @@ def _schema_migrations() -> tuple[dict[str, Any], ...]:
             "to_version": "xiaogu_production_schema_v5",
             "statements": SCHEMA_V5_STATEMENTS,
             "apply": _apply_position_identity_constraints,
+        },
+        {
+            "migration_id": "schema-xiaogu_production_schema_v6",
+            "from_version": "xiaogu_production_schema_v5",
+            "to_version": "xiaogu_production_schema_v6",
+            "statements": SCHEMA_V6_STATEMENTS,
+            "apply": _apply_production_run_persistence_contract,
         },
     )
 
@@ -994,6 +1073,73 @@ def _apply_position_identity_constraints() -> None:
             "ALTER TABLE positions ADD CONSTRAINT positions_original_snapshot_id_fkey "
             "FOREIGN KEY (original_snapshot_id) REFERENCES snapshots (snapshot_id)"
         )
+
+
+def _column_udt_name(table_name: str, column_name: str) -> str:
+    with engine.connect() as db:
+        value = db.execute(
+            text(
+                """
+                SELECT udt_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
+                """
+            ),
+            {"table_name": table_name, "column_name": column_name},
+        ).scalar()
+    return str(value or "")
+
+
+def _align_production_run_scan_session_fk() -> None:
+    parent_type = _column_udt_name("scan_sessions", "id")
+    child_type = _column_udt_name("production_runs", "scan_session_id")
+    if not parent_type or not child_type or parent_type == child_type:
+        return
+    try:
+        _exec_schema("ALTER TABLE production_runs DROP CONSTRAINT IF EXISTS production_runs_scan_session_id_fkey")
+    except SQLAlchemyError as exc:
+        if not _schema_error_already_exists(exc):
+            raise
+    _exec_schema(
+        f"ALTER TABLE production_runs ALTER COLUMN scan_session_id TYPE {parent_type} "
+        f"USING CAST(scan_session_id AS {parent_type})"
+    )
+
+
+def _apply_production_run_persistence_contract() -> None:
+    """Adopt production_runs into the schema owner without rewriting historical run rows."""
+    columns = _table_columns("production_runs")
+    if not columns:
+        raise RuntimeError("PRODUCTION_RUNS_SCHEMA_MISSING")
+    if "lineage_id" not in columns:
+        _exec_schema("ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS lineage_id TEXT")
+        columns = _table_columns("production_runs")
+    if "production_run_id" not in columns:
+        _exec_schema("ALTER TABLE production_runs ADD COLUMN IF NOT EXISTS production_run_id TEXT")
+        columns = _table_columns("production_runs")
+    if "id" in _table_columns("production_runs") and "production_run_id" in _table_columns("production_runs"):
+        _exec_schema(
+            "UPDATE production_runs "
+            "SET production_run_id = 'legacy-' || CAST(id AS text) "
+            "WHERE production_run_id IS NULL OR BTRIM(CAST(production_run_id AS text)) = ''"
+        )
+    _ensure_table_primary_key("production_runs", ("production_run_id",))
+    session_columns = _table_columns("scan_sessions")
+    if session_columns and "id" in session_columns and "scan_session_id" in _table_columns("production_runs"):
+        _align_production_run_scan_session_fk()
+        fks = {
+            f"{item['column_name']}->{item['foreign_table']}.{item['foreign_column']}"
+            for item in _foreign_keys("production_runs")
+        }
+        if "scan_session_id->scan_sessions.id" not in fks:
+            try:
+                _exec_schema(
+                    "ALTER TABLE production_runs ADD CONSTRAINT production_runs_scan_session_id_fkey "
+                    "FOREIGN KEY (scan_session_id) REFERENCES scan_sessions (id)"
+                )
+            except SQLAlchemyError as exc:
+                if not _schema_error_already_exists(exc):
+                    raise
 
 
 def _apply_schema_migration(migration: Dict[str, Any]) -> None:
@@ -1890,13 +2036,219 @@ def record_canonical_future_prices(bars: Iterable[Dict[str, Any]]) -> None:
                     raise ValueError("PRICE_FACT_CONFLICT")
 
 
-def insert_scan_session(**payload: Any) -> int:
+def _jsonb_text(value: Any) -> str:
+    if value is None:
+        return "{}"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def insert_scan_session(**payload: Any) -> str:
+    """Persist scan-session metadata and a production run identity.
+
+    production_run_id is run_id. lineage_id stays on the run as linkage only;
+    snapshots remain the canonical snapshot store.
+    """
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
+    trade_date = str(payload.get("trade_date") or "").strip()
+    lineage_id = str(payload.get("lineage_id") or "").strip()
+    if not trade_date:
+        raise ValueError(f"{PRODUCTION_SCAN_BLOCKED}:TRADE_DATE_REQUIRED")
+    if not lineage_id:
+        raise ValueError(f"{PRODUCTION_SCAN_BLOCKED}:LINEAGE_ID_REQUIRED")
+    run_columns = _table_columns("production_runs")
+    required = ("production_run_id", "trade_date", "status", "run_mode", "lineage_id")
+    missing = [column for column in required if column not in run_columns]
+    if missing:
+        raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:PRODUCTION_RUNS_SCHEMA_MISSING:{','.join(missing)}")
+    run_id = str(uuid.uuid4())
+    if run_id == lineage_id:
+        raise ValueError(f"{PRODUCTION_SCAN_BLOCKED}:RUN_ID_LINEAGE_COLLISION")
+    scan_time = str(payload.get("scan_time") or "").strip()
+    session_id = None
+    session_columns = _table_columns("scan_sessions")
+    try:
+        with get_db() as db:
+            if session_columns:
+                session_id = _insert_or_reuse_scan_session(db, payload, session_columns, scan_time)
+            row = db.execute(
+                text(
+                    """
+                    INSERT INTO production_runs (
+                        production_run_id, trade_date, scan_session_id, run_mode, status,
+                        lineage_id, scanner_version, schema_version, runner_version,
+                        input_payload_hash, started_at, updated_at
+                    ) VALUES (
+                        :production_run_id, CAST(:trade_date AS date), :scan_session_id, :run_mode, :status,
+                        :lineage_id, :scanner_version, :schema_version, :runner_version,
+                        :input_payload_hash, CAST(NULLIF(:started_at, '') AS timestamptz), NOW()
+                    )
+                    RETURNING production_run_id
+                    """
+                ),
+                {
+                    "production_run_id": run_id,
+                    "trade_date": trade_date,
+                    "scan_session_id": session_id,
+                    "run_mode": str(payload.get("run_mode") or "PRODUCTION"),
+                    "status": "SNAPSHOT_CAPTURED",
+                    "lineage_id": lineage_id,
+                    "scanner_version": str(payload.get("scanner_version") or "scrapy_scanner/runner_v2.py"),
+                    "schema_version": SCHEMA_VERSION,
+                    "runner_version": str(payload.get("runner_version") or ""),
+                    "input_payload_hash": hashlib.sha256(
+                        json.dumps(payload, ensure_ascii=False, default=str, sort_keys=True).encode("utf-8")
+                    ).hexdigest(),
+                    "started_at": scan_time,
+                },
+            ).fetchone()
+            persisted_run_id = str(row[0]) if row else ""
+            if not persisted_run_id:
+                raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:RUN_ID_MISSING")
+            if session_id is not None and "production_run_id" in session_columns:
+                db.execute(
+                    text(
+                        "UPDATE scan_sessions SET production_run_id = :run_id, updated_at = NOW() "
+                        "WHERE id = :session_id"
+                    ),
+                    {"run_id": persisted_run_id, "session_id": session_id},
+                )
+    except ValueError:
+        raise
+    except SQLAlchemyError as exc:
+        raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:{type(exc).__name__}") from exc
+    return persisted_run_id
+
+
+def _insert_or_reuse_scan_session(
+    db: Any, payload: Dict[str, Any], session_columns: set[str], scan_time: str,
+) -> int | None:
+    required = ("trade_date", "scan_time")
+    if any(column not in session_columns for column in required):
+        raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:SCAN_SESSIONS_SCHEMA_MISSING")
+    trade_date = str(payload.get("trade_date") or "").strip()
+    scan_dir = str(payload.get("scan_dir") or "").strip()
+    quotes_count = payload.get("quotes_count")
+    scored_count = payload.get("scored_count")
+    if scored_count is None:
+        scored_count = payload.get("captured_count")
+    params = {
+        "trade_date": trade_date,
+        "scan_time": scan_time or None,
+        "source_id": str(payload.get("source_id") or "eastmoney_api_scan_v2"),
+        "quotes_count": 0 if quotes_count is None else quotes_count,
+        "scored_count": 0 if scored_count is None else scored_count,
+        "passed_count": 0 if payload.get("passed_count") is None else payload.get("passed_count"),
+        "scan_dir": scan_dir or None,
+        "market_snapshot": _jsonb_text(payload.get("market_snapshot")),
+        "source_status": _jsonb_text(payload.get("source_status")),
+        "source_counts": _jsonb_text(payload.get("source_counts")),
+        "source_diagnostics": _jsonb_text(payload.get("source_diagnostics")),
+    }
+    existing = None
+    if scan_dir and "scan_dir" in session_columns:
+        existing = db.execute(
+            text(
+                """
+                SELECT id FROM scan_sessions
+                WHERE trade_date = CAST(:trade_date AS date) AND scan_dir = :scan_dir
+                ORDER BY scan_time DESC, id DESC
+                LIMIT 1
+                """
+            ),
+            {"trade_date": trade_date, "scan_dir": scan_dir},
+        ).fetchone()
+    if existing:
+        db.execute(
+            text(
+                """
+                UPDATE scan_sessions
+                SET scan_time = COALESCE(CAST(NULLIF(:scan_time, '') AS timestamptz), scan_time),
+                    source_id = COALESCE(:source_id, source_id),
+                    quotes_count = :quotes_count,
+                    scored_count = :scored_count,
+                    passed_count = :passed_count,
+                    market_snapshot = CAST(:market_snapshot AS jsonb),
+                    source_status = CAST(:source_status AS jsonb),
+                    source_counts = CAST(:source_counts AS jsonb),
+                    source_diagnostics = CAST(:source_diagnostics AS jsonb),
+                    status = 'completed',
+                    updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {**params, "id": existing[0], "scan_time": scan_time},
+        )
+        return int(existing[0])
+    row = db.execute(
+        text(
+            """
+            INSERT INTO scan_sessions (
+                trade_date, scan_time, source_id, quotes_count, scored_count, passed_count,
+                scan_dir, market_snapshot, source_status, source_counts, source_diagnostics,
+                status
+            ) VALUES (
+                CAST(:trade_date AS date),
+                COALESCE(CAST(NULLIF(:scan_time, '') AS timestamptz), NOW()),
+                :source_id, :quotes_count, :scored_count, :passed_count, :scan_dir,
+                CAST(:market_snapshot AS jsonb), CAST(:source_status AS jsonb),
+                CAST(:source_counts AS jsonb), CAST(:source_diagnostics AS jsonb),
+                'completed'
+            )
+            RETURNING id
+            """
+        ),
+        params,
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:SCAN_SESSION_ID_MISSING")
+    return int(row[0])
+
+
+def persist_scan_capture(
+    *,
+    snapshots: Iterable[Dict[str, Any]] | None = None,
+    **session: Any,
+) -> Dict[str, Any]:
+    """Persist one production scan, its run identity, and canonical snapshots atomically.
+
+    Raw scanner domain rows stay out of production_runs. Snapshots remain the
+    canonical snapshot store; production_runs is scan-session metadata only.
+    """
+    ensure_production_schema()
+    with engine.begin() as db:
+        token = _ACTIVE_DB_CONNECTION.set(db)
+        try:
+            run_id = insert_scan_session(**session)
+            run = fetch_production_run(run_id) or {}
+            snapshot_count = 0
+            for snapshot in snapshots or ():
+                record_snapshot(snapshot)
+                snapshot_count += 1
+            if snapshot_count == 0:
+                raise RuntimeError(f"{PRODUCTION_SCAN_BLOCKED}:CANONICAL_SNAPSHOT_NOT_FOUND")
+            return {
+                "status": "PASS",
+                "run_id": run_id,
+                "lineage_id": session.get("lineage_id"),
+                "scan_session_id": run.get("scan_session_id"),
+                "snapshot_count": snapshot_count,
+            }
+        finally:
+            _ACTIVE_DB_CONNECTION.reset(token)
+
+
+def fetch_production_run(run_id: str) -> Dict[str, Any] | None:
+    if not str(run_id or "").strip():
+        return None
     with get_db() as db:
         row = db.execute(
-            text("INSERT INTO production_runs (trade_date, status, payload) VALUES (:trade_date, 'SNAPSHOT_CAPTURED', CAST(:payload AS jsonb)) RETURNING id"),
-            {"trade_date": payload["trade_date"], "payload": json.dumps(payload, ensure_ascii=False, default=str)},
-        ).fetchone()
-    return int(row[0])
+            text("SELECT * FROM production_runs WHERE production_run_id = :run_id"),
+            {"run_id": run_id},
+        ).mappings().first()
+    return dict(row) if row else None
 
 
 def upsert_scan_market_data(scan_session_id: int, trade_date: Any, scan_time: Any, results: Dict[str, Any], diagnostics: Dict[str, Any]) -> int:
@@ -3315,7 +3667,7 @@ def database_identity_coverage() -> Dict[str, Any]:
             "candidate_snapshot_id", "production_run_id", "trade_date", "symbol",
             "open_price", "high_price", "low_price", "close_price",
         ),
-        "production_runs": ("production_run_id", "trade_date"),
+        "production_runs": ("production_run_id", "trade_date", "lineage_id"),
         "snapshots": ("snapshot_id", "lineage_id", "trade_date", "symbol"),
         "canonical_historical_snapshots": (
             "snapshot_id", "lineage_id", "trade_date", "signal_time", "available_at",
@@ -3522,7 +3874,7 @@ def fetch_historical_replay_assets(
         "production_runs": {
             "production_run_id", "trade_date", "scan_session_id", "run_mode", "rule_version",
             "runner_version", "scanner_version", "schema_version", "scoring_config_hash",
-            "input_payload_hash", "status", "error_message", "retry_command",
+            "input_payload_hash", "status", "error_message", "retry_command", "lineage_id",
             "created_at", "started_at", "completed_at", "updated_at",
         },
         "canonical_future_prices": {
@@ -3549,7 +3901,7 @@ def fetch_historical_replay_assets(
             "raw_json", "source_layers",
         },
         "manual_execution_records": {"risk_snapshot", "payload"},
-        "production_runs": {"scoring_config_snapshot", "payload"},
+        "production_runs": {"scoring_config_snapshot"},
         "canonical_future_prices": {"payload"},
         "canonical_historical_snapshots": {"payload"},
     }

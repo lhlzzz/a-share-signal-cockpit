@@ -77,6 +77,26 @@ jobs:
       - run: python -m compileall -q scrapy_scanner scripts xiaogu_*.py
       - run: mkdir -p artifacts
       - run: pytest tests/test_schema_snapshot_truth.py tests/test_snapshot_identity_lock.py tests/test_production_contract.py tests/test_production_decision.py tests/test_production_hardening.py tests/test_data_contract.py -x -q --junitxml=artifacts/production-contract-report.xml
+      - name: production run persistence contract
+        run: |
+          python - <<'PY'
+          from xiaogu_db import SCHEMA_VERSION, ensure_production_schema, fetch_production_run, insert_scan_session
+          ensure_production_schema()
+          lineage_id = "ci-persist-lineage"
+          run_id = insert_scan_session(
+              trade_date="2026-09-02",
+              scan_time="2026-09-02T14:50:00+08:00",
+              scan_dir="data/test/production_runs_contract/ci",
+              lineage_id=lineage_id,
+          )
+          assert run_id and run_id != lineage_id
+          run = fetch_production_run(run_id)
+          assert run is not None
+          assert run["production_run_id"] == run_id
+          assert str(run["lineage_id"]) == lineage_id
+          print("SCHEMA_VERSION", SCHEMA_VERSION)
+          print("run_id", run_id)
+          PY
       - run: set -o pipefail && python scripts/xiaogu_daily_health_check.py --json | tee artifacts/health-report.json
       - name: production path anti-regressions
         run: |

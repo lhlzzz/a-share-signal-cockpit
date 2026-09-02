@@ -1,10 +1,47 @@
-CREATE TABLE IF NOT EXISTS production_runs (
-    id BIGSERIAL PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS scan_sessions (
+    id SERIAL PRIMARY KEY,
     trade_date DATE NOT NULL,
-    status TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT CAST('{}' AS jsonb),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    scan_time TIMESTAMPTZ NOT NULL,
+    source_id TEXT,
+    quotes_count INTEGER DEFAULT 0,
+    scored_count INTEGER DEFAULT 0,
+    passed_count INTEGER DEFAULT 0,
+    scan_dir TEXT,
+    status TEXT DEFAULT 'completed',
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    data_version TEXT,
+    market_snapshot JSONB DEFAULT CAST('{}' AS jsonb),
+    source_status JSONB DEFAULT CAST('{}' AS jsonb),
+    source_counts JSONB DEFAULT CAST('{}' AS jsonb),
+    source_diagnostics JSONB DEFAULT CAST('{}' AS jsonb),
+    production_run_id TEXT
 );
+CREATE TABLE IF NOT EXISTS production_runs (
+    production_run_id TEXT PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    scan_session_id INTEGER,
+    run_mode TEXT NOT NULL DEFAULT 'PRODUCTION',
+    rule_version TEXT,
+    runner_version TEXT,
+    scanner_version TEXT,
+    schema_version TEXT,
+    scoring_config_snapshot JSONB DEFAULT CAST('{}' AS jsonb),
+    scoring_config_hash TEXT,
+    input_payload_hash TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    error_message TEXT,
+    retry_command TEXT,
+    lineage_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_production_runs_trade_date ON production_runs (trade_date, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_production_runs_status ON production_runs (status);
+CREATE INDEX IF NOT EXISTS idx_production_runs_lineage_id ON production_runs (lineage_id);
 CREATE TABLE IF NOT EXISTS snapshots (
     snapshot_id TEXT PRIMARY KEY,
     lineage_id TEXT NOT NULL,

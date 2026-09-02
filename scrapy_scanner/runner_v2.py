@@ -8,6 +8,7 @@ alpha, and portfolio actions belong to downstream owners.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import re
@@ -1480,24 +1481,44 @@ def main() -> Dict[str, Any]:
     market_path = output_dir / "canonical_market_snapshot.json"
     market_path.write_text(json.dumps(market, ensure_ascii=False, indent=2), encoding="utf-8")
     files["canonical_market_snapshot"] = str(market_path)
+    source_counts = {name: result_item_count(value) for name, value in results.items()}
+    l0_count = len(stocks)
+    canonical_count = len(snapshots)
+    results.clear()
+    del stocks
+    gc.collect()
 
     persistence = {"status": "SKIPPED", "reason": "XIAOGU_PERSIST_DB_not_set" if production_scan != "BLOCKED" else "PRODUCTION_SCAN_BLOCKED"}
     if production_scan != "BLOCKED" and os.environ.get("XIAOGU_PERSIST_DB") == "1":
         try:
-            from xiaogu_db import insert_scan_session, record_snapshot, upsert_scan_market_data
-            session_id = insert_scan_session(
-                trade_date=source_time[:10], scan_time=source_time, source_id="eastmoney_api_scan_v2",
-                quotes_count=len(stocks), captured_count=len(stocks),
-                scan_dir=str(output_dir), market_snapshot=market,
-                source_status=diagnostics, source_counts={name: result_item_count(value) for name, value in results.items()},
+            from xiaogu_db import persist_scan_capture
+            snapshot_file = output_dir / "canonical_snapshots.jsonl"
+
+            def _canonical_snapshot_rows() -> Iterable[Dict[str, Any]]:
+                with snapshot_file.open(encoding="utf-8") as handle:
+                    for raw in handle:
+                        line = raw.strip()
+                        if line:
+                            yield json.loads(line)
+
+            persistence = persist_scan_capture(
+                trade_date=source_time[:10],
+                scan_time=source_time,
+                source_id="eastmoney_api_scan_v2",
+                quotes_count=l0_count,
+                captured_count=l0_count,
+                scan_dir=str(output_dir),
+                market_snapshot=market,
+                source_status=diagnostics,
+                source_counts=source_counts,
                 source_diagnostics=timings,
+                lineage_id=scan_lineage_id,
+                snapshots=_canonical_snapshot_rows(),
             )
-            upsert_scan_market_data(session_id, source_time[:10], source_time, results, timings)
-            for snapshot in snapshots:
-                record_snapshot(snapshot)
-            persistence = {"status": "PASS", "scan_session_id": session_id, "snapshot_count": len(snapshots)}
         except Exception as exc:
-            persistence = {"status": "FAILED", "error": repr(exc)}
+            production_scan = "BLOCKED"
+            block_reason = f"PRODUCTION_SCAN_BLOCKED:{type(exc).__name__}:{exc}"
+            persistence = {"status": "FAILED", "error": repr(exc), "reason": block_reason}
 
     scan_finished_at = datetime.now(MARKET_TIMEZONE).isoformat(timespec="seconds")
     l1_eligible_value = level_2_audit.get("l1_eligible_count")
@@ -1527,15 +1548,15 @@ def main() -> Dict[str, Any]:
     summary = {
         "source": "eastmoney_api_scan_v2", "pipeline_version": "market_reality_capture_v1",
         "scan_started_at": scan_started_at, "scan_finished_at": scan_finished_at,
-        "source_time": source_time, "raw_domain_counts": {name: result_item_count(value) for name, value in results.items()},
-        "canonical_snapshot_count": len(snapshots), "canonical_market_snapshot": market,
+        "source_time": source_time, "raw_domain_counts": source_counts,
+        "canonical_snapshot_count": canonical_count, "canonical_market_snapshot": market,
         "production_scan": production_scan, "block_reason": block_reason,
         "scan_status": scan_status, "scan_reason": scan_reason,
-        "l0_count": len(stocks),
+        "l0_count": l0_count,
         "l1_count": l1_eligible,
         "l2_count": l2_routed,
         "l3_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
-        "canonical_count": len(snapshots), "feature_count": None, "alpha_count": None,
+        "canonical_count": canonical_count, "feature_count": None, "alpha_count": None,
         "decision_count": None, "paper_observation_count": None,
         "critical_sources": sorted(CRITICAL_SOURCES), "optional_sources": sorted(OPTIONAL_SOURCES),
         "scanner_contract": {
@@ -1543,16 +1564,16 @@ def main() -> Dict[str, Any]:
             "selection": False, "ranking": False, "strategy_score": False, "portfolio_action": False,
         },
         "universes": {
-            "full_l0_universe": len(stocks),
+            "full_l0_universe": l0_count,
             "l1_eligible_universe": l1_eligible,
             "l2_routed_universe": l2_routed,
             "l3_researched_universe": len(candidate_codes) if production_scan != "BLOCKED" else 0,
         },
         "sample_accounting": {
             **level_2_audit,
-            "full_l0_count": len(stocks),
+            "full_l0_count": l0_count,
             "l1_eligible_count": l1_eligible,
-            "l1_rejected_count": len(stocks) - l1_eligible,
+            "l1_rejected_count": l0_count - l1_eligible,
             "l2_routed_count": l2_routed,
             "l2_not_routed_count": max(0, l1_eligible - l2_routed),
             "l3_requested_count": len(candidate_codes) if production_scan != "BLOCKED" else 0,
@@ -1564,7 +1585,7 @@ def main() -> Dict[str, Any]:
             "decision_count": None,
         },
         "levels": {
-            "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": len(stocks), "fields": LIGHT_STOCK_FIELDS.split(",")},
+            "level_0": {"name": "LIGHT_MARKET_CAPTURE", "universe_count": l0_count, "fields": LIGHT_STOCK_FIELDS.split(",")},
             "level_1": {"name": "CHEAP_ELIGIBILITY", "operational_only": True, "eligible_count": l1_eligible},
             "level_2": {"name": "RESOURCE_ROUTER", **level_2_audit},
             "level_3": {
