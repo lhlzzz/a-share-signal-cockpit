@@ -84,6 +84,10 @@ def _snapshot(*, symbol: str, trade_date: str, lineage_id: str, source_time: str
             "trade_date": trade_date,
             "source_time": source_time or f"{trade_date}T14:50:00+08:00",
             "lineage_id": lineage_id,
+            "f12": symbol,
+            "f13": 1 if str(symbol).startswith(("6", "5", "9")) else 0,
+            "f1": 2,
+            "market": "SH" if str(symbol).startswith(("6", "5", "9")) else "SZ",
         },
         lineage_id=lineage_id,
     )

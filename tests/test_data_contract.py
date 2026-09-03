@@ -198,6 +198,7 @@ def _paper_observation_snapshot():
         "buyable": True, "liquidity_score": 1, "execution_quality": 1,
         "gap_risk": 0, "slippage": 0, "spread": 0, "market_impact": 0,
         "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+        "f12": "600001", "f13": 1, "f1": 2, "market": "SH",
     }
 
 
@@ -843,14 +844,17 @@ def test_runner_sample_accounting_preserves_each_pipeline_layer(tmp_path, monkey
     snapshots = [
         {"symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
          "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "f13": 1, "f1": 2,
          "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
                             "L2_CAPITAL_CANDIDATE", "L3_DEEP_CANDIDATE_FETCH"]},
         {"symbol": "600002", "price": 10, "volume": 100, "amount": 1000,
          "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "f13": 1, "f1": 2,
          "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY",
                             "L2_CAPITAL_CANDIDATE"]},
         {"symbol": "600003", "price": 10, "volume": 100, "amount": 1000,
          "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
+         "f13": 1, "f1": 2,
          "source_layers": ["L0_LIGHT_MARKET_CAPTURE", "L1_CHEAP_ELIGIBILITY"]},
         {"symbol": "600004", "price": 10, "volume": 100, "amount": 1000,
          "trade_date": "2026-08-26", "future_5d_return": 0.1},

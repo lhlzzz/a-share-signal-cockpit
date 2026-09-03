@@ -77,6 +77,8 @@ jobs:
       - run: python -m compileall -q scrapy_scanner scripts xiaogu_*.py
       - run: mkdir -p artifacts
       - run: pytest tests/test_schema_snapshot_truth.py tests/test_snapshot_identity_lock.py tests/test_production_contract.py tests/test_production_decision.py tests/test_production_hardening.py tests/test_data_contract.py -x -q --junitxml=artifacts/production-contract-report.xml
+      - name: main-board-only regression and parallel decision smoke
+        run: pytest tests/test_execution_board.py -x -q --junitxml=artifacts/execution-board-report.xml
       - name: production run persistence contract
         run: |
           python - <<'PY'

@@ -163,7 +163,8 @@
     "validation_dataset": false,
     "live_trading": false,
     "model_version_frozen": true,
-    "contract_version": "paper_observation_v1"
+    "contract_version": "paper_observation_v1",
+    "execution_board_policy_version": "main_board_only_v1"
   },
   "trading_calendar": {
     "owner": "xiaogu_db",
@@ -209,7 +210,8 @@
     "POSITION_IDENTITY": "FROZEN",
     "PRODUCTION_GATES": "FROZEN",
     "status": "ARCHITECTURE FROZEN",
-    "paper_observation": "ACTIVE"
+    "paper_observation": "ACTIVE",
+    "EXECUTION_BOARD_POLICY": "MAIN_BOARD_ONLY_V1"
   },
   "position_identity": {
     "owner": "xiaogu_db.get_position_by_id",
@@ -262,5 +264,8 @@
     "primary": "runtime behavior",
     "static_architecture": true,
     "source_inspection_not_sufficient": true
-  }
+  },
+  "execution_board_policy": "MAIN_BOARD_ONLY",
+  "execution_board_policy_version": "main_board_only_v1",
+  "execution_universe_owner": "xiaogu_forward_eligibility.execution_universe"
 }

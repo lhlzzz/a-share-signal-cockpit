@@ -305,6 +305,10 @@ def validate_paper_observation(decision: Dict[str, Any], rule: Dict[str, Any]) -
         raise ValueError("PAPER_OBSERVATION_ALPHA_CONTRACT_INVALID")
     if observation.get("live_order") is not False or observation.get("paper_only") is not True:
         raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")
+    from xiaogu_forward_eligibility import BOARD_MAIN, classify_execution_board
+    board_info = classify_execution_board(canonical if isinstance(canonical, dict) else {})
+    if board_info.get("board") != BOARD_MAIN or not board_info.get("execution_eligible"):
+        raise ValueError("EXECUTION_BOARD_VIOLATION")
     if observation.get("paper_observation_state") not in PAPER_OBSERVATION_STATES:
         raise ValueError("PAPER_OBSERVATION_STATE_REQUIRED")
     if observation.get("paper_position_state") not in PAPER_POSITION_STATES:

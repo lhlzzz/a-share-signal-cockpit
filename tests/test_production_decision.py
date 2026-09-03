@@ -28,6 +28,7 @@ def _repricing_ready_snapshot():
         "market_follow_through_score": 1, "market_alignment": 1,
         "attention_score": 0.2, "attention_growth": 0.5, "reflexivity_break": 0,
         "alpha_model_status": "VALIDATED", "execution_quality": 1,
+        "f12": "600001", "f13": 1, "f1": 2, "market": "SH",
     }
 
 

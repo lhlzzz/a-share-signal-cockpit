@@ -74,7 +74,7 @@ Memory
 |-----------|------|------|
 | Scanner | `scrapy_scanner/runner_v2.py` | Capture only |
 | Canonical | `xiaogu_forward_snapshot.py` | Trusted T-day snapshot |
-| Eligibility | `xiaogu_forward_eligibility.py` | Operational constraints only |
+| Eligibility | `xiaogu_forward_eligibility.py` | Operational constraints and MAIN_BOARD_ONLY_V1 execution universe |
 | Features | `xiaogu_forward_features.py` | Measurements |
 | Research | `xiaogu_research_context.py` | Context / evidence / contradiction |
 | Alpha | `xiaogu_core_alpha.build_core_alpha` | Sole alpha owner |
@@ -124,6 +124,8 @@ Scanner = capture. Cheap Eligibility = operational constraints. Feature = measur
 Scanner captures market reality only. It does not score, rank, or pick.
 
 Cheap eligibility and candidate universe check data validity, trading availability, and hard operational constraints. They do not score, rank, select themes, or form a capital thesis.
+
+SOURCE_UNIVERSE is Eastmoney observed rows, including STAR/CHINEXT/BSE. RESEARCH/PRODUCTION universe remains ACTIVE_REQUIRED. EXECUTION_UNIVERSE is MAIN_BOARD intersected with L1 eligibility under `execution_board_policy_version=main_board_only_v1`. UNKNOWN and board-identity conflicts are not execution eligible. Paper tickets and production decisions must come from EXECUTION_UNIVERSE only; scanner capture does not drop non-main-board source rows.
 
 Feature engine accepts only `CanonicalSnapshot`. Feature is measurement. Alpha is the model.
 

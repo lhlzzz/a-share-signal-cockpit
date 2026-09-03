@@ -6,7 +6,11 @@ import hashlib
 from typing import Any, Dict
 
 from xiaogu_core_alpha import COST_MODEL_VERSION, build_core_alpha
-from xiaogu_forward_eligibility import eligibility_blockers
+from xiaogu_forward_eligibility import (
+    EXECUTION_BOARD_POLICY_VERSION,
+    classify_execution_board,
+    eligibility_blockers,
+)
 from xiaogu_forward_features import build_feature_vector, validate_evidence_identity
 from xiaogu_forward_snapshot import CanonicalSnapshot, pit_record_audit, validate_and_build_canonical_snapshot
 from xiaogu_research_context import build_integrated_research_context
@@ -48,7 +52,14 @@ DECISION_HARD_GATES = (
     "NEGATIVE_EVIDENCE_CLEAR",
 )
 DATA_VALID_REASONS = {"INVALID_SYMBOL", "INVALID_PRICE", "INCOMPLETE_MARKET_DATA", "MISSING_DATA"}
-TRADABLE_REASONS = {"HALTED", "UNBUYABLE", "REGULATORY_HARD_RISK", "ACCOUNT_CONSTRAINT"}
+TRADABLE_REASONS = {
+    "HALTED",
+    "UNBUYABLE",
+    "REGULATORY_HARD_RISK",
+    "ACCOUNT_CONSTRAINT",
+    "NOT_EXECUTION_ELIGIBLE",
+    "BOARD_IDENTITY_CONFLICT",
+}
 
 
 def _decision_id(snapshot: Dict[str, Any], state: str, as_of: datetime | None) -> str:
@@ -428,6 +439,7 @@ def _paper_observation(
         "repricing": alpha.get("repricing_state"),
         "future_buyer": alpha.get("future_buyer_capacity"),
     }
+    board_info = classify_execution_board(snapshot)
     return {
         "status": "PAPER_OBSERVATION",
         "paper_signal_id": _paper_signal_id(decision_id),
@@ -457,6 +469,9 @@ def _paper_observation(
         "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
         "cost_model_version": COST_MODEL_VERSION,
         "paper_observation_contract_version": PAPER_OBSERVATION_CONTRACT_VERSION,
+        "board": board_info["board"],
+        "execution_eligible": board_info["execution_eligible"],
+        "execution_board_policy_version": EXECUTION_BOARD_POLICY_VERSION,
     }
 
 
@@ -560,7 +575,14 @@ def evaluate_candidate_bundle(
         state, reason = "HOLD", "PRODUCTION_BUY_BLOCKED:POSITION_REVIEW"
     decision_id = str((account or {}).get("decision_id") or "") if position_review and (account or {}).get("decision_id") else _decision_id(snapshot, state, as_of)
     observation = None
-    if (not position_review) and state in {"WATCH", "READY"} and evaluation_position_state == "FLAT" and not position_state_unavailable:
+    board_info = classify_execution_board(snapshot)
+    if (
+        (not position_review)
+        and state in {"WATCH", "READY"}
+        and evaluation_position_state == "FLAT"
+        and not position_state_unavailable
+        and board_info["execution_eligible"]
+    ):
         observation = _paper_observation(
             snapshot,
             features,
@@ -638,6 +660,9 @@ def evaluate_candidate_bundle(
         "model_version": alpha.get("model_id"),
         "cost_model_version": COST_MODEL_VERSION,
         "paper_observation": observation,
+        "execution_board": board_info["board"],
+        "execution_eligible": board_info["execution_eligible"],
+        "execution_board_policy_version": EXECUTION_BOARD_POLICY_VERSION,
         "capital_convergence": alpha.get("capital_convergence"),
         "future_demand": alpha.get("future_demand"),
         "business_quality": alpha.get("business_quality"),

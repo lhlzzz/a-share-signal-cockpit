@@ -116,6 +116,10 @@ def check_rule_freeze():
         and rule.get("paper_observation", {}).get("capital_alpha") == "RESEARCH_ONLY"
         and rule.get("paper_observation", {}).get("live_trading") is False
         and rule.get("SNAPSHOT_IDENTITY_IMMUTABLE") is True
+        and rule.get("execution_board_policy") == "MAIN_BOARD_ONLY"
+        and rule.get("execution_board_policy_version") == "main_board_only_v1"
+        and rule.get("execution_universe_owner") == "xiaogu_forward_eligibility.execution_universe"
+        and rule.get("architecture_freeze", {}).get("EXECUTION_BOARD_POLICY") == "MAIN_BOARD_ONLY_V1"
     )
     return ok, "ok" if ok else "repricing rule freeze contract mismatch"
 
@@ -441,6 +445,7 @@ def check_production_clock_contract():
         snapshot = validate_and_build_canonical_snapshot({
             "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
             "source_time": "2026-09-03T09:50:00+08:00", "trade_date": "2026-09-03",
+            "f13": 1, "f1": 2, "market": "SH",
         })
         decision = run_production_decision(
             snapshot,
@@ -559,6 +564,7 @@ def check_gate_contract():
     snapshot = validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1000,
         "source_time": "2026-08-26T14:50:00+08:00", "trade_date": "2026-08-26",
+        "f13": 1, "f1": 2, "market": "SH",
     })
     decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=as_of)
     distribution_item = {
@@ -744,6 +750,99 @@ def check_reduce_not_flat():
     return ok, "ok" if ok else "REDUCE still collapses to FLAT/CLOSED"
 
 
+def check_execution_board_contract():
+    from xiaogu_forward_eligibility import (
+        BOARD_BSE,
+        BOARD_CHINEXT,
+        BOARD_MAIN,
+        BOARD_STAR,
+        BOARD_UNKNOWN,
+        classify_execution_board,
+        execution_universe,
+    )
+    from xiaogu_forward_paper_recorder_v0_1 import validate_paper_observation
+    from xiaogu_portfolio_decision import evaluate_candidate_bundle
+
+    def _row(symbol, f13, **extra):
+        payload = {
+            "symbol": symbol,
+            "f12": symbol,
+            "f13": f13,
+            "f1": 2,
+            "price": 10,
+            "volume": 100,
+            "amount": 1000,
+            "source_time": "2026-08-26T14:50:00+08:00",
+            "trade_date": "2026-08-26",
+        }
+        payload.update(extra)
+        return payload
+
+    main_board = classify_execution_board(_row("600000", 1))
+    star = classify_execution_board(_row("688001", 1))
+    chinext = classify_execution_board(_row("300001", 0))
+    bse = classify_execution_board(_row("920992", 0))
+    unknown = classify_execution_board({"symbol": "600000", "price": 10})
+    conflict = classify_execution_board(_row("300001", 1))
+    st_main = classify_execution_board(_row("600001", 1, f14="*ST示例", f148=4))
+    halted = classify_execution_board(_row("600002", 1, halted=True, trade_status="HALTED"))
+    eligible, audit = execution_universe([
+        _row("600000", 1),
+        _row("688001", 1),
+        _row("600002", 1, halted=True, trade_status="HALTED"),
+    ])
+    star_decision = evaluate_candidate_bundle(
+        _row("688001", 1, open=9.9, high=12, low=9.7, pct_chg=8, f62=500),
+        position_state="FLAT",
+    )
+    recorder_ok = False
+    try:
+        validate_paper_observation({
+            "paper_observation": {
+                "status": "PAPER_OBSERVATION",
+                "paper_signal_id": "x",
+                "decision_id": "y",
+                "alpha_name": "price_strength",
+                "live_order": False,
+                "paper_only": True,
+                "paper_observation_state": "OBSERVED",
+                "paper_position_state": "PAPER_FLAT",
+            },
+            "canonical_snapshot": {**_row("300001", 0), "trusted_snapshot": True},
+        }, {"paper_only": True, "no_trade": True, "production_ready": False, "auto_order": False, "broker_connected": False})
+    except ValueError as exc:
+        recorder_ok = str(exc) == "EXECUTION_BOARD_VIOLATION"
+    policy_papers_ok = True
+    try:
+        from sqlalchemy import text
+        from xiaogu_db import get_db
+        with get_db() as db:
+            rows = db.execute(text(
+                "SELECT COUNT(*) FROM paper_observations "
+                "WHERE payload->>'execution_board_policy_version' = 'main_board_only_v1' "
+                "AND COALESCE(payload->>'board', '') <> 'MAIN_BOARD'"
+            )).scalar()
+            policy_papers_ok = int(rows or 0) == 0
+    except Exception:
+        policy_papers_ok = True
+    ok = (
+        main_board["board"] == BOARD_MAIN and main_board["execution_eligible"] is True
+        and star["board"] == BOARD_STAR and star["execution_eligible"] is False
+        and chinext["board"] == BOARD_CHINEXT and chinext["execution_eligible"] is False
+        and bse["board"] == BOARD_BSE and bse["execution_eligible"] is False
+        and unknown["board"] == BOARD_UNKNOWN and unknown["execution_eligible"] is False
+        and conflict["reason"] == "BOARD_IDENTITY_CONFLICT"
+        and st_main["board_allowed"] is True
+        and halted["board_allowed"] is True
+        and [row["symbol"] for row in eligible] == ["600000"]
+        and star_decision.get("paper_observation") is None
+        and recorder_ok
+        and policy_papers_ok
+        and audit["policy_version"] == "main_board_only_v1"
+    )
+    return ok, "ok" if ok else "execution board contract mismatch"
+
+
 CHECKS = [
     *((f"compile_{name}", lambda name=name: _compile(name)) for name in ("scanner", "runner", "features", "decision", "filler", "scheduler")),
     ("scanner_contract", check_scanner_contract),
@@ -768,6 +867,7 @@ CHECKS = [
     ("position_identity_contract", check_position_identity_contract),
     ("gate_contract", check_gate_contract),
     ("reduce_not_flat", check_reduce_not_flat),
+    ("execution_board_contract", check_execution_board_contract),
 ]
 
 

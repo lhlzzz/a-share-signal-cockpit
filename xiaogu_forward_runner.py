@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import copy
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
 from xiaogu_forward_bundle_io import load_latest_snapshot_bundle
-from xiaogu_forward_eligibility import candidate_universe
+from xiaogu_forward_eligibility import candidate_universe, execution_universe
 from xiaogu_forward_snapshot import (
     assert_production_provenance,
     production_decision_clock,
@@ -24,6 +27,8 @@ RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 
 
 PRODUCTION_MODES = ("PRODUCTION", "REPLAY", "DRY_RUN", "RESEARCH")
+DEFAULT_DECISION_WORKERS = 8
+MAX_DECISION_WORKERS = 32
 
 
 def _parse_clock(value: str) -> datetime | None:
@@ -124,6 +129,147 @@ def run_production_decision(
         position_state=position_state,
         previous_action=previous_action,
     )
+
+
+def decision_worker_count(requested: int | None = None) -> int:
+    if requested is None:
+        raw = os.environ.get("XIAOGU_DECISION_WORKERS", str(DEFAULT_DECISION_WORKERS))
+        try:
+            requested = int(raw)
+        except (TypeError, ValueError):
+            requested = DEFAULT_DECISION_WORKERS
+    return max(1, min(int(requested), MAX_DECISION_WORKERS))
+
+
+def _stale_decision(row: Dict[str, Any], reason: str = "STALE_DATA") -> Dict[str, Any]:
+    return {
+        "symbol": row.get("symbol"),
+        "snapshot_id": row.get("snapshot_id"),
+        "lineage_id": row.get("lineage_id"),
+        "trade_date": row.get("trade_date"),
+        "state": "WATCH",
+        "action": None,
+        "reason": reason,
+        "paper_observation": None,
+        "failed_gates": ["FRESH_DATA"],
+        "production_blockers": [],
+        "error": None,
+        "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
+    }
+
+
+def _error_decision(row: Dict[str, Any], exc: BaseException) -> Dict[str, Any]:
+    return {
+        "symbol": row.get("symbol"),
+        "snapshot_id": row.get("snapshot_id"),
+        "lineage_id": row.get("lineage_id"),
+        "trade_date": row.get("trade_date"),
+        "state": "WATCH",
+        "action": None,
+        "reason": f"WORKER_ERROR:{type(exc).__name__}",
+        "paper_observation": None,
+        "failed_gates": [],
+        "production_blockers": [],
+        "error": repr(exc),
+        "decision_owner": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
+    }
+
+
+def _evaluate_one_candidate(
+    row: Dict[str, Any],
+    *,
+    portfolio_state: str,
+    mode: str,
+    trade_date: str,
+) -> Dict[str, Any]:
+    item = copy.deepcopy(dict(row))
+    item.setdefault("trade_date", trade_date)
+    if mode == "PRODUCTION":
+        from xiaogu_forward_snapshot import MAX_STALENESS, production_now, snapshot_age
+        age = snapshot_age(str(item.get("source_time") or ""), production_now())
+        if age is None or age > MAX_STALENESS:
+            result = _stale_decision(item)
+            result["source_age_seconds"] = None if age is None else age.total_seconds()
+            return result
+    try:
+        return run_production_decision(
+            item,
+            portfolio_state=portfolio_state,
+            mode=mode,
+            trade_date=trade_date,
+            position_state="FLAT",
+        )
+    except ValueError as exc:
+        if str(exc) == "STALE_DATA" or str(exc).startswith("STALE_DATA"):
+            return _stale_decision(item)
+        return _error_decision(item, exc)
+    except Exception as exc:
+        return _error_decision(item, exc)
+
+
+def evaluate_candidate_rows(
+    rows: list[Dict[str, Any]],
+    *,
+    portfolio_state: str,
+    mode: str,
+    trade_date: str,
+    workers: int | None = None,
+) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
+    """Evaluate candidates independently. Output order follows input order, not completion."""
+    worker_count = decision_worker_count(workers)
+    results: list[Dict[str, Any] | None] = [None] * len(rows)
+
+    def _run(index: int, row: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
+        return index, _evaluate_one_candidate(
+            row,
+            portfolio_state=portfolio_state,
+            mode=mode,
+            trade_date=trade_date,
+        )
+
+    if worker_count == 1 or len(rows) <= 1:
+        for index, row in enumerate(rows):
+            results[index] = _evaluate_one_candidate(
+                row,
+                portfolio_state=portfolio_state,
+                mode=mode,
+                trade_date=trade_date,
+            )
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            futures = [pool.submit(_run, index, row) for index, row in enumerate(rows)]
+            for future in as_completed(futures):
+                try:
+                    index, decision = future.result()
+                except Exception as exc:
+                    raise RuntimeError(f"WORKER_RESULT_MISSING:{exc!r}") from exc
+                results[index] = decision
+    decisions = []
+    success_count = 0
+    blocked_count = 0
+    stale_count = 0
+    error_count = 0
+    for index, decision in enumerate(results):
+        if decision is None:
+            decision = _error_decision(rows[index], RuntimeError("WORKER_RESULT_MISSING"))
+        reason = str(decision.get("reason") or "")
+        if decision.get("error") or reason.startswith("WORKER_ERROR"):
+            error_count += 1
+        elif reason == "STALE_DATA" or "STALE_DATA" in reason or "STALE_DATA" in (decision.get("failed_gates") or []):
+            stale_count += 1
+        else:
+            success_count += 1
+            blockers = list(decision.get("failed_gates") or []) + list(decision.get("production_blockers") or [])
+            if decision.get("state") in {"WATCH", "READY"} or blockers:
+                blocked_count += 1
+        decisions.append(decision)
+    return decisions, {
+        "workers": worker_count,
+        "success_count": success_count,
+        "blocked_count": blocked_count,
+        "stale_count": stale_count,
+        "error_count": error_count,
+    }
 
 
 def _write_ledger_record(decision: Dict[str, Any]) -> Path:
@@ -377,6 +523,7 @@ def main() -> None:
     parser.add_argument("--mode", default="PRODUCTION", choices=list(PRODUCTION_MODES))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--position-review", action="store_true")
+    parser.add_argument("--decision-workers", type=int, default=None)
     args = parser.parse_args()
     mode = "DRY_RUN" if args.dry_run and args.mode == "PRODUCTION" else args.mode
     if mode == "PRODUCTION":
@@ -456,46 +603,50 @@ def main() -> None:
             return
         canonical_rows = [selected]
     eligible_rows, universe = candidate_universe(canonical_rows)
+    execution_rows, execution_audit = execution_universe(eligible_rows)
     routed_rows = [
-        row for row in eligible_rows
+        row for row in execution_rows
         if "L3_DEEP_CANDIDATE_FETCH" in (row.get("source_layers") or [])
     ]
     # Replay fixtures may predate source_layers; only live scanner output is
     # required to prove the L3 route before Alpha evaluation.
-    routing_metadata_present = any(row.get("source_layers") for row in eligible_rows)
+    routing_metadata_present = any(row.get("source_layers") for row in execution_rows)
     if routing_metadata_present:
         rows = routed_rows
     else:
-        rows = eligible_rows
+        rows = execution_rows
     universe.update({
         "l2_routed_count": (
-            sum(any(layer.startswith("L2_") for layer in (row.get("source_layers") or [])) for row in eligible_rows)
+            sum(any(layer.startswith("L2_") for layer in (row.get("source_layers") or [])) for row in execution_rows)
             if routing_metadata_present else None
         ),
         "l3_count": len(rows),
+        "execution_universe_count": execution_audit.get("eligible_count", 0),
+        "execution_board_counts": execution_audit.get("board_counts", {}),
+        "execution_rejected_count": execution_audit.get("rejected_count", 0),
+        "execution_board_policy": execution_audit.get("policy"),
+        "execution_board_policy_version": execution_audit.get("policy_version"),
+        "execution_rejected": execution_audit.get("rejected", []),
     })
-    decisions = []
+    decisions, decision_accounting = evaluate_candidate_rows(
+        rows,
+        portfolio_state=args.portfolio_state,
+        mode=mode,
+        trade_date=args.date,
+        workers=args.decision_workers,
+    )
     recorded = 0
     paper_observations = []
-    for row in rows:
-        row = dict(row)
-        row.setdefault("trade_date", args.date)
-        decision = run_production_decision(
-            row,
-            portfolio_state=args.portfolio_state,
-            mode=mode,
-            trade_date=args.date,
-            position_state="FLAT",
-        )
-        if mode == "PRODUCTION" and not args.dry_run and (
-            decision["state"] in RECORDABLE_ACTIONS or decision.get("paper_observation")
+    persist_paper = mode == "PRODUCTION" and not args.dry_run
+    for decision in decisions:
+        if persist_paper and (
+            decision.get("state") in RECORDABLE_ACTIONS or decision.get("paper_observation")
         ):
             decision["ledger_path"] = str(_write_ledger_record(decision))
             recorded += 1
-        if mode == "PRODUCTION" and not args.dry_run and decision.get("paper_observation"):
+        if persist_paper and decision.get("paper_observation"):
             decision["paper_observation_record"] = _write_paper_observation(decision)
             paper_observations.append(decision["paper_observation_record"])
-        decisions.append(decision)
     output = {
         "date": args.date,
         "mode": mode,
@@ -514,6 +665,15 @@ def main() -> None:
         "paper_observation_count": len(paper_observations),
         "paper_observations": paper_observations,
         "candidate_universe": universe,
+        "execution_universe_count": universe.get("execution_universe_count", 0),
+        "execution_board_counts": universe.get("execution_board_counts", {}),
+        "execution_board_policy": universe.get("execution_board_policy"),
+        "execution_board_policy_version": universe.get("execution_board_policy_version"),
+        "decision_workers": decision_accounting.get("workers"),
+        "success_count": decision_accounting.get("success_count", 0),
+        "blocked_count": decision_accounting.get("blocked_count", 0),
+        "stale_count": decision_accounting.get("stale_count", 0),
+        "error_count": decision_accounting.get("error_count", 0),
         "sample_accounting": {
             "full_universe_count": input_count,
             "l1_count": universe.get("eligible_count", 0),
@@ -523,7 +683,10 @@ def main() -> None:
             "decision_count": len(decisions),
             "canonical_count": canonical_count,
             "partial_count": 0,
-            "conflict_count": 0,
+            "conflict_count": sum(
+                1 for item in universe.get("execution_rejected") or []
+                if "BOARD_IDENTITY_CONFLICT" in (item.get("blockers") or [])
+            ),
             "invalid_count": input_count - len(trusted),
             "unresolved_count": 0,
         },

@@ -20,6 +20,10 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 engine = create_engine(
     os.environ.get("DATABASE_URL", "postgresql://xiaogu:xiaogu@localhost:5432/xiaogu"),
     connect_args={"connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5"))},
+    pool_size=int(os.environ.get("XIAOGU_DB_POOL_SIZE", "8")),
+    max_overflow=int(os.environ.get("XIAOGU_DB_MAX_OVERFLOW", "24")),
+    pool_timeout=int(os.environ.get("XIAOGU_DB_POOL_TIMEOUT", "30")),
+    pool_pre_ping=True,
 )
 _ACTIVE_DB_CONNECTION: ContextVar[Any | None] = ContextVar("xiaogu_active_db_connection", default=None)
 
