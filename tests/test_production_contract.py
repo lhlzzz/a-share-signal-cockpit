@@ -5,6 +5,8 @@ import json
 import pytest
 
 from xiaogu_forward_snapshot import (
+    MAX_STALENESS,
+    assert_production_provenance,
     production_decision_clock,
     production_now,
     snapshot_age,
@@ -180,6 +182,37 @@ def test_production_clock_stale_data_uses_real_clock(monkeypatch):
     snapshot = validate_and_build_canonical_snapshot(_base_snapshot())
     with pytest.raises(ValueError, match="STALE_DATA"):
         run_production_decision(snapshot, mode="PRODUCTION", trade_date="2026-08-26")
+
+
+def test_freshness_boundary_keeps_119_fresh_and_rejects_120_plus():
+    from xiaogu_forward_eligibility import eligibility_blockers
+
+    source = datetime.fromisoformat("2026-09-03T02:11:41+08:00")
+    snapshot = validate_and_build_canonical_snapshot(
+        _base_snapshot(source_time=source.isoformat(), trade_date="2026-09-03", as_of=source.isoformat())
+    )
+    fresh_clock = source + timedelta(minutes=119, seconds=59)
+    exact_clock = source + timedelta(minutes=120)
+    stale_clock = source + timedelta(minutes=120, milliseconds=1)
+
+    assert snapshot_age(source, fresh_clock) < MAX_STALENESS
+    assert snapshot_age(source, exact_clock) <= MAX_STALENESS
+    assert snapshot_age(source, stale_clock) > MAX_STALENESS
+
+    assert_production_provenance(
+        snapshot, trade_date="2026-09-03", decision_time=fresh_clock, persisted=True
+    )
+    assert_production_provenance(
+        snapshot, trade_date="2026-09-03", decision_time=exact_clock, persisted=True
+    )
+    with pytest.raises(ValueError, match="STALE_DATA"):
+        assert_production_provenance(
+            snapshot, trade_date="2026-09-03", decision_time=stale_clock, persisted=True
+        )
+
+    assert "STALE_DATA" not in eligibility_blockers(snapshot, as_of=fresh_clock)
+    assert "STALE_DATA" not in eligibility_blockers(snapshot, as_of=exact_clock)
+    assert "STALE_DATA" in eligibility_blockers(snapshot, as_of=stale_clock)
 
 
 def test_replay_clock_may_use_historical_source_time(monkeypatch):
