@@ -1494,23 +1494,44 @@ def verify_persisted_snapshot(
         return False
 
 
-def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]:
-    """Load DB-verified canonical snapshots for one T-day. Ambiguity is fail-closed."""
+def fetch_persisted_canonical_snapshots(
+    trade_date: str,
+    *,
+    lineage_id: str = "",
+    production_run_id: str = "",
+    decision_clock: Any | None = None,
+    require_fresh: bool = True,
+) -> List[Dict[str, Any]]:
+    """Load DB-verified snapshots for one production observation.
+
+    trade_date is not an observation identity. Production never ranks
+    max(source_time). A stale same-day lineage is not current input.
+    """
     ensure_production_schema()
-    from xiaogu_forward_snapshot import select_unique_canonical_snapshots, validate_and_build_canonical_snapshot
-    with engine.connect() as db:
-        rows = [
-            dict(row)
-            for row in db.execute(
-                text(
-                    """
+    from xiaogu_forward_snapshot import (
+        select_production_observation_snapshots,
+        validate_and_build_canonical_snapshot,
+    )
+    wanted_lineage = str(lineage_id or "").strip()
+    run_id = str(production_run_id or "").strip()
+    if run_id and not wanted_lineage:
+        run = fetch_production_run(run_id) or {}
+        wanted_lineage = str(run.get("lineage_id") or "").strip()
+        if not wanted_lineage:
+            raise ValueError("CANONICAL_SNAPSHOT_NOT_FOUND")
+    params: Dict[str, Any] = {"trade_date": trade_date}
+    query = """
                     SELECT lineage_id, trade_date, payload, snapshot_id, source, source_time, symbol
                     FROM snapshots
                     WHERE trade_date = CAST(:trade_date AS date)
                     """
-                ),
-                {"trade_date": trade_date},
-            ).mappings()
+    if wanted_lineage:
+        query += " AND lineage_id = :lineage_id"
+        params["lineage_id"] = wanted_lineage
+    with engine.connect() as db:
+        rows = [
+            dict(row)
+            for row in db.execute(text(query), params).mappings()
         ]
     snapshots = []
     for row in rows:
@@ -1531,7 +1552,13 @@ def fetch_persisted_canonical_snapshots(trade_date: str) -> List[Dict[str, Any]]
             continue
     if not snapshots:
         return []
-    return select_unique_canonical_snapshots(snapshots, trade_date=trade_date)
+    return select_production_observation_snapshots(
+        snapshots,
+        trade_date=trade_date,
+        lineage_id=wanted_lineage,
+        decision_clock=decision_clock,
+        require_fresh=require_fresh,
+    )
 
 
 def get_current_position_review_snapshot(*, symbol: str, review_trade_date: str) -> Dict[str, Any]:
@@ -1812,11 +1839,16 @@ def record_decision(decision: Dict[str, Any]) -> None:
     }
     if any(not str(value or "").strip() for value in identity.values()):
         raise ValueError("SNAPSHOT_IDENTITY_UNAVAILABLE")
+    production_run_id = str(
+        decision.get("production_run_id") or canonical.get("production_run_id") or ""
+    ).strip()
     decision = {
         **decision,
         **identity,
         "canonical_snapshot": canonical,
     }
+    if production_run_id:
+        decision["production_run_id"] = production_run_id
     params = {
         "trade_date": identity["trade_date"],
         "symbol": identity["symbol"],
@@ -1830,6 +1862,9 @@ def record_decision(decision: Dict[str, Any]) -> None:
     if "decision" in columns and "decision" not in fields:
         fields.append("decision")
         params["decision"] = params["state"]
+    if "production_run_id" in columns and production_run_id:
+        fields.append("production_run_id")
+        params["production_run_id"] = production_run_id
     if "state" not in columns and "state" in fields:
         fields.remove("state")
     if "position_state" not in columns and "position_state" in fields:

@@ -296,8 +296,9 @@ def select_canonical_snapshot(
 ) -> CanonicalSnapshot:
     """Resolve the unique trusted snapshot for one symbol and trade date.
 
-    Production never selects max(source_time). Zero matches fail closed.
-    Multiple distinct snapshot identities fail closed.
+    Callers must pass one production observation. Production never selects
+    max(source_time). Zero matches fail closed. Multiple distinct snapshot
+    identities fail closed.
     """
     wanted = str(symbol or "").zfill(6)[-6:]
     matched: list[CanonicalSnapshot] = []
@@ -325,7 +326,11 @@ def select_unique_canonical_snapshots(
     *,
     trade_date: str,
 ) -> list[CanonicalSnapshot]:
-    """Keep exactly one trusted snapshot per symbol for a production day."""
+    """Keep exactly one trusted snapshot per symbol inside one observation.
+
+    trade_date alone is not an observation identity. Callers must already
+    scope `rows` to one lineage_id / production observation.
+    """
     grouped: dict[str, list[CanonicalSnapshot]] = {}
     for row in rows:
         if not isinstance(row, CanonicalSnapshot) or row.get("trusted_snapshot") is not True:
@@ -340,6 +345,89 @@ def select_unique_canonical_snapshots(
         select_canonical_snapshot(items, symbol=symbol, trade_date=trade_date)
         for symbol, items in grouped.items()
     ]
+
+
+def current_production_observation_lineage_ids(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    decision_clock: str | datetime | None = None,
+    max_staleness: timedelta = MAX_STALENESS,
+) -> tuple[str, ...]:
+    """Return fresh production observation identities. Does not rank source_time."""
+    clock = production_decision_clock(decision_clock)
+    source_times: dict[str, set[str]] = {}
+    for row in rows:
+        lineage_id = str(row.get("lineage_id") or "").strip()
+        source_time = str(row.get("source_time") or "").strip()
+        if not lineage_id or not source_time:
+            continue
+        source_times.setdefault(lineage_id, set()).add(source_time)
+    fresh: list[str] = []
+    for lineage_id, times in source_times.items():
+        if len(times) != 1:
+            continue
+        age = snapshot_age(next(iter(times)), clock)
+        if age is None or age.total_seconds() < 0 or age > max_staleness:
+            continue
+        fresh.append(lineage_id)
+    return tuple(fresh)
+
+
+def select_production_observation_snapshots(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    trade_date: str,
+    lineage_id: str = "",
+    decision_clock: str | datetime | None = None,
+    require_fresh: bool = True,
+) -> list[CanonicalSnapshot]:
+    """Resolve snapshots for one production observation. Never latest-wins.
+
+    Explicit lineage_id selects that observation. Otherwise the unique fresh
+    observation for this decision clock is required. Stale same-day snapshots
+    are not current production input.
+    """
+    trusted = [
+        row for row in rows
+        if isinstance(row, CanonicalSnapshot)
+        and row.get("trusted_snapshot") is True
+        and str(row.get("trade_date") or "") == str(trade_date)
+    ]
+    wanted = str(lineage_id or "").strip()
+    if wanted:
+        selected = [row for row in trusted if str(row.get("lineage_id") or "").strip() == wanted]
+        if not selected:
+            raise ValueError("CANONICAL_SNAPSHOT_NOT_FOUND")
+        source_times = {str(row.get("source_time") or "").strip() for row in selected}
+        source_times.discard("")
+        if len(source_times) != 1:
+            raise ValueError("CANONICAL_SNAPSHOT_AMBIGUOUS")
+        if require_fresh:
+            fresh = current_production_observation_lineage_ids(
+                selected, decision_clock=decision_clock,
+            )
+            if wanted not in fresh:
+                raise ValueError("STALE_DATA")
+        return select_unique_canonical_snapshots(selected, trade_date=trade_date)
+    if not require_fresh:
+        lineages = sorted({
+            str(row.get("lineage_id") or "").strip()
+            for row in trusted
+            if str(row.get("lineage_id") or "").strip()
+        })
+        if not lineages:
+            raise ValueError("CANONICAL_SNAPSHOT_NOT_FOUND")
+        if len(lineages) > 1:
+            raise ValueError("CANONICAL_SNAPSHOT_AMBIGUOUS")
+        selected = [row for row in trusted if str(row.get("lineage_id") or "").strip() == lineages[0]]
+        return select_unique_canonical_snapshots(selected, trade_date=trade_date)
+    fresh = current_production_observation_lineage_ids(trusted, decision_clock=decision_clock)
+    if not fresh:
+        raise ValueError("CANONICAL_SNAPSHOT_NOT_FOUND")
+    if len(fresh) > 1:
+        raise ValueError("CANONICAL_SNAPSHOT_AMBIGUOUS")
+    selected = [row for row in trusted if str(row.get("lineage_id") or "").strip() == fresh[0]]
+    return select_unique_canonical_snapshots(selected, trade_date=trade_date)
 
 
 def _sha256(payload: Any) -> str:

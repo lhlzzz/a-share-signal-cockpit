@@ -694,6 +694,143 @@ def _has_new_outcome(result: Dict[str, Any], prior: Dict[str, Any] | None) -> bo
     return int(0 if result_days is None else result_days) > int(0 if prior_days is None else prior_days)
 
 
+def fill_due_horizon_results(
+    *,
+    as_of: str | None = None,
+    timeout_seconds: int = 90,
+) -> Dict[str, Any]:
+    """Fill only (trade_date, horizon) pairs that are due on as_of. One-shot, no polling."""
+    from sqlalchemy import text as sql_text
+    from xiaogu_db import engine, previous_trading_date, resolve_t_plus_n, TRADING_DAY, is_trading_date
+
+    as_of_date = date.fromisoformat(str(as_of or date.today().isoformat()))
+    report: Dict[str, Any] = {
+        "as_of": as_of_date.isoformat(),
+        "filled": 0,
+        "skipped_exists": 0,
+        "skipped_not_due": 0,
+        "blocked_timeout": 0,
+        "due_pairs": [],
+        "results": [],
+        "errors": [],
+        "exit_reason": None,
+    }
+    due_by_date: dict[str, int] = {}
+    cursor = as_of_date
+    try:
+        with _deadline(int(timeout_seconds)):
+            if is_trading_date(as_of_date) != TRADING_DAY:
+                report["exit_reason"] = "NON_TRADING_DAY"
+                return report
+            for horizon in EVALUATION_DAYS:
+                cursor = previous_trading_date(cursor)
+                due_on = resolve_t_plus_n(cursor, horizon)
+                if due_on != as_of_date:
+                    raise RuntimeError(f"DUE_SET_MISMATCH:{cursor}:T+{horizon}:{due_on}")
+                due_by_date[cursor.isoformat()] = horizon
+                report["due_pairs"].append({
+                    "trade_date": cursor.isoformat(),
+                    "horizon": horizon,
+                    "due_on": as_of_date.isoformat(),
+                })
+            missing = []
+            with engine.connect() as db:
+                for trade_date, horizon in due_by_date.items():
+                    papers = list(db.execute(
+                        sql_text(
+                            """
+                            SELECT paper_signal_id, decision_id, symbol, signal_time, reference_price, payload
+                            FROM paper_observations
+                            WHERE CAST(signal_time AS date) = CAST(:d AS date)
+                            """
+                        ),
+                        {"d": trade_date},
+                    ).mappings())
+                    picks = list(db.execute(
+                        sql_text(
+                            """
+                            SELECT decision_id, symbol, trade_date, decision, state, payload
+                            FROM picks
+                            WHERE trade_date = CAST(:d AS date)
+                            """
+                        ),
+                        {"d": trade_date},
+                    ).mappings())
+                    existing_ids = {
+                        str(row["decision_id"] or "")
+                        for row in db.execute(
+                            sql_text(
+                                """
+                                SELECT decision_id FROM returns
+                                WHERE trade_date = CAST(:d AS date) AND decision_id IS NOT NULL
+                                """
+                            ),
+                            {"d": trade_date},
+                        ).mappings()
+                        if row.get("decision_id")
+                    }
+                    sources = []
+                    for row in papers:
+                        rec = _row_payload(dict(row))
+                        rec["record_type"] = "PAPER_OBSERVATION"
+                        rec["date"] = trade_date
+                        rec["horizon"] = horizon
+                        sources.append(rec)
+                    for row in picks:
+                        rec = _row_payload(dict(row))
+                        action = str(rec.get("decision") or rec.get("state") or "").upper()
+                        if action not in {"BUY", "HOLD", "REDUCE", "SELL"}:
+                            continue
+                        rec["record_type"] = "DECISION"
+                        rec["date"] = trade_date
+                        rec["horizon"] = horizon
+                        sources.append(rec)
+                    for rec in sources:
+                        decision_id = str(rec.get("decision_id") or rec.get("id") or "")
+                        if decision_id and decision_id in existing_ids:
+                            report["skipped_exists"] += 1
+                            continue
+                        missing.append(rec)
+            if not missing:
+                report["exit_reason"] = "NO_DUE_OUTCOME"
+                return report
+            # Only persist when the full T+1..T+5 window is due (horizon == 5)
+            # because returns identity is immutable and cannot be patched.
+            from xiaogu_db import fetch_canonical_future_bars, record_canonical_future_prices
+            for rec in missing:
+                if int(rec.get("horizon") or 0) != 5:
+                    report["skipped_not_due"] += 1
+                    continue
+                decision_id = str(rec.get("id") or rec.get("decision_id") or "")
+                if not decision_id:
+                    report["errors"].append({"decision_id": "", "error": "DECISION_ID_REQUIRED"})
+                    continue
+                try:
+                    bars = fetch_canonical_future_bars(
+                        str(rec["symbol"]), start_date=str(rec["date"]), end_date=as_of_date.isoformat(),
+                    )
+                    if len(bars) < 5:
+                        fetched = eastmoney_future_bars(
+                            str(rec["symbol"]), entry_date=str(rec["date"]), end_date=as_of_date.isoformat(),
+                        )
+                        if fetched:
+                            record_canonical_future_prices(fetched)
+                            bars = fetch_canonical_future_bars(
+                                str(rec["symbol"]), start_date=str(rec["date"]), end_date=as_of_date.isoformat(),
+                            )
+                    bars = calendar_future_bars(str(rec["date"]), bars)
+                    result = append_result(rec, future_bars=bars)
+                    report["results"].append(_persist_and_append_result(result))
+                    report["filled"] += 1
+                except Exception as exc:
+                    report["errors"].append({"decision_id": decision_id, "error": repr(exc)})
+            report["exit_reason"] = "FILLED" if report["filled"] else "NO_DUE_OUTCOME"
+    except TimeoutError:
+        report["blocked_timeout"] = 1
+        report["exit_reason"] = "BLOCKED/TIMEOUT"
+    return report
+
+
 def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
     """Fill DB decisions; JSONL receives only the resulting audit artifact."""
     from xiaogu_db import fetch_picks, fetch_returns
@@ -772,9 +909,20 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--record-json", default="")
     parser.add_argument("--pending", action="store_true", help="append newly available outcomes for ledger decisions")
+    parser.add_argument("--due", action="store_true", help="fill only currently due T+1..T+5 outcomes")
+    parser.add_argument("--timeout-seconds", type=int, default=90)
     parser.add_argument("--end-date", default="")
     parser.add_argument("--refresh-dataset", action="store_true")
     args = parser.parse_args()
+    if args.due:
+        payload = fill_due_horizon_results(
+            as_of=args.end_date or None,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if args.refresh_dataset:
+            payload["paper_dataset"] = refresh_paper_dataset()
+        print(json.dumps(payload, ensure_ascii=False, default=str))
+        return
     if args.pending:
         payload = fill_pending_results(end_date=args.end_date or None)
         if args.refresh_dataset:

@@ -72,7 +72,7 @@ def check_horizon_outcomes():
 
 
 def check_scheduler_outcome_job():
-    return _contains("scheduler", "xiaogu_forward_result_filler_v0_1.py", "--pending")
+    return _contains("scheduler", "xiaogu_forward_result_filler_v0_1.py", "--due")
 
 
 def check_pipeline_chain():

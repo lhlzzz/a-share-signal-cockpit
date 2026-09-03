@@ -16,8 +16,10 @@ from xiaogu_forward_eligibility import candidate_universe, execution_universe
 from xiaogu_forward_snapshot import (
     assert_production_provenance,
     production_decision_clock,
+    production_now,
     select_canonical_snapshot,
-    select_unique_canonical_snapshots,
+    select_production_observation_snapshots,
+    snapshot_age,
     validate_and_build_canonical_snapshot,
 )
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
@@ -284,6 +286,101 @@ def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
     return record
 
 
+def _scan_observation_from_dir(scan_dir: str) -> Dict[str, Any]:
+    """Read this scan's production observation identity. It is not latest-wins."""
+    summary_path = Path(scan_dir) / "scan_summary.json"
+    if not summary_path.exists():
+        return {"status": "SCAN_BLOCKED", "reason": "SCAN_SUMMARY_NOT_FOUND", "lineage_id": "", "source_time": ""}
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    lineage_id = str((summary.get("lineage") or {}).get("lineage_id") or "").strip()
+    source_time = str(summary.get("source_time") or "")
+    persist = summary.get("database_persistence") or {}
+    if str(summary.get("production_scan") or "") != "PASS":
+        return {
+            "status": "SCAN_BLOCKED",
+            "reason": str(summary.get("block_reason") or "PRODUCTION_SCAN_BLOCKED"),
+            "lineage_id": lineage_id,
+            "source_time": source_time,
+            "run_id": str(persist.get("run_id") or ""),
+        }
+    if not lineage_id:
+        return {"status": "SCAN_BLOCKED", "reason": "LINEAGE_ID_REQUIRED", "lineage_id": "", "source_time": source_time}
+    return {
+        "status": "PASS",
+        "reason": "",
+        "lineage_id": lineage_id,
+        "source_time": source_time,
+        "run_id": str(persist.get("run_id") or ""),
+    }
+
+
+def _load_scan_dir_snapshots(scan_dir: str, trade_date: str) -> list[Dict[str, Any]]:
+    snapshot_path = Path(scan_dir) / "canonical_snapshots.jsonl"
+    if not snapshot_path.exists():
+        return []
+    rows = []
+    with snapshot_path.open(encoding="utf-8") as handle:
+        for raw in handle:
+            line = raw.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    return rows
+
+
+def _block_funnel(decisions: list[Dict[str, Any]], *, execution_rejected: int = 0) -> Dict[str, int]:
+    freshness_blocked = 0
+    alpha_blocked = 0
+    gate_blocked = 0
+    strategy_no_signal = 0
+    strategy_signal = 0
+    for decision in decisions:
+        reason = str(decision.get("reason") or "")
+        failed = list(decision.get("failed_gates") or [])
+        blockers = list(decision.get("production_blockers") or []) + list(decision.get("failed_gates") or [])
+        if reason == "STALE_DATA" or "FRESH_DATA" in failed or "STALE_DATA" in blockers:
+            freshness_blocked += 1
+            continue
+        if "ALPHA_VALIDATED" in failed or "ALPHA_NOT_VALIDATED" in blockers:
+            alpha_blocked += 1
+            continue
+        if failed or decision.get("production_blockers") or str(decision.get("buy_status") or "") == "BUY_BLOCKED":
+            gate_blocked += 1
+            continue
+        if decision.get("paper_observation"):
+            strategy_signal += 1
+        else:
+            strategy_no_signal += 1
+    return {
+        "execution_eligibility_blocked": int(execution_rejected),
+        "freshness_blocked": freshness_blocked,
+        "alpha_blocked": alpha_blocked,
+        "gate_blocked": gate_blocked,
+        "strategy_no_signal": strategy_no_signal,
+        "strategy_signal": strategy_signal,
+    }
+
+
+def _scan_status_from_run(
+    *,
+    paper_count: int,
+    decision_count: int,
+    freshness_blocked: int,
+    buy_allowed: int,
+) -> tuple[str, str]:
+    if decision_count == 0 and paper_count == 0:
+        return "NO_SIGNAL", "NO_PAPER_OBSERVATION"
+    if decision_count > 0 and freshness_blocked == decision_count and paper_count == 0:
+        return "STALE_DATA", "STALE_DATA"
+    if paper_count > 0 and buy_allowed > 0:
+        return "SIGNAL_AVAILABLE", "PAPER_OBSERVATION_RECORDED"
+    if paper_count > 0:
+        return "BUY_BLOCKED", "PAPER_OBSERVATION_RECORDED"
+    return "NO_SIGNAL", "NO_PAPER_OBSERVATION"
+
+
 def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
     output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
               "scan_status": scan_status, "scan_reason": reason,
@@ -518,6 +615,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", required=True)
     parser.add_argument("--snapshot-json", default="")
+    parser.add_argument("--scan-dir", default="", help="This scan's observation directory; production still loads DB-verified snapshots")
+    parser.add_argument("--lineage-id", default="", help="Explicit production observation identity")
+    parser.add_argument("--production-run-id", default="", help="Explicit production_run_id for this observation")
     parser.add_argument("--portfolio-state", default="WATCH")
     parser.add_argument("--symbol", default="", help="Only evaluate one symbol; default evaluates every canonical snapshot")
     parser.add_argument("--mode", default="PRODUCTION", choices=list(PRODUCTION_MODES))
@@ -542,6 +642,19 @@ def main() -> None:
     if args.position_review:
         print(json.dumps({"date": args.date, "reviewed": daily_position_review(args.date)}, ensure_ascii=False, default=str))
         return
+    observation_lineage_id = str(args.lineage_id or "").strip()
+    observation_run_id = str(args.production_run_id or "").strip()
+    observation_source_time = ""
+    if args.scan_dir:
+        scan_observation = _scan_observation_from_dir(args.scan_dir)
+        if scan_observation["status"] != "PASS":
+            print(json.dumps(_empty_observation_output(
+                args.date, scan_observation["reason"], scan_status="SCAN_BLOCKED"
+            ), ensure_ascii=False, default=str))
+            return
+        observation_lineage_id = observation_lineage_id or str(scan_observation.get("lineage_id") or "")
+        observation_run_id = observation_run_id or str(scan_observation.get("run_id") or "")
+        observation_source_time = str(scan_observation.get("source_time") or "")
     if args.snapshot_json:
         if mode == "PRODUCTION":
             print(json.dumps(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"), ensure_ascii=False, default=str))
@@ -551,16 +664,32 @@ def main() -> None:
     elif mode == "PRODUCTION":
         from xiaogu_db import fetch_persisted_canonical_snapshots
         try:
-            rows = fetch_persisted_canonical_snapshots(args.date)
+            rows = fetch_persisted_canonical_snapshots(
+                args.date,
+                lineage_id=observation_lineage_id,
+                production_run_id=observation_run_id,
+                decision_clock=production_now(),
+                require_fresh=True,
+            )
         except ValueError as exc:
             reason = str(exc)
-            if "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason:
+            status = "STALE_DATA" if reason == "STALE_DATA" or reason.startswith("STALE_DATA") else "SCAN_BLOCKED"
+            if (
+                "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason
+                and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason
+                and reason != "STALE_DATA"
+                and not reason.startswith("STALE_DATA")
+            ):
                 raise
-            print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+            print(json.dumps(_empty_observation_output(args.date, reason, scan_status=status), ensure_ascii=False, default=str))
             return
         if not rows:
-            print(json.dumps(_empty_observation_output(args.date, "CANONICAL_SNAPSHOT_NOT_FOUND"), ensure_ascii=False, default=str))
+            print(json.dumps(_empty_observation_output(
+                args.date, "CANONICAL_SNAPSHOT_NOT_FOUND", scan_status="SCAN_BLOCKED"
+            ), ensure_ascii=False, default=str))
             return
+    elif args.scan_dir:
+        rows = _load_scan_dir_snapshots(args.scan_dir, args.date)
     else:
         payload = load_latest_snapshot_bundle(args.date)
         rows = payload.get("canonical_snapshots") or []
@@ -575,14 +704,27 @@ def main() -> None:
         except (TypeError, ValueError):
             continue
     try:
-        canonical_rows = select_unique_canonical_snapshots(trusted, trade_date=args.date)
+        canonical_rows = select_production_observation_snapshots(
+            trusted,
+            trade_date=args.date,
+            lineage_id=observation_lineage_id,
+            decision_clock=production_now() if mode == "PRODUCTION" else None,
+            require_fresh=mode == "PRODUCTION",
+        )
     except ValueError as exc:
         reason = str(exc)
+        status = "STALE_DATA" if reason == "STALE_DATA" or reason.startswith("STALE_DATA") else "SCAN_BLOCKED"
         if "CANONICAL_SNAPSHOT_AMBIGUOUS" in reason and mode != "PRODUCTION":
             reason = "RESEARCH_AMBIGUOUS"
-        elif "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason:
+            status = "SCAN_BLOCKED"
+        elif (
+            "CANONICAL_SNAPSHOT_AMBIGUOUS" not in reason
+            and "CANONICAL_SNAPSHOT_NOT_FOUND" not in reason
+            and reason != "STALE_DATA"
+            and not reason.startswith("STALE_DATA")
+        ):
             raise
-        print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+        print(json.dumps(_empty_observation_output(args.date, reason, scan_status=status), ensure_ascii=False, default=str))
         return
     canonical_count = len(canonical_rows)
     if canonical_count == 0:
@@ -638,6 +780,14 @@ def main() -> None:
     recorded = 0
     paper_observations = []
     persist_paper = mode == "PRODUCTION" and not args.dry_run
+    if persist_paper and not observation_run_id:
+        print(json.dumps(_empty_observation_output(
+            args.date, "PRODUCTION_RUN_ID_REQUIRED", scan_status="SCAN_BLOCKED"
+        ), ensure_ascii=False, default=str))
+        return
+    if observation_run_id:
+        for decision in decisions:
+            decision["production_run_id"] = observation_run_id
     for decision in decisions:
         if persist_paper and (
             decision.get("state") in RECORDABLE_ACTIONS or decision.get("paper_observation")
@@ -645,15 +795,44 @@ def main() -> None:
             decision["ledger_path"] = str(_write_ledger_record(decision))
             recorded += 1
         if persist_paper and decision.get("paper_observation"):
-            decision["paper_observation_record"] = _write_paper_observation(decision)
-            paper_observations.append(decision["paper_observation_record"])
+            paper_observations.append(_write_paper_observation(decision))
+    funnel = _block_funnel(
+        decisions,
+        execution_rejected=int(universe.get("execution_rejected_count") or 0),
+    )
+    buy_allowed = sum(1 for decision in decisions if str(decision.get("buy_status") or "") == "BUY_ALLOWED")
+    scan_status, scan_reason = _scan_status_from_run(
+        paper_count=len(paper_observations) if persist_paper else sum(1 for decision in decisions if decision.get("paper_observation")),
+        decision_count=len(decisions),
+        freshness_blocked=funnel["freshness_blocked"],
+        buy_allowed=buy_allowed,
+    )
+    decision_clock = production_now() if mode == "PRODUCTION" else None
+    source_times = sorted({str(row.get("source_time") or "") for row in canonical_rows if row.get("source_time")})
+    source_time = observation_source_time or (source_times[0] if len(source_times) == 1 else "")
+    source_age = snapshot_age(source_time, decision_clock) if source_time and decision_clock is not None else None
     output = {
         "date": args.date,
         "mode": mode,
         "count": len(decisions),
         "recorded": recorded,
-        "scan_status": "SIGNAL_AVAILABLE" if paper_observations else "NO_SIGNAL",
-        "scan_reason": "PAPER_OBSERVATION_RECORDED" if paper_observations else "NO_PAPER_OBSERVATION",
+        "scan_status": scan_status,
+        "scan_reason": scan_reason,
+        "production_run_id": observation_run_id or None,
+        "lineage_id": observation_lineage_id or (canonical_rows[0].get("lineage_id") if canonical_rows else None),
+        "source_time": source_time or None,
+        "decision_time": None if decision_clock is None else decision_clock.isoformat(),
+        "source_age_seconds": None if source_age is None else source_age.total_seconds(),
+        "freshness_blocked": funnel["freshness_blocked"],
+        "alpha_blocked": funnel["alpha_blocked"],
+        "gate_blocked": funnel["gate_blocked"],
+        "strategy_no_signal": funnel["strategy_no_signal"],
+        "strategy_signal": funnel["strategy_signal"],
+        "execution_eligibility_blocked": funnel["execution_eligibility_blocked"],
+        "buy_allowed_count": buy_allowed,
+        "main_board_count": (universe.get("execution_board_counts") or {}).get("MAIN_BOARD"),
+        "non_main_board_blocked_count": funnel["execution_eligibility_blocked"],
+        "paper_from_decisions": sum(1 for decision in decisions if decision.get("paper_observation")),
         "l0_count": input_count,
         "l1_count": universe.get("eligible_count", 0),
         "l2_count": universe.get("l2_routed_count", 0),

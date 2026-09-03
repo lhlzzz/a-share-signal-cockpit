@@ -41,7 +41,7 @@ def job_afternoon_scan_and_pick() -> None:
 def job_horizon_evaluation() -> None:
     if not is_trading_day():
         return
-    _run("xiaogu_forward_result_filler_v0_1.py", "--pending", "--refresh-dataset")
+    _run("xiaogu_forward_result_filler_v0_1.py", "--due", "--timeout-seconds", "90")
     _run("xiaogu_forward_runner.py", "--date", f"{datetime.now(TZ):%F}", "--position-review")
 
 

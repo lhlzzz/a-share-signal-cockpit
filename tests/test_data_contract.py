@@ -1296,6 +1296,10 @@ def test_daily_pipeline_persists_canonical_snapshots_before_production_runner():
     assert pipeline.index("scrapy_scanner/runner_v2.py") < pipeline.index(
         "xiaogu_forward_runner.py"
     )
+    assert "--scan-dir" in pipeline
+    assert pipeline.index("scrapy_scanner/runner_v2.py") < pipeline.index("--scan-dir")
+    assert "--due" in pipeline
+    assert "fill_pending" not in pipeline
 
 
 def test_canonical_future_prices_are_immutable_facts():
