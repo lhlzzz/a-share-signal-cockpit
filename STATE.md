@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Phase 2 observation / OOS tracking is in place on the existing Xiaogu owners. This is not Xiaogu 4.0 and not a parallel rebuild. Official forward OOS has not started: **NO_REAL_OOS_EVIDENCE_YET**.
+Phase 2.1 audited the first official observation path. Coverage JSONB now merges; official OOS requires production provenance. Live official Top1/Top3 has not been produced: **NO_REAL_OOS_EVIDENCE_YET**. See `PHASE_2_1_FIRST_OBSERVATION_AUDIT.md`.
 
 ## Production permission
 
@@ -44,6 +44,6 @@ This is a daily-bar approximation, not a fill simulator.
 
 ## Tests
 
-`python -m pytest tests/ -x -q --tb=line` → 367 passed.
+`python -m pytest tests/ -x -q --tb=line` → 370 passed.
 
-Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. See `PHASE_2_TRUTH_REPORT.md`.
+Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. See `PHASE_2_1_FIRST_OBSERVATION_AUDIT.md`.
