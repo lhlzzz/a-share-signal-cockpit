@@ -1910,23 +1910,29 @@ def persist_production_facts(
     with engine.begin() as db:
         token = _ACTIVE_DB_CONNECTION.set(db)
         try:
+            run_id = str(production_run_id or "").strip()
             for decision in decisions:
                 canonical = decision.get("canonical_snapshot")
                 observation = decision.get("paper_observation")
                 if not isinstance(canonical, dict):
                     continue
+                if run_id:
+                    decision["production_run_id"] = decision.get("production_run_id") or run_id
                 if decision.get("state") in {"BUY", "HOLD", "REDUCE", "SELL"} or isinstance(observation, dict):
                     record_snapshot(canonical)
                     record_decision(decision)
                 if isinstance(observation, dict):
+                    if run_id and not observation.get("production_run_id"):
+                        observation = {**observation, "production_run_id": run_id}
+                        decision["paper_observation"] = observation
                     paper_signal_id = str(observation.get("paper_signal_id") or "")
                     if paper_signal_id and not paper_observation_exists(paper_signal_id):
                         record_paper_observation({
                             **observation,
                             "canonical_snapshot": canonical,
                             "trade_date": canonical.get("trade_date") or observation.get("trade_date"),
+                            "production_run_id": observation.get("production_run_id") or run_id,
                         })
-            run_id = str(production_run_id or "").strip()
             if run_id and "production_run_id" in _table_columns("production_runs"):
                 _write_production_run_coverage(
                     db,
@@ -1983,8 +1989,16 @@ def _write_production_run_coverage(
         assignments.append("status = :status")
         params["status"] = status
     if payload is not None and "scoring_config_snapshot" in columns:
+        existing = db.execute(
+            text(
+                "SELECT scoring_config_snapshot FROM production_runs "
+                "WHERE production_run_id = :run_id"
+            ),
+            {"run_id": run_id},
+        ).scalar()
+        merged = {**_json_payload(existing), **payload}
         assignments.append("scoring_config_snapshot = CAST(:coverage AS jsonb)")
-        params["coverage"] = json.dumps(payload, ensure_ascii=False, default=str)
+        params["coverage"] = json.dumps(merged, ensure_ascii=False, default=str)
     db.execute(
         text(f"UPDATE production_runs SET {', '.join(assignments)} WHERE production_run_id = :run_id"),
         params,
@@ -2489,18 +2503,74 @@ def fetch_production_run_coverage(production_run_id: str) -> Dict[str, Any]:
     return _coverage_from_run_row(run)
 
 
+OFFICIAL_PRODUCTION_ALPHA = "profit_window_alpha_5d_v4"
+OFFICIAL_PRODUCTION_TARGET = "opportunity_5d"
+OFFICIAL_PRODUCTION_RUN_STATUS = "DECISIONS_PERSISTED"
+
+
+def _official_observation_rank(observation: Dict[str, Any]) -> int | None:
+    rank = observation.get("rank")
+    try:
+        return int(rank) if rank is not None and rank != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def has_official_observation_provenance(
+    observation: Dict[str, Any],
+    *,
+    require_persisted_run: bool = False,
+    run_status: str | None = None,
+) -> bool:
+    """Official forward observation identity. Rank alone is not enough."""
+    if not isinstance(observation, dict):
+        return False
+    paper_signal_id = str(observation.get("paper_signal_id") or "").strip()
+    decision_id = str(observation.get("decision_id") or "").strip()
+    production_run_id = str(observation.get("production_run_id") or "").strip()
+    snapshot_id = str(observation.get("snapshot_id") or "").strip()
+    lineage_id = str(observation.get("lineage_id") or "").strip()
+    if not paper_signal_id or not decision_id or paper_signal_id == decision_id:
+        return False
+    if not production_run_id or not snapshot_id or not lineage_id:
+        return False
+    alpha = str(observation.get("production_alpha") or observation.get("model_id") or "").strip()
+    target = str(observation.get("production_target") or observation.get("target") or "").strip()
+    if alpha != OFFICIAL_PRODUCTION_ALPHA or target != OFFICIAL_PRODUCTION_TARGET:
+        return False
+    rank = _official_observation_rank(observation)
+    if not (observation.get("top1_flag") is True or observation.get("top3_flag") is True or rank in {1, 2, 3}):
+        return False
+    if observation.get("paper_only") is False or observation.get("live_order") is True:
+        return False
+    if require_persisted_run and (run_status or "") != OFFICIAL_PRODUCTION_RUN_STATUS:
+        return False
+    return True
+
+
 def fetch_official_paper_observations() -> List[Dict[str, Any]]:
-    """Official Top1/Top3 paper observations only. Unranked dumps are not OOS evidence."""
-    rows = []
+    """Official Top1/Top3 paper observations with production provenance only."""
+    candidates = []
+    run_ids: set[str] = set()
     for row in fetch_paper_observations():
         payload = _json_payload(row.get("payload"))
         merged = {**payload, **{key: value for key, value in row.items() if key != "payload"}}
-        rank = merged.get("rank")
-        try:
-            rank = int(rank) if rank is not None and rank != "" else None
-        except (TypeError, ValueError):
-            rank = None
-        if merged.get("top1_flag") is True or merged.get("top3_flag") is True or rank in {1, 2, 3}:
+        if not has_official_observation_provenance(merged):
+            continue
+        run_ids.add(str(merged.get("production_run_id") or "").strip())
+        candidates.append(merged)
+    run_status: Dict[str, str] = {}
+    for run_id in run_ids:
+        run = fetch_production_run(run_id) or {}
+        run_status[run_id] = str(run.get("status") or "")
+    rows = []
+    for merged in candidates:
+        run_id = str(merged.get("production_run_id") or "").strip()
+        if has_official_observation_provenance(
+            merged,
+            require_persisted_run=True,
+            run_status=run_status.get(run_id),
+        ):
             rows.append(merged)
     return rows
 

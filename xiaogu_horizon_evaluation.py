@@ -1949,17 +1949,14 @@ def _settled_official(row: Dict[str, Any]) -> bool:
 
 
 def official_observation_rows(observations: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
-    """Keep only official Top1/Top3 observations. Unranked dumps are not OOS evidence."""
+    """Keep only official Top1/Top3 observations with production provenance."""
+    from xiaogu_db import has_official_observation_provenance
+
     rows = []
     for row in observations:
         if not isinstance(row, dict):
             continue
-        rank = row.get("rank")
-        try:
-            rank = int(rank) if rank is not None and rank != "" else None
-        except (TypeError, ValueError):
-            rank = None
-        if not (row.get("top1_flag") is True or row.get("top3_flag") is True or rank in {1, 2, 3}):
+        if not has_official_observation_provenance(row):
             continue
         rows.append(row)
     return rows

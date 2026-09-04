@@ -1022,6 +1022,10 @@ def main() -> None:
     if observation_run_id:
         for decision in decisions:
             decision["production_run_id"] = observation_run_id
+            observation = decision.get("paper_observation")
+            if isinstance(observation, dict):
+                observation["production_run_id"] = observation_run_id
+                decision["paper_observation"] = observation
     research_summary = _research_summary(decisions)
     coverage = _observation_coverage(
         input_count=input_count,
