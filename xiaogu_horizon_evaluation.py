@@ -1915,3 +1915,188 @@ def build_alpha_report(
         "calibration": calibration,
         "core_alpha_status": validation_status,
     }
+
+
+OBSERVATION_STATUSES = ("DATA_INSUFFICIENT", "EXPERIMENTAL", "QUALIFIED", "REJECTED")
+
+
+def _mean(values: Iterable[float]) -> float | None:
+    values = [float(value) for value in values if value is not None]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _horizon_opportunity(row: Dict[str, Any], day: int) -> bool | None:
+    days = row.get("days") if isinstance(row.get("days"), dict) else {}
+    item = days.get(str(day), days.get(day))
+    if not isinstance(item, dict) or item.get("status") != "SETTLED":
+        return None
+    value = _number(item.get("daily_bar_profit_opportunity"))
+    if value is None:
+        return None
+    return value >= PROFIT_WINDOW_TARGET
+
+
+def _settled_official(row: Dict[str, Any]) -> bool:
+    days = row.get("days") if isinstance(row.get("days"), dict) else {}
+    if not days:
+        return bool(row.get("outcome_complete"))
+    return all(
+        str((days.get(str(day), days.get(day)) or {}).get("status") or "") == "SETTLED"
+        for day in HORIZONS
+    )
+
+
+def official_observation_rows(observations: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Keep only official Top1/Top3 observations. Unranked dumps are not OOS evidence."""
+    rows = []
+    for row in observations:
+        if not isinstance(row, dict):
+            continue
+        rank = row.get("rank")
+        try:
+            rank = int(rank) if rank is not None and rank != "" else None
+        except (TypeError, ValueError):
+            rank = None
+        if not (row.get("top1_flag") is True or row.get("top3_flag") is True or rank in {1, 2, 3}):
+            continue
+        rows.append(row)
+    return rows
+
+
+def evaluate_official_observations(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Observation-only Top1/Top3 OOS. Does not score, select, gate, or BUY."""
+    rows = official_observation_rows(rows)
+    settled = [row for row in rows if _settled_official(row) and _label_value(row) is not None]
+    top1 = [row for row in settled if row.get("top1_flag") is True or row.get("rank") == 1]
+    top3 = [row for row in settled if row.get("top3_flag") is True or row.get("rank") in {1, 2, 3}]
+    top1_hits = sum(1 for row in top1 if _label_value(row) == 1)
+    grouped: Dict[str, list[Dict[str, Any]]] = {}
+    for row in top3:
+        grouped.setdefault(_row_date(row) or "UNKNOWN", []).append(row)
+    top3_days = 0
+    top3_at_least_one = 0
+    for items in grouped.values():
+        if not items:
+            continue
+        top3_days += 1
+        if any(_label_value(item) == 1 for item in items):
+            top3_at_least_one += 1
+    horizon_hits = {}
+    for day in HORIZONS:
+        labels = [_horizon_opportunity(row, day) for row in settled]
+        known = [int(value) for value in labels if value is not None]
+        horizon_hits[f"T+{day}"] = {
+            "sample_count": len(known),
+            "hit_count": sum(known),
+            "hit_rate": (sum(known) / len(known)) if known else None,
+        }
+    maes = [_mae(row) for row in settled]
+    mfes = [_mfe(row) for row in settled]
+    realized = [_number(row.get("realized_return") or row.get("realized_return_5d") or row.get("future_5d_net_return")) for row in settled]
+    market = [_number(row.get("market_baseline")) for row in settled]
+    mean_realized = _mean(value for value in realized if value is not None)
+    mean_market = _mean(value for value in market if value is not None)
+    train, validation, oos = _split_rows(settled) if settled else ([], [], [])
+    daily = _daily_grouped_hit_rates(oos) if oos else {
+        "days": 0, "top1_hit_rate": None, "top3_hit_rate": None, "opportunity_rate": None, "coverage": None,
+    }
+    regimes: Dict[str, int] = {}
+    for row in settled:
+        name = str(row.get("regime") or "UNKNOWN")
+        regimes[name] = regimes.get(name, 0) + 1
+    sample_count = len(settled)
+    if sample_count == 0:
+        status = "DATA_INSUFFICIENT"
+        evidence = "NO_REAL_OOS_EVIDENCE_YET"
+    elif sample_count < MIN_CALIBRATION_SAMPLES:
+        status = "DATA_INSUFFICIENT"
+        evidence = "INSUFFICIENT_SETTLED_OFFICIAL_OBSERVATIONS"
+    else:
+        # QUALIFIED/REJECTED stay reserved. This function does not invent new
+        # numeric gates and does not promote Alpha from observation counts.
+        status = "EXPERIMENTAL"
+        evidence = "OFFICIAL_OBSERVATIONS_ACCUMULATING"
+    return {
+        "status": status,
+        "evidence": evidence,
+        "production_alpha": "profit_window_alpha_5d_v4",
+        "target": TARGET_VERSION,
+        "sample_count": sample_count,
+        "official_observation_count": len(rows),
+        "top1": {
+            "sample_count": len(top1),
+            "hit_count": top1_hits,
+            "hit_rate": (top1_hits / len(top1)) if top1 else None,
+            "opportunity_rate": daily.get("opportunity_rate"),
+            "coverage": daily.get("coverage") if oos else ((len(top1) / len(settled)) if settled else None),
+        },
+        "top3": {
+            "sample_count": len(top3),
+            "at_least_one_hit_count": top3_at_least_one,
+            "hit_rate": (top3_at_least_one / top3_days) if top3_days else None,
+            "coverage": (top3_days / len(grouped)) if grouped else None,
+        },
+        "horizon": horizon_hits,
+        "risk": {
+            "MAE": _mean(value for value in maes if value is not None),
+            "MFE": _mean(value for value in mfes if value is not None),
+            "realized_return": mean_realized,
+        },
+        "baseline": {
+            "market_baseline": mean_market,
+            "excess_vs_market": (
+                None if mean_realized is None or mean_market is None else mean_realized - mean_market
+            ),
+        },
+        "regime": {
+            "current": max(regimes, key=regimes.get) if regimes else None,
+            "historical": regimes,
+        },
+        "stability": {
+            "chronological_segments": {
+                "train_samples": len(train),
+                "validation_samples": len(validation),
+                "oos_samples": len(oos),
+            },
+            "rolling_window": daily,
+            "embargo_trading_days": OOS_EMBARGO_TRADING_DAYS,
+            "split": "chronological_60_20_20",
+        },
+        "walk_forward": {
+            "method": "rolling_chronological",
+            "embargo_trading_days": OOS_EMBARGO_TRADING_DAYS,
+            "purge": True,
+            "random_split": False,
+        },
+        "influences_selection": False,
+        "influences_alpha": False,
+        "influences_buy": False,
+    }
+
+
+def load_official_observation_rows() -> list[Dict[str, Any]]:
+    """Read official paper observations and nested T+1..T+5 facts from PostgreSQL."""
+    from xiaogu_db import fetch_horizon_outcomes, fetch_official_paper_observations
+
+    rows = []
+    for observation in fetch_official_paper_observations():
+        decision_id = str(observation.get("decision_id") or "")
+        horizons = fetch_horizon_outcomes(decision_id) if decision_id else {"days": {}}
+        days = horizons.get("days") if isinstance(horizons.get("days"), dict) else {}
+        rows.append({
+            **observation,
+            "trade_date": observation.get("trade_date") or str(observation.get("signal_time") or "")[:10],
+            "days": days,
+            "opportunity_5d": horizons.get("opportunity_5d"),
+            "profit_window": horizons.get("opportunity_5d"),
+            "outcome_complete": all(
+                str((days.get(str(day)) or {}).get("status") or "") == "SETTLED" for day in HORIZONS
+            ),
+            "max_mae_5d": horizons.get("mae"),
+            "future_5d_mfe": horizons.get("mfe"),
+            "realized_return": horizons.get("realized_return"),
+            "selection_score": observation.get("selection_score") or observation.get("alpha_score"),
+        })
+    return rows

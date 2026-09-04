@@ -346,6 +346,12 @@ def test_no_second_selector_or_partial_observation_path():
             assert token not in text, f"{token} still in {path}"
     assert not Path("xiaogu_forward_ranking.py").exists()
     assert not Path("xiaogu_scanner_scoring.py").exists()
+    assert not Path("xiaogu_core_alpha_v5.py").exists()
+    truth = Path("xiaogu_alpha_truth.py").read_text(encoding="utf-8")
+    assert "evaluate_candidate_bundle" not in truth
+    assert "attach_top_paper_observations" not in truth
+    assert "evaluate_production_gates" not in truth
+    assert "influences_selection" in truth
 
 
 def test_production_permission_stays_paper_blocked():
@@ -600,6 +606,7 @@ def test_production_run_coverage_contract_fields():
         "full_universe_count", "l1_count", "l2_count", "l3_count",
         "feature_count", "alpha_count", "decision_count",
         "selection_candidate_count", "top3_count", "top1_count", "paper_count",
+        "scan_count", "research_count", "execution_universe_count",
         "worker_error_count", "worker_recovered_count", "system_fault", "publishable",
     ):
         assert f'"{field}"' in source
@@ -993,3 +1000,277 @@ def test_atomic_persistence_rolls_back_all_facts_on_paper_failure(monkeypatch):
             connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
             connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
             connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_observation_coverage_persists_on_production_run():
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603993", 3.0, lineage_id="phase2-coverage-lineage")
+    )
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    paper = dict(decision["paper_observation"])
+    paper["rank"] = 1
+    paper["top1_flag"] = True
+    paper["top3_flag"] = True
+    paper["selection_reason"] = "TOP1_OPPORTUNITY_5D"
+    decision["canonical_snapshot"] = snapshot
+    decision["paper_observation"] = paper
+    scan_dir = "data/test/phase2_coverage"
+    run_id = db.insert_scan_session(
+        trade_date=snapshot["trade_date"],
+        scan_time=snapshot["source_time"],
+        source_id="phase2_coverage",
+        quotes_count=10,
+        captured_count=10,
+        scan_dir=scan_dir,
+        lineage_id=snapshot["lineage_id"],
+    )
+    decision["production_run_id"] = run_id
+    coverage = {
+        "scan_count": 10,
+        "execution_universe_count": 4,
+        "research_count": 1,
+        "alpha_count": 1,
+        "decision_count": 1,
+        "top3_count": 1,
+        "top1_count": 1,
+        "paper_count": 1,
+        "system_fault": False,
+        "publishable": True,
+        "selection_status": "SELECTED",
+    }
+    try:
+        db.persist_production_facts([decision], production_run_id=run_id, coverage=coverage)
+        fetched = db.fetch_production_run_coverage(run_id)
+        assert fetched["scan_count"] == 10
+        assert fetched["execution_universe_count"] == 4
+        assert fetched["research_count"] == 1
+        assert fetched["alpha_count"] == 1
+        assert fetched["decision_count"] == 1
+        assert fetched["top3_count"] == 1
+        assert fetched["top1_count"] == 1
+        assert fetched["paper_count"] == 1
+        assert fetched["system_fault"] is False
+        assert fetched["publishable"] is True
+        assert fetched["influences_selection"] is False
+        ledger = db.fetch_paper_observation_ledger(paper["paper_signal_id"])
+        assert ledger["paper_signal_id"] != ledger["decision_id"]
+        assert ledger["T+1"]["status"] in {"SETTLED", "MISSING"}
+        assert ledger["T+5"]["horizon"] == 5
+        assert set(str(day) for day in range(1, 6)) <= {
+            key.replace("T+", "") for key in ("T+1", "T+2", "T+3", "T+4", "T+5")
+        }
+        for day in range(1, 6):
+            assert ledger[f"T+{day}"]["horizon"] == day
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper["paper_signal_id"]})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision["decision_id"]})
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_same_paper_signal_id_cannot_overwrite_another_observation():
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    first_snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603994", 3.0, lineage_id="phase2-paper-lock-a")
+    )
+    first = evaluate_candidate_bundle(first_snapshot, position_state="FLAT", as_of=AS_OF)
+    first["canonical_snapshot"] = first_snapshot
+    second_snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603995", 4.0, lineage_id="phase2-paper-lock-b")
+    )
+    second = evaluate_candidate_bundle(second_snapshot, position_state="FLAT", as_of=AS_OF)
+    second["canonical_snapshot"] = second_snapshot
+    conflict = dict(second["paper_observation"])
+    conflict["paper_signal_id"] = first["paper_observation"]["paper_signal_id"]
+    conflict["decision_id"] = second["decision_id"]
+    try:
+        db.record_snapshot(first_snapshot)
+        db.record_decision(first)
+        db.record_paper_observation({
+            **first["paper_observation"],
+            "canonical_snapshot": first_snapshot,
+            "trade_date": first_snapshot["trade_date"],
+        })
+        db.record_snapshot(second_snapshot)
+        db.record_decision(second)
+        with pytest.raises(ValueError, match="PAPER_OBSERVATION_IDENTITY_CONFLICT"):
+            db.record_paper_observation({
+                **conflict,
+                "canonical_snapshot": second_snapshot,
+                "trade_date": second_snapshot["trade_date"],
+            })
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id IN (:a, :b)"), {
+                "a": first["paper_observation"]["paper_signal_id"],
+                "b": second["paper_observation"]["paper_signal_id"],
+            })
+            connection.execute(text("DELETE FROM picks WHERE decision_id IN (:a, :b)"), {
+                "a": first["decision_id"],
+                "b": second["decision_id"],
+            })
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id IN (:a, :b)"), {
+                "a": first_snapshot["snapshot_id"],
+                "b": second_snapshot["snapshot_id"],
+            })
+
+
+def test_completed_outcome_is_immutable():
+    import xiaogu_db as db
+    from sqlalchemy import text
+    from xiaogu_forward_result_filler_v0_1 import append_result
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603996", 3.0, lineage_id="phase2-outcome-lock")
+    )
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    decision_id = decision["decision_id"]
+    try:
+        db.record_snapshot(snapshot)
+        db.record_decision(decision)
+        result = append_result(
+            {
+                "id": decision_id,
+                "decision_id": decision_id,
+                "date": snapshot["trade_date"],
+                "symbol": snapshot["symbol"],
+                "reference_price": snapshot["price"],
+                "signal_time": snapshot["signal_time"],
+                "snapshot_id": snapshot["snapshot_id"],
+            },
+            future_bars=_bars(5),
+        )
+        db.record_returns(str(result["date"]), str(result["symbol"]), result, decision_id=decision_id)
+        mutated = dict(result)
+        mutated["opportunity_5d"] = not bool(result.get("opportunity_5d"))
+        with pytest.raises(ValueError, match="OUTCOME_IDENTITY_CONFLICT"):
+            db.record_returns(str(result["date"]), str(result["symbol"]), mutated, decision_id=decision_id)
+        fetched = db.fetch_horizon_outcomes(decision_id)
+        assert fetched["days"]["5"]["status"] == "SETTLED"
+        assert fetched["opportunity_5d"] == result.get("opportunity_5d")
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM returns WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
+
+
+def test_official_observation_oos_and_dashboard_do_not_select():
+    from xiaogu_alpha_truth import build_observation_truth_report
+    from xiaogu_horizon_evaluation import evaluate_official_observations
+    from xiaogu_portfolio_decision import attach_top_paper_observations
+
+    dump = [{"paper_signal_id": "dump", "decision_id": "d0", "symbol": "600000", "opportunity_5d": True}]
+    empty = evaluate_official_observations(dump)
+    assert empty["sample_count"] == 0
+    assert empty["status"] == "DATA_INSUFFICIENT"
+    assert empty["evidence"] == "NO_REAL_OOS_EVIDENCE_YET"
+    assert empty["influences_selection"] is False
+
+    rows = []
+    for day in range(1, 8):
+        rows.append({
+            "trade_date": f"2026-08-{day:02d}",
+            "symbol": "600001",
+            "rank": 1,
+            "top1_flag": True,
+            "top3_flag": True,
+            "opportunity_5d": day % 2 == 0,
+            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03 if day % 2 == 0 else 0.0} for horizon in range(1, 6)},
+            "max_mae_5d": -0.01,
+            "future_5d_mfe": 0.04,
+            "realized_return": 0.01,
+            "market_baseline": 0.002,
+            "selection_score": 0.7,
+        })
+        rows.append({
+            "trade_date": f"2026-08-{day:02d}",
+            "symbol": "600002",
+            "rank": 2,
+            "top1_flag": False,
+            "top3_flag": True,
+            "opportunity_5d": False,
+            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.0} for horizon in range(1, 6)},
+            "max_mae_5d": -0.02,
+            "future_5d_mfe": 0.01,
+            "realized_return": -0.01,
+            "market_baseline": 0.002,
+            "selection_score": 0.4,
+        })
+        rows.append({
+            "trade_date": f"2026-08-{day:02d}",
+            "symbol": "600003",
+            "rank": 3,
+            "top1_flag": False,
+            "top3_flag": True,
+            "opportunity_5d": True,
+            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
+            "max_mae_5d": -0.015,
+            "future_5d_mfe": 0.05,
+            "realized_return": 0.02,
+            "market_baseline": 0.002,
+            "selection_score": 0.5,
+        })
+    stats = evaluate_official_observations(rows)
+    assert stats["status"] == "DATA_INSUFFICIENT"
+    assert stats["top1"]["sample_count"] == 7
+    assert stats["top1"]["hit_count"] == 3
+    assert stats["top3"]["sample_count"] == 21
+    assert stats["top3"]["at_least_one_hit_count"] == 7
+    assert stats["baseline"]["market_baseline"] is not None
+    assert stats["baseline"]["excess_vs_market"] is not None
+    assert stats["horizon"]["T+1"]["hit_rate"] is not None
+    assert stats["influences_selection"] is False
+
+    many = []
+    for index in range(40):
+        month = 6 if index < 30 else 7
+        day = (index % 30) + 1 if month == 6 else (index - 29)
+        many.append({
+            "trade_date": f"2026-{month:02d}-{day:02d}",
+            "symbol": "600001",
+            "rank": 1,
+            "top1_flag": True,
+            "top3_flag": True,
+            "opportunity_5d": True,
+            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
+            "max_daily_bar_profit_opportunity_5d": 0.03,
+            "selection_score": 0.6,
+        })
+    experimental = evaluate_official_observations(many)
+    assert experimental["status"] == "EXPERIMENTAL"
+    assert experimental["status"] != "QUALIFIED"
+
+    report = build_observation_truth_report(rows)
+    assert report["observation_status"] == "DATA_INSUFFICIENT"
+    assert report["influences_selection"] is False
+    assert report["buy"] == "BLOCKED"
+    assert report["live"] == "DISABLED"
+    assert report["source_of_truth"] == "PostgreSQL"
+    before = attach_top_paper_observations
+    assert before is attach_top_paper_observations
+    assert "attach_top_paper_observations" not in Path("xiaogu_alpha_truth.py").read_text(encoding="utf-8")
+
+
+def test_postgres_is_observation_source_of_truth(monkeypatch):
+    import xiaogu_db as db
+    from xiaogu_horizon_evaluation import load_official_observation_rows
+
+    monkeypatch.setattr(db, "fetch_official_paper_observations", lambda: [])
+    monkeypatch.setattr(db, "fetch_horizon_outcomes", lambda _decision_id: {"days": {}, "opportunity_5d": None})
+    rows = load_official_observation_rows()
+    assert rows == []
+    from xiaogu_alpha_truth import build_observation_truth_report
+    report = build_observation_truth_report(rows)
+    assert report["no_real_oos_evidence_yet"] is True
+    assert report["sample_size"] == 0
