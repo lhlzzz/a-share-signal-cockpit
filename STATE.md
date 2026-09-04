@@ -1,8 +1,8 @@
 # Xiaogu STATE
 
-Date: 2026-09-04
+Date: 2026-09-05
 
-Phase 2.1 audited the first official observation path. Coverage JSONB now merges; official OOS requires production provenance. Live official Top1/Top3 has not been produced: **NO_REAL_OOS_EVIDENCE_YET**. See `PHASE_2_1_FIRST_OBSERVATION_AUDIT.md`.
+Phase 2.2 ran the current production command on the real clock. 2026-09-04 did not produce an official paper observation: **NO_OFFICIAL_PRODUCTION_TICKET**. Saturday 2026-09-05 is `NON_TRADING_DAY`. See `PHASE_2_2_FIRST_REAL_PRODUCTION_TICKET.md`. Alpha status remains DATA_INSUFFICIENT. **NO_REAL_OOS_EVIDENCE_YET**.
 
 ## Production permission
 
@@ -44,6 +44,6 @@ This is a daily-bar approximation, not a fill simulator.
 
 ## Tests
 
-`python -m pytest tests/ -x -q --tb=line` → 370 passed.
+`python -m pytest tests/ -q --tb=line` → 372 passed.
 
-Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. See `PHASE_2_1_FIRST_OBSERVATION_AUDIT.md`.
+Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. Live 2026-09-04 ticket: **NO_OFFICIAL_PRODUCTION_TICKET**. See `PHASE_2_2_FIRST_REAL_PRODUCTION_TICKET.md`.
