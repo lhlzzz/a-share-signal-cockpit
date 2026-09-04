@@ -50,8 +50,8 @@ PENDING_OUTCOME_FIELDS = tuple(
     )
 ) + (
     'profit_window_target', 'execution_cost_rate', 'daily_outcomes',
-    'max_daily_bar_profit_opportunity_5d', 'first_profit_day', 'time_to_profit',
-    'max_mae_5d', 'net_profit_window', 'profit_window', 'data_status',
+    'max_daily_bar_profit_opportunity_5d', 'opportunity_5d', 'first_profit_day', 'time_to_profit',
+    'max_mae_5d', 'realized_return_5d', 'profit_window', 'data_status',
     'realizability_level', 'outcome_complete', 'available_days', 'partial_status',
 )
 
@@ -67,9 +67,21 @@ def _memory_symbol(value: Any) -> str:
     return "".join(char for char in str(value or "UNKNOWN").zfill(6) if char.isalnum() or char in "._-")
 
 
+def _memory_identity(record: Dict[str, Any]) -> str:
+    return str(
+        record.get("paper_signal_id")
+        or record.get("decision_id")
+        or record.get("id")
+        or "UNKNOWN"
+    )
+
+
 def _memory_note_path(state: str, record: Dict[str, Any]) -> str:
     section = "EXIT" if state == "SELL" else state
-    return f"xiaogu_memory/decisions/{section}/{record.get('date')}_{_memory_symbol(record.get('symbol'))}.md"
+    date = str(record.get("date") or "UNKNOWN")
+    symbol = _memory_symbol(record.get("symbol"))
+    identity = _memory_identity(record)
+    return f"xiaogu_memory/decisions/{section}/{date}/{symbol}/{identity}.md"
 
 
 def _memory_bridge_url() -> str:
@@ -156,6 +168,10 @@ def write_trade_memory(record: Dict[str, Any]) -> str | None:
     research = features.get("research_context") or {}
     thesis = record.get("thesis") or alpha.get("thesis") or {}
     note = f"""---
+memory_id: {record.get('memory_id') or _memory_identity(record)}
+production_run_id: {record.get('production_run_id') or 'UNKNOWN'}
+lineage_id: {record.get('lineage_id') or 'UNKNOWN'}
+snapshot_id: {record.get('snapshot_id') or 'UNKNOWN'}
 decision_id: {record.get('id') or record.get('decision_id') or 'UNKNOWN'}
 paper_signal_id: {record.get('paper_signal_id') or 'NONE'}
 symbol: {_memory_symbol(record.get('symbol'))}
@@ -205,8 +221,13 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 Pending T+1..T+5 outcome update.
 """
     path = _memory_note_path(state, record)
+    memory_id = str(record.get("memory_id") or _memory_identity(record))
     return _send_memory("UPSERT_NOTE", {
         "path": path,
+        "memory_id": memory_id,
+        "production_run_id": record.get("production_run_id"),
+        "lineage_id": record.get("lineage_id"),
+        "snapshot_id": record.get("snapshot_id"),
         "decision_id": record.get("id") or record.get("decision_id"),
         "paper_signal_id": record.get("paper_signal_id"),
         "symbol": _memory_symbol(record.get("symbol")),
@@ -233,10 +254,22 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
 - Capital/repricing states: `{_markdown([(item.get('day'), item.get('capital_state'), item.get('repricing_state')) for item in outcome])}`
 - Daily outcomes: `{_markdown(outcome)}`
 """
-    return _send_memory("UPDATE_OUTCOME", {
-        "path": f"xiaogu_memory/decisions/{date}_{symbol}.md",
+    identity_record = {
+        "date": date,
+        "symbol": symbol,
         "decision_id": result.get("decision_id"),
         "paper_signal_id": result.get("paper_signal_id"),
+        "id": result.get("decision_id"),
+    }
+    return _send_memory("UPDATE_OUTCOME", {
+        "path": _memory_note_path(str(result.get("decision") or "PAPER_OBSERVATION"), identity_record),
+        "memory_id": result.get("memory_id") or _memory_identity(identity_record),
+        "production_run_id": result.get("production_run_id"),
+        "lineage_id": result.get("lineage_id"),
+        "snapshot_id": result.get("snapshot_id"),
+        "decision_id": result.get("decision_id"),
+        "paper_signal_id": result.get("paper_signal_id"),
+        "outcome_id": result.get("outcome_id"),
         "symbol": symbol,
         "date": date,
         "outcome": block,
@@ -275,8 +308,10 @@ def write_daily_paper_memory(
         f"- Canonical count: `{canonical_count}`\n"
         f"- Alpha count: `{alpha_count}`\n"
         f"- Paper observation count: `{paper_observation_count}`\n"
+        f"- Production run ids: `{sorted({str(item.get('production_run_id') or '') for item in signals if item.get('production_run_id')})}`\n"
         "- Status: `PAPER_OBSERVATION_ONLY`\n"
-        "- Production alpha: `price_strength`\n"
+        "- Production target: `opportunity_5d`\n"
+        "- Production alpha: `profit_window_alpha_5d_v4`\n"
         "- Capital alpha: `RESEARCH_ONLY`\n"
         "- Live trading: `DISABLED`\n"
         "- Production BUY: `BLOCKED`\n\n"
@@ -494,8 +529,8 @@ def _snapshot_and_record(
         'append_only_policy': 'Never overwrite old records. Corrections append a new CORRECTION record.',
         'data_leakage_check': {'t_plus_fields_at_generation': False, 'status': 'PASS'},
         'production_trade_mode': PRODUCTION_TRADE_MODE,
-        'production_target': 'PROFIT_WINDOW_5D',
-        'production_return_formula': 'max_daily_bar_profit_opportunity_5d at DAILY_BAR_APPROXIMATION',
+        'production_target': 'opportunity_5d',
+        'production_return_formula': 'any T+1..T+5 daily high vs T-day reference reaches net +2% after cost_model_v1',
         'previous_state': features.get('portfolio_state_before'),
         'new_state': features.get('state') or decision,
         'signal_time': features.get('signal_time') or canonical.get('source_time'),

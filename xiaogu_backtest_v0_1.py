@@ -532,7 +532,8 @@ def _return_targets(return_rows: Sequence[Dict[str, Any]], entry_price: float | 
             days[str(day)].get("daily_bar_profit_opportunity") for day in range(1, 6)
         ],
         "max_daily_bar_profit_opportunity_5d": max(opportunity_values, default=None),
-        "net_profit_window": max(0.0, max(opportunity_values)) if opportunity_values else None,
+        "opportunity_5d": bool(first_profit) if complete_5d else None,
+        "opportunity_5d_value": max(opportunity_values, default=None),
         "max_mae_5d": min(mae_values, default=None),
         "mfe_5d": max((days[str(day)].get("mfe") for day in complete_days), default=None),
         "profit_window": bool(first_profit) if complete_5d else None,
@@ -702,7 +703,8 @@ def _merge_missing_future_targets(
     first_profit = profitable[0] if profitable else None
     targets.update({
         "max_daily_bar_profit_opportunity_5d": max(opportunities, default=None),
-        "net_profit_window": max(0.0, max(opportunities)) if opportunities else None,
+        "opportunity_5d": bool(first_profit) if complete else None,
+        "opportunity_5d_value": max(opportunities, default=None),
         "max_mae_5d": min(maes, default=None),
         "mfe_5d": max(mfes, default=None),
         "profit_window": bool(first_profit) if complete else None,
@@ -1628,7 +1630,7 @@ def build_historical_5d_profit_window_dataset(
         }
     def selection_metrics(layer_rows: list[Dict[str, Any]]) -> Dict[str, Any]:
         profit = [row.get("profit_window") for row in layer_rows if row.get("profit_window") is not None]
-        net = [row.get("net_profit_window") for row in layer_rows if row.get("net_profit_window") is not None]
+        net = [row.get("opportunity_5d_value") for row in layer_rows if row.get("opportunity_5d_value") is not None]
         mae = [row.get("max_mae_5d") for row in layer_rows if row.get("max_mae_5d") is not None]
         return {
             "count": len(layer_rows),
@@ -1892,7 +1894,8 @@ def historical_replay(
                     "first_profit_day": outcomes.get("first_profit_day"),
                     "time_to_profit": outcomes.get("time_to_profit"),
                     "max_mae_5d": outcomes.get("max_mae_5d"),
-                "net_profit_window": outcomes.get("net_profit_window"),
+                "opportunity_5d": outcomes.get("opportunity_5d"),
+                "opportunity_5d_value": outcomes.get("opportunity_5d_value") or outcomes.get("max_daily_bar_profit_opportunity_5d"),
             },
         })
     gate = target_quality_gate(rows, min_coverage=min_coverage, horizons=HISTORICAL_VALIDATION_HORIZONS)
@@ -1925,8 +1928,8 @@ def historical_replay(
     }
     def selection_metrics(layer_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         labels = [row.get("forward_window") or row.get("labels") or {} for row in layer_rows]
-        profit = [item.get("profit_window") for item in labels if item.get("profit_window") is not None]
-        net = [item.get("net_profit_window") for item in labels if item.get("net_profit_window") is not None]
+        profit = [item.get("opportunity_5d", item.get("profit_window")) for item in labels if item.get("opportunity_5d", item.get("profit_window")) is not None]
+        net = [item.get("opportunity_5d_value") or item.get("max_daily_bar_profit_opportunity_5d") for item in labels if (item.get("opportunity_5d_value") or item.get("max_daily_bar_profit_opportunity_5d")) is not None]
         mae = [item.get("max_mae_5d") for item in labels if item.get("max_mae_5d") is not None]
         return {
             "count": len(layer_rows),

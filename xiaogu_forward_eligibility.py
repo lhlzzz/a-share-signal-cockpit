@@ -309,13 +309,13 @@ def eligibility_blockers(
             asof = datetime.fromisoformat(source_time.replace("Z", "+00:00"))
             if asof.tzinfo is None:
                 asof = asof.replace(tzinfo=timezone.utc)
-            from xiaogu_forward_snapshot import production_now
-            clock = as_of or production_now()
-            if clock.tzinfo is None:
-                clock = clock.replace(tzinfo=timezone.utc)
-            age = (clock.astimezone(timezone.utc) - asof.astimezone(timezone.utc)).total_seconds() / 60
-            if age > max_staleness_minutes:
-                blockers.append("STALE_DATA")
+            if as_of is not None:
+                clock = as_of
+                if clock.tzinfo is None:
+                    clock = clock.replace(tzinfo=timezone.utc)
+                age = (clock.astimezone(timezone.utc) - asof.astimezone(timezone.utc)).total_seconds() / 60
+                if age > max_staleness_minutes:
+                    blockers.append("STALE_DATA")
         except ValueError:
             blockers.append("STALE_DATA")
     return list(dict.fromkeys(reason for reason in blockers if reason))

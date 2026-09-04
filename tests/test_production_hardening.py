@@ -429,7 +429,7 @@ def test_artifact_version_mismatch_blocks(tmp_path, monkeypatch):
         "validation_window": {},
         "oos_window": {},
         "cost_model_version": "old_cost",
-        "target_version": "PROFIT_WINDOW_5D",
+        "target_version": "opportunity_5d",
         "horizon": 5,
         "schema_version": "alpha_artifact_v1",
         "status": "VALIDATED",

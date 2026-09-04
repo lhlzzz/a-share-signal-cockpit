@@ -89,7 +89,7 @@ def test_evaluation_reports_mfe_and_mae_for_diagnostic_groups():
         "t4_return": 0.01, "t5_return": 0.01,
         "mfe_5d": 0.08, "mae_5d": -0.04,
         "max_daily_bar_profit_opportunity_5d": 0.077,
-    }])["horizon_metrics"]["PROFIT_WINDOW_5D"]
+    }])["horizon_metrics"]["opportunity_5d"]
     assert metrics["mean_mfe"] == pytest.approx(0.08)
     assert metrics["mean_mae"] == pytest.approx(-0.04)
 
@@ -306,7 +306,7 @@ def test_profit_window_uses_cost_adjusted_high_not_close():
     )
     targets = _return_targets([row], 10.0)
     assert targets["max_daily_bar_profit_opportunity_5d"] == pytest.approx(0.019)
-    assert targets["net_profit_window"] == pytest.approx(0.019)
+    assert targets["opportunity_5d_value"] == pytest.approx(0.019)
     assert "max_realizable_profit_5d" not in targets
     assert "max_profit_5d" not in targets
     assert targets["profit_window_flag"] is None

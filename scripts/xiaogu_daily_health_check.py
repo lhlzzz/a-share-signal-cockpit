@@ -98,7 +98,7 @@ def check_rule_freeze():
         and rule.get("evaluation", {}).get("horizons_days") == [1, 2, 3, 4, 5]
         and rule.get("evaluation", {}).get("evaluation_window_days") == [1, 2, 3, 4, 5]
         and rule.get("evaluation", {}).get("max_holding_boundary") == 5
-        and alpha_contract.get("target") == "PROFIT_WINDOW_5D"
+        and alpha_contract.get("target") == "opportunity_5d"
         and tuple(alpha_contract.get("required_hard_gates") or ()) == tuple(DECISION_HARD_GATES)
         and "required_buy_evidence" not in alpha_contract
         and set(alpha_contract.get("model_inputs") or ()) == {

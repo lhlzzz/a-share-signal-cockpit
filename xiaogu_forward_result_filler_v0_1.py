@@ -324,10 +324,11 @@ def calculate_horizon_outcomes(
         "daily_outcomes": [],
         "days": {str(day): {} for day in EVALUATION_DAYS},
         "max_daily_bar_profit_opportunity_5d": None,
+        "opportunity_5d": None,
         "first_profit_day": None,
         "time_to_profit": None,
         "max_mae_5d": None,
-        "net_profit_window": None,
+        "realized_return_5d": None,
         "profit_window": False,
         "future_5d_ohlc_coverage": False,
         "future_5d_volume_coverage": False,
@@ -347,6 +348,24 @@ def calculate_horizon_outcomes(
         },
     }
     for day in EVALUATION_DAYS:
+        outcomes["days"][str(day)] = {
+            "status": "MISSING",
+            "date": None,
+            "open": None,
+            "high": None,
+            "low": None,
+            "close": None,
+            "return": None,
+            "mfe": None,
+            "mae": None,
+            "net_return": None,
+            "daily_bar_profit_opportunity": None,
+            "volume": None,
+            "amount": None,
+            "source": None,
+            "source_timestamp": None,
+            "price_basis": PRICE_BASIS,
+        }
         outcomes.update({
             f"future_{day}d_date": None,
             f"future_{day}d_open": None,
@@ -357,6 +376,7 @@ def calculate_horizon_outcomes(
             f"future_{day}d_mfe": None,
             f"future_{day}d_mae": None,
             f"future_{day}d_net_return": None,
+            f"future_{day}d_status": "MISSING",
         })
     if entry_price <= 0 or not bars:
         return outcomes
@@ -378,6 +398,7 @@ def calculate_horizon_outcomes(
             "repricing_state": bar.get("repricing_state", "UNKNOWN"),
         })
         outcomes["days"][str(day)] = {
+            "status": "SETTLED",
             "date": bar.get("trade_date") or bar.get("date"),
             "open": float(bar["open"]),
             "high": high,
@@ -404,6 +425,7 @@ def calculate_horizon_outcomes(
             f"future_{day}d_mfe": (high - entry_price) / entry_price,
             f"future_{day}d_mae": (low - entry_price) / entry_price,
             f"future_{day}d_net_return": (float(bar["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
+            f"future_{day}d_status": "SETTLED",
         })
     outcomes["available_days"] = len(daily)
     outcomes["data_status"] = "COMPLETE" if len(daily) >= 5 else "PARTIAL"
@@ -418,10 +440,11 @@ def calculate_horizon_outcomes(
     outcomes.update({
         "daily_outcomes": daily,
         "max_daily_bar_profit_opportunity_5d": max_profit,
+        "opportunity_5d": bool(profitable),
         "first_profit_day": profitable[0]["day"] if profitable else None,
         "time_to_profit": profitable[0]["day"] if profitable else None,
         "max_mae_5d": min_mae,
-        "net_profit_window": max(0.0, max(item["net_return"] for item in daily)),
+        "realized_return_5d": (float(bars[-1]["close"]) - entry_price) / entry_price - DEFAULT_EXECUTION_COST_RATE,
         "profit_window": bool(profitable),
         "future_5d_date": bars[-1].get("trade_date") or bars[-1].get("date"),
         "future_5d_open": float(bars[0]["open"]),
@@ -520,7 +543,11 @@ def append_result(
         "actual_5d_mae": outcomes.get("future_5d_mae"),
         "result_status": "SETTLED" if outcomes.get("outcome_complete") else "PENDING",
         "result_filled_at": now_iso(),
+        "production_target": "opportunity_5d",
+        "outcome_id": f"{decision_id}:opportunity_5d",
         "paper_signal_id": record.get("paper_signal_id"),
+        "lineage_id": record.get("lineage_id") or canonical.get("lineage_id"),
+        "snapshot_id": record.get("snapshot_id") or canonical.get("snapshot_id"),
         "paper_observation_status": PAPER_OBSERVATION_STATUS if is_paper_observation else None,
         "paper_observation_state": "CLOSED" if outcomes.get("outcome_complete") and is_paper_position else record.get("paper_observation_state"),
         "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and is_paper_position else record.get("paper_position_state"),
@@ -656,8 +683,9 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
             "capital_acceleration": (paper.get("research_overlay") or {}).get("capital_acceleration"),
             "T+1": days.get("1", {}), "T+2": days.get("2", {}), "T+3": days.get("3", {}),
             "T+4": days.get("4", {}), "T+5": days.get("5", {}),
-            "profit_window": outcome.get("profit_window", False),
-            "profit_window_hit": outcome.get("profit_window", False),
+            "opportunity_5d": outcome.get("opportunity_5d", outcome.get("profit_window", False)),
+            "profit_window": outcome.get("opportunity_5d", outcome.get("profit_window", False)),
+            "profit_window_hit": outcome.get("opportunity_5d", outcome.get("profit_window", False)),
             "first_profit_day": outcome.get("first_profit_day"),
             "max_profit_5d": outcome.get("max_daily_bar_profit_opportunity_5d"),
             "max_mae_5d": outcome.get("max_mae_5d"),
@@ -676,7 +704,7 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
         "research_only": True,
         "validation_dataset": False,
         "alpha": "price_strength",
-        "target": "PROFIT_WINDOW_5D",
+        "target": "opportunity_5d",
         "cost_model_version": "cost_model_v1",
         "rows": rows,
     }

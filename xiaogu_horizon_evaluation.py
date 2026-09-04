@@ -13,7 +13,7 @@ from itertools import combinations
 from statistics import median
 from typing import Any, Dict, Iterable, Mapping, Sequence
 
-from xiaogu_core_alpha import CANONICAL_COST_MODEL, COST_MODEL_VERSION, DEFAULT_COST_RATE
+from xiaogu_core_alpha import CANONICAL_COST_MODEL, COST_MODEL_VERSION, DEFAULT_COST_RATE, TARGET_VERSION
 
 HORIZONS = (1, 2, 3, 4, 5)
 HISTORICAL_VALIDATION_HORIZONS = HORIZONS
@@ -350,7 +350,7 @@ def _canonical_entry_present(row: Dict[str, Any]) -> bool:
 def _outcome_profit(row: Dict[str, Any]) -> float | None:
     value = _label(row, "max_daily_bar_profit_opportunity_5d")
     if value is None:
-        value = _label(row, "net_profit_window")
+        value = _label(row, "opportunity_5d_value")
     return _number(value)
 
 
@@ -372,27 +372,29 @@ def _time_to_profit(row: Dict[str, Any]) -> float | None:
     return _number(_label(row, "time_to_profit"))
 
 
-def evaluate_5d(entry_price: float, prices: Dict[int, Any]) -> Dict[str, Any]:
-    """Evaluate a close-path approximation when OHLC bars are unavailable."""
-    if entry_price <= 0:
-        return {"horizon_days": 5, "data_status": "INVALID", "profit_window": False}
-    path = [prices.get(day) for day in HORIZONS]
-    if any(value is None for value in path):
-        return {"horizon_days": 5, "data_status": "PARTIAL", "profit_window": None}
-    net_values = [(float(value) - entry_price) / entry_price - CANONICAL_COST_MODEL["all_in_transaction_cost"] for value in path]
-    first = next((index for index, value in enumerate(net_values, 1) if value >= PROFIT_WINDOW_TARGET), None)
-    return {
-        "horizon_days": 5,
-        "data_status": "COMPLETE",
-        "profit_window": first is not None,
-        "daily_bar_profit_opportunity": list(net_values),
-        "max_daily_bar_profit_opportunity_5d": max(net_values),
-        "first_profit_day": first,
-        "time_to_profit": first,
-        "max_mae_5d": min((float(value) - entry_price) / entry_price for value in path),
-        "net_profit_window": max(0.0, max(net_values)),
-        "realizability_level": "DAILY_BAR_APPROXIMATION",
-    }
+OOS_EMBARGO_TRADING_DAYS = 5
+PRICE_GATE_MIN_PCT = 0.5
+PRICE_GATE_MAX_PCT = 9.5
+
+
+def _row_date(row: Dict[str, Any]) -> str:
+    return str(row.get("signal_date") or row.get("trade_date") or "")
+
+
+def _pct_change(row: Dict[str, Any]) -> float | None:
+    value = _number(row.get("pct_chg") if row.get("pct_chg") is not None else row.get("pct_change"))
+    if value is not None:
+        return value
+    labels = row.get("labels") if isinstance(row.get("labels"), dict) else {}
+    strength = _number(row.get("price_strength") if row.get("price_strength") is not None else labels.get("price_strength"))
+    if strength is None:
+        return None
+    return strength * 15.0 - 5.0
+
+
+def passes_price_gate(row: Dict[str, Any]) -> bool:
+    pct = _pct_change(row)
+    return pct is not None and PRICE_GATE_MIN_PCT <= pct <= PRICE_GATE_MAX_PCT
 
 
 def portfolio_metrics(values: Iterable[float]) -> Dict[str, Any]:
@@ -1026,8 +1028,13 @@ def _probability_separation(rows: Sequence[Dict[str, Any]], predictions: Sequenc
 
 
 def _label_value(row: Dict[str, Any]) -> int | None:
-    value = _label(row, "profit_window")
-    return None if value is None else int(bool(value))
+    for field in ("opportunity_5d", "profit_window"):
+        value = _label(row, field)
+        if isinstance(value, bool):
+            return int(value)
+        if value in (0, 1, "0", "1"):
+            return int(value)
+    return None
 
 
 def _complete_training_rows(rows: Iterable[Dict[str, Any]]) -> list[Dict[str, Any]]:
@@ -1216,22 +1223,100 @@ def _percentile(values: Sequence[float], fraction: float) -> float | None:
 
 
 def _split_rows(rows: Sequence[Dict[str, Any]]) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]], list[Dict[str, Any]]]:
-    ordered = sorted(rows, key=lambda row: str(row.get("signal_date") or row.get("trade_date") or ""))
-    dates = sorted({str(row.get("signal_date") or row.get("trade_date") or "") for row in ordered})
-    dates = [value for value in dates if value]
-    if len(dates) < 3:
-        return [], [], []
+    """Chronological walk-forward split with a 5-trading-day embargo. No random leakage."""
+    ordered = sorted(rows, key=_row_date)
+    dates = sorted({_row_date(row) for row in ordered if _row_date(row)})
+    embargo = OOS_EMBARGO_TRADING_DAYS
+    if len(dates) < 3 + 2 * embargo:
+        if len(dates) < 3:
+            return [], [], []
+        train_end = max(1, int(len(dates) * 0.6))
+        validation_end = max(train_end + 1, int(len(dates) * 0.8))
+        validation_end = min(validation_end, len(dates) - 1)
+        train_dates = set(dates[:train_end])
+        validation_dates = set(dates[train_end:validation_end])
+        oos_dates = set(dates[validation_end:])
+        return (
+            [row for row in ordered if _row_date(row) in train_dates],
+            [row for row in ordered if _row_date(row) in validation_dates],
+            [row for row in ordered if _row_date(row) in oos_dates],
+        )
     train_end = max(1, int(len(dates) * 0.6))
-    validation_end = max(train_end + 1, int(len(dates) * 0.8))
-    validation_end = min(validation_end, len(dates) - 1)
+    validation_start = min(len(dates) - 2, train_end + embargo)
+    validation_end = max(validation_start + 1, int(len(dates) * 0.8))
+    validation_end = min(validation_end, len(dates) - 1 - embargo)
+    if validation_end <= validation_start:
+        validation_end = min(validation_start + 1, len(dates) - 1)
+    oos_start = min(len(dates) - 1, validation_end + embargo)
     train_dates = set(dates[:train_end])
-    validation_dates = set(dates[train_end:validation_end])
-    oos_dates = set(dates[validation_end:])
+    validation_dates = set(dates[validation_start:validation_end])
+    oos_dates = set(dates[oos_start:])
     return (
-        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in train_dates],
-        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in validation_dates],
-        [row for row in ordered if str(row.get("signal_date") or row.get("trade_date") or "") in oos_dates],
+        [row for row in ordered if _row_date(row) in train_dates],
+        [row for row in ordered if _row_date(row) in validation_dates],
+        [row for row in ordered if _row_date(row) in oos_dates],
     )
+
+
+def _daily_grouped_hit_rates(rows: Sequence[Dict[str, Any]], predictions: Sequence[float] | None = None) -> Dict[str, Any]:
+    grouped: Dict[str, list[tuple[float, Dict[str, Any]]]] = {}
+    scores = list(predictions) if predictions is not None else [
+        _number(row.get("selection_score") if row.get("selection_score") is not None else row.get("price_strength")) or float("-inf")
+        for row in rows
+    ]
+    for score, row in zip(scores, rows):
+        grouped.setdefault(_row_date(row) or "UNKNOWN", []).append((float(score), row))
+    top1_hits = 0
+    top3_hits = 0
+    days = 0
+    opportunity_hits = 0
+    coverage_days = 0
+    for _date, items in grouped.items():
+        if not items:
+            continue
+        days += 1
+        ordered = sorted(items, key=lambda item: (-item[0], str(item[1].get("symbol") or "")))
+        top1 = ordered[0][1]
+        top3 = [item[1] for item in ordered[:3]]
+        if _label_value(top1) == 1:
+            top1_hits += 1
+        if any(_label_value(item) == 1 for item in top3):
+            top3_hits += 1
+        if any(_label_value(item) is not None for item in top3):
+            coverage_days += 1
+        opportunity_hits += sum(1 for _score, item in items if _label_value(item) == 1)
+    return {
+        "days": days,
+        "top1_hit_rate": (top1_hits / days) if days else None,
+        "top3_hit_rate": (top3_hits / days) if days else None,
+        "opportunity_rate": (opportunity_hits / max(1, sum(len(items) for items in grouped.values()))) if grouped else None,
+        "coverage": (coverage_days / days) if days else None,
+    }
+
+
+def evaluate_price_gate_ablation(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Research-only WITH_GATE vs WITHOUT_GATE. Never a second production selector."""
+    all_rows = list(rows)
+    gated = [row for row in all_rows if passes_price_gate(row)]
+    def _rate(items: Sequence[Dict[str, Any]]) -> float | None:
+        labels = [_label_value(row) for row in items if _label_value(row) is not None]
+        if not labels:
+            return None
+        return sum(labels) / len(labels)
+    return {
+        "status": "RESEARCH_ONLY",
+        "production_frozen": False,
+        "WITH_GATE": {
+            "samples": len(gated),
+            "opportunity_rate": _rate(gated),
+            "daily": _daily_grouped_hit_rates(gated),
+        },
+        "WITHOUT_GATE": {
+            "samples": len(all_rows),
+            "opportunity_rate": _rate(all_rows),
+            "daily": _daily_grouped_hit_rates(all_rows),
+        },
+    }
 
 
 def _random_predictions(rows: Sequence[Dict[str, Any]], seed: int = 5) -> list[float]:
@@ -1360,7 +1445,7 @@ def _ablation_report(
     return {
         "same_rows": True,
         "same_time_split": True,
-        "same_target": "PROFIT_WINDOW_5D",
+        "same_target": TARGET_VERSION,
         "same_cost_model": dict(CANONICAL_COST_MODEL),
         "cumulative": {name: results[name] for name in CUMULATIVE_ABLATION_FEATURES},
         "single_family": {name: results[name] for name in SINGLE_FAMILY_ABLATION_FEATURES},
@@ -1524,7 +1609,7 @@ def calibrate_profit_window_probability(rows: Iterable[Dict[str, Any]]) -> Dict[
         "target_version": TARGET_VERSION,
         "horizon": 5,
         "schema_version": SCHEMA_VERSION,
-        "target": "PROFIT_WINDOW_5D",
+        "target": TARGET_VERSION,
         "status": "VALIDATED" if passed else "EXPERIMENTAL",
         "production_permission": "NONE",
         "calibration_status": "CALIBRATED",
@@ -1573,8 +1658,8 @@ def evaluate_replay(
     return {
         "status": "PASS" if gate.get("status") == "PASS" else "BLOCKED",
         "target_quality_gate": gate,
-        "horizon_metrics": {"PROFIT_WINDOW_5D": metrics},
-        "main_table": [{"Target": "PROFIT_WINDOW_5D", **metrics}],
+        "horizon_metrics": {TARGET_VERSION: metrics},
+        "main_table": [{"Target": TARGET_VERSION, **metrics}],
     }
 
 
@@ -1601,7 +1686,7 @@ def evaluate_feature_groups(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         return {
             name: evaluate_replay([row for row in rows if value(row, key) == name])[
                 "horizon_metrics"
-            ]["PROFIT_WINDOW_5D"]
+            ][TARGET_VERSION]
             for name in names
         }
 
@@ -1629,12 +1714,24 @@ def build_alpha_report(
     for name, names in {"RANDOM": (), **CUMULATIVE_ABLATION_FEATURES}.items():
         if name == "RANDOM":
             predictions = _random_predictions(oos)
-            baseline_ladder[name] = {"PROFIT_WINDOW_5D": _prediction_metrics(oos, predictions)}
+            baseline_ladder[name] = {TARGET_VERSION: _prediction_metrics(oos, predictions)}
             continue
         baseline_ladder[name] = {
-            "PROFIT_WINDOW_5D": _fit_set_report(train, validation, oos, names)
+            TARGET_VERSION: _fit_set_report(train, validation, oos, names)
         }
     ablation = _ablation_report(train, validation, oos)
+    oos_scores = [
+        _number(row.get("selection_score") if row.get("selection_score") is not None else row.get("price_strength"))
+        or float("-inf")
+        for row in oos
+    ]
+    price_gate_ablation = evaluate_price_gate_ablation(complete)
+    walk_forward = {
+        "method": "rolling_chronological",
+        "embargo_trading_days": OOS_EMBARGO_TRADING_DAYS,
+        "purge": True,
+        "daily_grouped": _daily_grouped_hit_rates(oos, oos_scores),
+    }
     feature_groups = evaluate_feature_groups(rows)
     feature_source_matrix = build_feature_source_matrix(rows)
     full_alpha = ablation["cumulative"]["FULL"]
@@ -1767,6 +1864,8 @@ def build_alpha_report(
         "feature_groups": feature_groups,
         "feature_diagnostics": diagnose_features(rows),
         "ablation": ablation,
+        "price_gate_ablation": price_gate_ablation,
+        "walk_forward": walk_forward,
         "probability_separation": full_alpha.get("probability_separation", {}),
         "production_gates": {
             "data_quality": gate.get("status") == "PASS",
@@ -1789,7 +1888,7 @@ def build_alpha_report(
             "dataset_version": calibration.get("dataset_version", "historical_profit_window_v4"),
             "feature_version": calibration.get("feature_version", "minimal_price_alpha_v1"),
             "schema_version": calibration.get("schema_version", "alpha_artifact_v1"),
-            "target_version": calibration.get("target_version", "PROFIT_WINDOW_5D"),
+            "target_version": calibration.get("target_version", TARGET_VERSION),
             "horizon": 5,
             "cost_model_version": COST_MODEL_VERSION,
             "train_window": calibration.get("train_window", {"count": len(train)}),

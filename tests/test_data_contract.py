@@ -549,12 +549,12 @@ def test_research_context_is_consumed_by_alpha():
     decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
     alpha = decision["core_alpha"]
     research = decision["research_context"]
-    assert alpha["research_consumed"] is True
+    assert alpha["research_used_downstream"] is True
     assert research["status"] == "RESEARCH_ONLY"
     providers = {item["provider"]: item for item in research["research_provenance"]}
-    assert providers["Serenity"]["invoked"] is True
-    assert providers["Buffett"]["invoked"] is True
-    assert providers["UZI"]["invoked"] is True
+    assert providers["Serenity"]["provider_requested"] is True
+    assert providers["Buffett"]["provider_succeeded"] is True
+    assert providers["UZI"]["used_downstream"] is True
     assert providers["Contradiction"]["invoked"] is True
     assert providers["Serenity"]["role"] == "evidence"
     assert research["status"] != "BUY"
@@ -614,7 +614,7 @@ def test_dry_run_report_exposes_top_papers_and_research_summary():
     summary = _research_summary(decisions)
     papers = [item for item in (_compact_paper_observation(decision) for decision in decisions) if item]
     public = [_public_decision(decision) for decision in decisions]
-    assert summary["research_consumed_count"] == len(decisions)
+    assert summary["research_used_downstream_count"] == len(decisions)
     providers = {item["provider"]: item for item in summary["research_provenance"]}
     assert providers["Serenity"]["invoked_count"] == len(decisions)
     assert providers["Buffett"]["invoked_count"] == len(decisions)
@@ -623,7 +623,7 @@ def test_dry_run_report_exposes_top_papers_and_research_summary():
     assert len(papers) == 3
     assert sum(1 for paper in papers if paper["top1_flag"]) == 1
     assert all(item["buy_status"] == "BUY_BLOCKED" for item in public)
-    assert all("research_consumed" in item for item in public)
+    assert all("research_used_downstream" in item for item in public)
 
 
 def test_no_signal_when_formal_signals_are_zero():
@@ -1660,14 +1660,16 @@ def test_historical_research_cases_exclude_future_evidence(monkeypatch):
                     "decision_id": "d-past",
                     "symbol": "600001",
                     "signal_time": "2026-08-25T14:50:00+08:00",
-                    "payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                    "paper_payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                    "outcome_payload": {"opportunity_5d": True},
                 },
                 {
                     "paper_signal_id": "future",
                     "decision_id": "d-future",
                     "symbol": "600001",
                     "signal_time": "2026-08-27T14:50:00+08:00",
-                    "payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                    "paper_payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                    "outcome_payload": {"opportunity_5d": False},
                 },
             ]
 

@@ -8,7 +8,7 @@ from xiaogu_forward_features import FEATURE_GROUPS, validate_evidence_identity
 MODEL_ID = "profit_window_alpha_5d_v4"
 MODEL_VERSION = "v4"
 FEATURE_VERSION = "minimal_price_alpha_v1"
-TARGET_VERSION = "PROFIT_WINDOW_5D"
+TARGET_VERSION = "opportunity_5d"
 SCHEMA_VERSION = "alpha_artifact_v1"
 PROFIT_WINDOW_DAYS = 5
 COST_MODEL_VERSION = "cost_model_v1"
@@ -82,6 +82,18 @@ def _pct_from_price_strength(price_strength: Any) -> float | None:
     return value * 15.0 - 5.0
 
 
+def _selection_score(
+    *,
+    model_status: Any,
+    profit_window_probability: Any,
+    price_strength: Any,
+) -> float | None:
+    """Sole production ranking score. Never averages diagnostic axes."""
+    if model_status == "VALIDATED" and profit_window_probability is not None:
+        return _round_or_none(profit_window_probability)
+    return _round_or_none(price_strength)
+
+
 def _signal_qualification(
     *,
     market: Dict[str, Any],
@@ -91,14 +103,14 @@ def _signal_qualification(
     repricing_state: str,
     completion: Dict[str, Any],
     contradiction_veto: bool,
-    repricing_evidence_score: float | None,
-    research_consumed: bool,
+    selection_score: float | None,
+    research_used_downstream: bool,
 ) -> Dict[str, Any]:
     """Qualify a formal 5D paper signal. This is not a second alpha and not BUY."""
     price_strength = market.get("price_strength")
     pct_change = _pct_from_price_strength(price_strength)
     evidence = []
-    if research_consumed:
+    if research_used_downstream:
         evidence.append("research_context")
     if capital_measure.get("capital_flow_ratio") is not None or capital_measure.get("fund_flow") is not None:
         evidence.append("capital")
@@ -106,13 +118,14 @@ def _signal_qualification(
         evidence.append("supply")
     if repricing_state not in {"UNKNOWN", ""}:
         evidence.append("repricing")
-    score = repricing_evidence_score if repricing_evidence_score is not None else _round_or_none(price_strength)
+    score = selection_score
     if price_strength is None or pct_change is None:
         return {
             "signal_status": SIGNAL_STATUS_ELIMINATED,
             "signal_qualified": False,
             "signal_reason": "PRICE_STRENGTH_UNOBSERVED",
             "signal_score": None,
+            "selection_score": None,
             "signal_evidence": evidence,
         }
     if pct_change < SIGNAL_PCT_MIN or pct_change > SIGNAL_PCT_MAX:
@@ -121,6 +134,7 @@ def _signal_qualification(
             "signal_qualified": False,
             "signal_reason": "PRICE_STRENGTH_OUT_OF_WINDOW",
             "signal_score": score,
+            "selection_score": score,
             "signal_evidence": evidence,
         }
     if bool(completion.get("completed")) or repricing_state in {"CLIMAX", "DISTRIBUTION"}:
@@ -129,6 +143,7 @@ def _signal_qualification(
             "signal_qualified": False,
             "signal_reason": "REPRICING_COMPLETED_OR_DISTRIBUTION",
             "signal_score": score,
+            "selection_score": score,
             "signal_evidence": evidence,
         }
     if contradiction_veto:
@@ -137,6 +152,7 @@ def _signal_qualification(
             "signal_qualified": False,
             "signal_reason": "CONTRADICTION_VETO",
             "signal_score": score,
+            "selection_score": score,
             "signal_evidence": evidence,
         }
     if risk.get("thesis_invalidated") is True:
@@ -145,14 +161,7 @@ def _signal_qualification(
             "signal_qualified": False,
             "signal_reason": "THESIS_INVALIDATED",
             "signal_score": score,
-            "signal_evidence": evidence,
-        }
-    if not evidence:
-        return {
-            "signal_status": SIGNAL_STATUS_WATCH,
-            "signal_qualified": False,
-            "signal_reason": "INSUFFICIENT_5D_EVIDENCE",
-            "signal_score": score,
+            "selection_score": score,
             "signal_evidence": evidence,
         }
     return {
@@ -160,6 +169,7 @@ def _signal_qualification(
         "signal_qualified": True,
         "signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
         "signal_score": score,
+        "selection_score": score,
         "signal_evidence": evidence,
     }
 
@@ -340,7 +350,7 @@ def _artifact_identity(model: Dict[str, Any]) -> tuple[bool, list[str]]:
         mismatches.append("feature_version")
     if model.get("cost_model_version") not in (None, "", COST_MODEL_VERSION):
         mismatches.append("cost_model_version")
-    if model.get("target_version") not in (None, "", TARGET_VERSION, "PROFIT_WINDOW_5D"):
+    if model.get("target_version") not in (None, "", TARGET_VERSION, "opportunity_5d"):
         mismatches.append("target_version")
     if model.get("horizon") not in (None, "", PROFIT_WINDOW_DAYS, str(PROFIT_WINDOW_DAYS)):
         mismatches.append("horizon")
@@ -486,6 +496,28 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
     return clipped, meta
 
 
+def _research_used_downstream(research: Dict[str, Any] | None) -> bool:
+    """True only when a provider actually succeeded and was used as research context."""
+    if not isinstance(research, dict):
+        return False
+    providers = research.get("research_providers")
+    if isinstance(providers, dict):
+        return any(
+            isinstance(item, dict) and item.get("used_downstream") is True
+            for item in providers.values()
+        )
+    provenance = research.get("research_provenance")
+    if isinstance(provenance, list):
+        return any(
+            isinstance(item, dict) and (
+                item.get("used_downstream") is True
+                or (item.get("provider_succeeded") is True and item.get("used_downstream") is not False)
+            )
+            for item in provenance
+        )
+    return False
+
+
 def build_core_alpha(
     features: Dict[str, Any],
     industry: Dict[str, Any],
@@ -493,6 +525,7 @@ def build_core_alpha(
     capital: Dict[str, Any],
     integrated: Dict[str, Any],
     future_buyer_map: Dict[str, Any] | None = None,
+    research: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Build T-day repricing evidence and the calibrated five-day window output."""
     business = features["BUSINESS"]
@@ -591,9 +624,11 @@ def build_core_alpha(
     contradiction = integrated.get("contradiction") if isinstance(integrated.get("contradiction"), dict) else integrated
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
     contradiction_veto = contradiction_status in {"BEARISH", "VETO"} or bool(contradiction.get("veto"))
-    research_consumed = any(
-        isinstance(payload, dict) and payload
-        for payload in (industry, company, capital, integrated, future_buyer_map)
+    research_used_downstream = _research_used_downstream(research)
+    selection_score = _selection_score(
+        model_status=model_status,
+        profit_window_probability=profit_window_probability,
+        price_strength=market.get("price_strength"),
     )
     qualification = _signal_qualification(
         market=market,
@@ -603,8 +638,8 @@ def build_core_alpha(
         repricing_state=repricing_state,
         completion=completion,
         contradiction_veto=contradiction_veto,
-        repricing_evidence_score=repricing_evidence_score,
-        research_consumed=research_consumed,
+        selection_score=selection_score,
+        research_used_downstream=research_used_downstream,
     )
     buyers = [
         item for item in ((future_buyer_map or {}).get("potential_next_buyer") or [])
@@ -639,7 +674,8 @@ def build_core_alpha(
         ),
         "alpha_version": MODEL_ID,
         "feature_version": FEATURE_VERSION,
-        "target": "PROFIT_WINDOW_5D",
+        "target": TARGET_VERSION,
+        "target_version": TARGET_VERSION,
         "feature_families": list(FEATURE_GROUPS),
         "axes": axes,
         "readiness": readiness,
@@ -712,7 +748,12 @@ def build_core_alpha(
         "signal_status": qualification["signal_status"],
         "signal_qualified": qualification["signal_qualified"],
         "signal_reason": qualification["signal_reason"],
-        "signal_score": qualification["signal_score"],
+        "signal_score": qualification["selection_score"],
+        "selection_score": qualification["selection_score"],
+        "selection_score_source": (
+            "profit_window_probability" if model_status == "VALIDATED" and profit_window_probability is not None
+            else "price_strength"
+        ),
         "signal_evidence": list(qualification["signal_evidence"]),
-        "research_consumed": research_consumed,
+        "research_used_downstream": research_used_downstream,
     }

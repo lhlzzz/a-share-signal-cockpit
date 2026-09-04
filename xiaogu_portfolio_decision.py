@@ -441,7 +441,8 @@ def _paper_observation(
         "supply": alpha.get("supply_absorption"),
         "repricing": alpha.get("repricing_state"),
         "future_buyer": alpha.get("future_buyer_capacity"),
-        "research_consumed": bool(alpha.get("research_consumed")),
+        "research_used_downstream": bool(alpha.get("research_used_downstream")),
+        "selection_score": alpha.get("selection_score"),
         "signal_evidence": list(alpha.get("signal_evidence") or []),
     }
     board_info = classify_execution_board(snapshot)
@@ -453,15 +454,19 @@ def _paper_observation(
         "snapshot_id": snapshot.get("snapshot_id"),
         "original_snapshot_id": snapshot.get("snapshot_id"),
         "lineage_id": snapshot.get("lineage_id"),
+        "production_run_id": snapshot.get("production_run_id"),
         "symbol": snapshot.get("symbol"),
         "signal_time": snapshot.get("signal_time") or snapshot.get("source_time"),
         "reference_price": snapshot.get("price"),
         "paper_observation_state": PAPER_OBSERVATION_STATE,
         "signal_reason": alpha.get("signal_reason") or "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
         "alpha_name": "price_strength",
+        "production_alpha": alpha.get("model_id") or "profit_window_alpha_5d_v4",
+        "production_target": alpha.get("target_version") or "opportunity_5d",
         "alpha_version": alpha.get("alpha_version"),
         "alpha_status": alpha.get("model_status") or "DATA_INSUFFICIENT",
-        "alpha_score": alpha.get("signal_score"),
+        "alpha_score": alpha.get("selection_score"),
+        "selection_score": alpha.get("selection_score"),
         "price_strength": price_strength,
         "validated_probability": alpha.get("profit_window_probability"),
         "production_decision_state": decision_state,
@@ -493,19 +498,30 @@ def _paper_observation(
     }
 
 
+def _numeric_or_neg_inf(value: Any) -> float:
+    try:
+        return float(value) if value is not None else float("-inf")
+    except (TypeError, ValueError):
+        return float("-inf")
+
+
 def _signal_sort_key(decision: Dict[str, Any]) -> tuple:
+    """Rank by unique Production Alpha, then stable non-model tie-breakers."""
     alpha = decision.get("core_alpha") or {}
-    score = alpha.get("signal_score")
-    strength = ((decision.get("feature_vector") or {}).get("MARKET") or {}).get("price_strength")
-    try:
-        score_key = float(score) if score is not None else float("-inf")
-    except (TypeError, ValueError):
-        score_key = float("-inf")
-    try:
-        strength_key = float(strength) if strength is not None else float("-inf")
-    except (TypeError, ValueError):
-        strength_key = float("-inf")
-    return (-score_key, -strength_key, str(decision.get("symbol") or ""))
+    features = decision.get("feature_vector") or {}
+    score = alpha.get("selection_score")
+    if score is None:
+        score = alpha.get("profit_window_probability") if alpha.get("model_status") == "VALIDATED" else None
+    if score is None:
+        score = ((features.get("MARKET") or {}).get("price_strength"))
+    clock = str(decision.get("decision_clock") or decision.get("signal_time") or "")
+    snapshot_id = str(decision.get("snapshot_id") or "")
+    return (
+        -_numeric_or_neg_inf(score),
+        clock,
+        snapshot_id,
+        str(decision.get("symbol") or ""),
+    )
 
 
 def attach_top_paper_observations(decisions: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
@@ -527,8 +543,9 @@ def attach_top_paper_observations(decisions: list[Dict[str, Any]]) -> list[Dict[
         observation["top3_flag"] = True
         observation["top1_flag"] = rank == 1
         observation["selection_reason"] = (
-            "TOP1_5D_PROFIT_WINDOW" if rank == 1 else "TOP3_5D_PROFIT_WINDOW"
+            "TOP1_OPPORTUNITY_5D" if rank == 1 else "TOP3_OPPORTUNITY_5D"
         )
+        observation["selection_score"] = (decision.get("core_alpha") or {}).get("selection_score")
         decision["paper_observation"] = observation
     for decision in decisions:
         if id(decision) not in selected_ids:
@@ -577,6 +594,7 @@ def evaluate_candidate_bundle(
         capital=research.get("capital") or {},
         integrated=research.get("integrated") or {},
         future_buyer_map=research.get("future_buyer_map"),
+        research=research,
     )
     gate_result = evaluate_production_gates(
         snapshot,

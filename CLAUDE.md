@@ -56,9 +56,9 @@
 ### 候选池规则
 - 只做A股主板（上海 600/601/603/605，深圳 000/001/002/003）
 - 候选池400只
-- 涨幅范围: 0.5%-9.5%
+- 涨幅范围 0.5%-9.5% 是 L2 路由 / research ablation（WITH_GATE vs WITHOUT_GATE），不是已冻结的 Alpha 规则
 - Paper 仅记录 `OBSERVED + PAPER_FLAT`；没有 `PAPER_PICK`、Paper Entry 或模拟持仓
-- 生产 Alpha 固定为 `price_strength`；Capital 仅限 `RESEARCH_ONLY`
+- 唯一 Production Target = `opportunity_5d`；唯一 Production Alpha = `profit_window_alpha_5d_v4`（测量仍用 `price_strength`）；Capital 仅限 `RESEARCH_ONLY`
 - Production BUY 保持 `BLOCKED`，Live Trading 保持 `DISABLED`
 - `original_snapshot_id` = provenance；`review_snapshot_id` = current truth
 - Production Clock = `xiaogu_forward_snapshot.production_now()`，不得用 `source_time` 冒充

@@ -18,7 +18,7 @@
     "recommendation": false
   },
   "alpha_contract": {
-    "target": "PROFIT_WINDOW_5D",
+    "target": "opportunity_5d",
     "max_holding_days": 5,
     "required_measurements": [
       "BUSINESS",

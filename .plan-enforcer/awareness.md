@@ -24,6 +24,17 @@
 | I11 | 直接按照这个方案执行 还是一样的 只允许存在主力行为唯一链路 只在这一条链路上面新增 删减 修改 同时修改完之后刷新codebase unserstandanything agentmemory 改代码的过程中使用ponytail skill 避免重复造轮子。 | msg:current | 2026-08-24 |
 | I12 | 那你就全部删掉 只保留对t日出票 t+1可获利的标的 就行 | manual | 2026-08-25 |
 | I13 | 唯一目标：找出真正能够提前识别未来5个交易日盈利窗口的资金行为变量，修正错误/冗余变量，重新校准生产 Alpha，保持 OOS fail-closed，只有真实验证通过后才允许打开 Production BUY。 | manual | 2026-08-28 |
+| I14 | 这是一次最终收敛级重构，不是 patch 集合。 | manual | 2026-09-04 |
+| I15 | 每个交易日，从完整 A 股市场中，严格限定 MAIN_BOARD，在资源允许的前提下经过多层筛选与深度研究，输出最多 3 个正式 Paper Observation，其中 1 个 Top1 | manual | 2026-09-04 |
+| I16 | ONE SYSTEM ONE PIPELINE ONE ALPHA ONE DECISION OWNER ONE SELECTION OWNER ONE MEMORY CONTRACT ONE FACT DATABASE ONE RESEARCH MEMORY | manual | 2026-09-04 |
+| I17 | Formal Signal ≠ Live BUY。SIGNAL → Paper Observation。BUY → Production Gate → BLOCKED。 | manual | 2026-09-04 |
+| I18 | PostgreSQL = authoritative。Obsidian = rebuildable semantic asset。Memory 永远没有最终决策权。 | manual | 2026-09-04 |
+| I19 | 做出一个每天能够稳定运行、知道自己为什么选、知道自己为什么没选、知道五天后是否错了、知道过去为什么错、并且这些经验能够持续沉淀到 PostgreSQL + Obsidian，最终形成真正可复用研究资产的单一 Xiaogu 系统。 | manual | 2026-09-04 |
+| I20 | 最终唯一生产目标统一为：opportunity_5d = 未来 5 个交易日内，任意一个有效交易日的 daily high 相对 T 日基准价格达到净 +2% 以上（扣除统一成本假设）。 | manual | 2026-09-04 |
+| I21 | 不要保留“双目标兼容模式”，不要同时维护两个生产标准。 | manual | 2026-09-04 |
+| I22 | 不允许 PARTIAL_OBSERVATION，不允许用部分候选生成正式 Top1/Top3。 | manual | 2026-09-04 |
+| I23 | 正常每天稳定地产生一套正式 Top3 + Top1；异常时严格不出票。 | manual | 2026-09-04 |
+| I24 | 单个 Research provider 失败：不阻断；核心市场数据、PIT、Canonical、生产计算或数据库一致性失败：阻断。 | manual | 2026-09-04 |
 
 ## Restate rows
 
@@ -34,3 +45,5 @@
 
 | ID | Type | Refs | Note | Captured |
 |----|------|------|------|----------|
+
+

@@ -3682,6 +3682,51 @@ def fetch_returns() -> List[Dict[str, Any]]:
         return [dict(row) for row in db.execute(text("SELECT * FROM returns ORDER BY id DESC")).mappings()]
 
 
+def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
+    """Return persisted T+1..T+5 facts for one decision. Missing days stay MISSING."""
+    decision_id = str(decision_id or "").strip()
+    if not decision_id:
+        raise ValueError("DECISION_ID_REQUIRED")
+    with engine.connect() as db:
+        row = db.execute(
+            text(
+                "SELECT decision_id, trade_date, symbol, payload "
+                "FROM returns WHERE decision_id = :decision_id "
+                "ORDER BY id DESC LIMIT 1"
+            ),
+            {"decision_id": decision_id},
+        ).mappings().first()
+    if not row:
+        return {
+            "decision_id": decision_id,
+            "status": "MISSING",
+            "days": {str(day): {"status": "MISSING"} for day in (1, 2, 3, 4, 5)},
+        }
+    payload = row.get("payload")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        payload = {}
+    days = payload.get("days") if isinstance(payload.get("days"), dict) else {}
+    settled = {}
+    for day in (1, 2, 3, 4, 5):
+        item = days.get(str(day), days.get(day))
+        if not isinstance(item, dict) or not item:
+            settled[str(day)] = {"status": "MISSING"}
+        else:
+            settled[str(day)] = {"status": item.get("status") or "SETTLED", **item}
+    return {
+        "decision_id": decision_id,
+        "paper_signal_id": payload.get("paper_signal_id"),
+        "snapshot_id": payload.get("snapshot_id"),
+        "production_run_id": payload.get("production_run_id") or row.get("production_run_id"),
+        "outcome_id": payload.get("outcome_id") or f"{decision_id}:opportunity_5d",
+        "status": payload.get("data_status") or "PARTIAL",
+        "opportunity_5d": payload.get("opportunity_5d", payload.get("profit_window")),
+        "days": settled,
+    }
+
+
 def fetch_trade_records() -> List[Dict[str, Any]]:
     """Read production decisions and outcomes from the existing tables."""
     with engine.connect() as db:

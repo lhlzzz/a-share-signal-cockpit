@@ -31,6 +31,20 @@ RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
 PRODUCTION_MODES = ("PRODUCTION", "REPLAY", "DRY_RUN", "RESEARCH")
 DEFAULT_DECISION_WORKERS = 8
 MAX_DECISION_WORKERS = 32
+WORKER_RETRY_LIMIT = 2
+SYSTEM_FAULT_REASONS = (
+    "SNAPSHOT_PERSISTENCE_FAILED",
+    "CANONICAL_SNAPSHOT_NOT_FOUND",
+    "CANONICAL_SNAPSHOT_AMBIGUOUS",
+    "CALENDAR_DATA_UNAVAILABLE",
+    "CALENDAR_BLOCKED",
+    "PIT_INTEGRITY_FAILED",
+    "WORKER_RESULT_MISSING",
+    "PRODUCTION_RUN_ID_REQUIRED",
+    "NO_PRODUCTION_SNAPSHOT",
+    "DECISION_CLOCK_REQUIRED",
+    "SNAPSHOT_IDENTITY_CONFLICT",
+)
 
 
 def _parse_clock(value: str) -> datetime | None:
@@ -177,36 +191,65 @@ def _error_decision(row: Dict[str, Any], exc: BaseException) -> Dict[str, Any]:
     }
 
 
+def _is_system_fault(decision: Dict[str, Any] | None) -> bool:
+    if not isinstance(decision, dict):
+        return True
+    reason = str(decision.get("reason") or "")
+    error = str(decision.get("error") or "")
+    text = f"{reason} {error}"
+    return any(token in text for token in SYSTEM_FAULT_REASONS)
+
+
 def _evaluate_one_candidate(
     row: Dict[str, Any],
     *,
     portfolio_state: str,
     mode: str,
     trade_date: str,
+    decision_clock: datetime | None = None,
+    retries: int = WORKER_RETRY_LIMIT,
 ) -> Dict[str, Any]:
     item = copy.deepcopy(dict(row))
     item.setdefault("trade_date", trade_date)
     if mode == "PRODUCTION":
-        from xiaogu_forward_snapshot import MAX_STALENESS, production_now, snapshot_age
-        age = snapshot_age(str(item.get("source_time") or ""), production_now())
+        from xiaogu_forward_snapshot import MAX_STALENESS, snapshot_age
+        clock = decision_clock
+        if clock is None:
+            raise RuntimeError("DECISION_CLOCK_REQUIRED")
+        age = snapshot_age(str(item.get("source_time") or ""), clock)
         if age is None or age > MAX_STALENESS:
             result = _stale_decision(item)
             result["source_age_seconds"] = None if age is None else age.total_seconds()
+            result["decision_clock"] = clock.isoformat()
             return result
-    try:
-        return run_production_decision(
-            item,
-            portfolio_state=portfolio_state,
-            mode=mode,
-            trade_date=trade_date,
-            position_state="FLAT",
-        )
-    except ValueError as exc:
-        if str(exc) == "STALE_DATA" or str(exc).startswith("STALE_DATA"):
-            return _stale_decision(item)
-        return _error_decision(item, exc)
-    except Exception as exc:
-        return _error_decision(item, exc)
+    last_error: BaseException | None = None
+    attempts = max(0, int(retries)) + 1
+    for attempt in range(attempts):
+        try:
+            decision = run_production_decision(
+                item,
+                portfolio_state=portfolio_state,
+                mode=mode,
+                trade_date=trade_date,
+                decision_clock=decision_clock,
+                position_state="FLAT",
+            )
+            decision["worker_attempts"] = attempt + 1
+            return decision
+        except ValueError as exc:
+            if str(exc) == "STALE_DATA" or str(exc).startswith("STALE_DATA"):
+                result = _stale_decision(item)
+                if decision_clock is not None:
+                    result["decision_clock"] = decision_clock.isoformat()
+                return result
+            last_error = exc
+        except Exception as exc:
+            last_error = exc
+    result = _error_decision(item, last_error or RuntimeError("WORKER_ERROR"))
+    result["worker_attempts"] = attempts
+    if decision_clock is not None:
+        result["decision_clock"] = decision_clock.isoformat()
+    return result
 
 
 def evaluate_candidate_rows(
@@ -216,10 +259,13 @@ def evaluate_candidate_rows(
     mode: str,
     trade_date: str,
     workers: int | None = None,
+    decision_clock: datetime | None = None,
 ) -> tuple[list[Dict[str, Any]], Dict[str, Any]]:
     """Evaluate candidates independently. Output order follows input order, not completion."""
     worker_count = decision_worker_count(workers)
     results: list[Dict[str, Any] | None] = [None] * len(rows)
+    system_fault = False
+    system_fault_reason = ""
 
     def _run(index: int, row: Dict[str, Any]) -> tuple[int, Dict[str, Any]]:
         return index, _evaluate_one_candidate(
@@ -227,6 +273,7 @@ def evaluate_candidate_rows(
             portfolio_state=portfolio_state,
             mode=mode,
             trade_date=trade_date,
+            decision_clock=decision_clock,
         )
 
     if worker_count == 1 or len(rows) <= 1:
@@ -236,6 +283,7 @@ def evaluate_candidate_rows(
                 portfolio_state=portfolio_state,
                 mode=mode,
                 trade_date=trade_date,
+                decision_clock=decision_clock,
             )
     else:
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
@@ -244,19 +292,31 @@ def evaluate_candidate_rows(
                 try:
                     index, decision = future.result()
                 except Exception as exc:
-                    raise RuntimeError(f"WORKER_RESULT_MISSING:{exc!r}") from exc
+                    system_fault = True
+                    system_fault_reason = f"WORKER_RESULT_MISSING:{exc!r}"
+                    continue
                 results[index] = decision
     decisions = []
     success_count = 0
     blocked_count = 0
     stale_count = 0
     error_count = 0
+    recovered_count = 0
     for index, decision in enumerate(results):
         if decision is None:
             decision = _error_decision(rows[index], RuntimeError("WORKER_RESULT_MISSING"))
+            if decision_clock is not None:
+                decision["decision_clock"] = decision_clock.isoformat()
+            system_fault = True
+            system_fault_reason = system_fault_reason or "WORKER_RESULT_MISSING"
         reason = str(decision.get("reason") or "")
+        if int(decision.get("worker_attempts") or 1) > 1 and not (decision.get("error") or reason.startswith("WORKER_ERROR")):
+            recovered_count += 1
         if decision.get("error") or reason.startswith("WORKER_ERROR"):
             error_count += 1
+            if _is_system_fault(decision):
+                system_fault = True
+                system_fault_reason = system_fault_reason or reason
         elif reason == "STALE_DATA" or "STALE_DATA" in reason or "STALE_DATA" in (decision.get("failed_gates") or []):
             stale_count += 1
         else:
@@ -264,7 +324,28 @@ def evaluate_candidate_rows(
             blockers = list(decision.get("failed_gates") or []) + list(decision.get("production_blockers") or [])
             if decision.get("state") in {"WATCH", "READY"} or blockers:
                 blocked_count += 1
+        if decision_clock is not None and not decision.get("decision_clock"):
+            decision["decision_clock"] = decision_clock.isoformat()
         decisions.append(decision)
+    if system_fault:
+        for decision in decisions:
+            decision["paper_observation"] = None
+            decision["selection_status"] = "ABSTAIN"
+        accounting = {
+            "workers": worker_count,
+            "success_count": success_count,
+            "blocked_count": blocked_count,
+            "stale_count": stale_count,
+            "error_count": error_count,
+            "recovered_count": recovered_count,
+            "selection_status": "ABSTAIN",
+            "system_fault": True,
+            "system_fault_reason": system_fault_reason,
+            "top1": None,
+            "top3": [],
+            "publishable": False,
+        }
+        return decisions, accounting
     attach_top_paper_observations(decisions)
     return decisions, {
         "workers": worker_count,
@@ -272,6 +353,11 @@ def evaluate_candidate_rows(
         "blocked_count": blocked_count,
         "stale_count": stale_count,
         "error_count": error_count,
+        "recovered_count": recovered_count,
+        "selection_status": "SELECTED",
+        "system_fault": False,
+        "system_fault_reason": "",
+        "publishable": True,
     }
 
 
@@ -425,18 +511,20 @@ def _public_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
         "signal_status": (decision.get("core_alpha") or {}).get("signal_status"),
         "signal_qualified": (decision.get("core_alpha") or {}).get("signal_qualified"),
         "signal_reason": (decision.get("core_alpha") or {}).get("signal_reason"),
-        "research_consumed": (decision.get("core_alpha") or {}).get("research_consumed"),
+        "research_used_downstream": (decision.get("core_alpha") or {}).get("research_used_downstream"),
+        "selection_score": (decision.get("core_alpha") or {}).get("selection_score"),
+        "decision_clock": decision.get("decision_clock"),
         "paper_observation": paper,
     }
 
 
 def _research_summary(decisions: list[Dict[str, Any]]) -> Dict[str, Any]:
-    consumed = 0
+    used_downstream = 0
     provenance: Dict[str, Dict[str, Any]] = {}
     for decision in decisions:
         alpha = decision.get("core_alpha") or {}
-        if alpha.get("research_consumed") is True:
-            consumed += 1
+        if alpha.get("research_used_downstream") is True:
+            used_downstream += 1
         for item in ((decision.get("research_context") or {}).get("research_provenance") or []):
             if not isinstance(item, dict):
                 continue
@@ -447,11 +535,22 @@ def _research_summary(decisions: list[Dict[str, Any]]) -> Dict[str, Any]:
                 "provider": provider,
                 "role": item.get("role"),
                 "invoked_count": 0,
+                "provider_requested": 0,
+                "provider_available": 0,
+                "provider_succeeded": 0,
+                "provider_failed": 0,
+                "used_downstream": 0,
+                "evidence_count": 0,
             })
-            if item.get("invoked"):
-                slot["invoked_count"] += 1
+            slot["invoked_count"] += 1 if item.get("invoked") or item.get("provider_requested") else 0
+            slot["provider_requested"] += 1 if item.get("provider_requested") is not False else 0
+            slot["provider_available"] += 1 if item.get("provider_available") else 0
+            slot["provider_succeeded"] += 1 if item.get("provider_succeeded") else 0
+            slot["provider_failed"] += 1 if item.get("provider_failed") else 0
+            slot["used_downstream"] += 1 if item.get("used_downstream") else 0
+            slot["evidence_count"] += int(item.get("evidence_count") or 0)
     return {
-        "research_consumed_count": consumed,
+        "research_used_downstream_count": used_downstream,
         "research_provenance": list(provenance.values()),
     }
 
@@ -742,6 +841,7 @@ def main() -> None:
     observation_lineage_id = str(args.lineage_id or "").strip()
     observation_run_id = str(args.production_run_id or "").strip()
     observation_source_time = ""
+    batch_decision_clock = production_now() if mode == "PRODUCTION" else None
     if args.scan_dir:
         scan_observation = _scan_observation_from_dir(args.scan_dir)
         if scan_observation["status"] != "PASS":
@@ -765,7 +865,7 @@ def main() -> None:
                 args.date,
                 lineage_id=observation_lineage_id,
                 production_run_id=observation_run_id,
-                decision_clock=production_now(),
+                decision_clock=batch_decision_clock,
                 require_fresh=True,
             )
         except ValueError as exc:
@@ -805,7 +905,7 @@ def main() -> None:
             trusted,
             trade_date=args.date,
             lineage_id=observation_lineage_id,
-            decision_clock=production_now() if mode == "PRODUCTION" else None,
+            decision_clock=batch_decision_clock,
             require_fresh=mode == "PRODUCTION",
         )
     except ValueError as exc:
@@ -869,11 +969,16 @@ def main() -> None:
         mode=mode,
         trade_date=args.date,
         workers=args.decision_workers,
+        decision_clock=batch_decision_clock,
     )
     recorded = 0
     paper_observations = []
     persist_failures = []
-    persist_paper = mode == "PRODUCTION" and not args.dry_run
+    persist_paper = (
+        mode == "PRODUCTION"
+        and not args.dry_run
+        and decision_accounting.get("publishable") is not False
+    )
     if persist_paper and not observation_run_id:
         _emit_json(_empty_observation_output(
             args.date, "PRODUCTION_RUN_ID_REQUIRED", scan_status="SCAN_BLOCKED"
@@ -922,7 +1027,7 @@ def main() -> None:
         buy_allowed=buy_allowed,
         qualified_signal_count=qualified_signal_count,
     )
-    decision_clock = production_now() if mode == "PRODUCTION" else None
+    decision_clock = batch_decision_clock
     source_times = sorted({str(row.get("source_time") or "") for row in canonical_rows if row.get("source_time")})
     source_time = observation_source_time or (source_times[0] if len(source_times) == 1 else "")
     source_age = snapshot_age(source_time, decision_clock) if source_time and decision_clock is not None else None
@@ -949,7 +1054,7 @@ def main() -> None:
         "non_main_board_blocked_count": funnel["execution_eligibility_blocked"],
         "paper_from_decisions": sum(1 for decision in decisions if decision.get("paper_observation")),
         "qualified_signal_count": qualified_signal_count,
-        "research_consumed_count": research_summary["research_consumed_count"],
+        "research_used_downstream_count": research_summary["research_used_downstream_count"],
         "research_provenance": research_summary["research_provenance"],
         "top3_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top3_flag")),
         "top1_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top1_flag")),
@@ -973,6 +1078,10 @@ def main() -> None:
         "blocked_count": decision_accounting.get("blocked_count", 0),
         "stale_count": decision_accounting.get("stale_count", 0),
         "error_count": decision_accounting.get("error_count", 0),
+        "recovered_count": decision_accounting.get("recovered_count", 0),
+        "selection_status": decision_accounting.get("selection_status"),
+        "publishable": decision_accounting.get("publishable"),
+        "system_fault": decision_accounting.get("system_fault", False),
         "sample_accounting": {
             "full_universe_count": input_count,
             "l1_count": universe.get("eligible_count", 0),

@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional
 
 # Production contract: paper-only five-day profit-window states.
 PRODUCTION_TRADE_MODE = 'PAPER_PROFIT_WINDOW_5D'
-PRODUCTION_TARGET = 'PROFIT_WINDOW_5D'
-PRODUCTION_RETURN_FIELD = 'expected_net_profit_window'
-PRODUCTION_RETURN_FORMULA = 'profit_window_probability and expected_net_profit_window >= minimum_required_return'
+PRODUCTION_TARGET = 'opportunity_5d'
+PRODUCTION_RETURN_FIELD = 'opportunity_5d'
+PRODUCTION_RETURN_FORMULA = 'any T+1..T+5 daily high vs T-day reference reaches net +2% after cost_model_v1'
 PRODUCTION_DECISIONS = frozenset({'WATCH', 'READY', 'BUY', 'HOLD', 'REDUCE', 'SELL'})
 
 

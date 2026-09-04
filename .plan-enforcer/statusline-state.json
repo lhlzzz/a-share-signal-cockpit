@@ -1,10 +1,10 @@
 {
-  "stage": "complete",
-  "label": "4-COMPLETE",
-  "done": 8,
-  "verified": 8,
+  "stage": "discuss",
+  "label": "1-DISCUSS",
+  "done": null,
+  "verified": 13,
   "doneUnverified": 0,
-  "total": 8,
+  "total": null,
   "scope": null,
   "taskId": null,
   "taskName": null,
@@ -12,7 +12,7 @@
   "projectRoot": "/workspace/hermes-workspaces/xiaogu",
   "sessionId": null,
   "transcriptPath": null,
-  "updatedAt": "2026-08-28T10:22:00Z",
-  "title": "2026-08-26-final-repricing-rebuild.md",
-  "source": "completion-verification"
+  "updatedAt": "2026-09-04T05:31:50.352Z",
+  "title": null,
+  "source": "statusline-stage-cli"
 }
