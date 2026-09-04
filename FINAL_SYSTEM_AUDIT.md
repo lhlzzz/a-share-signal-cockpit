@@ -89,10 +89,10 @@ One batch `decision_clock` is generated in `main()`. Workers receive it; they do
 - Lineage fields: production_run_id, lineage_id, snapshot_id, decision_id, paper_signal_id, outcome_id, review_id, memory_id
 - Date + symbol is not a unique memory identity
 - T+1..T+5 facts live in the `returns` payload nested map `days["1".."5"]`. This is not a per-horizon row table. Missing days stay `MISSING`.
-- Horizon identity is `decision_id:horizon`. Aggregate `outcome_id` is `decision_id:horizon`.
-- `fetch_horizon_outcomes(decision_id)` reads that nested payload.
+- Aggregate `outcome_id = decision_id`. Horizon identity is `horizon_outcome_id = decision_id:horizon`.
+- `fetch_horizon_outcomes(decision_id)` reads that nested payload and always returns T+1..T+5 (`SETTLED` or `MISSING`).
 - `cost_model_v1` is unique. Commission/stamp_duty are modeled; slippage/spread/market_impact are proxy. Execution realism is `DAILY_BAR_APPROXIMATION`. There is no `slippage_included=false` contradiction.
-- Memory can be rebuilt from PostgreSQL via `rebuild_memory_from_postgresql()`. Daily notes are a summary view; identity is `paper_signal_id`.
+- Memory can be rebuilt from PostgreSQL via `rebuild_memory_from_postgresql(limit=None)` (FULL by default). Missing `knowledge_available_at` is fail-closed. Daily notes are a summary view; identity is `paper_signal_id`.
 
 ## Price gate
 
@@ -138,9 +138,9 @@ No new selector / ranker / top-k / decision-bucket files were created.
 
 Command: `pytest tests/ -x -q`
 
-Result: **355 passed** in 93.20s.
+Result: **362 passed** in 94.06s (command: `python -m pytest tests/ -x -q --tb=line`, 2026-09-04).
 
-`tests/test_single_system_convergence.py` (25 tests) covers:
+`tests/test_single_system_convergence.py` (32 tests) covers:
 
 - single-system ownership / single alpha / single target / single selection
 - permanent worker failure => ABSTAIN
@@ -159,7 +159,12 @@ Result: **355 passed** in 93.20s.
 - production run coverage contract
 - OOS chronological + embargo ≥ 5 + daily grouped Top1/Top3
 - price gate ablation RESEARCH_ONLY
-- memory rebuild from PostgreSQL
+- memory rebuild from PostgreSQL (FULL default; missing knowledge_available_at fail-closed)
+- usable_evidence_count vs evidence_count
+- used_downstream reflects actual Alpha/Decision consumption
+- aggregate outcome_id = decision_id; horizon_outcome_id = decision_id:horizon
+- horizon calculate → record_returns → fetch round-trip
+- atomic persist rollback against real PostgreSQL
 
 Existing tests were migrated onto `opportunity_5d` and `research_used_downstream`.
 

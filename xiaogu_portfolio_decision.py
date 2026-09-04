@@ -256,7 +256,11 @@ def collect_production_negative_evidence(
         record = build_confirmed_negative_blocker("REPRICING_COMPLETED", item, as_of=as_of)
         if record:
             records.append(record)
-    contradiction = (research or {}).get("contradiction") or (research or {}).get("integrated") or {}
+    from xiaogu_research_context import read_research_provider
+
+    contradiction = read_research_provider(research, "contradiction")
+    if contradiction is None:
+        contradiction = read_research_provider(research, "integrated") or {}
     contradiction_items = _nested_evidence_items(contradiction)
     if isinstance(contradiction, dict):
         contradiction_items.append(contradiction)

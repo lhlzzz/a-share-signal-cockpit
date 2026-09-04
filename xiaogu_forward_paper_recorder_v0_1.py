@@ -248,11 +248,10 @@ Pending T+1..T+5 outcome update.
     knowledge_available_at = str(
         record.get("knowledge_available_at")
         or record.get("available_at")
-        or record.get("generated_at")
-        or record.get("signal_time")
-        or record.get("asof_time")
         or ""
-    )
+    ).strip()
+    if not knowledge_available_at:
+        return None
     return _send_memory("UPSERT_NOTE", {
         "path": path,
         "memory_id": memory_id,
@@ -322,90 +321,117 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
     })
 
 
-def rebuild_memory_from_postgresql(limit: int = 50) -> list[Dict[str, Any]]:
-    """Rebuild semantic memory notes from PostgreSQL facts. Obsidian is a projection."""
+def rebuild_memory_from_postgresql(limit: int | None = None) -> Dict[str, Any]:
+    """Rebuild semantic memory notes from PostgreSQL facts. Obsidian is a projection.
+
+    limit=None is a FULL rebuild. limit=N is an explicit bounded/diagnostic rebuild.
+    Missing knowledge_available_at is fail-closed: no DECISION note is invented.
+    """
     from xiaogu_db import fetch_horizon_outcomes, fetch_paper_observations, fetch_picks
 
     notes: list[Dict[str, Any]] = []
-    picks = fetch_picks()[: max(1, int(limit))]
+    picks = list(fetch_picks() or [])
+    mode = "FULL"
+    if limit is not None:
+        mode = "BOUNDED"
+        picks = picks[: max(0, int(limit))]
     papers = {str(row.get("paper_signal_id") or ""): row for row in fetch_paper_observations()}
     paper_by_decision = {
         str(row.get("decision_id") or ""): row for row in papers.values() if row.get("decision_id")
     }
+    processed = 0
+    rebuilt = 0
+    skipped = 0
+    failed = 0
+    skipped_missing_knowledge_available_at_count = 0
     for pick in picks:
-        payload = pick.get("payload")
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except json.JSONDecodeError:
+        processed += 1
+        try:
+            payload = pick.get("payload")
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except json.JSONDecodeError:
+                    payload = {}
+            if not isinstance(payload, dict):
                 payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
-        decision_id = str(pick.get("decision_id") or payload.get("decision_id") or "")
-        paper = paper_by_decision.get(decision_id) or {}
-        paper_payload = paper.get("payload")
-        if isinstance(paper_payload, str):
-            try:
-                paper_payload = json.loads(paper_payload)
-            except json.JSONDecodeError:
-                paper_payload = {}
-        if not isinstance(paper_payload, dict):
-            paper_payload = dict(paper) if paper else {}
-        paper_signal_id = str(paper_payload.get("paper_signal_id") or paper.get("paper_signal_id") or "")
-        knowledge_available_at = str(
-            paper_payload.get("knowledge_available_at")
-            or paper_payload.get("available_at")
-            or paper_payload.get("signal_time")
-            or pick.get("created_at")
-            or ""
-        )
-        record = {
-            **payload,
-            **paper_payload,
-            "decision": PAPER_OBSERVATION_STATUS if paper_signal_id else str(payload.get("state") or pick.get("state") or "WATCH"),
-            "decision_id": decision_id,
-            "paper_signal_id": paper_signal_id,
-            "symbol": paper_payload.get("symbol") or payload.get("symbol") or pick.get("symbol"),
-            "date": paper_payload.get("trade_date") or payload.get("trade_date") or pick.get("trade_date"),
-            "knowledge_available_at": knowledge_available_at,
-            "knowledge_type": "DECISION",
-        }
-        write_trade_memory(record)
-        notes.append({
-            "knowledge_type": "DECISION",
-            "decision_id": decision_id,
-            "paper_signal_id": paper_signal_id,
-            "symbol": record.get("symbol"),
-            "date": record.get("date"),
-            "knowledge_available_at": knowledge_available_at,
-            "thesis": record.get("thesis") or (payload.get("core_alpha") or {}).get("thesis"),
-            "path": _memory_note_path(str(record.get("decision") or "WATCH"), record),
-        })
-        if decision_id:
-            outcome = fetch_horizon_outcomes(decision_id)
-            days = outcome.get("days") or {}
-            if any(isinstance(item, dict) and item.get("status") == "SETTLED" for item in days.values()):
-                settled_at = str(
-                    outcome.get("result_filled_at")
-                    or outcome.get("settled_at")
-                    or ""
-                )
-                update_trade_memory({
-                    **record,
-                    **outcome,
-                    "knowledge_type": "OUTCOME",
-                    "outcome_settled_at": settled_at,
-                    "result_filled_at": settled_at,
-                })
-                notes.append({
-                    "knowledge_type": "OUTCOME",
-                    "decision_id": decision_id,
-                    "paper_signal_id": paper_signal_id or outcome.get("paper_signal_id"),
-                    "settled_at": settled_at,
-                    "days": days,
-                    "opportunity_5d": outcome.get("opportunity_5d"),
-                })
-    return notes
+            decision_id = str(pick.get("decision_id") or payload.get("decision_id") or "")
+            paper = paper_by_decision.get(decision_id) or {}
+            paper_payload = paper.get("payload")
+            if isinstance(paper_payload, str):
+                try:
+                    paper_payload = json.loads(paper_payload)
+                except json.JSONDecodeError:
+                    paper_payload = {}
+            if not isinstance(paper_payload, dict):
+                paper_payload = dict(paper) if paper else {}
+            paper_signal_id = str(paper_payload.get("paper_signal_id") or paper.get("paper_signal_id") or "")
+            knowledge_available_at = str(
+                paper_payload.get("knowledge_available_at") or ""
+            ).strip()
+            if not knowledge_available_at:
+                skipped += 1
+                skipped_missing_knowledge_available_at_count += 1
+                continue
+            record = {
+                **payload,
+                **paper_payload,
+                "decision": PAPER_OBSERVATION_STATUS if paper_signal_id else str(payload.get("state") or pick.get("state") or "WATCH"),
+                "decision_id": decision_id,
+                "paper_signal_id": paper_signal_id,
+                "symbol": paper_payload.get("symbol") or payload.get("symbol") or pick.get("symbol"),
+                "date": paper_payload.get("trade_date") or payload.get("trade_date") or pick.get("trade_date"),
+                "knowledge_available_at": knowledge_available_at,
+                "knowledge_type": "DECISION",
+            }
+            write_trade_memory(record)
+            notes.append({
+                "knowledge_type": "DECISION",
+                "decision_id": decision_id,
+                "paper_signal_id": paper_signal_id,
+                "symbol": record.get("symbol"),
+                "date": record.get("date"),
+                "knowledge_available_at": knowledge_available_at,
+                "thesis": record.get("thesis") or (payload.get("core_alpha") or {}).get("thesis"),
+                "path": _memory_note_path(str(record.get("decision") or "WATCH"), record),
+            })
+            rebuilt += 1
+            if decision_id:
+                outcome = fetch_horizon_outcomes(decision_id)
+                days = outcome.get("days") or {}
+                if any(isinstance(item, dict) and item.get("status") == "SETTLED" for item in days.values()):
+                    settled_at = str(
+                        outcome.get("result_filled_at")
+                        or outcome.get("settled_at")
+                        or ""
+                    )
+                    update_trade_memory({
+                        **record,
+                        **outcome,
+                        "knowledge_type": "OUTCOME",
+                        "outcome_settled_at": settled_at,
+                        "result_filled_at": settled_at,
+                    })
+                    notes.append({
+                        "knowledge_type": "OUTCOME",
+                        "decision_id": decision_id,
+                        "paper_signal_id": paper_signal_id or outcome.get("paper_signal_id"),
+                        "settled_at": settled_at,
+                        "days": days,
+                        "opportunity_5d": outcome.get("opportunity_5d"),
+                    })
+                    rebuilt += 1
+        except Exception:
+            failed += 1
+    return {
+        "mode": mode,
+        "processed": processed,
+        "rebuilt": rebuilt,
+        "skipped": skipped,
+        "failed": failed,
+        "skipped_missing_knowledge_available_at_count": skipped_missing_knowledge_available_at_count,
+        "notes": notes,
+    }
 
 
 def write_daily_paper_memory(
@@ -665,6 +691,12 @@ def _snapshot_and_record(
         'previous_state': features.get('portfolio_state_before'),
         'new_state': features.get('state') or decision,
         'signal_time': features.get('signal_time') or canonical.get('source_time'),
+        'available_at': canonical.get('available_at') or canonical.get('source_time'),
+        'knowledge_available_at': (
+            (features.get('paper_observation') or {}).get('knowledge_available_at')
+            or canonical.get('available_at')
+            or canonical.get('source_time')
+        ),
         'snapshot_id': features.get('snapshot_id') or canonical.get('snapshot_id'),
         'lineage_id': features.get('lineage_id') or canonical.get('lineage_id'),
         'reference_price': features.get('reference_price') or canonical.get('price'),

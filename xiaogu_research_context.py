@@ -235,6 +235,57 @@ def _json_payload(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _research_evidence_items(payload: Any) -> list[Dict[str, Any]]:
+    """Collect raw observed evidence dicts. Nested field values are not evidence."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    items: list[Dict[str, Any]] = []
+    for key in ("evidence", "historical_cases", "notes"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            items.extend(item for item in value if isinstance(item, dict))
+    return items
+
+
+def _is_usable_research_evidence(item: Any, as_of: str) -> bool:
+    """True only when evidence exists, is PIT-valid, identified, and contract-complete."""
+    if not isinstance(item, dict) or not item:
+        return False
+    from xiaogu_forward_features import validate_evidence_identity
+
+    identity = validate_evidence_identity(item)
+    if identity is None:
+        return False
+    source_id, event_id, mechanism = identity
+    if not (source_id and event_id and mechanism):
+        return False
+    source = str(item.get("source") or source_id).strip()
+    observed = str(
+        item.get("observed_at")
+        or item.get("event_time")
+        or item.get("publication_time")
+        or ""
+    ).strip()
+    available = str(
+        item.get("available_at")
+        or item.get("knowledge_available_at")
+        or ""
+    ).strip()
+    if not source or not observed or not available:
+        return False
+    if not as_of or not _visible_before(as_of, observed) or not _visible_before(as_of, available):
+        return False
+    return True
+
+
+def _research_evidence_counts(payload: Any, as_of: str) -> tuple[int, int]:
+    items = _research_evidence_items(payload)
+    usable = sum(1 for item in items if _is_usable_research_evidence(item, as_of))
+    return len(items), usable
+
+
 def _provider_record(
     provider: str,
     *,
@@ -251,7 +302,7 @@ def _provider_record(
     reason: str = "",
 ) -> Dict[str, Any]:
     count = int(evidence_count or 0)
-    usable = count if usable_evidence_count is None else int(usable_evidence_count or 0)
+    usable = 0 if usable_evidence_count is None else int(usable_evidence_count or 0)
     return {
         "provider": provider,
         "role": role,
@@ -267,6 +318,51 @@ def _provider_record(
         "reason": reason or "",
         "invoked": requested,
     }
+
+
+_RESEARCH_PROVIDER_KEYS = {
+    "industry": "Serenity",
+    "serenity_context": "Serenity",
+    "company": "Buffett",
+    "buffett_context": "Buffett",
+    "capital": "UZI",
+    "uzi_context": "UZI",
+    "capital_context": "UZI",
+    "integrated": "Contradiction",
+    "contradiction": "Contradiction",
+    "contradiction_context": "Contradiction",
+    "historical": "postgresql.paper_observations",
+    "memory": "obsidian_memory_adapter",
+}
+
+
+def mark_research_used_downstream(
+    research: Dict[str, Any] | None,
+    *providers: str,
+) -> Dict[str, Any] | None:
+    """Record that Alpha/Decision actually read these providers. Not a second research system."""
+    if not isinstance(research, dict) or not providers:
+        return research
+    slots = research.get("research_providers")
+    if not isinstance(slots, dict):
+        return research
+    for name in providers:
+        record = slots.get(name)
+        if isinstance(record, dict):
+            record["used_downstream"] = True
+    research["research_provenance"] = list(slots.values())
+    return research
+
+
+def read_research_provider(research: Dict[str, Any] | None, key: str) -> Any:
+    """Read one research field and mark that provider as used downstream."""
+    if not isinstance(research, dict):
+        return None
+    value = research.get(key)
+    provider = _RESEARCH_PROVIDER_KEYS.get(key)
+    if provider:
+        mark_research_used_downstream(research, provider)
+    return value
 
 
 def _run_provider(fn, retries: int = 1):
@@ -290,9 +386,8 @@ def _knowledge_stamp(*values: Any) -> str:
 def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
     """PIT historical paper/outcome cases. Evidence only; never a BUY source."""
     symbol = str(symbol or "").zfill(6)[-6:]
-    cases: list[Dict[str, Any]] = []
 
-    def _load() -> list[Dict[str, Any]]:
+    def _load() -> Dict[str, Any]:
         from xiaogu_db import engine
         from sqlalchemy import text
         loaded: list[Dict[str, Any]] = []
@@ -316,6 +411,8 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
                 ),
                 {"symbol": symbol},
             ).mappings()
+            observed = 0
+            usable = 0
             for row in rows:
                 paper = _json_payload(row.get("paper_payload"))
                 outcome = _json_payload(row.get("outcome_payload"))
@@ -324,6 +421,19 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
                     paper.get("knowledge_available_at"),
                     paper.get("available_at"),
                 )
+                observed += 1
+                identity_item = {
+                    **paper,
+                    "source": paper.get("source") or "postgresql.paper_observations",
+                    "source_id": paper.get("source_id"),
+                    "event_id": paper.get("event_id"),
+                    "mechanism": paper.get("mechanism"),
+                    "observed_at": paper.get("observed_at") or event_time,
+                    "available_at": knowledge_available_at,
+                    "knowledge_available_at": knowledge_available_at,
+                }
+                if _is_usable_research_evidence(identity_item, as_of):
+                    usable += 1
                 if not knowledge_available_at or not _visible_before(as_of, knowledge_available_at):
                     continue
                 settled_at = _knowledge_stamp(
@@ -369,7 +479,11 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
                     "post_trade_review": review if outcome_visible else None,
                     "source": "postgresql.paper_observations",
                 })
-        return loaded
+        return {
+            "cases": loaded,
+            "observed_count": observed,
+            "usable_count": usable,
+        }
 
     payload, error = _run_provider(_load)
     if error is not None:
@@ -380,10 +494,16 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
             "historical_success_rate": None,
             "historical_failure_patterns": [],
             "case_count": 0,
+            "usable_evidence_count": 0,
             "provider_available": False,
             "provider_succeeded": False,
         }
-    cases = payload or []
+    payload = payload or {}
+    cases = payload.get("cases") if isinstance(payload, dict) else payload
+    if not isinstance(cases, list):
+        cases = []
+    observed_count = int(payload.get("observed_count") or 0) if isinstance(payload, dict) else len(cases)
+    usable_count = int(payload.get("usable_count") or 0) if isinstance(payload, dict) else 0
     visible = cases[:8]
     settled = [item for item in visible if item.get("opportunity_5d") is not None]
     success_rate = (
@@ -400,10 +520,11 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
         "historical_cases": visible,
         "historical_success_rate": success_rate,
         "historical_failure_patterns": failure_patterns,
-        "case_count": len(visible),
+        "case_count": observed_count,
+        "usable_evidence_count": usable_count,
         "provider_available": True,
         "provider_succeeded": True,
-        "pit_valid": True,
+        "pit_valid": usable_count > 0 if observed_count else None,
     }
 
 
@@ -434,14 +555,29 @@ def fetch_memory_research_notes(symbol: str, as_of: str) -> Dict[str, Any]:
             "provider_succeeded": False,
             "note_count": 0,
         }
+    observed = 0
+    usable = 0
     visible = []
     for note in notes or []:
         if not isinstance(note, dict):
             continue
+        observed += 1
         knowledge_available_at = _knowledge_stamp(
             note.get("knowledge_available_at"),
             note.get("available_at"),
         )
+        identity_item = {
+            **note,
+            "source": note.get("source") or "obsidian_memory_adapter",
+            "source_id": note.get("source_id"),
+            "event_id": note.get("event_id"),
+            "mechanism": note.get("mechanism"),
+            "observed_at": note.get("observed_at") or note.get("event_time") or note.get("signal_time"),
+            "available_at": knowledge_available_at,
+            "knowledge_available_at": knowledge_available_at,
+        }
+        if _is_usable_research_evidence(identity_item, as_of):
+            usable += 1
         if not knowledge_available_at or not _visible_before(as_of, knowledge_available_at):
             continue
         outcome_available_at = _knowledge_stamp(
@@ -477,23 +613,12 @@ def fetch_memory_research_notes(symbol: str, as_of: str) -> Dict[str, Any]:
         "status": "OK",
         "connected": True,
         "notes": visible,
-        "note_count": len(visible),
+        "note_count": observed,
+        "usable_evidence_count": usable,
         "provider_available": True,
         "provider_succeeded": True,
-        "pit_valid": True,
+        "pit_valid": usable > 0 if observed else None,
     }
-
-
-def _context_evidence_count(payload: Any) -> int:
-    if not isinstance(payload, dict) or not payload:
-        return 0
-    count = 0
-    for value in payload.values():
-        if isinstance(value, list):
-            count += sum(1 for item in value if item not in (None, "", {}, []))
-        elif value not in (None, "", {}, []):
-            count += 1
-    return count
 
 
 def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
@@ -559,6 +684,14 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             "provider_succeeded": False,
             "note_count": 0,
         }
+    serenity_count, serenity_usable = _research_evidence_counts(industry, as_of)
+    buffett_count, buffett_usable = _research_evidence_counts(company, as_of)
+    uzi_count, uzi_usable = _research_evidence_counts(capital, as_of)
+    contradiction_count, contradiction_usable = _research_evidence_counts(integrated, as_of)
+    historical_count = int(historical.get("case_count") or 0)
+    historical_usable = int(historical.get("usable_evidence_count") or 0)
+    memory_count = int(memory.get("note_count") or 0)
+    memory_usable = int(memory.get("usable_evidence_count") or 0)
     providers = {
         "Serenity": _provider_record(
             "Serenity",
@@ -566,9 +699,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=serenity_error is None,
             succeeded=serenity_error is None and not industry.get("degraded"),
             failed=serenity_error is not None or bool(industry.get("degraded")),
-            evidence_count=_context_evidence_count(industry),
-            pit_valid=True if serenity_error is None else None,
-            used_downstream=serenity_error is None and not industry.get("degraded"),
+            evidence_count=serenity_count,
+            usable_evidence_count=serenity_usable,
+            pit_valid=True if serenity_usable else (False if serenity_count else None),
             knowledge_available_at=as_of,
             reason="" if serenity_error is None else type(serenity_error).__name__,
         ),
@@ -578,9 +711,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=buffett_error is None,
             succeeded=buffett_error is None and not company.get("degraded"),
             failed=buffett_error is not None or bool(company.get("degraded")),
-            evidence_count=_context_evidence_count(company),
-            pit_valid=True if buffett_error is None else None,
-            used_downstream=buffett_error is None and not company.get("degraded"),
+            evidence_count=buffett_count,
+            usable_evidence_count=buffett_usable,
+            pit_valid=True if buffett_usable else (False if buffett_count else None),
             knowledge_available_at=as_of,
             reason="" if buffett_error is None else type(buffett_error).__name__,
         ),
@@ -590,9 +723,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=uzi_error is None,
             succeeded=uzi_error is None and not capital.get("degraded"),
             failed=uzi_error is not None or bool(capital.get("degraded")),
-            evidence_count=_context_evidence_count(capital),
-            pit_valid=True if uzi_error is None else None,
-            used_downstream=uzi_error is None and not capital.get("degraded"),
+            evidence_count=uzi_count,
+            usable_evidence_count=uzi_usable,
+            pit_valid=True if uzi_usable else (False if uzi_count else None),
             knowledge_available_at=as_of,
             reason="" if uzi_error is None else type(uzi_error).__name__,
         ),
@@ -602,9 +735,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=contradiction_error is None,
             succeeded=contradiction_error is None and not integrated.get("degraded"),
             failed=contradiction_error is not None or bool(integrated.get("degraded")),
-            evidence_count=_context_evidence_count(integrated),
-            pit_valid=True if contradiction_error is None else None,
-            used_downstream=contradiction_error is None and not integrated.get("degraded"),
+            evidence_count=contradiction_count,
+            usable_evidence_count=contradiction_usable,
+            pit_valid=True if contradiction_usable else (False if contradiction_count else None),
             knowledge_available_at=as_of,
             reason="" if contradiction_error is None else type(contradiction_error).__name__,
         ),
@@ -614,9 +747,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=bool(historical.get("provider_available")),
             succeeded=bool(historical.get("provider_succeeded")),
             failed=historical.get("status") == "UNAVAILABLE",
-            evidence_count=int(historical.get("case_count") or 0),
+            evidence_count=historical_count,
+            usable_evidence_count=historical_usable,
             pit_valid=historical.get("pit_valid"),
-            used_downstream=bool(historical.get("provider_succeeded")),
             knowledge_available_at=as_of,
             reason=str(historical.get("reason") or ""),
         ),
@@ -626,9 +759,9 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             available=bool(memory.get("provider_available") or memory.get("connected")),
             succeeded=bool(memory.get("provider_succeeded")),
             failed=memory.get("status") == "UNAVAILABLE",
-            evidence_count=int(memory.get("note_count") or 0),
+            evidence_count=memory_count,
+            usable_evidence_count=memory_usable,
             pit_valid=memory.get("pit_valid"),
-            used_downstream=bool(memory.get("provider_succeeded")),
             knowledge_available_at=as_of,
             reason=str(memory.get("reason") or ""),
         ),

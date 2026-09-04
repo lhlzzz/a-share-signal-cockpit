@@ -3760,8 +3760,17 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
     if not row:
         return {
             "decision_id": decision_id,
+            "outcome_id": decision_id,
             "status": "MISSING",
-            "days": {str(day): {"status": "MISSING"} for day in (1, 2, 3, 4, 5)},
+            "days": {
+                str(day): {
+                    "status": "MISSING",
+                    "horizon": day,
+                    "horizon_outcome_id": f"{decision_id}:{day}",
+                    "horizon_trade_date": None,
+                }
+                for day in (1, 2, 3, 4, 5)
+            },
         }
     payload = row.get("payload")
     if isinstance(payload, str):
@@ -3776,22 +3785,25 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
             settled[str(day)] = {
                 "status": "MISSING",
                 "horizon": day,
-                "outcome_id": f"{decision_id}:{day}",
+                "horizon_outcome_id": f"{decision_id}:{day}",
+                "horizon_trade_date": None,
             }
         else:
             settled[str(day)] = {
                 **item,
                 "status": item.get("status") or "SETTLED",
                 "horizon": item.get("horizon") or day,
-                "outcome_id": item.get("outcome_id") or f"{decision_id}:{day}",
+                "horizon_outcome_id": f"{decision_id}:{day}",
+                "horizon_trade_date": item.get("horizon_trade_date") or item.get("date"),
             }
+            settled[str(day)].pop("outcome_id", None)
     return {
         "decision_id": decision_id,
         "paper_signal_id": payload.get("paper_signal_id"),
         "snapshot_id": payload.get("snapshot_id"),
         "production_run_id": payload.get("production_run_id") or row.get("production_run_id"),
-        "outcome_id": payload.get("outcome_id") or f"{decision_id}:horizon",
-        "horizon_identity": payload.get("horizon_identity") or {
+        "outcome_id": decision_id,
+        "horizon_identity": {
             str(day): f"{decision_id}:{day}" for day in (1, 2, 3, 4, 5)
         },
         "status": payload.get("data_status") or "PARTIAL",

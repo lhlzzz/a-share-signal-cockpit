@@ -7,6 +7,8 @@ This is in-place hardening on the existing Xiaogu owners. It is not Xiaogu 4.0, 
 
 ## 1. Modified files
 
+Prior truth hardening plus this micro-hardening pass:
+
 - `xiaogu_forward_runner.py`
 - `xiaogu_core_alpha.py`
 - `xiaogu_research_context.py`
@@ -20,6 +22,7 @@ This is in-place hardening on the existing Xiaogu owners. It is not Xiaogu 4.0, 
 - `tests/test_execution_board.py`
 - `STATE.md`
 - `FINAL_SYSTEM_AUDIT.md`
+- `FINAL_TRUTH_HARDENING_REPORT.md`
 
 ## 2. Deleted files
 
@@ -41,19 +44,25 @@ Schema stays `xiaogu_production_schema_v6`. No v7 migration.
 
 Outcome facts remain in the existing `returns` table as one nested JSON payload. There is no per-horizon row table.
 
-`fetch_horizon_outcomes(decision_id)` returns:
+`fetch_horizon_outcomes(decision_id)` returns nested `returns.payload.days` under schema v6. There is no `returns_horizons` table.
 
 ```
 {
-  "1": {status: SETTLED|MISSING, horizon, outcome_id, ...},
-  "2": ...,
-  "3": ...,
-  "4": ...,
-  "5": ...
+  "decision_id": decision_id,
+  "outcome_id": decision_id,
+  "days": {
+    "1": {status: SETTLED|MISSING, horizon: 1, horizon_outcome_id: "decision_id:1", horizon_trade_date: ...},
+    "2": ...,
+    "3": ...,
+    "4": ...,
+    "5": ...
+  }
 }
 ```
 
-Horizon identity: `decision_id:horizon`. Aggregate `outcome_id`: `decision_id:horizon`.
+Aggregate Outcome: `outcome_id = decision_id`.  
+Horizon Outcome: `horizon_outcome_id = decision_id:horizon`.  
+T+1..T+5 are always present. Missing days stay `MISSING` and are never omitted.
 
 ## 5. PIT changes
 
@@ -93,8 +102,10 @@ Selection score remains unique Alpha `selection_score` (`profit_window_alpha_5d_
 
 - Adapter write includes `knowledge_available_at` / `knowledge_type`.
 - Adapter read filters by `knowledge_available_at` and hides unsettled outcomes.
-- `rebuild_memory_from_postgresql()` rebuilds DECISION + OUTCOME notes from picks / paper / returns.
-- Daily note remains a summary view. Identity is `paper_signal_id`.
+- `rebuild_memory_from_postgresql(limit=None)` default is FULL rebuild. `limit=N` is an explicit bounded/diagnostic rebuild.
+- Rebuild does not invent PIT availability from `signal_time` or `created_at`. Missing or empty `knowledge_available_at` skips that DECISION note (`skipped_missing_knowledge_available_at_count`).
+- Rebuild diagnostics distinguish `rebuilt` / `skipped` / `failed`.
+- Daily note remains a summary view. Identity is `paper_signal_id` / `decision_id`.
 
 ## 9. Atomic transaction changes
 
@@ -119,46 +130,60 @@ Unchanged contract, documented honestly:
 
 ## 11. Tests count
 
-`tests/test_single_system_convergence.py`: 25 tests.
+`tests/test_single_system_convergence.py`: 32 tests.
 
-Full suite: 355 tests.
+Full suite: 362 tests.
 
 ## 12. pytest result
 
+Command captured 2026-09-04:
+
 ```
-pytest tests/ -x -q
-355 passed in 83.45s
+python -m pytest tests/ -x -q --tb=line
+362 passed in 94.06s (0:01:34)
+exit=0
 
-pytest tests/test_single_system_convergence.py -q
-25 passed in 0.70s
+python -m pytest tests/test_single_system_convergence.py -q --tb=line
+32 passed
 
-python -m compileall .
-COMPILE_OK
+python -m compileall -q .
+COMPILE_EXIT:0
 ```
 
-`rg -n "research_consumed|PARTIAL_OBSERVATION"` hits only tests and audit docs. No live owner uses those tokens.
+Do not keep the earlier `355 passed in 83.45s` / `93.20s` timings. Those numbers are superseded by this run.
+
+Live-owner static scan (Python owners only; tests/docs may keep historical tokens):
+
+- `research_consumed` / `PARTIAL_OBSERVATION`: none in `xiaogu_*.py`
+- `PRICE_STRENGTH_OUT_OF_WINDOW` / `SIGNAL_PCT_MIN` / `SIGNAL_PCT_MAX`: none in `xiaogu_*.py`
+- `knowledge_available_at` fabricated from `signal_time` / `created_at`: none in `xiaogu_*.py`
+- `used_downstream` auto-set from `provider_succeeded`: none in `xiaogu_*.py`
+- aggregate `outcome_id = decision_id:horizon`: none in `xiaogu_*.py`
 
 ## 13. git commit
 
-Hardening code: `a760f9e44cf131d27310b91fe5de3207c25a50ce`
+Previous truth-hardening code: `a760f9e44cf131d27310b91fe5de3207c25a50ce`
 
 `fix: harden Xiaogu PIT, selection, outcome, and atomic persistence`
 
+There is no `ace319d` hardening SHA in this tree.
+
 Baseline: `9ac06ed1c3eb6bd75b9868af085bcba104280c66`
 
-This report commit only records the SHA and latest pytest timings. It does not change production owners.
+This micro-hardening commit SHA is recorded after git commit. It does not change production owners.
 
 ## 14. git status
 
-`main` is one commit ahead of `origin/main` at the hardening code SHA, plus this report SHA after commit. Working tree is clean after the report commit. Not pushed unless requested.
+Working tree is dirty until the micro-hardening commit. After that commit, `main` is ahead of `origin/main`. Not pushed unless requested.
 
 ## 15. Remaining risks
 
 - `returns` is still one nested payload, not a `(decision_id, horizon)` row table. Queryability of a single day depends on JSON, not a unique DB constraint.
-- Historical rows without `knowledge_available_at` are fail-closed (hidden) rather than inferred from `signal_time`.
+- Historical rows without `knowledge_available_at` are fail-closed (hidden / skipped on rebuild) rather than inferred from `signal_time` or `created_at`.
 - JSONL / Obsidian audit writes after DB commit can still fail independently; PostgreSQL remains authoritative.
 - Alpha remains `DATA_INSUFFICIENT` / `EXPERIMENTAL` until OOS gates pass. BUY stays BLOCKED.
 - Schema stayed v6; no new calendar or snapshot rewrite.
+- `usable_evidence_count` only counts explicit evidence dicts with identity + PIT stamps. Provider field bags without evidence lists correctly stay at 0 usable, even when the builder succeeded.
 
 ---
 

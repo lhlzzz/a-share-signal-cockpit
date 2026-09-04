@@ -40,8 +40,8 @@ This is a daily-bar approximation, not a fill simulator.
 
 ## Outcome schema (actual)
 
-`returns` remains the fact owner. T+1..T+5 are nested `payload.days["1".."5"]` with `SETTLED` or `MISSING`. There is no per-horizon row table. `fetch_horizon_outcomes(decision_id)` returns that nested map. Horizon identity is `decision_id:horizon`.
+`returns` remains the fact owner under schema v6. T+1..T+5 are nested `payload.days["1".."5"]` with `SETTLED` or `MISSING`. There is no per-horizon row table. Aggregate `outcome_id = decision_id`. Horizon identity is `horizon_outcome_id = decision_id:horizon`. `fetch_horizon_outcomes(decision_id)` always returns all five days. Memory rebuild default is FULL; missing `knowledge_available_at` is fail-closed.
 
 ## Tests
 
-`pytest tests/ -x -q` → 355 passed.
+`python -m pytest tests/ -x -q --tb=line` → 362 passed in 94.06s.

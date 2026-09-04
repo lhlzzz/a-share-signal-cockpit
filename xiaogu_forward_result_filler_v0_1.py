@@ -556,7 +556,7 @@ def append_result(
         "outcome_settled_at": now_iso() if outcomes.get("outcome_complete") else None,
         "outcome_available_at": now_iso() if outcomes.get("outcome_complete") else None,
         "production_target": "opportunity_5d",
-        "outcome_id": f"{decision_id}:horizon",
+        "outcome_id": decision_id,
         "horizon_identity": {
             str(day): f"{decision_id}:{day}"
             for day in EVALUATION_DAYS
@@ -569,6 +569,16 @@ def append_result(
         "paper_position_state": "PAPER_FLAT" if outcomes.get("outcome_complete") and is_paper_position else record.get("paper_position_state"),
         "paper_exit_reason": "T5_EXPIRY" if outcomes.get("outcome_complete") and is_paper_position else None,
     }
+    days = result.get("days") if isinstance(result.get("days"), dict) else {}
+    for day in EVALUATION_DAYS:
+        item = days.get(str(day))
+        if not isinstance(item, dict):
+            item = {"status": "MISSING", "horizon": day}
+            days[str(day)] = item
+        item["horizon"] = item.get("horizon") or day
+        item["horizon_outcome_id"] = f"{decision_id}:{day}"
+        item.pop("outcome_id", None)
+    result["days"] = days
     if outcomes.get("outcome_complete"):
         result["post_trade_review"] = build_post_trade_review(record, outcomes)
     return result

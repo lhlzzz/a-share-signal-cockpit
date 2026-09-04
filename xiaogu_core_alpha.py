@@ -488,8 +488,30 @@ def _calibrated_probability(values: Dict[str, float]) -> tuple[float | None, Dic
     return clipped, meta
 
 
+def _mark_research_arguments(
+    research: Dict[str, Any] | None,
+    *,
+    industry: Any,
+    company: Any,
+    capital: Any,
+    integrated: Any,
+) -> None:
+    if not isinstance(research, dict):
+        return
+    from xiaogu_research_context import mark_research_used_downstream
+
+    if industry is research.get("industry"):
+        mark_research_used_downstream(research, "Serenity")
+    if company is research.get("company"):
+        mark_research_used_downstream(research, "Buffett")
+    if capital is research.get("capital"):
+        mark_research_used_downstream(research, "UZI")
+    if integrated is research.get("integrated") or integrated is research.get("contradiction"):
+        mark_research_used_downstream(research, "Contradiction")
+
+
 def _research_used_downstream(research: Dict[str, Any] | None) -> bool:
-    """True only when a provider actually succeeded and was used as research context."""
+    """True only when a provider was actually read by Alpha or Decision."""
     if not isinstance(research, dict):
         return False
     providers = research.get("research_providers")
@@ -501,10 +523,7 @@ def _research_used_downstream(research: Dict[str, Any] | None) -> bool:
     provenance = research.get("research_provenance")
     if isinstance(provenance, list):
         return any(
-            isinstance(item, dict) and (
-                item.get("used_downstream") is True
-                or (item.get("provider_succeeded") is True and item.get("used_downstream") is not False)
-            )
+            isinstance(item, dict) and item.get("used_downstream") is True
             for item in provenance
         )
     return False
@@ -530,6 +549,13 @@ def build_core_alpha(
     risk = features["RISK"]
     execution = features["EXECUTION"]
     raw = features["snapshot"].get("raw") if isinstance(features.get("snapshot"), dict) else {}
+    _mark_research_arguments(
+        research,
+        industry=industry,
+        company=company,
+        capital=capital,
+        integrated=integrated,
+    )
     convergence = _capital_convergence(capital_measure)
     buyer_capacity = _first_buyer_capacity(raw, future_buyer_map)
     buyer_observed = buyer_capacity is not None and buyer_capacity > 0

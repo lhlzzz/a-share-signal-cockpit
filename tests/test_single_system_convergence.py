@@ -382,11 +382,33 @@ def test_worker_permanent_failure_abstains(monkeypatch):
     assert all(item.get("paper_observation") is None for item in decisions)
 
 
+def _price_gate_snapshot(symbol: str, pct: float):
+    return _snapshot(
+        symbol,
+        pct,
+        thesis_invalidated=False,
+        attention_score=0.10,
+        crowding_risk=0.10,
+        price_reflection=0.10,
+        buyer_exhaustion=False,
+        institutional_flow=0.10,
+        hot_money_flow=0.10,
+    )
+
+
 def test_price_gate_is_not_reapplied_in_production_signal_qualification():
-    low = evaluate_candidate_bundle(_snapshot("600001", 0.2), position_state="FLAT", as_of=AS_OF)
-    high = evaluate_candidate_bundle(_snapshot("600002", 12.0), position_state="FLAT", as_of=AS_OF)
-    assert low["core_alpha"]["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW"
-    assert high["core_alpha"]["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW"
+    low = evaluate_candidate_bundle(_price_gate_snapshot("600001", 0.2), position_state="FLAT", as_of=AS_OF)
+    high = evaluate_candidate_bundle(_price_gate_snapshot("600002", 12.0), position_state="FLAT", as_of=AS_OF)
+    for decision, pct in ((low, 0.2), (high, 12.0)):
+        alpha = decision["core_alpha"]
+        assert alpha["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW", pct
+        assert alpha["signal_qualified"] is True, (pct, alpha["signal_reason"])
+        assert alpha["signal_status"] == "SIGNAL"
+        assert alpha["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
+        completion = alpha.get("repricing_completion") or {}
+        assert completion.get("completed") is not True
+        assert alpha.get("contradiction", {}).get("veto") is not True
+        assert (decision.get("feature_vector") or {}).get("RISK", {}).get("thesis_invalidated") is not True
     source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
     qualification = source.split("def _signal_qualification")[1].split("def build_core_alpha")[0]
     assert "SIGNAL_PCT_MIN" not in qualification
@@ -615,7 +637,13 @@ def test_memory_rebuild_from_postgresql(monkeypatch):
         "opportunity_5d": None,
         "result_filled_at": "2026-08-27T15:00:00+08:00",
     })
-    notes = rebuild_memory_from_postgresql()
+    result = rebuild_memory_from_postgresql()
+    notes = result["notes"]
+    assert result["mode"] == "FULL"
+    assert result["processed"] == 1
+    assert result["rebuilt"] >= 1
+    assert result["skipped"] == 0
+    assert result["failed"] == 0
     assert any(item["knowledge_type"] == "DECISION" for item in notes)
     assert any(item["knowledge_type"] == "OUTCOME" for item in notes)
     assert ("DECISION", "ps-1") in written
@@ -626,3 +654,342 @@ def test_memory_rebuild_from_postgresql(monkeypatch):
     assert not Path("alpha_v5.py").exists()
     assert not Path("decision_engine_v2.py").exists()
     assert not Path("second_memory.py").exists()
+
+
+def test_memory_rebuild_fails_closed_without_knowledge_available_at(monkeypatch):
+    from xiaogu_forward_paper_recorder_v0_1 import rebuild_memory_from_postgresql
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    written = []
+    monkeypatch.setattr(
+        recorder,
+        "write_trade_memory",
+        lambda record: written.append(("DECISION", record)) or "path",
+    )
+    monkeypatch.setattr(
+        recorder,
+        "update_trade_memory",
+        lambda result: written.append(("OUTCOME", result)) or "path",
+    )
+    monkeypatch.setattr("xiaogu_db.fetch_picks", lambda: [{
+        "decision_id": "d-missing-pit",
+        "symbol": "600001",
+        "created_at": "2026-08-26T15:00:00+08:00",
+        "payload": {
+            "decision_id": "d-missing-pit",
+            "created_at": "2026-08-26T15:00:00+08:00",
+            "signal_time": "2026-08-26T14:50:00+08:00",
+        },
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_paper_observations", lambda: [{
+        "paper_signal_id": "ps-missing-pit",
+        "decision_id": "d-missing-pit",
+        "payload": {
+            "paper_signal_id": "ps-missing-pit",
+            "decision_id": "d-missing-pit",
+            "signal_time": "2026-08-26T14:50:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+        },
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_horizon_outcomes", lambda _decision_id: {"days": {}})
+    result = rebuild_memory_from_postgresql()
+    assert written == []
+    assert not any(item.get("knowledge_type") == "DECISION" for item in result["notes"])
+    assert result["skipped"] == 1
+    assert result["skipped_missing_knowledge_available_at_count"] == 1
+    assert result["rebuilt"] == 0
+    assert result["failed"] == 0
+
+
+def test_memory_rebuild_default_is_full(monkeypatch):
+    from xiaogu_forward_paper_recorder_v0_1 import rebuild_memory_from_postgresql
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    written = []
+    monkeypatch.setattr(
+        recorder,
+        "write_trade_memory",
+        lambda record: written.append(record.get("decision_id")) or "path",
+    )
+    monkeypatch.setattr(recorder, "update_trade_memory", lambda result: "path")
+    monkeypatch.setattr("xiaogu_db.fetch_picks", lambda: [
+        {"decision_id": f"d-{index}", "payload": {"decision_id": f"d-{index}"}}
+        for index in range(51)
+    ])
+    monkeypatch.setattr("xiaogu_db.fetch_paper_observations", lambda: [
+        {
+            "paper_signal_id": f"ps-{index}",
+            "decision_id": f"d-{index}",
+            "payload": {
+                "paper_signal_id": f"ps-{index}",
+                "decision_id": f"d-{index}",
+                "knowledge_available_at": "2026-08-26T14:50:00+08:00",
+            },
+        }
+        for index in range(51)
+    ])
+    monkeypatch.setattr("xiaogu_db.fetch_horizon_outcomes", lambda _decision_id: {"days": {}})
+    result = rebuild_memory_from_postgresql()
+    assert result["mode"] == "FULL"
+    assert result["processed"] == 51
+    assert result["rebuilt"] == 51
+    assert result["skipped"] == 0
+    assert result["failed"] == 0
+    assert len(written) == 51
+    assert written[0] == "d-0"
+    assert written[-1] == "d-50"
+
+
+def test_usable_evidence_count_is_less_than_total_when_pit_invalid(monkeypatch):
+    import xiaogu_research_context as research
+
+    snapshot = validate_and_build_canonical_snapshot(_snapshot())
+    features = build_feature_vector(snapshot)
+    original = research.build_serenity_context
+
+    def with_mixed_evidence(snap, feats):
+        payload = original(snap, feats)
+        payload["evidence"] = [
+            {
+                "source_id": "eastmoney.lhb",
+                "event_id": "evt-valid",
+                "mechanism": "capital_flow",
+                "source": "eastmoney.lhb",
+                "observed_at": "2026-08-26T14:00:00+08:00",
+                "available_at": "2026-08-26T14:00:00+08:00",
+            },
+            {
+                "source_id": "eastmoney.lhb",
+                "event_id": "evt-future",
+                "mechanism": "capital_flow",
+                "source": "eastmoney.lhb",
+                "observed_at": "2026-08-27T16:00:00+08:00",
+                "available_at": "2026-08-27T16:00:00+08:00",
+            },
+            {
+                "source_id": "eastmoney.lhb",
+                "event_id": "",
+                "mechanism": "capital_flow",
+                "source": "eastmoney.lhb",
+                "observed_at": "2026-08-26T14:00:00+08:00",
+                "available_at": "2026-08-26T14:00:00+08:00",
+            },
+        ]
+        return payload
+
+    monkeypatch.setattr(research, "build_serenity_context", with_mixed_evidence)
+    context = research.build_integrated_research_context(snapshot, features)
+    serenity = context["research_providers"]["Serenity"]
+    assert serenity["evidence_count"] == 3
+    assert serenity["usable_evidence_count"] == 1
+    assert serenity["provider_succeeded"] is True
+    assert serenity["used_downstream"] is False
+
+
+def test_used_downstream_reflects_actual_consumption():
+    snapshot = validate_and_build_canonical_snapshot(_snapshot())
+    features = build_feature_vector(snapshot)
+    context = build_integrated_research_context(snapshot, features)
+    uzi = context["research_providers"]["UZI"]
+    assert uzi["provider_succeeded"] is True
+    assert uzi["used_downstream"] is False
+    assert context["research_providers"]["Serenity"]["used_downstream"] is False
+    assert context["research_providers"]["Buffett"]["used_downstream"] is False
+
+    unread = build_core_alpha(
+        features,
+        industry={},
+        company={},
+        capital={},
+        integrated={},
+        research=context,
+    )
+    assert unread["research_used_downstream"] is False
+    assert context["research_providers"]["UZI"]["used_downstream"] is False
+
+    alpha = build_core_alpha(
+        features,
+        industry={},
+        company={},
+        capital=context["capital"],
+        integrated={},
+        research=context,
+    )
+    assert context["research_providers"]["UZI"]["used_downstream"] is True
+    assert context["research_providers"]["Serenity"]["used_downstream"] is False
+    assert context["research_providers"]["Buffett"]["used_downstream"] is False
+    assert alpha["research_used_downstream"] is True
+    assert "research_context" in alpha["signal_evidence"]
+
+
+def test_outcome_identity_separates_aggregate_and_horizon(monkeypatch):
+    from xiaogu_db import fetch_horizon_outcomes
+
+    decision_id = "abc123"
+    payload = {
+        "outcome_id": f"{decision_id}:horizon",
+        "days": {
+            "1": {"status": "SETTLED", "horizon": 1, "outcome_id": f"{decision_id}:1"},
+            "2": {"status": "SETTLED", "horizon": 2},
+            "3": {"status": "MISSING", "horizon": 3},
+        },
+        "data_status": "PARTIAL",
+    }
+
+    class _Rows:
+        def mappings(self):
+            return self
+        def first(self):
+            return {
+                "decision_id": decision_id,
+                "trade_date": "2026-08-26",
+                "symbol": "600001",
+                "payload": payload,
+            }
+
+    class _Connection:
+        def execute(self, _sql, _params):
+            return _Rows()
+        def __enter__(self):
+            return self
+        def __exit__(self, *_exc):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    monkeypatch.setattr("xiaogu_db.engine", _Engine(), raising=False)
+    import xiaogu_db
+    monkeypatch.setattr(xiaogu_db, "engine", _Engine())
+    result = fetch_horizon_outcomes(decision_id)
+    assert result["outcome_id"] == decision_id
+    assert result["decision_id"] == decision_id
+    for day in range(1, 6):
+        item = result["days"][str(day)]
+        assert item["horizon"] == day
+        assert item["horizon_outcome_id"] == f"{decision_id}:{day}"
+        assert item["status"] in {"SETTLED", "MISSING"}
+        assert "outcome_id" not in item or item.get("outcome_id") != result["outcome_id"]
+    assert result["days"]["1"]["status"] == "SETTLED"
+    assert result["days"]["4"]["status"] == "MISSING"
+    assert result["days"]["5"]["status"] == "MISSING"
+
+
+def test_horizon_outcomes_round_trip_through_persistence():
+    import xiaogu_db as db
+    from sqlalchemy import text
+    from xiaogu_forward_result_filler_v0_1 import append_result
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(_snapshot("603991", 3.0, lineage_id="horizon-roundtrip-lineage"))
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    decision_id = decision["decision_id"]
+    try:
+        db.record_snapshot(snapshot)
+        db.record_decision(decision)
+        result = append_result(
+            {
+                "id": decision_id,
+                "decision_id": decision_id,
+                "date": snapshot["trade_date"],
+                "symbol": snapshot["symbol"],
+                "reference_price": snapshot["price"],
+                "signal_time": snapshot["signal_time"],
+                "snapshot_id": snapshot["snapshot_id"],
+            },
+            future_bars=_bars(3),
+        )
+        db.record_returns(
+            str(result["date"]),
+            str(result["symbol"]),
+            result,
+            decision_id=decision_id,
+        )
+        fetched = db.fetch_horizon_outcomes(decision_id)
+        assert fetched["outcome_id"] == decision_id
+        assert fetched["days"]["1"]["status"] == "SETTLED"
+        assert fetched["days"]["2"]["status"] == "SETTLED"
+        assert fetched["days"]["3"]["status"] == "SETTLED"
+        assert fetched["days"]["4"]["status"] == "MISSING"
+        assert fetched["days"]["5"]["status"] == "MISSING"
+        for day in range(1, 6):
+            item = fetched["days"][str(day)]
+            assert item["horizon"] == day
+            assert item["horizon_outcome_id"] == f"{decision_id}:{day}"
+            assert "horizon_trade_date" in item
+            if item["status"] == "SETTLED":
+                assert item["horizon_trade_date"]
+            else:
+                assert item["horizon_trade_date"] in (None, "")
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM returns WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(
+                text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"),
+                {"snapshot_id": snapshot["snapshot_id"]},
+            )
+
+
+def test_atomic_persistence_rolls_back_all_facts_on_paper_failure(monkeypatch):
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(_snapshot("603992", 3.0, lineage_id="atomic-rollback-lineage"))
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    paper = dict(decision["paper_observation"])
+    decision["canonical_snapshot"] = snapshot
+    decision["paper_observation"] = paper
+    lineage_id = snapshot["lineage_id"]
+    scan_dir = "data/test/atomic_rollback"
+    run_id = db.insert_scan_session(
+        trade_date=snapshot["trade_date"],
+        scan_time=snapshot["source_time"],
+        source_id="atomic_rollback_test",
+        quotes_count=1,
+        captured_count=1,
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    decision["production_run_id"] = run_id
+
+    def boom(_observation):
+        raise RuntimeError("paper failed")
+
+    monkeypatch.setattr(db, "record_paper_observation", boom)
+    with pytest.raises(RuntimeError, match="paper failed"):
+        db.persist_production_facts([decision], production_run_id=run_id)
+    db.mark_production_run_status(run_id, "FAILED")
+    try:
+        with db.engine.connect() as connection:
+            snapshots = connection.execute(
+                text("SELECT COUNT(*) FROM snapshots WHERE snapshot_id = :snapshot_id"),
+                {"snapshot_id": snapshot["snapshot_id"]},
+            ).scalar()
+            picks = connection.execute(
+                text("SELECT COUNT(*) FROM picks WHERE decision_id = :decision_id"),
+                {"decision_id": decision["decision_id"]},
+            ).scalar()
+            papers = connection.execute(
+                text("SELECT COUNT(*) FROM paper_observations WHERE paper_signal_id = :paper_signal_id"),
+                {"paper_signal_id": paper["paper_signal_id"]},
+            ).scalar()
+            run = connection.execute(
+                text("SELECT status FROM production_runs WHERE production_run_id = :run_id"),
+                {"run_id": run_id},
+            ).mappings().first()
+        assert snapshots == 0
+        assert picks == 0
+        assert papers == 0
+        assert run is not None
+        assert run["status"] != "DECISIONS_PERSISTED"
+        assert run["status"] == "FAILED"
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper["paper_signal_id"]})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision["decision_id"]})
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
