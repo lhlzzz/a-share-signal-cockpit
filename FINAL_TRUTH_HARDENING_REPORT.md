@@ -127,10 +127,10 @@ Full suite: 355 tests.
 
 ```
 pytest tests/ -x -q
-355 passed in 93.20s
+355 passed in 83.45s
 
 pytest tests/test_single_system_convergence.py -q
-25 passed in 0.80s
+25 passed in 0.70s
 
 python -m compileall .
 COMPILE_OK
@@ -140,11 +140,17 @@ COMPILE_OK
 
 ## 13. git commit
 
-`ace319d` `fix: harden Xiaogu PIT, selection, outcome, and atomic persistence`
+Hardening code: `a760f9e44cf131d27310b91fe5de3207c25a50ce`
+
+`fix: harden Xiaogu PIT, selection, outcome, and atomic persistence`
+
+Baseline: `9ac06ed1c3eb6bd75b9868af085bcba104280c66`
+
+This report commit only records the SHA and latest pytest timings. It does not change production owners.
 
 ## 14. git status
 
-Clean after `ace319d`. Baseline was `9ac06ed`.
+`main` is one commit ahead of `origin/main` at the hardening code SHA, plus this report SHA after commit. Working tree is clean after the report commit. Not pushed unless requested.
 
 ## 15. Remaining risks
 
