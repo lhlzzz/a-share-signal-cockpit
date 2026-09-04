@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Final truth hardening is complete on the existing Xiaogu owners. This is not Xiaogu 4.0 and not a parallel rebuild.
+Phase 2 observation / OOS tracking is in place on the existing Xiaogu owners. This is not Xiaogu 4.0 and not a parallel rebuild. Official forward OOS has not started: **NO_REAL_OOS_EVIDENCE_YET**.
 
 ## Production permission
 
@@ -44,4 +44,6 @@ This is a daily-bar approximation, not a fill simulator.
 
 ## Tests
 
-`python -m pytest tests/ -x -q --tb=line` → 362 passed in 94.06s.
+`python -m pytest tests/ -x -q --tb=line` → 367 passed.
+
+Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. See `PHASE_2_TRUTH_REPORT.md`.
