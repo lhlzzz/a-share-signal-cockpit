@@ -1518,3 +1518,211 @@ def test_first_official_observation_production_path():
                 connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot_id})
             connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
             connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_candidate_level_stale_does_not_swallow_fresh_selection():
+    """STALE_DATA is candidate-level. A fresh MAIN_BOARD candidate can still be selected."""
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    lineage_id = "phase22-stale-mix-lineage"
+    scan_dir = "data/test/phase22_stale_mix"
+    clock = datetime(2026, 9, 4, 7, 0, tzinfo=timezone.utc)
+    fresh = validate_and_build_canonical_snapshot(
+        _snapshot(
+            "605001",
+            5.0,
+            lineage_id=lineage_id,
+            trade_date="2026-09-04",
+            source_time="2026-09-04T14:50:00+08:00",
+        )
+    )
+    stale = validate_and_build_canonical_snapshot(
+        _snapshot(
+            "605002",
+            8.0,
+            lineage_id=lineage_id,
+            trade_date="2026-09-04",
+            source_time="2026-09-04T10:00:00+08:00",
+        )
+    )
+    run_id = db.insert_scan_session(
+        trade_date="2026-09-04",
+        scan_time="2026-09-04T14:50:00+08:00",
+        source_id="phase22_stale_mix",
+        quotes_count=2,
+        captured_count=2,
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    paper_ids = []
+    decision_ids = []
+    snapshot_ids = [fresh["snapshot_id"], stale["snapshot_id"]]
+    try:
+        db.record_snapshot(fresh)
+        db.record_snapshot(stale)
+        decisions, accounting = evaluate_candidate_rows(
+            [stale, fresh],
+            portfolio_state="WATCH",
+            mode="PRODUCTION",
+            trade_date="2026-09-04",
+            workers=1,
+            decision_clock=clock,
+        )
+        assert "STALE_DATA" not in SYSTEM_FAULT_REASONS
+        assert accounting["system_fault"] is False
+        assert accounting["publishable"] is True
+        assert accounting["selection_status"] == "SELECTED"
+        assert accounting["stale_count"] == 1
+        assert accounting["error_count"] == 0
+        by_symbol = {item["symbol"]: item for item in decisions}
+        assert by_symbol["605002"]["reason"] == "STALE_DATA"
+        assert by_symbol["605002"]["paper_observation"] is None
+        observation = by_symbol["605001"]["paper_observation"]
+        assert isinstance(observation, dict)
+        assert observation["rank"] == 1
+        assert observation["top1_flag"] is True
+        assert observation["top3_flag"] is True
+        assert by_symbol["605001"]["buy_status"] == "BUY_BLOCKED"
+        for decision in decisions:
+            paper = decision.get("paper_observation")
+            if isinstance(paper, dict):
+                paper_ids.append(paper["paper_signal_id"])
+                decision_ids.append(decision["decision_id"])
+    finally:
+        with db.engine.begin() as connection:
+            for paper_id in paper_ids:
+                connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper_id})
+            for decision_id in decision_ids:
+                connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            for snapshot_id in snapshot_ids:
+                connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot_id})
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_phase22_official_observation_production_path_provenance():
+    """Trusted snapshot -> Decision -> Selection -> persist_production_facts -> official fetch."""
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    lineage_id = "phase22-first-real-ticket-lineage"
+    scan_dir = "data/test/phase22_first_real_ticket"
+    clock = datetime(2026, 9, 4, 7, 0, tzinfo=timezone.utc)
+    snapshots = [
+        validate_and_build_canonical_snapshot(
+            _snapshot(
+                symbol,
+                pct,
+                lineage_id=lineage_id,
+                trade_date="2026-09-04",
+                source_time="2026-09-04T14:50:00+08:00",
+            )
+        )
+        for symbol, pct in (("605011", 1.0), ("605012", 5.0), ("605013", 3.0), ("605014", 4.0))
+    ]
+    run_id = db.insert_scan_session(
+        trade_date="2026-09-04",
+        scan_time="2026-09-04T14:50:00+08:00",
+        source_id="phase22_first_real_ticket",
+        quotes_count=len(snapshots),
+        captured_count=len(snapshots),
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    paper_ids = []
+    decision_ids = []
+    snapshot_ids = [item["snapshot_id"] for item in snapshots]
+    try:
+        for snapshot in snapshots:
+            db.record_snapshot(snapshot)
+        decisions, accounting = evaluate_candidate_rows(
+            snapshots,
+            portfolio_state="WATCH",
+            mode="PRODUCTION",
+            trade_date="2026-09-04",
+            workers=1,
+            decision_clock=clock,
+        )
+        assert accounting["system_fault"] is False
+        assert accounting["publishable"] is True
+        assert accounting["selection_status"] == "SELECTED"
+        for decision in decisions:
+            assert decision["buy_status"] == "BUY_BLOCKED"
+            decision["production_run_id"] = run_id
+            observation = decision.get("paper_observation")
+            if isinstance(observation, dict):
+                observation["production_run_id"] = run_id
+                decision["paper_observation"] = observation
+                paper_ids.append(observation["paper_signal_id"])
+                decision_ids.append(decision["decision_id"])
+        ranked = [
+            decision["paper_observation"]
+            for decision in decisions
+            if decision.get("paper_observation")
+        ]
+        assert 1 <= len(ranked) <= 3
+        assert sum(1 for item in ranked if item.get("top1_flag") is True) == 1
+        assert any(item.get("top1_flag") is True and item.get("rank") == 1 for item in ranked)
+        assert all(item.get("top3_flag") is True for item in ranked)
+        assert all(item.get("rank") in {1, 2, 3} for item in ranked)
+        assert all(item.get("paper_only") is True for item in ranked)
+        assert all(item.get("live_order") is False for item in ranked)
+        assert all(item.get("production_alpha") == "profit_window_alpha_5d_v4" for item in ranked)
+        assert all(item.get("production_target") == "opportunity_5d" for item in ranked)
+        db.persist_production_facts(
+            decisions,
+            production_run_id=run_id,
+            coverage={
+                "scan_count": len(snapshots),
+                "execution_universe_count": len(snapshots),
+                "research_count": len(decisions),
+                "alpha_count": len(decisions),
+                "decision_count": len(decisions),
+                "top3_count": sum(1 for item in ranked if item.get("top3_flag")),
+                "top1_count": sum(1 for item in ranked if item.get("top1_flag")),
+                "paper_count": len(ranked),
+                "system_fault": False,
+                "publishable": True,
+                "selection_status": "SELECTED",
+            },
+        )
+        run = db.fetch_production_run(run_id)
+        assert run is not None
+        assert run["status"] == "DECISIONS_PERSISTED"
+        official = [
+            row for row in db.fetch_official_paper_observations()
+            if row.get("production_run_id") == run_id
+        ]
+        assert official
+        assert all(row["paper_signal_id"] != row["decision_id"] for row in official)
+        assert all(row.get("production_run_id") == run_id for row in official)
+        assert all(row.get("lineage_id") == lineage_id for row in official)
+        assert all(row.get("snapshot_id") in snapshot_ids for row in official)
+        assert all(row.get("production_alpha") == "profit_window_alpha_5d_v4" for row in official)
+        assert all(row.get("production_target") == "opportunity_5d" for row in official)
+        assert all(row.get("rank") in {1, 2, 3} for row in official)
+        assert all(row.get("top3_flag") is True for row in official)
+        assert sum(1 for row in official if row.get("top1_flag") is True) == 1
+        assert all(row.get("paper_only") is not False for row in official)
+        assert all(row.get("live_order") is not True for row in official)
+        rank_only = {
+            "paper_signal_id": "phase22-rank-only",
+            "decision_id": "phase22-rank-only-decision",
+            "rank": 1,
+            "top1_flag": True,
+            "top3_flag": True,
+        }
+        assert db.has_official_observation_provenance(rank_only) is False
+    finally:
+        with db.engine.begin() as connection:
+            for paper_id in paper_ids:
+                connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper_id})
+            for decision_id in decision_ids:
+                connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            for snapshot_id in snapshot_ids:
+                connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot_id})
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
