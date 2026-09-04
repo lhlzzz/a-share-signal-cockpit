@@ -934,7 +934,7 @@ def detect_capital_candidates(
         evidence = []
         if main_flow is not None and main_flow != 0:
             evidence.append("basic_capital_flow")
-        if pct_change is not None and pct_change != 0:
+        if pct_change is not None and 0.5 <= pct_change <= 9.5:
             evidence.append("price_response")
         if turnover is not None and turnover >= 1.0:
             evidence.append("turnover")
@@ -948,7 +948,7 @@ def detect_capital_candidates(
             evidence.append("amount_activity")
         if market_breadth is not None and float(market_breadth) > 50 and pct_change is not None and pct_change != 0:
             evidence.append("market_movement")
-        triggered = len(evidence) >= 2
+        triggered = "price_response" in evidence and len(evidence) >= 2
         route.update({"deep_fetch_required": triggered, "routing_reasons": evidence})
         routing.append(route)
         if triggered:
@@ -1306,6 +1306,24 @@ def main() -> Dict[str, Any]:
     source_time = scan_started_at
     output_dir = Path(args.output_dir) if args.output_dir else BASE / "data" / "live_scan" / source_time[:10] / "eastmoney_scan"
     output_dir.mkdir(parents=True, exist_ok=True)
+    existing_summary_path = output_dir / "scan_summary.json"
+    if existing_summary_path.exists():
+        try:
+            existing_summary = json.loads(existing_summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing_summary = {}
+        existing_lineage_id = str((existing_summary.get("lineage") or {}).get("lineage_id") or "").strip()
+        existing_persist = existing_summary.get("database_persistence") or {}
+        if (
+            str(existing_summary.get("production_scan") or "") == "PASS"
+            and existing_lineage_id
+            and str(existing_persist.get("status") or "") == "PASS"
+            and str(existing_persist.get("run_id") or "").strip()
+        ):
+            existing_summary["daily_task_status"] = "ALREADY_CAPTURED"
+            existing_summary["scan_reason"] = "DAILY_TASK_IDEMPOTENT"
+            print(json.dumps(existing_summary, ensure_ascii=False, default=str))
+            return existing_summary
     timings: Dict[str, Any] = {}
     diagnostics: Dict[str, Any] = {}
     results: Dict[str, Any] = {}

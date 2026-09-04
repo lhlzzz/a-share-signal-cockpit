@@ -104,6 +104,11 @@ def _paper_views() -> List[Dict[str, Any]]:
             "paper_position_state": paper_position_state,
             "paper_action": paper_action,
             "signal_reason": record.get("signal_reason"),
+            "rank": record.get("rank"),
+            "top1_flag": bool(record.get("top1_flag")),
+            "top3_flag": bool(record.get("top3_flag")),
+            "selection_reason": record.get("selection_reason"),
+            "alpha_score": record.get("alpha_score"),
             "research_overlay": record.get("research_overlay") or {},
             "model_version": record.get("model_version"),
             "feature_version": record.get("feature_version"),
@@ -120,7 +125,15 @@ def _paper_views() -> List[Dict[str, Any]]:
     return views
 
 
-def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _rank_band(rows: List[Dict[str, Any]], rank: int | None = None, *, top3: bool = False) -> List[Dict[str, Any]]:
+    if rank is not None:
+        return [row for row in rows if row.get("rank") == rank or (rank == 1 and row.get("top1_flag") is True)]
+    if top3:
+        return [row for row in rows if row.get("top3_flag") is True or row.get("rank") in {1, 2, 3}]
+    return list(rows)
+
+
+def _paper_band_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     rows = sorted(rows, key=lambda row: str(row.get("signal_time") or ""))
     settled = [row for row in rows if (row.get("outcome") or {}).get("outcome_complete") is True]
     nets = [float((row.get("outcome") or {}).get("future_5d_net_return")) for row in settled if (row.get("outcome") or {}).get("future_5d_net_return") is not None]
@@ -167,7 +180,22 @@ def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "profit_factor": positive / negative if negative else (None if not positive else "INF"),
         "drawdown": drawdown,
         "paper_status": "PAPER_OBSERVATION_ONLY",
+        "failure_rate": (
+            sum(not bool((row.get("outcome") or {}).get("profit_window")) for row in settled) / len(settled)
+            if settled else None
+        ),
     }
+
+
+def _paper_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    metric = _paper_band_metric(rows)
+    metric["by_rank"] = {
+        "top1": _paper_band_metric(_rank_band(rows, 1)),
+        "top2": _paper_band_metric(_rank_band(rows, 2)),
+        "top3": _paper_band_metric(_rank_band(rows, 3)),
+        "top3_all": _paper_band_metric(_rank_band(rows, top3=True)),
+    }
+    return metric
 
 
 def _production_view(value: Any) -> Any:

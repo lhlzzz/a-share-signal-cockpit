@@ -22,7 +22,7 @@ from xiaogu_forward_snapshot import (
     snapshot_age,
     validate_and_build_canonical_snapshot,
 )
-from xiaogu_portfolio_decision import evaluate_candidate_bundle
+from xiaogu_portfolio_decision import attach_top_paper_observations, evaluate_candidate_bundle
 
 BASE = Path(__file__).resolve().parent
 RECORDABLE_ACTIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
@@ -265,6 +265,7 @@ def evaluate_candidate_rows(
             if decision.get("state") in {"WATCH", "READY"} or blockers:
                 blocked_count += 1
         decisions.append(decision)
+    attach_top_paper_observations(decisions)
     return decisions, {
         "workers": worker_count,
         "success_count": success_count,
@@ -283,7 +284,19 @@ def _write_ledger_record(decision: Dict[str, Any]) -> Path:
 def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
     from xiaogu_forward_paper_recorder_v0_1 import append_paper_observation
     _path, record = append_paper_observation(decision)
-    return record
+    return {
+        "paper_signal_id": record.get("paper_signal_id") or (decision.get("paper_observation") or {}).get("paper_signal_id"),
+        "decision_id": record.get("decision_id") or (decision.get("paper_observation") or {}).get("decision_id"),
+        "symbol": record.get("symbol") or decision.get("symbol"),
+        "rank": (decision.get("paper_observation") or {}).get("rank"),
+        "top1_flag": (decision.get("paper_observation") or {}).get("top1_flag"),
+        "top3_flag": (decision.get("paper_observation") or {}).get("top3_flag"),
+        "selection_reason": (decision.get("paper_observation") or {}).get("selection_reason"),
+        "signal_reason": (decision.get("paper_observation") or {}).get("signal_reason"),
+        "database_persistence": record.get("database_persistence"),
+        "audit_persistence": record.get("audit_persistence"),
+        "memory_status": record.get("memory_status"),
+    }
 
 
 def _scan_observation_from_dir(scan_dir: str) -> Dict[str, Any]:
@@ -340,16 +353,15 @@ def _block_funnel(decisions: list[Dict[str, Any]], *, execution_rejected: int = 
         reason = str(decision.get("reason") or "")
         failed = list(decision.get("failed_gates") or [])
         blockers = list(decision.get("production_blockers") or []) + list(decision.get("failed_gates") or [])
+        alpha = decision.get("core_alpha") or {}
         if reason == "STALE_DATA" or "FRESH_DATA" in failed or "STALE_DATA" in blockers:
             freshness_blocked += 1
             continue
         if "ALPHA_VALIDATED" in failed or "ALPHA_NOT_VALIDATED" in blockers:
             alpha_blocked += 1
-            continue
         if failed or decision.get("production_blockers") or str(decision.get("buy_status") or "") == "BUY_BLOCKED":
             gate_blocked += 1
-            continue
-        if decision.get("paper_observation"):
+        if alpha.get("signal_qualified") is True or decision.get("paper_observation"):
             strategy_signal += 1
         else:
             strategy_no_signal += 1
@@ -369,16 +381,101 @@ def _scan_status_from_run(
     decision_count: int,
     freshness_blocked: int,
     buy_allowed: int,
+    qualified_signal_count: int = 0,
 ) -> tuple[str, str]:
-    if decision_count == 0 and paper_count == 0:
-        return "NO_SIGNAL", "NO_PAPER_OBSERVATION"
     if decision_count > 0 and freshness_blocked == decision_count and paper_count == 0:
         return "STALE_DATA", "STALE_DATA"
     if paper_count > 0 and buy_allowed > 0:
         return "SIGNAL_AVAILABLE", "PAPER_OBSERVATION_RECORDED"
     if paper_count > 0:
         return "BUY_BLOCKED", "PAPER_OBSERVATION_RECORDED"
+    if qualified_signal_count == 0:
+        return "NO_SIGNAL", "NO_FORMAL_SIGNAL"
     return "NO_SIGNAL", "NO_PAPER_OBSERVATION"
+
+
+def _public_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
+    observation = decision.get("paper_observation")
+    paper = None
+    if isinstance(observation, dict):
+        paper = {
+            "status": observation.get("status"),
+            "paper_signal_id": observation.get("paper_signal_id"),
+            "decision_id": observation.get("decision_id"),
+            "symbol": observation.get("symbol"),
+            "rank": observation.get("rank"),
+            "top1_flag": observation.get("top1_flag"),
+            "top3_flag": observation.get("top3_flag"),
+            "selection_reason": observation.get("selection_reason"),
+            "signal_reason": observation.get("signal_reason"),
+            "alpha_score": observation.get("alpha_score"),
+            "production_buy": observation.get("production_buy"),
+        }
+    return {
+        "decision_id": decision.get("decision_id"),
+        "symbol": decision.get("symbol"),
+        "snapshot_id": decision.get("snapshot_id"),
+        "lineage_id": decision.get("lineage_id"),
+        "trade_date": decision.get("trade_date"),
+        "state": decision.get("state"),
+        "action": decision.get("action"),
+        "reason": decision.get("reason"),
+        "buy_status": decision.get("buy_status"),
+        "execution_eligible": decision.get("execution_eligible"),
+        "signal_status": (decision.get("core_alpha") or {}).get("signal_status"),
+        "signal_qualified": (decision.get("core_alpha") or {}).get("signal_qualified"),
+        "signal_reason": (decision.get("core_alpha") or {}).get("signal_reason"),
+        "research_consumed": (decision.get("core_alpha") or {}).get("research_consumed"),
+        "paper_observation": paper,
+    }
+
+
+def _research_summary(decisions: list[Dict[str, Any]]) -> Dict[str, Any]:
+    consumed = 0
+    provenance: Dict[str, Dict[str, Any]] = {}
+    for decision in decisions:
+        alpha = decision.get("core_alpha") or {}
+        if alpha.get("research_consumed") is True:
+            consumed += 1
+        for item in ((decision.get("research_context") or {}).get("research_provenance") or []):
+            if not isinstance(item, dict):
+                continue
+            provider = str(item.get("provider") or "").strip()
+            if not provider:
+                continue
+            slot = provenance.setdefault(provider, {
+                "provider": provider,
+                "role": item.get("role"),
+                "invoked_count": 0,
+            })
+            if item.get("invoked"):
+                slot["invoked_count"] += 1
+    return {
+        "research_consumed_count": consumed,
+        "research_provenance": list(provenance.values()),
+    }
+
+
+def _compact_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any] | None:
+    observation = decision.get("paper_observation")
+    if not isinstance(observation, dict):
+        return None
+    return {
+        "paper_signal_id": observation.get("paper_signal_id"),
+        "decision_id": observation.get("decision_id"),
+        "symbol": observation.get("symbol") or decision.get("symbol"),
+        "rank": observation.get("rank"),
+        "top1_flag": observation.get("top1_flag"),
+        "top3_flag": observation.get("top3_flag"),
+        "selection_reason": observation.get("selection_reason"),
+        "signal_reason": observation.get("signal_reason"),
+        "alpha_score": observation.get("alpha_score"),
+        "production_buy": observation.get("production_buy"),
+    }
+
+
+def _emit_json(payload: Dict[str, Any]) -> None:
+    print(json.dumps(payload, ensure_ascii=False, default=str))
 
 
 def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
@@ -630,17 +727,17 @@ def main() -> None:
         from xiaogu_db import CALENDAR_UNKNOWN, TRADING_DAY, is_trading_date
         calendar_status = is_trading_date(args.date)
         if calendar_status == CALENDAR_UNKNOWN:
-            print(json.dumps(_empty_observation_output(
+            _emit_json(_empty_observation_output(
                 args.date, "CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE", scan_status="SCAN_BLOCKED"
-            ), ensure_ascii=False, default=str))
+            ))
             return
         if calendar_status != TRADING_DAY:
-            print(json.dumps(_empty_observation_output(
+            _emit_json(_empty_observation_output(
                 args.date, "NON_TRADING_DAY", scan_status="SCAN_BLOCKED"
-            ), ensure_ascii=False, default=str))
+            ))
             return
     if args.position_review:
-        print(json.dumps({"date": args.date, "reviewed": daily_position_review(args.date)}, ensure_ascii=False, default=str))
+        _emit_json({"date": args.date, "reviewed": daily_position_review(args.date)})
         return
     observation_lineage_id = str(args.lineage_id or "").strip()
     observation_run_id = str(args.production_run_id or "").strip()
@@ -648,16 +745,16 @@ def main() -> None:
     if args.scan_dir:
         scan_observation = _scan_observation_from_dir(args.scan_dir)
         if scan_observation["status"] != "PASS":
-            print(json.dumps(_empty_observation_output(
+            _emit_json(_empty_observation_output(
                 args.date, scan_observation["reason"], scan_status="SCAN_BLOCKED"
-            ), ensure_ascii=False, default=str))
+            ))
             return
         observation_lineage_id = observation_lineage_id or str(scan_observation.get("lineage_id") or "")
         observation_run_id = observation_run_id or str(scan_observation.get("run_id") or "")
         observation_source_time = str(scan_observation.get("source_time") or "")
     if args.snapshot_json:
         if mode == "PRODUCTION":
-            print(json.dumps(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"), ensure_ascii=False, default=str))
+            _emit_json(_empty_observation_output(args.date, "NO_PRODUCTION_SNAPSHOT"))
             return
         payload = json.loads(Path(args.snapshot_json).read_text(encoding="utf-8"))
         rows = payload.get("canonical_snapshots") or [payload]
@@ -681,12 +778,12 @@ def main() -> None:
                 and not reason.startswith("STALE_DATA")
             ):
                 raise
-            print(json.dumps(_empty_observation_output(args.date, reason, scan_status=status), ensure_ascii=False, default=str))
+            _emit_json(_empty_observation_output(args.date, reason, scan_status=status))
             return
         if not rows:
-            print(json.dumps(_empty_observation_output(
+            _emit_json(_empty_observation_output(
                 args.date, "CANONICAL_SNAPSHOT_NOT_FOUND", scan_status="SCAN_BLOCKED"
-            ), ensure_ascii=False, default=str))
+            ))
             return
     elif args.scan_dir:
         rows = _load_scan_dir_snapshots(args.scan_dir, args.date)
@@ -694,7 +791,7 @@ def main() -> None:
         payload = load_latest_snapshot_bundle(args.date)
         rows = payload.get("canonical_snapshots") or []
     if not rows:
-        print(json.dumps(_empty_observation_output(args.date, "SNAPSHOT_NOT_FOUND"), ensure_ascii=False, default=str))
+        _emit_json(_empty_observation_output(args.date, "SNAPSHOT_NOT_FOUND"))
         return
     input_count = len(rows)
     trusted = []
@@ -724,15 +821,11 @@ def main() -> None:
             and not reason.startswith("STALE_DATA")
         ):
             raise
-        print(json.dumps(_empty_observation_output(args.date, reason, scan_status=status), ensure_ascii=False, default=str))
+        _emit_json(_empty_observation_output(args.date, reason, scan_status=status))
         return
     canonical_count = len(canonical_rows)
     if canonical_count == 0:
-        print(json.dumps(
-            _empty_observation_output(args.date, "CANONICAL_SNAPSHOT_NOT_FOUND"),
-            ensure_ascii=False,
-            default=str,
-        ))
+        _emit_json(_empty_observation_output(args.date, "CANONICAL_SNAPSHOT_NOT_FOUND"))
         return
     if args.symbol:
         try:
@@ -741,7 +834,7 @@ def main() -> None:
             reason = str(exc)
             if "CANONICAL_SNAPSHOT_AMBIGUOUS" in reason and mode != "PRODUCTION":
                 reason = "RESEARCH_AMBIGUOUS"
-            print(json.dumps(_empty_observation_output(args.date, reason), ensure_ascii=False, default=str))
+            _emit_json(_empty_observation_output(args.date, reason))
             return
         canonical_rows = [selected]
     eligible_rows, universe = candidate_universe(canonical_rows)
@@ -779,11 +872,12 @@ def main() -> None:
     )
     recorded = 0
     paper_observations = []
+    persist_failures = []
     persist_paper = mode == "PRODUCTION" and not args.dry_run
     if persist_paper and not observation_run_id:
-        print(json.dumps(_empty_observation_output(
+        _emit_json(_empty_observation_output(
             args.date, "PRODUCTION_RUN_ID_REQUIRED", scan_status="SCAN_BLOCKED"
-        ), ensure_ascii=False, default=str))
+        ))
         return
     if observation_run_id:
         for decision in decisions:
@@ -792,20 +886,41 @@ def main() -> None:
         if persist_paper and (
             decision.get("state") in RECORDABLE_ACTIONS or decision.get("paper_observation")
         ):
-            decision["ledger_path"] = str(_write_ledger_record(decision))
-            recorded += 1
+            try:
+                decision["ledger_path"] = str(_write_ledger_record(decision))
+                recorded += 1
+            except Exception as exc:
+                persist_failures.append({"decision_id": decision.get("decision_id"), "error": repr(exc)})
         if persist_paper and decision.get("paper_observation"):
-            paper_observations.append(_write_paper_observation(decision))
+            try:
+                paper_observations.append(_write_paper_observation(decision))
+            except Exception as persist_exc:
+                persist_failures.append({
+                    "paper_signal_id": (decision.get("paper_observation") or {}).get("paper_signal_id"),
+                    "error": repr(persist_exc),
+                })
     funnel = _block_funnel(
         decisions,
         execution_rejected=int(universe.get("execution_rejected_count") or 0),
     )
     buy_allowed = sum(1 for decision in decisions if str(decision.get("buy_status") or "") == "BUY_ALLOWED")
+    qualified_signal_count = sum(
+        1 for decision in decisions if (decision.get("core_alpha") or {}).get("signal_qualified") is True
+    )
+    research_summary = _research_summary(decisions)
+    if not persist_paper:
+        paper_observations = [
+            record
+            for record in (_compact_paper_observation(decision) for decision in decisions)
+            if record is not None
+        ]
+    paper_count = len(paper_observations)
     scan_status, scan_reason = _scan_status_from_run(
-        paper_count=len(paper_observations) if persist_paper else sum(1 for decision in decisions if decision.get("paper_observation")),
+        paper_count=paper_count,
         decision_count=len(decisions),
         freshness_blocked=funnel["freshness_blocked"],
         buy_allowed=buy_allowed,
+        qualified_signal_count=qualified_signal_count,
     )
     decision_clock = production_now() if mode == "PRODUCTION" else None
     source_times = sorted({str(row.get("source_time") or "") for row in canonical_rows if row.get("source_time")})
@@ -833,6 +948,11 @@ def main() -> None:
         "main_board_count": (universe.get("execution_board_counts") or {}).get("MAIN_BOARD"),
         "non_main_board_blocked_count": funnel["execution_eligibility_blocked"],
         "paper_from_decisions": sum(1 for decision in decisions if decision.get("paper_observation")),
+        "qualified_signal_count": qualified_signal_count,
+        "research_consumed_count": research_summary["research_consumed_count"],
+        "research_provenance": research_summary["research_provenance"],
+        "top3_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top3_flag")),
+        "top1_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top1_flag")),
         "l0_count": input_count,
         "l1_count": universe.get("eligible_count", 0),
         "l2_count": universe.get("l2_routed_count", 0),
@@ -841,7 +961,7 @@ def main() -> None:
         "feature_count": len(decisions),
         "alpha_count": len(decisions),
         "decision_count": len(decisions),
-        "paper_observation_count": len(paper_observations),
+        "paper_observation_count": paper_count,
         "paper_observations": paper_observations,
         "candidate_universe": universe,
         "execution_universe_count": universe.get("execution_universe_count", 0),
@@ -869,8 +989,12 @@ def main() -> None:
             "invalid_count": input_count - len(trusted),
             "unresolved_count": 0,
         },
-        "decisions": decisions,
+        "decisions": [_public_decision(decision) for decision in decisions],
+        "persist_failures": persist_failures,
     }
+    if persist_failures:
+        output["scan_status"] = "SCAN_BLOCKED"
+        output["scan_reason"] = "PAPER_PERSISTENCE_FAILED"
     if mode == "PRODUCTION" and not args.dry_run:
         from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
         output["daily_memory_path"] = write_daily_paper_memory(
@@ -879,14 +1003,33 @@ def main() -> None:
             scan_reason=output["scan_reason"],
             canonical_count=canonical_count,
             alpha_count=len(decisions),
-            paper_observation_count=len(paper_observations),
+            paper_observation_count=paper_count,
         )
         try:
             from xiaogu_forward_result_filler_v0_1 import refresh_paper_dataset
             output["paper_dataset"] = refresh_paper_dataset()
         except Exception as exc:
             output["paper_dataset"] = {"status": "FAILED", "error": repr(exc)}
-    print(json.dumps(output, ensure_ascii=False, default=str))
+    try:
+        _emit_json(output)
+    except (TypeError, ValueError) as exc:
+        output["scan_status"] = "SCAN_BLOCKED"
+        output["scan_reason"] = f"STDOUT_SERIALIZE_FAILED:{type(exc).__name__}"
+        output["decisions"] = []
+        output["paper_observations"] = [
+            {
+                "paper_signal_id": item.get("paper_signal_id"),
+                "decision_id": item.get("decision_id"),
+                "symbol": item.get("symbol"),
+                "rank": item.get("rank"),
+            }
+            for item in paper_observations
+            if isinstance(item, dict)
+        ]
+        _emit_json(output)
+        raise SystemExit(1)
+    if persist_failures:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -714,6 +714,9 @@ def fill_due_horizon_results(
         "results": [],
         "errors": [],
         "exit_reason": None,
+        "persist_horizon": 5,
+        "intermediate_horizons_checked": [1, 2, 3, 4],
+        "t1_t5_persisted": False,
     }
     due_by_date: dict[str, int] = {}
     cursor = as_of_date
@@ -824,6 +827,7 @@ def fill_due_horizon_results(
                     report["filled"] += 1
                 except Exception as exc:
                     report["errors"].append({"decision_id": decision_id, "error": repr(exc)})
+            report["t1_t5_persisted"] = False
             report["exit_reason"] = "FILLED" if report["filled"] else "NO_DUE_OUTCOME"
     except TimeoutError:
         report["blocked_timeout"] = 1

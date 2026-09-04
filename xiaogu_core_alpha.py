@@ -67,6 +67,103 @@ def _research_score(payload: Dict[str, Any], *keys: str) -> float | None:
     return _mean(*(payload.get(key) for key in keys))
 
 
+SIGNAL_STATUS_SIGNAL = "SIGNAL"
+SIGNAL_STATUS_WATCH = "WATCH"
+SIGNAL_STATUS_ELIMINATED = "ELIMINATED"
+# price_strength = clip((pct_change + 5) / 15); keep the 0.5%-9.5% window.
+SIGNAL_PCT_MIN = 0.5
+SIGNAL_PCT_MAX = 9.5
+
+
+def _pct_from_price_strength(price_strength: Any) -> float | None:
+    value = _clip(price_strength)
+    if value is None:
+        return None
+    return value * 15.0 - 5.0
+
+
+def _signal_qualification(
+    *,
+    market: Dict[str, Any],
+    capital_measure: Dict[str, Any],
+    supply: Dict[str, Any],
+    risk: Dict[str, Any],
+    repricing_state: str,
+    completion: Dict[str, Any],
+    contradiction_veto: bool,
+    repricing_evidence_score: float | None,
+    research_consumed: bool,
+) -> Dict[str, Any]:
+    """Qualify a formal 5D paper signal. This is not a second alpha and not BUY."""
+    price_strength = market.get("price_strength")
+    pct_change = _pct_from_price_strength(price_strength)
+    evidence = []
+    if research_consumed:
+        evidence.append("research_context")
+    if capital_measure.get("capital_flow_ratio") is not None or capital_measure.get("fund_flow") is not None:
+        evidence.append("capital")
+    if supply.get("supply_absorption") is not None:
+        evidence.append("supply")
+    if repricing_state not in {"UNKNOWN", ""}:
+        evidence.append("repricing")
+    score = repricing_evidence_score if repricing_evidence_score is not None else _round_or_none(price_strength)
+    if price_strength is None or pct_change is None:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "PRICE_STRENGTH_UNOBSERVED",
+            "signal_score": None,
+            "signal_evidence": evidence,
+        }
+    if pct_change < SIGNAL_PCT_MIN or pct_change > SIGNAL_PCT_MAX:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "PRICE_STRENGTH_OUT_OF_WINDOW",
+            "signal_score": score,
+            "signal_evidence": evidence,
+        }
+    if bool(completion.get("completed")) or repricing_state in {"CLIMAX", "DISTRIBUTION"}:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "REPRICING_COMPLETED_OR_DISTRIBUTION",
+            "signal_score": score,
+            "signal_evidence": evidence,
+        }
+    if contradiction_veto:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "CONTRADICTION_VETO",
+            "signal_score": score,
+            "signal_evidence": evidence,
+        }
+    if risk.get("thesis_invalidated") is True:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "THESIS_INVALIDATED",
+            "signal_score": score,
+            "signal_evidence": evidence,
+        }
+    if not evidence:
+        return {
+            "signal_status": SIGNAL_STATUS_WATCH,
+            "signal_qualified": False,
+            "signal_reason": "INSUFFICIENT_5D_EVIDENCE",
+            "signal_score": score,
+            "signal_evidence": evidence,
+        }
+    return {
+        "signal_status": SIGNAL_STATUS_SIGNAL,
+        "signal_qualified": True,
+        "signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
+        "signal_score": score,
+        "signal_evidence": evidence,
+    }
+
+
 def _first_buyer_capacity(
     raw: Dict[str, Any],
     future_buyer_map: Dict[str, Any] | None = None,
@@ -494,6 +591,21 @@ def build_core_alpha(
     contradiction = integrated.get("contradiction") if isinstance(integrated.get("contradiction"), dict) else integrated
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
     contradiction_veto = contradiction_status in {"BEARISH", "VETO"} or bool(contradiction.get("veto"))
+    research_consumed = any(
+        isinstance(payload, dict) and payload
+        for payload in (industry, company, capital, integrated, future_buyer_map)
+    )
+    qualification = _signal_qualification(
+        market=market,
+        capital_measure=capital_measure,
+        supply=supply,
+        risk=risk,
+        repricing_state=repricing_state,
+        completion=completion,
+        contradiction_veto=contradiction_veto,
+        repricing_evidence_score=repricing_evidence_score,
+        research_consumed=research_consumed,
+    )
     buyers = [
         item for item in ((future_buyer_map or {}).get("potential_next_buyer") or [])
         if isinstance(item, dict) and item.get("evidence_status") in {"OBSERVED", "EVIDENCE_BACKED"}
@@ -597,4 +709,10 @@ def build_core_alpha(
             else "DATA_INSUFFICIENT"
         ),
         "model_validation": calibration,
+        "signal_status": qualification["signal_status"],
+        "signal_qualified": qualification["signal_qualified"],
+        "signal_reason": qualification["signal_reason"],
+        "signal_score": qualification["signal_score"],
+        "signal_evidence": list(qualification["signal_evidence"]),
+        "research_consumed": research_consumed,
     }

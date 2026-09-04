@@ -23,6 +23,8 @@ MAX_HOLDING_DAYS = 5
 PAPER_OBSERVATION_CONTRACT_VERSION = "paper_observation_v1"
 PAPER_OBSERVATION_STATE = "OBSERVED"
 PAPER_POSITION_STATES = ("PAPER_FLAT", "PAPER_LONG")
+PAPER_OBSERVATION_LIMIT = 3
+PAPER_SELECTION_STAGE = "TOP3"
 PAPER_REVIEW_ACTIONS = ("PAPER_HOLD", "PAPER_SELL")
 QUANTITY_MODEL = False
 REDUCE_UNSUPPORTED = "REDUCE_UNSUPPORTED"
@@ -417,17 +419,18 @@ def _paper_observation(
     snapshot: CanonicalSnapshot,
     features: Dict[str, Any],
     alpha: Dict[str, Any],
+    research: Dict[str, Any] | None,
     *,
     decision_id: str,
     decision_state: str,
     position_state: str,
 ) -> Dict[str, Any]:
-    """Wrap the current production decision as a paper-only observation."""
+    """Wrap a qualified 5D signal as a paper-only observation. This is not BUY."""
     market = features.get("MARKET") or {}
     price_strength = market.get("price_strength")
     capital = features.get("CAPITAL") or {}
     research_capital = alpha.get("capital_convergence") or {}
-    research = {
+    research_overlay = {
         "research_only": True,
         "capital_flow_ratio": capital.get("capital_flow_ratio"),
         "capital_persistence": capital.get("fund_flow_persistence"),
@@ -438,8 +441,11 @@ def _paper_observation(
         "supply": alpha.get("supply_absorption"),
         "repricing": alpha.get("repricing_state"),
         "future_buyer": alpha.get("future_buyer_capacity"),
+        "research_consumed": bool(alpha.get("research_consumed")),
+        "signal_evidence": list(alpha.get("signal_evidence") or []),
     }
     board_info = classify_execution_board(snapshot)
+    research = research or {}
     return {
         "status": "PAPER_OBSERVATION",
         "paper_signal_id": _paper_signal_id(decision_id),
@@ -451,17 +457,29 @@ def _paper_observation(
         "signal_time": snapshot.get("signal_time") or snapshot.get("source_time"),
         "reference_price": snapshot.get("price"),
         "paper_observation_state": PAPER_OBSERVATION_STATE,
-        "signal_reason": "CURRENT_PRODUCTION_DECISION",
+        "signal_reason": alpha.get("signal_reason") or "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
         "alpha_name": "price_strength",
         "alpha_version": alpha.get("alpha_version"),
         "alpha_status": alpha.get("model_status") or "DATA_INSUFFICIENT",
+        "alpha_score": alpha.get("signal_score"),
         "price_strength": price_strength,
         "validated_probability": alpha.get("profit_window_probability"),
         "production_decision_state": decision_state,
         "production_buy": "BLOCKED",
         "position_state": position_state,
         "paper_position_state": "PAPER_FLAT",
-        "research_overlay": research,
+        "research_overlay": research_overlay,
+        "research_context_reference": {
+            "lineage_id": snapshot.get("lineage_id"),
+            "snapshot_id": snapshot.get("snapshot_id"),
+            "as_of": research.get("as_of"),
+            "provenance": list(research.get("research_provenance") or []),
+        },
+        "rank": None,
+        "selection_stage": None,
+        "top3_flag": False,
+        "top1_flag": False,
+        "selection_reason": None,
         "paper_only": True,
         "live_order": False,
         "model_version": "v4",
@@ -473,6 +491,49 @@ def _paper_observation(
         "execution_eligible": board_info["execution_eligible"],
         "execution_board_policy_version": EXECUTION_BOARD_POLICY_VERSION,
     }
+
+
+def _signal_sort_key(decision: Dict[str, Any]) -> tuple:
+    alpha = decision.get("core_alpha") or {}
+    score = alpha.get("signal_score")
+    strength = ((decision.get("feature_vector") or {}).get("MARKET") or {}).get("price_strength")
+    try:
+        score_key = float(score) if score is not None else float("-inf")
+    except (TypeError, ValueError):
+        score_key = float("-inf")
+    try:
+        strength_key = float(strength) if strength is not None else float("-inf")
+    except (TypeError, ValueError):
+        strength_key = float("-inf")
+    return (-score_key, -strength_key, str(decision.get("symbol") or ""))
+
+
+def attach_top_paper_observations(decisions: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Keep at most three qualified papers. Ranking lives here, not in Alpha."""
+    qualified = [
+        decision for decision in decisions
+        if isinstance(decision.get("paper_observation"), dict)
+        and (decision.get("core_alpha") or {}).get("signal_qualified") is True
+    ]
+    qualified.sort(key=_signal_sort_key)
+    selected = qualified[:PAPER_OBSERVATION_LIMIT]
+    selected_ids = {id(decision) for decision in selected}
+    for rank, decision in enumerate(selected, start=1):
+        observation = decision.get("paper_observation")
+        if not isinstance(observation, dict):
+            continue
+        observation["rank"] = rank
+        observation["selection_stage"] = PAPER_SELECTION_STAGE
+        observation["top3_flag"] = True
+        observation["top1_flag"] = rank == 1
+        observation["selection_reason"] = (
+            "TOP1_5D_PROFIT_WINDOW" if rank == 1 else "TOP3_5D_PROFIT_WINDOW"
+        )
+        decision["paper_observation"] = observation
+    for decision in decisions:
+        if id(decision) not in selected_ids:
+            decision["paper_observation"] = None
+    return decisions
 
 
 def evaluate_candidate_bundle(
@@ -511,11 +572,11 @@ def evaluate_candidate_bundle(
     research = build_integrated_research_context(snapshot, features)
     alpha = build_core_alpha(
         features,
-        industry={},
-        company={},
-        capital={},
-        integrated={},
-        future_buyer_map=None,
+        industry=research.get("industry") or {},
+        company=research.get("company") or {},
+        capital=research.get("capital") or {},
+        integrated=research.get("integrated") or {},
+        future_buyer_map=research.get("future_buyer_map"),
     )
     gate_result = evaluate_production_gates(
         snapshot,
@@ -582,11 +643,13 @@ def evaluate_candidate_bundle(
         and evaluation_position_state == "FLAT"
         and not position_state_unavailable
         and board_info["execution_eligible"]
+        and alpha.get("signal_qualified") is True
     ):
         observation = _paper_observation(
             snapshot,
             features,
             alpha,
+            research,
             decision_id=decision_id,
             decision_state=state,
             position_state=evaluation_position_state,

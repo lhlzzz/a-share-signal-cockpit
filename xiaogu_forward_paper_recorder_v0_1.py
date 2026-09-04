@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from xiaogu_utils import (
     PRODUCTION_TRADE_MODE,
@@ -86,6 +87,37 @@ def _queue_memory_retry(operation: str, payload: Dict[str, Any], error: str) -> 
         "error": error,
         "payload": payload,
     })
+
+
+def read_memory_notes(
+    *,
+    symbol: str = "",
+    as_of: str = "",
+    date: str = "",
+    decision_id: str = "",
+    paper_signal_id: str = "",
+    limit: int = 8,
+) -> list[Dict[str, Any]] | None:
+    """Query the Memory Adapter. None means the bridge is unavailable."""
+    bridge = _memory_bridge_url()
+    if not bridge:
+        return None
+    query = urlencode({
+        "symbol": symbol,
+        "as_of": as_of,
+        "date": date,
+        "decision_id": decision_id,
+        "paper_signal_id": paper_signal_id,
+        "limit": max(1, min(int(limit), 50)),
+    })
+    request = Request(f"{bridge}/memory?{query}", method="GET")
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    notes = payload.get("notes", payload) if isinstance(payload, dict) else payload
+    return notes if isinstance(notes, list) else []
 
 
 def _send_memory(operation: str, payload: Dict[str, Any]) -> str | None:

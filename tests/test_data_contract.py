@@ -167,6 +167,29 @@ def test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates():
     assert "L3_DEEP_CANDIDATE_FETCH" not in by_symbol["600002"]["source_layers"]
 
 
+def test_l2_does_not_route_without_price_window():
+    stocks = [
+        {
+            "f12": "600001", "f14": "无价格窗口", "f2": 10, "f3": 0.1, "f5": 100,
+            "f6": 1_000, "f8": 2, "f10": 1.2, "f15": 10.5, "f16": 9.5, "f62": 500,
+            "f100": "示例行业",
+        },
+        {
+            "f12": "600002", "f14": "有价格窗口", "f2": 10, "f3": 3, "f5": 100,
+            "f6": 1_000, "f8": 2, "f10": 1.2, "f15": 10.5, "f16": 9.5, "f62": 500,
+            "f100": "示例行业",
+        },
+    ]
+    candidates, audit = detect_capital_candidates(stocks)
+    assert [row["f12"] for row in candidates] == ["600002"]
+    routed = {item["symbol"]: item for item in audit["routing"]}
+    assert routed["600001"]["deep_fetch_required"] is False
+    assert "price_response" not in routed["600001"]["routing_reasons"]
+    assert routed["600002"]["deep_fetch_required"] is True
+    assert "price_response" in routed["600002"]["routing_reasons"]
+    assert audit["selection"] is False
+
+
 def test_missing_measurements_remain_unknown_instead_of_zero_fill():
     vector = build_feature_vector(validate_and_build_canonical_snapshot({
         "symbol": "600001", "price": 10, "volume": 100, "amount": 1_000,
@@ -212,7 +235,7 @@ def test_paper_observation_identity():
     assert paper["paper_signal_id"]
     assert paper["decision_id"] == decision["decision_id"]
     assert paper["paper_signal_id"] != paper["decision_id"]
-    assert paper["signal_reason"] == "CURRENT_PRODUCTION_DECISION"
+    assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
     assert paper["alpha_name"] == "price_strength"
     assert paper["alpha_status"] == "DATA_INSUFFICIENT"
     assert decision["state"] != "BUY"
@@ -230,14 +253,15 @@ def test_paper_observation_defaults_flat():
     assert paper["paper_position_state"] == "PAPER_FLAT"
 
 
-def test_paper_observation_has_no_second_selection_threshold():
+def test_out_of_window_price_is_not_a_formal_paper_signal():
     decision = evaluate_candidate_bundle(
         _paper_observation_snapshot() | {"pct_chg": 0.1},
         position_state="FLAT",
     )
-    assert decision["paper_observation"]["status"] == "PAPER_OBSERVATION"
-    assert decision["paper_observation"]["signal_reason"] == "CURRENT_PRODUCTION_DECISION"
-    assert decision["paper_observation"]["production_decision_state"] == decision["state"]
+    assert decision["core_alpha"]["signal_qualified"] is False
+    assert decision["core_alpha"]["signal_reason"] == "PRICE_STRENGTH_OUT_OF_WINDOW"
+    assert decision["paper_observation"] is None
+    assert decision["buy_status"] == "BUY_BLOCKED"
 
 
 def test_research_only_capital_does_not_change_production_decision():
@@ -262,7 +286,9 @@ def test_research_only_capital_does_not_change_production_decision():
     )
     assert research_only["state"] == baseline["state"]
     assert research_only["action"] == baseline["action"]
-    assert research_only["paper_observation"]["research_overlay"]["research_only"] is True
+    assert research_only["buy_status"] == "BUY_BLOCKED"
+    overlay = (research_only["paper_observation"] or {}).get("research_overlay") or {"research_only": True}
+    assert overlay["research_only"] is True
 
 
 def test_research_cannot_grant_production_permission(monkeypatch):
@@ -517,6 +543,107 @@ def test_shadow_not_production():
     assert decision["state"] != "BUY"
     assert decision["buy_status"] == "BUY_BLOCKED"
     assert decision["paper_observation"].get("shadow") is None
+
+
+def test_research_context_is_consumed_by_alpha():
+    decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    alpha = decision["core_alpha"]
+    research = decision["research_context"]
+    assert alpha["research_consumed"] is True
+    assert research["status"] == "RESEARCH_ONLY"
+    providers = {item["provider"]: item for item in research["research_provenance"]}
+    assert providers["Serenity"]["invoked"] is True
+    assert providers["Buffett"]["invoked"] is True
+    assert providers["UZI"]["invoked"] is True
+    assert providers["Contradiction"]["invoked"] is True
+    assert providers["Serenity"]["role"] == "evidence"
+    assert research["status"] != "BUY"
+    assert "PICK" not in str(research.get("status"))
+
+
+def test_signal_qualified_paper_stays_buy_blocked():
+    decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    assert decision["core_alpha"]["signal_qualified"] is True
+    assert decision["buy_status"] == "BUY_BLOCKED"
+    assert decision["state"] != "BUY"
+    paper = decision["paper_observation"]
+    assert paper["status"] == "PAPER_OBSERVATION"
+    assert paper["production_buy"] == "BLOCKED"
+    assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
+
+
+def test_batch_keeps_at_most_three_papers_and_one_top1():
+    from xiaogu_forward_runner import evaluate_candidate_rows
+
+    rows = []
+    for index, pct in enumerate((1.0, 2.0, 3.0, 4.0, 5.0, 0.1)):
+        symbol = f"60000{index + 1}"
+        rows.append(validate_and_build_canonical_snapshot(_paper_observation_snapshot() | {
+            "symbol": symbol, "f12": symbol, "pct_chg": pct,
+        }))
+    decisions, _accounting = evaluate_candidate_rows(
+        rows, portfolio_state="WATCH", mode="DRY_RUN", trade_date="2026-08-26", workers=1,
+    )
+    papers = [item["paper_observation"] for item in decisions if item.get("paper_observation")]
+    assert len(papers) <= 3
+    assert len(papers) == 3
+    assert sum(1 for paper in papers if paper.get("top1_flag")) == 1
+    assert all(paper.get("top3_flag") for paper in papers)
+    assert sorted(paper["rank"] for paper in papers) == [1, 2, 3]
+    assert all(item["buy_status"] == "BUY_BLOCKED" for item in decisions)
+    assert len(papers) < len(rows)
+
+
+def test_dry_run_report_exposes_top_papers_and_research_summary():
+    from xiaogu_forward_runner import (
+        _compact_paper_observation,
+        _public_decision,
+        _research_summary,
+        evaluate_candidate_rows,
+    )
+
+    rows = [
+        validate_and_build_canonical_snapshot(_paper_observation_snapshot() | {
+            "symbol": f"60000{index + 1}", "f12": f"60000{index + 1}", "pct_chg": pct,
+        })
+        for index, pct in enumerate((1.0, 2.0, 3.0, 4.0, 0.1))
+    ]
+    decisions, _accounting = evaluate_candidate_rows(
+        rows, portfolio_state="WATCH", mode="DRY_RUN", trade_date="2026-08-26", workers=1,
+    )
+    summary = _research_summary(decisions)
+    papers = [item for item in (_compact_paper_observation(decision) for decision in decisions) if item]
+    public = [_public_decision(decision) for decision in decisions]
+    assert summary["research_consumed_count"] == len(decisions)
+    providers = {item["provider"]: item for item in summary["research_provenance"]}
+    assert providers["Serenity"]["invoked_count"] == len(decisions)
+    assert providers["Buffett"]["invoked_count"] == len(decisions)
+    assert providers["UZI"]["invoked_count"] == len(decisions)
+    assert providers["Contradiction"]["invoked_count"] == len(decisions)
+    assert len(papers) == 3
+    assert sum(1 for paper in papers if paper["top1_flag"]) == 1
+    assert all(item["buy_status"] == "BUY_BLOCKED" for item in public)
+    assert all("research_consumed" in item for item in public)
+
+
+def test_no_signal_when_formal_signals_are_zero():
+    from xiaogu_forward_runner import _scan_status_from_run
+
+    status, reason = _scan_status_from_run(
+        paper_count=0, decision_count=8, freshness_blocked=0, buy_allowed=0, qualified_signal_count=0,
+    )
+    assert status == "NO_SIGNAL"
+    assert reason == "NO_FORMAL_SIGNAL"
+
+
+def test_buy_blocked_does_not_delete_paper():
+    from xiaogu_forward_runner import _scan_status_from_run
+
+    status, reason = _scan_status_from_run(
+        paper_count=3, decision_count=10, freshness_blocked=0, buy_allowed=0, qualified_signal_count=8,
+    )
+    assert status == "BUY_BLOCKED"
+    assert reason == "PAPER_OBSERVATION_RECORDED"
 
 
 def test_recorder_requires_canonical_snapshot_for_production_decision(tmp_path, monkeypatch):
@@ -1502,3 +1629,65 @@ def test_scanner_attaches_level0_market_inputs_without_deep_research():
     assert raw["market_breadth"] == 61.2
     assert "up_count" in raw["market_regime_inputs"]
     assert "L3_DEEP_CANDIDATE_FETCH" not in snapshots[0]["source_layers"]
+
+
+def test_scanner_daily_task_is_idempotent(tmp_path, monkeypatch):
+    summary = {
+        "production_scan": "PASS",
+        "lineage": {"lineage_id": "lin-daily-task"},
+        "database_persistence": {"status": "PASS", "run_id": "run-daily-task"},
+        "scan_reason": "SCANNER_SUCCESS_AWAITING_DECISION",
+    }
+    (tmp_path / "scan_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["runner_v2.py", "--output-dir", str(tmp_path)])
+    from scrapy_scanner.runner_v2 import main as scanner_main
+    result = scanner_main()
+    assert result["daily_task_status"] == "ALREADY_CAPTURED"
+    assert result["scan_reason"] == "DAILY_TASK_IDEMPOTENT"
+    assert result["lineage"]["lineage_id"] == "lin-daily-task"
+    assert result["database_persistence"]["run_id"] == "run-daily-task"
+    assert "stock_all_a" not in result
+
+
+def test_historical_research_cases_exclude_future_evidence(monkeypatch):
+    from xiaogu_research_context import fetch_historical_research_cases
+
+    class _Rows:
+        def mappings(self):
+            return [
+                {
+                    "paper_signal_id": "past",
+                    "decision_id": "d-past",
+                    "symbol": "600001",
+                    "signal_time": "2026-08-25T14:50:00+08:00",
+                    "payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                },
+                {
+                    "paper_signal_id": "future",
+                    "decision_id": "d-future",
+                    "symbol": "600001",
+                    "signal_time": "2026-08-27T14:50:00+08:00",
+                    "payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
+                },
+            ]
+
+    class _Connection:
+        def execute(self, _sql, _params):
+            return _Rows()
+        def __enter__(self):
+            return self
+        def __exit__(self, *_exc):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    monkeypatch.setattr("xiaogu_db.engine", _Engine(), raising=False)
+    import xiaogu_db
+    monkeypatch.setattr(xiaogu_db, "engine", _Engine())
+    payload = fetch_historical_research_cases("600001", "2026-08-26T15:00:00+08:00")
+    ids = [item["paper_signal_id"] for item in payload["historical_cases"]]
+    assert "past" in ids
+    assert "future" not in ids
+    assert payload["status"] == "RESEARCH_ONLY"

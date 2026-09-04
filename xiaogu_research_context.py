@@ -1,6 +1,7 @@
 """Context-only research boundaries for demand, business, capital, and contradiction."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict
 
 
@@ -211,6 +212,119 @@ def build_contradiction_context(
     return integrate_research_context(industry, company, capital, lineage_id=lineage_id)
 
 
+def _as_of_text(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value or "")
+
+
+def _visible_before(as_of: str, observed: Any) -> bool:
+    stamp = str(observed or "").strip()
+    if not as_of or not stamp:
+        return False
+    return stamp <= as_of
+
+
+def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
+    """PIT historical paper/outcome cases. Evidence only; never a BUY source."""
+    symbol = str(symbol or "").zfill(6)[-6:]
+    cases: list[Dict[str, Any]] = []
+    try:
+        from xiaogu_db import engine
+        from sqlalchemy import text
+        with engine.connect() as db:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT paper_signal_id, decision_id, symbol, signal_time, payload
+                    FROM paper_observations
+                    WHERE symbol = :symbol
+                    ORDER BY signal_time DESC
+                    LIMIT 20
+                    """
+                ),
+                {"symbol": symbol},
+            ).mappings()
+            for row in rows:
+                signal_time = str(row.get("signal_time") or "")
+                if not _visible_before(as_of, signal_time):
+                    continue
+                payload = row.get("payload")
+                if isinstance(payload, str):
+                    import json
+                    try:
+                        payload = json.loads(payload)
+                    except json.JSONDecodeError:
+                        payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                cases.append({
+                    "paper_signal_id": row.get("paper_signal_id"),
+                    "decision_id": row.get("decision_id"),
+                    "symbol": row.get("symbol"),
+                    "signal_time": signal_time,
+                    "signal_reason": payload.get("signal_reason"),
+                    "price_strength": payload.get("price_strength"),
+                    "rank": payload.get("rank"),
+                    "top1_flag": payload.get("top1_flag"),
+                    "top3_flag": payload.get("top3_flag"),
+                    "selection_reason": payload.get("selection_reason"),
+                    "source": "postgresql.paper_observations",
+                })
+    except Exception as exc:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": type(exc).__name__,
+            "historical_cases": [],
+            "historical_success_rate": None,
+            "historical_failure_patterns": [],
+        }
+    return {
+        "status": "RESEARCH_ONLY",
+        "historical_cases": cases[:8],
+        "historical_success_rate": None,
+        "historical_failure_patterns": [],
+        "case_count": len(cases),
+    }
+
+
+def fetch_memory_research_notes(symbol: str, as_of: str) -> Dict[str, Any]:
+    """Read historical ticket reasons through the Memory Adapter. Never selects Top1."""
+    try:
+        from xiaogu_forward_paper_recorder_v0_1 import read_memory_notes
+        notes = read_memory_notes(symbol=symbol, as_of=as_of, limit=8)
+    except Exception as exc:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": type(exc).__name__,
+            "notes": [],
+            "connected": False,
+        }
+    visible = []
+    for note in notes or []:
+        if not isinstance(note, dict):
+            continue
+        when = note.get("date") or note.get("signal_time") or note.get("as_of") or ""
+        if as_of and when and not _visible_before(as_of, str(when)):
+            continue
+        visible.append({
+            "source": "obsidian_memory_adapter",
+            "path": note.get("path"),
+            "decision_id": note.get("decision_id"),
+            "paper_signal_id": note.get("paper_signal_id"),
+            "symbol": note.get("symbol") or symbol,
+            "date": note.get("date") or when,
+            "reason": note.get("reason") or note.get("decision_reason"),
+            "outcome": note.get("outcome") or note.get("review"),
+        })
+    return {
+        "status": "OK" if notes is not None else "UNAVAILABLE",
+        "connected": notes is not None,
+        "notes": visible,
+        "note_count": len(visible),
+    }
+
+
 def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     industry = build_serenity_context(snapshot, features)
     company = build_buffett_context(snapshot, features)
@@ -224,11 +338,22 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         for key in ("bull_thesis", "bear_thesis", "strongest_counterargument", "missing_evidence", "thesis_invalidation", "contradiction_status", "veto", "key_conflicts"):
             if key in raw_tradingagents:
                 integrated[key] = raw_tradingagents[key]
+    as_of = _as_of_text(features.get("available_at") or snapshot.get("source_time") or "")
+    historical = fetch_historical_research_cases(str(snapshot.get("symbol") or ""), as_of)
+    memory = fetch_memory_research_notes(str(snapshot.get("symbol") or ""), as_of)
+    provenance = [
+        {"provider": "Serenity", "invoked": True, "role": "evidence"},
+        {"provider": "Buffett", "invoked": True, "role": "evidence"},
+        {"provider": "UZI", "invoked": True, "role": "evidence"},
+        {"provider": "Contradiction", "invoked": True, "role": "contradiction"},
+        {"provider": "postgresql.paper_observations", "invoked": historical.get("status") != "UNAVAILABLE", "role": "historical_cases"},
+        {"provider": "obsidian_memory_adapter", "invoked": bool(memory.get("connected")), "role": "historical_reasons"},
+    ]
     return {
         "context_type": "ResearchContext",
         "status": "RESEARCH_ONLY",
         "lineage_id": features["lineage_id"],
-        "as_of": features.get("available_at", ""),
+        "as_of": as_of,
         "industry": industry,
         "company": company,
         "capital": capital,
@@ -237,4 +362,16 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "future_buyer_map": future_buyer_map,
         "integrated": integrated,
         "contradiction": integrated,
+        "historical": historical,
+        "memory": memory,
+        "research_provenance": provenance,
+        "serenity_context": industry,
+        "buffett_context": company,
+        "uzi_context": capital,
+        "contradiction_context": integrated,
+        "capital_context": capital,
+        "supply_context": supply,
+        "repricing_context": pricing_gap,
+        "risk_context": features.get("RISK") or {},
+        "pit_audit": features.get("pit_audit") or {},
     }

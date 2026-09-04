@@ -2112,6 +2112,19 @@ def insert_scan_session(**payload: Any) -> str:
         with get_db() as db:
             if session_columns:
                 session_id = _insert_or_reuse_scan_session(db, payload, session_columns, scan_time)
+            existing_run = db.execute(
+                text(
+                    """
+                    SELECT production_run_id FROM production_runs
+                    WHERE lineage_id = :lineage_id
+                    ORDER BY started_at DESC NULLS LAST
+                    LIMIT 1
+                    """
+                ),
+                {"lineage_id": lineage_id},
+            ).fetchone()
+            if existing_run and str(existing_run[0] or "").strip():
+                return str(existing_run[0])
             row = db.execute(
                 text(
                     """

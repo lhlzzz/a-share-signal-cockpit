@@ -797,3 +797,38 @@ def test_scan_status_distinguishes_blocked_from_no_signal():
         paper_count=0, decision_count=0, freshness_blocked=0, buy_allowed=0,
     )
     assert status == "NO_SIGNAL"
+
+
+def test_same_lineage_scan_session_is_idempotent():
+    import xiaogu_db as db
+
+    db.ensure_production_schema()
+    lineage_id = "test-persist-lineage-idempotent"
+    scan_dir = "data/test/production_runs_contract/idempotent"
+    first = db.insert_scan_session(
+        trade_date="2026-09-02",
+        scan_time="2026-09-02T14:50:00+08:00",
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    second = db.insert_scan_session(
+        trade_date="2026-09-02",
+        scan_time="2026-09-02T14:50:00+08:00",
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    try:
+        assert first == second
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": first})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_due_horizon_report_does_not_claim_t1_t5_fill():
+    from xiaogu_forward_result_filler_v0_1 import fill_due_horizon_results
+
+    source = inspect.getsource(fill_due_horizon_results)
+    assert "t1_t5_persisted" in source
+    assert "persist_horizon" in source
+    assert "Only persist when the full T+1..T+5 window is due" in source
