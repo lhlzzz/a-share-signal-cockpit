@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-Single-system convergence is complete on the existing Xiaogu owners. This is not a parallel rebuild.
+Final truth hardening is complete on the existing Xiaogu owners. This is not Xiaogu 4.0 and not a parallel rebuild.
 
 ## Production permission
 
@@ -26,6 +26,7 @@ Single-system convergence is complete on the existing Xiaogu owners. This is not
 | Calendar | `xiaogu_db.py` |
 | Paper | `xiaogu_forward_paper_recorder_v0_1.py` |
 | Outcome | `xiaogu_forward_result_filler_v0_1.py` |
+| Database | `xiaogu_db.py` / PostgreSQL schema v6 |
 | Memory | PostgreSQL facts + Obsidian notes keyed by `paper_signal_id` / `decision_id` |
 | Execution universe | MAIN_BOARD_ONLY |
 
@@ -33,8 +34,14 @@ Single-system convergence is complete on the existing Xiaogu owners. This is not
 
 Opportunity Target = any of T+1..T+5 daily high versus the T-day reference reaches net +2% after `cost_model_v1`.
 
-0.5%–9.5% price window remains L2 routing / research ablation (`WITH_GATE` vs `WITHOUT_GATE`). It is not a frozen Alpha rule.
+This is a daily-bar approximation, not a fill simulator.
+
+0.5%–9.5% remains L2 routing / research ablation (`WITH_GATE` vs `WITHOUT_GATE`). Production Alpha no longer re-applies it as a strategy gate.
+
+## Outcome schema (actual)
+
+`returns` remains the fact owner. T+1..T+5 are nested `payload.days["1".."5"]` with `SETTLED` or `MISSING`. There is no per-horizon row table. `fetch_horizon_outcomes(decision_id)` returns that nested map. Horizon identity is `decision_id:horizon`.
 
 ## Tests
 
-`pytest tests/ -x -q` → 346 passed.
+`pytest tests/ -x -q` → 355 passed.

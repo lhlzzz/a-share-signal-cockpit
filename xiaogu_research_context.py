@@ -244,10 +244,14 @@ def _provider_record(
     succeeded: bool = False,
     failed: bool = False,
     evidence_count: int = 0,
+    usable_evidence_count: int | None = None,
     pit_valid: bool | None = None,
     used_downstream: bool = False,
+    knowledge_available_at: str = "",
     reason: str = "",
 ) -> Dict[str, Any]:
+    count = int(evidence_count or 0)
+    usable = count if usable_evidence_count is None else int(usable_evidence_count or 0)
     return {
         "provider": provider,
         "role": role,
@@ -255,9 +259,11 @@ def _provider_record(
         "provider_available": available,
         "provider_succeeded": succeeded,
         "provider_failed": failed,
-        "evidence_count": int(evidence_count or 0),
+        "evidence_count": count,
+        "usable_evidence_count": usable,
         "pit_valid": pit_valid,
         "used_downstream": used_downstream,
+        "knowledge_available_at": knowledge_available_at or "",
         "reason": reason or "",
         "invoked": requested,
     }
@@ -271,6 +277,14 @@ def _run_provider(fn, retries: int = 1):
         except Exception as exc:
             last_exc = exc
     return None, last_exc
+
+
+def _knowledge_stamp(*values: Any) -> str:
+    for value in values:
+        stamp = str(value or "").strip()
+        if stamp:
+            return stamp
+    return ""
 
 
 def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
@@ -303,20 +317,44 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
                 {"symbol": symbol},
             ).mappings()
             for row in rows:
-                signal_time = str(row.get("signal_time") or "")
-                if not _visible_before(as_of, signal_time):
-                    continue
                 paper = _json_payload(row.get("paper_payload"))
                 outcome = _json_payload(row.get("outcome_payload"))
+                event_time = _knowledge_stamp(paper.get("event_time"), row.get("signal_time"))
+                knowledge_available_at = _knowledge_stamp(
+                    paper.get("knowledge_available_at"),
+                    paper.get("available_at"),
+                )
+                if not knowledge_available_at or not _visible_before(as_of, knowledge_available_at):
+                    continue
+                settled_at = _knowledge_stamp(
+                    outcome.get("outcome_settled_at"),
+                    outcome.get("settled_at"),
+                    outcome.get("outcome_available_at"),
+                    outcome.get("result_filled_at"),
+                )
+                outcome_visible = bool(settled_at) and _visible_before(as_of, settled_at)
                 review = outcome.get("post_trade_review") if isinstance(outcome.get("post_trade_review"), dict) else {}
-                opportunity = outcome.get("opportunity_5d")
-                if opportunity is None:
-                    opportunity = outcome.get("profit_window")
+                opportunity = None
+                failure_pattern = None
+                first_profit_day = None
+                max_mae_5d = None
+                if outcome_visible:
+                    opportunity = outcome.get("opportunity_5d")
+                    if opportunity is None:
+                        opportunity = outcome.get("profit_window")
+                    first_profit_day = outcome.get("first_profit_day")
+                    max_mae_5d = outcome.get("max_mae_5d")
+                    failure_pattern = review.get("attribution") if opportunity is False else None
                 loaded.append({
                     "paper_signal_id": row.get("paper_signal_id"),
                     "decision_id": row.get("decision_id"),
                     "symbol": row.get("symbol"),
-                    "signal_time": signal_time,
+                    "event_time": event_time,
+                    "signal_time": event_time,
+                    "available_at": knowledge_available_at,
+                    "knowledge_available_at": knowledge_available_at,
+                    "settled_at": settled_at if outcome_visible else None,
+                    "outcome_settled_at": settled_at if outcome_visible else None,
                     "signal_reason": paper.get("signal_reason"),
                     "price_strength": paper.get("price_strength"),
                     "rank": paper.get("rank"),
@@ -325,9 +363,10 @@ def fetch_historical_research_cases(symbol: str, as_of: str) -> Dict[str, Any]:
                     "selection_reason": paper.get("selection_reason"),
                     "opportunity_5d": opportunity,
                     "profit_window": opportunity,
-                    "first_profit_day": outcome.get("first_profit_day"),
-                    "max_mae_5d": outcome.get("max_mae_5d"),
-                    "failure_pattern": review.get("attribution") if opportunity is False else None,
+                    "first_profit_day": first_profit_day,
+                    "max_mae_5d": max_mae_5d,
+                    "failure_pattern": failure_pattern,
+                    "post_trade_review": review if outcome_visible else None,
                     "source": "postgresql.paper_observations",
                 })
         return loaded
@@ -399,10 +438,19 @@ def fetch_memory_research_notes(symbol: str, as_of: str) -> Dict[str, Any]:
     for note in notes or []:
         if not isinstance(note, dict):
             continue
-        when = note.get("date") or note.get("signal_time") or note.get("as_of") or ""
-        if as_of and when and not _visible_before(as_of, str(when)):
+        knowledge_available_at = _knowledge_stamp(
+            note.get("knowledge_available_at"),
+            note.get("available_at"),
+        )
+        if not knowledge_available_at or not _visible_before(as_of, knowledge_available_at):
             continue
-        visible.append({
+        outcome_available_at = _knowledge_stamp(
+            note.get("outcome_available_at"),
+            note.get("outcome_update_at"),
+            note.get("settled_at"),
+        )
+        outcome_visible = bool(outcome_available_at) and _visible_before(as_of, outcome_available_at)
+        item = {
             "source": "obsidian_memory_adapter",
             "path": note.get("path"),
             "decision_id": note.get("decision_id"),
@@ -410,10 +458,21 @@ def fetch_memory_research_notes(symbol: str, as_of: str) -> Dict[str, Any]:
             "production_run_id": note.get("production_run_id"),
             "memory_id": note.get("memory_id"),
             "symbol": note.get("symbol") or symbol,
-            "date": note.get("date") or when,
+            "date": note.get("date"),
+            "event_time": note.get("event_time") or note.get("signal_time"),
+            "available_at": knowledge_available_at,
+            "knowledge_available_at": knowledge_available_at,
+            "knowledge_type": note.get("knowledge_type") or "DECISION",
             "reason": note.get("reason") or note.get("decision_reason"),
-            "outcome": note.get("outcome") or note.get("review"),
-        })
+        }
+        if outcome_visible:
+            item["knowledge_type"] = note.get("knowledge_type") or "OUTCOME"
+            item["settled_at"] = outcome_available_at
+            item["outcome_available_at"] = outcome_available_at
+            item["outcome"] = note.get("outcome")
+            item["review"] = note.get("review") or note.get("post_trade_review")
+            item["attribution"] = note.get("attribution")
+        visible.append(item)
     return {
         "status": "OK",
         "connected": True,
@@ -510,6 +569,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=_context_evidence_count(industry),
             pit_valid=True if serenity_error is None else None,
             used_downstream=serenity_error is None and not industry.get("degraded"),
+            knowledge_available_at=as_of,
             reason="" if serenity_error is None else type(serenity_error).__name__,
         ),
         "Buffett": _provider_record(
@@ -521,6 +581,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=_context_evidence_count(company),
             pit_valid=True if buffett_error is None else None,
             used_downstream=buffett_error is None and not company.get("degraded"),
+            knowledge_available_at=as_of,
             reason="" if buffett_error is None else type(buffett_error).__name__,
         ),
         "UZI": _provider_record(
@@ -532,6 +593,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=_context_evidence_count(capital),
             pit_valid=True if uzi_error is None else None,
             used_downstream=uzi_error is None and not capital.get("degraded"),
+            knowledge_available_at=as_of,
             reason="" if uzi_error is None else type(uzi_error).__name__,
         ),
         "Contradiction": _provider_record(
@@ -543,6 +605,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=_context_evidence_count(integrated),
             pit_valid=True if contradiction_error is None else None,
             used_downstream=contradiction_error is None and not integrated.get("degraded"),
+            knowledge_available_at=as_of,
             reason="" if contradiction_error is None else type(contradiction_error).__name__,
         ),
         "postgresql.paper_observations": _provider_record(
@@ -554,6 +617,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=int(historical.get("case_count") or 0),
             pit_valid=historical.get("pit_valid"),
             used_downstream=bool(historical.get("provider_succeeded")),
+            knowledge_available_at=as_of,
             reason=str(historical.get("reason") or ""),
         ),
         "obsidian_memory_adapter": _provider_record(
@@ -565,6 +629,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
             evidence_count=int(memory.get("note_count") or 0),
             pit_valid=memory.get("pit_valid"),
             used_downstream=bool(memory.get("provider_succeeded")),
+            knowledge_available_at=as_of,
             reason=str(memory.get("reason") or ""),
         ),
     }

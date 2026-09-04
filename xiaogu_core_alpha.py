@@ -70,16 +70,14 @@ def _research_score(payload: Dict[str, Any], *keys: str) -> float | None:
 SIGNAL_STATUS_SIGNAL = "SIGNAL"
 SIGNAL_STATUS_WATCH = "WATCH"
 SIGNAL_STATUS_ELIMINATED = "ELIMINATED"
-# price_strength = clip((pct_change + 5) / 15); keep the 0.5%-9.5% window.
-SIGNAL_PCT_MIN = 0.5
-SIGNAL_PCT_MAX = 9.5
-
-
-def _pct_from_price_strength(price_strength: Any) -> float | None:
-    value = _clip(price_strength)
-    if value is None:
-        return None
-    return value * 15.0 - 5.0
+COST_MODEL_COMPONENT_SEMANTICS = {
+    "commission": "modeled",
+    "stamp_duty": "modeled",
+    "slippage": "proxy",
+    "spread": "proxy",
+    "market_impact": "proxy",
+}
+EXECUTION_REALISM_LEVEL = "DAILY_BAR_APPROXIMATION"
 
 
 def _selection_score(
@@ -106,9 +104,12 @@ def _signal_qualification(
     selection_score: float | None,
     research_used_downstream: bool,
 ) -> Dict[str, Any]:
-    """Qualify a formal 5D paper signal. This is not a second alpha and not BUY."""
+    """Qualify a formal 5D paper signal. This is not a second alpha and not BUY.
+
+    The 0.5%–9.5% window is L2 routing / research ablation only. Production
+    qualification must not re-apply it as a strategy gate.
+    """
     price_strength = market.get("price_strength")
-    pct_change = _pct_from_price_strength(price_strength)
     evidence = []
     if research_used_downstream:
         evidence.append("research_context")
@@ -119,22 +120,13 @@ def _signal_qualification(
     if repricing_state not in {"UNKNOWN", ""}:
         evidence.append("repricing")
     score = selection_score
-    if price_strength is None or pct_change is None:
+    if price_strength is None:
         return {
             "signal_status": SIGNAL_STATUS_ELIMINATED,
             "signal_qualified": False,
             "signal_reason": "PRICE_STRENGTH_UNOBSERVED",
             "signal_score": None,
             "selection_score": None,
-            "signal_evidence": evidence,
-        }
-    if pct_change < SIGNAL_PCT_MIN or pct_change > SIGNAL_PCT_MAX:
-        return {
-            "signal_status": SIGNAL_STATUS_ELIMINATED,
-            "signal_qualified": False,
-            "signal_reason": "PRICE_STRENGTH_OUT_OF_WINDOW",
-            "signal_score": score,
-            "selection_score": score,
             "signal_evidence": evidence,
         }
     if bool(completion.get("completed")) or repricing_state in {"CLIMAX", "DISTRIBUTION"}:
@@ -725,7 +717,8 @@ def build_core_alpha(
         "execution_feasibility": _round_or_none(execution_feasibility),
         "execution_constraints": {
             **CANONICAL_COST_MODEL,
-            "market_impact": execution.get("market_impact"),
+            "component_semantics": dict(COST_MODEL_COMPONENT_SEMANTICS),
+            "execution_realism": {"level": EXECUTION_REALISM_LEVEL},
             "all_in_transaction_cost": DEFAULT_COST_RATE,
             "cost_rate": DEFAULT_COST_RATE,
             "cost_model_version": COST_MODEL_VERSION,

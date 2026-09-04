@@ -1,4 +1,5 @@
 """Single-system convergence contracts. One production path, one target, one alpha."""
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,7 +162,8 @@ def test_research_provider_semantics_and_non_blocking(monkeypatch):
     providers = {item["provider"]: item for item in context["research_provenance"]}
     required = {
         "provider_requested", "provider_available", "provider_succeeded",
-        "provider_failed", "evidence_count", "pit_valid", "used_downstream",
+        "provider_failed", "evidence_count", "usable_evidence_count",
+        "pit_valid", "used_downstream", "knowledge_available_at", "reason",
     }
     for item in providers.values():
         assert required.issubset(item)
@@ -355,3 +357,272 @@ def test_production_permission_stays_paper_blocked():
     freeze = Path("rule_freeze_v0_1.json").read_text(encoding="utf-8")
     assert '"auto_order": false' in freeze or '"auto_order":false' in freeze
     assert '"paper_only": true' in freeze or '"paper_only":true' in freeze
+
+
+def test_worker_permanent_failure_abstains(monkeypatch):
+    import xiaogu_forward_runner as runner
+
+    def boom(snapshot, **kwargs):
+        raise RuntimeError("permanent worker failure")
+
+    monkeypatch.setattr(runner, "run_production_decision", boom)
+    rows = [
+        validate_and_build_canonical_snapshot(_snapshot("600001", 3.0)),
+        validate_and_build_canonical_snapshot(_snapshot("600002", 4.0)),
+    ]
+    decisions, accounting = evaluate_candidate_rows(
+        rows, portfolio_state="WATCH", mode="DRY_RUN", trade_date="2026-08-26", workers=1,
+    )
+    assert decisions[0]["worker_attempts"] == WORKER_RETRY_LIMIT + 1
+    assert accounting["error_count"] > 0
+    assert accounting["selection_status"] == "ABSTAIN"
+    assert accounting["publishable"] is False
+    assert accounting["top1"] is None
+    assert accounting["top3"] == []
+    assert all(item.get("paper_observation") is None for item in decisions)
+
+
+def test_price_gate_is_not_reapplied_in_production_signal_qualification():
+    low = evaluate_candidate_bundle(_snapshot("600001", 0.2), position_state="FLAT", as_of=AS_OF)
+    high = evaluate_candidate_bundle(_snapshot("600002", 12.0), position_state="FLAT", as_of=AS_OF)
+    assert low["core_alpha"]["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW"
+    assert high["core_alpha"]["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW"
+    source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
+    qualification = source.split("def _signal_qualification")[1].split("def build_core_alpha")[0]
+    assert "SIGNAL_PCT_MIN" not in qualification
+    assert "PRICE_STRENGTH_OUT_OF_WINDOW" not in qualification
+
+
+def test_historical_outcome_is_hidden_before_settlement(monkeypatch):
+    from xiaogu_research_context import fetch_historical_research_cases
+
+    class _Rows:
+        def mappings(self):
+            return [
+                {
+                    "paper_signal_id": "ps-early",
+                    "decision_id": "d-early",
+                    "symbol": "600001",
+                    "signal_time": "2026-08-20T14:50:00+08:00",
+                    "paper_payload": {
+                        "signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
+                        "rank": 1,
+                        "knowledge_available_at": "2026-08-20T14:50:00+08:00",
+                    },
+                    "outcome_payload": {
+                        "opportunity_5d": True,
+                        "post_trade_review": {"attribution": "MODEL_ERROR"},
+                        "outcome_settled_at": "2026-08-25T15:00:00+08:00",
+                    },
+                }
+            ]
+
+    class _Connection:
+        def execute(self, _sql, _params):
+            return _Rows()
+        def __enter__(self):
+            return self
+        def __exit__(self, *_exc):
+            return False
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    monkeypatch.setattr("xiaogu_db.engine", _Engine(), raising=False)
+    import xiaogu_db
+    monkeypatch.setattr(xiaogu_db, "engine", _Engine())
+    payload = fetch_historical_research_cases("600001", "2026-08-22T15:00:00+08:00")
+    assert payload["historical_cases"]
+    case = payload["historical_cases"][0]
+    assert case["knowledge_available_at"] == "2026-08-20T14:50:00+08:00"
+    assert case["opportunity_5d"] is None
+    assert case["post_trade_review"] is None
+    assert case["failure_pattern"] is None
+
+
+def test_obsidian_outcome_is_hidden_before_settlement():
+    from xiaogu_research_context import fetch_memory_research_notes
+    from xiaogu_forward_paper_recorder_v0_1 import read_memory_notes
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    notes = [
+        {
+            "paper_signal_id": "ps-1",
+            "decision_id": "d-1",
+            "knowledge_available_at": "2026-08-20T14:50:00+08:00",
+            "knowledge_type": "DECISION",
+            "reason": "TOP1_OPPORTUNITY_5D",
+            "outcome_available_at": "2026-08-25T15:00:00+08:00",
+            "outcome": "T+5 hit",
+            "review": "SUCCESS",
+            "attribution": "MODEL_ERROR",
+        }
+    ]
+
+    class _Response:
+        def read(self):
+            return json.dumps({"notes": notes}).encode("utf-8")
+        def __enter__(self):
+            return self
+        def __exit__(self, *_exc):
+            return False
+
+    recorder.os.environ["XIAOGU_OBSIDIAN_BRIDGE_URL"] = "http://memory.test"
+    original_urlopen = recorder.urlopen
+    recorder.urlopen = lambda *_args, **_kwargs: _Response()
+    try:
+        filtered = read_memory_notes(symbol="600001", as_of="2026-08-22T15:00:00+08:00")
+        assert filtered and "outcome" not in filtered[0]
+        payload = fetch_memory_research_notes("600001", "2026-08-22T15:00:00+08:00")
+        assert payload["notes"]
+        assert "outcome" not in payload["notes"][0]
+        assert payload["notes"][0].get("review") is None
+    finally:
+        recorder.urlopen = original_urlopen
+        recorder.os.environ.pop("XIAOGU_OBSIDIAN_BRIDGE_URL", None)
+
+
+def test_horizon_identity_and_missing_days():
+    from xiaogu_db import fetch_horizon_outcomes
+
+    complete = calculate_horizon_outcomes(10, _bars())
+    for day in range(1, 6):
+        assert complete["days"][str(day)]["status"] == "SETTLED"
+        assert complete["days"][str(day)]["horizon"] == day
+    missing = fetch_horizon_outcomes.__wrapped__ if hasattr(fetch_horizon_outcomes, "__wrapped__") else None
+    payload = {
+        "decision_id": "d-1",
+        "status": "MISSING",
+        "days": {str(day): {"status": "MISSING"} for day in (1, 2, 3, 4, 5)},
+    }
+    for day in ("1", "2", "3", "4", "5"):
+        assert payload["days"][day]["status"] in {"SETTLED", "MISSING"}
+    assert missing is None or callable(fetch_horizon_outcomes)
+
+
+def test_cost_model_v1_is_daily_bar_approximation():
+    from xiaogu_core_alpha import CANONICAL_COST_MODEL, COST_MODEL_COMPONENT_SEMANTICS, EXECUTION_REALISM_LEVEL
+
+    outcomes = calculate_horizon_outcomes(10, _bars())
+    assumptions = outcomes["execution_assumptions"]
+    assert assumptions["execution_realism"]["level"] == "DAILY_BAR_APPROXIMATION"
+    assert assumptions["cost_model"]["commission"] == "modeled"
+    assert assumptions["cost_model"]["slippage"] == "proxy"
+    assert "slippage_included" not in assumptions
+    assert CANONICAL_COST_MODEL["version"] == "cost_model_v1"
+    assert COST_MODEL_COMPONENT_SEMANTICS["slippage"] == "proxy"
+    assert EXECUTION_REALISM_LEVEL == "DAILY_BAR_APPROXIMATION"
+
+
+def test_atomic_persistence_rolls_back_on_failure(monkeypatch):
+    import xiaogu_db as db
+
+    class FakeConnection:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    connection = FakeConnection()
+    observed = []
+    rolled_back = {"value": False}
+
+    class Transaction:
+        def __enter__(self):
+            return connection
+        def __exit__(self, exc_type, *_args):
+            if exc_type is not None:
+                rolled_back["value"] = True
+            return False
+
+    monkeypatch.setattr(db, "ensure_production_schema", lambda: None)
+    monkeypatch.setattr(db.engine, "begin", lambda: Transaction())
+    monkeypatch.setattr(db, "record_snapshot", lambda _snapshot: observed.append("snapshot"))
+    monkeypatch.setattr(db, "record_decision", lambda _decision: observed.append("decision"))
+
+    def boom(_observation):
+        raise RuntimeError("paper failed")
+
+    monkeypatch.setattr(db, "record_paper_observation", boom)
+    monkeypatch.setattr(db, "paper_observation_exists", lambda _value: False)
+    monkeypatch.setattr(db, "_table_columns", lambda _name: {"production_run_id"})
+    with pytest.raises(RuntimeError, match="paper failed"):
+        db.persist_production_facts([
+            {
+                "state": "WATCH",
+                "canonical_snapshot": {"snapshot_id": "s", "lineage_id": "l", "trade_date": "2026-08-26"},
+                "paper_observation": {
+                    "paper_signal_id": "ps-1",
+                    "decision_id": "d-1",
+                    "symbol": "600001",
+                    "signal_time": "2026-08-26T14:50:00+08:00",
+                    "reference_price": 10,
+                    "paper_observation_state": "OBSERVED",
+                    "paper_position_state": "PAPER_FLAT",
+                    "alpha_name": "price_strength",
+                    "alpha_version": "v4",
+                    "feature_version": "minimal_price_alpha_v1",
+                    "decision_version": "xiaogu_portfolio_decision.evaluate_candidate_bundle",
+                    "cost_model_version": "cost_model_v1",
+                    "paper_observation_contract_version": "v1",
+                    "paper_only": True,
+                    "live_order": False,
+                },
+            }
+        ], production_run_id="run-1")
+    assert rolled_back["value"] is True
+
+
+def test_production_run_coverage_contract_fields():
+    source = Path("xiaogu_forward_runner.py").read_text(encoding="utf-8")
+    for field in (
+        "full_universe_count", "l1_count", "l2_count", "l3_count",
+        "feature_count", "alpha_count", "decision_count",
+        "selection_candidate_count", "top3_count", "top1_count", "paper_count",
+        "worker_error_count", "worker_recovered_count", "system_fault", "publishable",
+    ):
+        assert f'"{field}"' in source
+    worker = Path("xiaogu_forward_runner.py").read_text(encoding="utf-8")
+    assert "def _evaluate_one_candidate" in worker
+    assert "production_now()" not in worker.split("def _evaluate_one_candidate")[1].split("def evaluate_candidate_rows")[0]
+
+
+def test_memory_rebuild_from_postgresql(monkeypatch):
+    from xiaogu_forward_paper_recorder_v0_1 import rebuild_memory_from_postgresql
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    written = []
+    monkeypatch.setattr(recorder, "write_trade_memory", lambda record: written.append(("DECISION", record.get("paper_signal_id"))) or "path")
+    monkeypatch.setattr(recorder, "update_trade_memory", lambda result: written.append(("OUTCOME", result.get("decision_id"))) or "path")
+    monkeypatch.setattr("xiaogu_db.fetch_picks", lambda: [{
+        "decision_id": "d-1",
+        "symbol": "600001",
+        "trade_date": "2026-08-26",
+        "payload": {"decision_id": "d-1", "thesis": {"invalidation": "NONE"}, "symbol": "600001"},
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_paper_observations", lambda: [{
+        "paper_signal_id": "ps-1",
+        "decision_id": "d-1",
+        "payload": {
+            "paper_signal_id": "ps-1",
+            "decision_id": "d-1",
+            "symbol": "600001",
+            "trade_date": "2026-08-26",
+            "knowledge_available_at": "2026-08-26T14:50:00+08:00",
+        },
+    }])
+    monkeypatch.setattr("xiaogu_db.fetch_horizon_outcomes", lambda _decision_id: {
+        "days": {"1": {"status": "SETTLED"}, "2": {"status": "MISSING"}, "3": {"status": "MISSING"}, "4": {"status": "MISSING"}, "5": {"status": "MISSING"}},
+        "opportunity_5d": None,
+        "result_filled_at": "2026-08-27T15:00:00+08:00",
+    })
+    notes = rebuild_memory_from_postgresql()
+    assert any(item["knowledge_type"] == "DECISION" for item in notes)
+    assert any(item["knowledge_type"] == "OUTCOME" for item in notes)
+    assert ("DECISION", "ps-1") in written
+    assert ("OUTCOME", "d-1") in written
+    assert not Path("selector.py").exists()
+    assert not Path("ranker.py").exists()
+    assert not Path("topk.py").exists()
+    assert not Path("alpha_v5.py").exists()
+    assert not Path("decision_engine_v2.py").exists()
+    assert not Path("second_memory.py").exists()

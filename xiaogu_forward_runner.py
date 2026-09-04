@@ -314,9 +314,13 @@ def evaluate_candidate_rows(
             recovered_count += 1
         if decision.get("error") or reason.startswith("WORKER_ERROR"):
             error_count += 1
+            # Any unrecoverable candidate after retries is a system fault.
+            # Partial Top1/Top3 is forbidden.
+            system_fault = True
             if _is_system_fault(decision):
-                system_fault = True
                 system_fault_reason = system_fault_reason or reason
+            else:
+                system_fault_reason = system_fault_reason or reason or "WORKER_UNRECOVERABLE"
         elif reason == "STALE_DATA" or "STALE_DATA" in reason or "STALE_DATA" in (decision.get("failed_gates") or []):
             stale_count += 1
         else:
@@ -361,15 +365,15 @@ def evaluate_candidate_rows(
     }
 
 
-def _write_ledger_record(decision: Dict[str, Any]) -> Path:
+def _write_ledger_record(decision: Dict[str, Any], *, persist_database: bool = True) -> Path:
     from xiaogu_forward_paper_recorder_v0_1 import append_production_decision
-    path, _record = append_production_decision(decision)
+    path, _record = append_production_decision(decision, persist_database=persist_database)
     return path
 
 
-def _write_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any]:
+def _write_paper_observation(decision: Dict[str, Any], *, persist_database: bool = True) -> Dict[str, Any]:
     from xiaogu_forward_paper_recorder_v0_1 import append_paper_observation
-    _path, record = append_paper_observation(decision)
+    _path, record = append_paper_observation(decision, persist_database=persist_database)
     return {
         "paper_signal_id": record.get("paper_signal_id") or (decision.get("paper_observation") or {}).get("paper_signal_id"),
         "decision_id": record.get("decision_id") or (decision.get("paper_observation") or {}).get("decision_id"),
@@ -987,22 +991,39 @@ def main() -> None:
     if observation_run_id:
         for decision in decisions:
             decision["production_run_id"] = observation_run_id
+    if persist_paper:
+        from xiaogu_db import mark_production_run_status, persist_production_facts
+        try:
+            persist_production_facts(decisions, production_run_id=observation_run_id)
+        except Exception as exc:
+            persist_failures.append({"error": repr(exc), "stage": "PRODUCTION_FACTS"})
+            try:
+                mark_production_run_status(observation_run_id, "FAILED")
+            except Exception:
+                pass
+            persist_paper = False
+            decision_accounting["publishable"] = False
+            decision_accounting["selection_status"] = "ABSTAIN"
+            for decision in decisions:
+                decision["paper_observation"] = None
+                decision["selection_status"] = "ABSTAIN"
     for decision in decisions:
         if persist_paper and (
             decision.get("state") in RECORDABLE_ACTIONS or decision.get("paper_observation")
         ):
             try:
-                decision["ledger_path"] = str(_write_ledger_record(decision))
+                decision["ledger_path"] = str(_write_ledger_record(decision, persist_database=False))
                 recorded += 1
             except Exception as exc:
-                persist_failures.append({"decision_id": decision.get("decision_id"), "error": repr(exc)})
+                persist_failures.append({"decision_id": decision.get("decision_id"), "error": repr(exc), "stage": "AUDIT"})
         if persist_paper and decision.get("paper_observation"):
             try:
-                paper_observations.append(_write_paper_observation(decision))
+                paper_observations.append(_write_paper_observation(decision, persist_database=False))
             except Exception as persist_exc:
                 persist_failures.append({
                     "paper_signal_id": (decision.get("paper_observation") or {}).get("paper_signal_id"),
                     "error": repr(persist_exc),
+                    "stage": "AUDIT",
                 })
     funnel = _block_funnel(
         decisions,
@@ -1058,6 +1079,7 @@ def main() -> None:
         "research_provenance": research_summary["research_provenance"],
         "top3_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top3_flag")),
         "top1_count": sum(1 for decision in decisions if (decision.get("paper_observation") or {}).get("top1_flag")),
+        "full_universe_count": input_count,
         "l0_count": input_count,
         "l1_count": universe.get("eligible_count", 0),
         "l2_count": universe.get("l2_routed_count", 0),
@@ -1066,7 +1088,11 @@ def main() -> None:
         "feature_count": len(decisions),
         "alpha_count": len(decisions),
         "decision_count": len(decisions),
+        "selection_candidate_count": len(decisions),
+        "paper_count": paper_count,
         "paper_observation_count": paper_count,
+        "worker_error_count": decision_accounting.get("error_count", 0),
+        "worker_recovered_count": decision_accounting.get("recovered_count", 0),
         "paper_observations": paper_observations,
         "candidate_universe": universe,
         "execution_universe_count": universe.get("execution_universe_count", 0),
@@ -1104,6 +1130,15 @@ def main() -> None:
     if persist_failures:
         output["scan_status"] = "SCAN_BLOCKED"
         output["scan_reason"] = "PAPER_PERSISTENCE_FAILED"
+        if any(item.get("stage") == "PRODUCTION_FACTS" for item in persist_failures):
+            output["publishable"] = False
+            output["selection_status"] = "ABSTAIN"
+            output["system_fault"] = True
+            output["top1_count"] = 0
+            output["top3_count"] = 0
+            output["paper_count"] = 0
+            output["paper_observation_count"] = 0
+            output["paper_observations"] = []
     if mode == "PRODUCTION" and not args.dry_run:
         from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
         output["daily_memory_path"] = write_daily_paper_memory(

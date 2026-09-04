@@ -1885,6 +1885,10 @@ def record_decision(decision: Dict[str, Any]) -> None:
 
 def record_snapshot_and_decision(snapshot: Dict[str, Any], decision: Dict[str, Any]) -> None:
     """Persist one snapshot and its decision in the same PostgreSQL transaction."""
+    if _ACTIVE_DB_CONNECTION.get() is not None:
+        record_snapshot(snapshot)
+        record_decision(decision)
+        return
     ensure_production_schema()
     with engine.begin() as db:
         token = _ACTIVE_DB_CONNECTION.set(db)
@@ -1893,6 +1897,61 @@ def record_snapshot_and_decision(snapshot: Dict[str, Any], decision: Dict[str, A
             record_decision(decision)
         finally:
             _ACTIVE_DB_CONNECTION.reset(token)
+
+
+def persist_production_facts(
+    decisions: list[Dict[str, Any]],
+    *,
+    production_run_id: str = "",
+) -> None:
+    """Write production decisions and paper observations in one transaction."""
+    ensure_production_schema()
+    with engine.begin() as db:
+        token = _ACTIVE_DB_CONNECTION.set(db)
+        try:
+            for decision in decisions:
+                canonical = decision.get("canonical_snapshot")
+                observation = decision.get("paper_observation")
+                if not isinstance(canonical, dict):
+                    continue
+                if decision.get("state") in {"BUY", "HOLD", "REDUCE", "SELL"} or isinstance(observation, dict):
+                    record_snapshot(canonical)
+                    record_decision(decision)
+                if isinstance(observation, dict):
+                    paper_signal_id = str(observation.get("paper_signal_id") or "")
+                    if paper_signal_id and not paper_observation_exists(paper_signal_id):
+                        record_paper_observation({
+                            **observation,
+                            "canonical_snapshot": canonical,
+                            "trade_date": canonical.get("trade_date") or observation.get("trade_date"),
+                        })
+            run_id = str(production_run_id or "").strip()
+            if run_id and "production_run_id" in _table_columns("production_runs"):
+                db.execute(
+                    text(
+                        "UPDATE production_runs SET status = :status, updated_at = NOW() "
+                        "WHERE production_run_id = :run_id"
+                    ),
+                    {"status": "DECISIONS_PERSISTED", "run_id": run_id},
+                )
+        finally:
+            _ACTIVE_DB_CONNECTION.reset(token)
+
+
+def mark_production_run_status(production_run_id: str, status: str) -> None:
+    run_id = str(production_run_id or "").strip()
+    if not run_id:
+        return
+    with engine.begin() as db:
+        if "production_run_id" not in _table_columns("production_runs"):
+            return
+        db.execute(
+            text(
+                "UPDATE production_runs SET status = :status, updated_at = NOW() "
+                "WHERE production_run_id = :run_id"
+            ),
+            {"status": status, "run_id": run_id},
+        )
 
 
 def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
@@ -2323,7 +2382,8 @@ def fetch_picks() -> List[Dict[str, Any]]:
 
 def record_paper_observation(observation: Dict[str, Any]) -> None:
     """Persist one observation wrapper; it is not a production decision."""
-    ensure_production_schema()
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
     required = (
         "paper_signal_id", "decision_id", "snapshot_id", "lineage_id", "symbol",
         "signal_time", "reference_price", "paper_observation_state",
@@ -2484,8 +2544,9 @@ def paper_observation_exists(paper_signal_id: str) -> bool:
     wanted = str(paper_signal_id or "").strip()
     if not wanted:
         return False
-    ensure_production_schema()
-    with engine.connect() as db:
+    if _ACTIVE_DB_CONNECTION.get() is None:
+        ensure_production_schema()
+    with get_db() as db:
         return bool(db.execute(
             text("SELECT 1 FROM paper_observations WHERE paper_signal_id = :paper_signal_id"),
             {"paper_signal_id": wanted},
@@ -3712,17 +3773,30 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
     for day in (1, 2, 3, 4, 5):
         item = days.get(str(day), days.get(day))
         if not isinstance(item, dict) or not item:
-            settled[str(day)] = {"status": "MISSING"}
+            settled[str(day)] = {
+                "status": "MISSING",
+                "horizon": day,
+                "outcome_id": f"{decision_id}:{day}",
+            }
         else:
-            settled[str(day)] = {"status": item.get("status") or "SETTLED", **item}
+            settled[str(day)] = {
+                **item,
+                "status": item.get("status") or "SETTLED",
+                "horizon": item.get("horizon") or day,
+                "outcome_id": item.get("outcome_id") or f"{decision_id}:{day}",
+            }
     return {
         "decision_id": decision_id,
         "paper_signal_id": payload.get("paper_signal_id"),
         "snapshot_id": payload.get("snapshot_id"),
         "production_run_id": payload.get("production_run_id") or row.get("production_run_id"),
-        "outcome_id": payload.get("outcome_id") or f"{decision_id}:opportunity_5d",
+        "outcome_id": payload.get("outcome_id") or f"{decision_id}:horizon",
+        "horizon_identity": payload.get("horizon_identity") or {
+            str(day): f"{decision_id}:{day}" for day in (1, 2, 3, 4, 5)
+        },
         "status": payload.get("data_status") or "PARTIAL",
         "opportunity_5d": payload.get("opportunity_5d", payload.get("profit_window")),
+        "settled_at": payload.get("outcome_settled_at") or payload.get("settled_at"),
         "days": settled,
     }
 

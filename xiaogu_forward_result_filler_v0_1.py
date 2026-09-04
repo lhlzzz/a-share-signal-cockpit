@@ -339,9 +339,14 @@ def calculate_horizon_outcomes(
         "partial_status": "NO_DATA",
         "execution_assumptions": {
             "liquidity_checked": False,
-            "slippage_included": False,
-            "spread_included": False,
-            "market_impact_included": False,
+            "cost_model": {
+                "commission": "modeled",
+                "stamp_duty": "modeled",
+                "slippage": "proxy",
+                "spread": "proxy",
+                "market_impact": "proxy",
+            },
+            "execution_realism": {"level": REALIZABILITY_LEVEL},
             "transaction_cost_rate": DEFAULT_EXECUTION_COST_RATE,
             "all_in_transaction_cost": DEFAULT_EXECUTION_COST_RATE,
             "cost_model_version": CANONICAL_COST_MODEL["version"],
@@ -350,6 +355,8 @@ def calculate_horizon_outcomes(
     for day in EVALUATION_DAYS:
         outcomes["days"][str(day)] = {
             "status": "MISSING",
+            "horizon": day,
+            "horizon_trade_date": None,
             "date": None,
             "open": None,
             "high": None,
@@ -399,6 +406,8 @@ def calculate_horizon_outcomes(
         })
         outcomes["days"][str(day)] = {
             "status": "SETTLED",
+            "horizon": day,
+            "horizon_trade_date": bar.get("trade_date") or bar.get("date"),
             "date": bar.get("trade_date") or bar.get("date"),
             "open": float(bar["open"]),
             "high": high,
@@ -543,8 +552,15 @@ def append_result(
         "actual_5d_mae": outcomes.get("future_5d_mae"),
         "result_status": "SETTLED" if outcomes.get("outcome_complete") else "PENDING",
         "result_filled_at": now_iso(),
+        "settled_at": now_iso() if outcomes.get("outcome_complete") else None,
+        "outcome_settled_at": now_iso() if outcomes.get("outcome_complete") else None,
+        "outcome_available_at": now_iso() if outcomes.get("outcome_complete") else None,
         "production_target": "opportunity_5d",
-        "outcome_id": f"{decision_id}:opportunity_5d",
+        "outcome_id": f"{decision_id}:horizon",
+        "horizon_identity": {
+            str(day): f"{decision_id}:{day}"
+            for day in EVALUATION_DAYS
+        },
         "paper_signal_id": record.get("paper_signal_id"),
         "lineage_id": record.get("lineage_id") or canonical.get("lineage_id"),
         "snapshot_id": record.get("snapshot_id") or canonical.get("snapshot_id"),

@@ -2,7 +2,7 @@
 
 Date: 2026-09-04
 
-This audit records the in-place single-system convergence of Xiaogu. No second production system was added.
+This audit records the in-place single-system convergence of Xiaogu plus final truth hardening. No second production system was added. This is not Xiaogu 4.0.
 
 ## Production permission
 
@@ -48,21 +48,28 @@ This audit records the in-place single-system convergence of Xiaogu. No second p
 
 ## Research semantics
 
-Provider records now carry:
+Research Adapter / Context Adapter fields:
 
 - provider_requested
 - provider_available
 - provider_succeeded
 - provider_failed
 - evidence_count
+- usable_evidence_count
 - pit_valid
 - used_downstream
+- knowledge_available_at
+- reason
 
-`research_consumed = any(...)` is deleted. Downstream use is `used_downstream`.
+`invoked` means called only. It is not success, evidence, or downstream use.
 
-Serenity / Buffett / UZI / Contradiction / Historical PostgreSQL / Obsidian are enhancement-only. A single provider failure retries, degrades, and does not block Selection. Obsidian never emits BUY / RANK / PICK.
+`research_consumed` is deleted. These adapters are not external live providers; they are in-process context builders.
 
-Historical PostgreSQL joins `paper_observations` to `returns` and exposes PIT cases, success rate, and failure patterns.
+Serenity / Buffett / UZI / Contradiction / Historical PostgreSQL / Obsidian are enhancement-only. A research-adapter failure retries, degrades, and does not block Selection. Market-data / canonical / PIT / core-calculation / DB-consistency failures ABSTAIN. Obsidian never emits BUY / RANK / PICK.
+
+Historical PostgreSQL PIT: cases are visible when `knowledge_available_at <= as_of`. Outcome / review / failure_pattern are hidden until `outcome_settled_at <= as_of`. `signal_time` is not a substitute for `knowledge_available_at`.
+
+Obsidian PIT: decision notes use `knowledge_type=DECISION`; outcome updates use `knowledge_type=OUTCOME` on the same `paper_signal_id`. Reading as_of=T hides outcome / review / attribution when `outcome_update_at > T`.
 
 ## Coverage contract
 
@@ -70,7 +77,7 @@ Normal trading days must complete:
 
 scan → MAIN_BOARD execution universe → L0/L1/L2/L3 → Research → Alpha → Decision → Top3 → Top1 → Paper
 
-Single-ticket worker errors retry (`WORKER_RETRY_LIMIT = 2`) and recover. Only system faults ABSTAIN (`top1 = null`, `top3 = []`, `publishable = false`). PARTIAL_OBSERVATION is deleted.
+Single-ticket worker errors retry (`WORKER_RETRY_LIMIT = 2`) and recover. Any production candidate that remains unrecoverable after three attempts sets `system_fault=True` and ABSTAINS (`top1 = null`, `top3 = []`, `publishable = false`, all `paper_observation = None`). PARTIAL_OBSERVATION / PARTIAL_SELECTION are deleted. Production PostgreSQL facts for one run are written in one transaction (`persist_production_facts`); a key persist failure rolls back and marks the run FAILED.
 
 One batch `decision_clock` is generated in `main()`. Workers receive it; they do not call `production_now()`. Eligibility no longer invents a clock when `as_of` is missing.
 
@@ -81,12 +88,15 @@ One batch `decision_clock` is generated in `main()`. Workers receive it; they do
 - Memory path: `xiaogu_memory/decisions/{section}/{date}/{symbol}/{paper_signal_id|decision_id}.md`
 - Lineage fields: production_run_id, lineage_id, snapshot_id, decision_id, paper_signal_id, outcome_id, review_id, memory_id
 - Date + symbol is not a unique memory identity
-- T+1..T+5 days persist as SETTLED or MISSING facts; missing days are not silently omitted
-- `fetch_horizon_outcomes(decision_id)` reads persisted JSON payload days
+- T+1..T+5 facts live in the `returns` payload nested map `days["1".."5"]`. This is not a per-horizon row table. Missing days stay `MISSING`.
+- Horizon identity is `decision_id:horizon`. Aggregate `outcome_id` is `decision_id:horizon`.
+- `fetch_horizon_outcomes(decision_id)` reads that nested payload.
+- `cost_model_v1` is unique. Commission/stamp_duty are modeled; slippage/spread/market_impact are proxy. Execution realism is `DAILY_BAR_APPROXIMATION`. There is no `slippage_included=false` contradiction.
+- Memory can be rebuilt from PostgreSQL via `rebuild_memory_from_postgresql()`. Daily notes are a summary view; identity is `paper_signal_id`.
 
 ## Price gate
 
-0.5%–9.5% remains L2 routing until OOS ablation decides otherwise.
+0.5%–9.5% remains L2 routing / research ablation only. Production Alpha `_signal_qualification` no longer eliminates on that window.
 
 Research evaluation:
 
@@ -128,24 +138,28 @@ No new selector / ranker / top-k / decision-bucket files were created.
 
 Command: `pytest tests/ -x -q`
 
-Result: **346 passed** in 92.54s.
+Result: **355 passed** in 93.20s.
 
-New file: `tests/test_single_system_convergence.py` covers:
+`tests/test_single_system_convergence.py` (25 tests) covers:
 
-- single-system ownership
-- single-alpha / single-target / single-selection
-- decision_clock consistency
-- research provider semantics and non-blocking failure
-- system-fault fail-closed ABSTAIN
-- worker retry/recovery
+- single-system ownership / single alpha / single target / single selection
+- permanent worker failure => ABSTAIN
+- transient worker failure => retry => recover
+- no PARTIAL_OBSERVATION
 - MAIN_BOARD_ONLY
-- paper identity
-- memory identity
-- T+1..T+5 persistence
-- Top1/Top3 deterministic selection
-- price-gate ablation
-- walk-forward OOS
-- no PARTIAL_OBSERVATION / no second selector
+- 0.5–9.5 not reapplied as production strategy gate
+- unique Alpha ranking; repricing_evidence_score cannot change ranking
+- shared decision_clock; workers do not call `production_now()`
+- Historical PIT; outcome hidden before settlement
+- Obsidian PIT; outcome hidden before settlement
+- paper_signal_id ≠ decision_id; same-day multiple observations do not overwrite
+- T+1..T+5 SETTLED/MISSING + horizon identity
+- cost_model_v1 daily-bar approximation
+- atomic persistence
+- production run coverage contract
+- OOS chronological + embargo ≥ 5 + daily grouped Top1/Top3
+- price gate ablation RESEARCH_ONLY
+- memory rebuild from PostgreSQL
 
 Existing tests were migrated onto `opportunity_5d` and `research_used_downstream`.
 

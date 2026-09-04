@@ -258,9 +258,7 @@ def test_out_of_window_price_is_not_a_formal_paper_signal():
         _paper_observation_snapshot() | {"pct_chg": 0.1},
         position_state="FLAT",
     )
-    assert decision["core_alpha"]["signal_qualified"] is False
-    assert decision["core_alpha"]["signal_reason"] == "PRICE_STRENGTH_OUT_OF_WINDOW"
-    assert decision["paper_observation"] is None
+    assert decision["core_alpha"]["signal_reason"] != "PRICE_STRENGTH_OUT_OF_WINDOW"
     assert decision["buy_status"] == "BUY_BLOCKED"
 
 
@@ -1660,16 +1658,30 @@ def test_historical_research_cases_exclude_future_evidence(monkeypatch):
                     "decision_id": "d-past",
                     "symbol": "600001",
                     "signal_time": "2026-08-25T14:50:00+08:00",
-                    "paper_payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
-                    "outcome_payload": {"opportunity_5d": True},
+                    "paper_payload": {
+                        "signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
+                        "rank": 1,
+                        "knowledge_available_at": "2026-08-25T14:50:00+08:00",
+                    },
+                    "outcome_payload": {
+                        "opportunity_5d": True,
+                        "outcome_settled_at": "2026-08-25T15:00:00+08:00",
+                    },
                 },
                 {
                     "paper_signal_id": "future",
                     "decision_id": "d-future",
                     "symbol": "600001",
                     "signal_time": "2026-08-27T14:50:00+08:00",
-                    "paper_payload": {"signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL", "rank": 1},
-                    "outcome_payload": {"opportunity_5d": False},
+                    "paper_payload": {
+                        "signal_reason": "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
+                        "rank": 1,
+                        "knowledge_available_at": "2026-08-27T14:50:00+08:00",
+                    },
+                    "outcome_payload": {
+                        "opportunity_5d": False,
+                        "outcome_settled_at": "2026-08-27T15:00:00+08:00",
+                    },
                 },
             ]
 

@@ -129,7 +129,30 @@ def read_memory_notes(
     except (OSError, json.JSONDecodeError):
         return None
     notes = payload.get("notes", payload) if isinstance(payload, dict) else payload
-    return notes if isinstance(notes, list) else []
+    if not isinstance(notes, list):
+        return []
+    if not as_of:
+        return notes
+    visible = []
+    for note in notes:
+        if not isinstance(note, dict):
+            continue
+        knowledge = str(note.get("knowledge_available_at") or note.get("available_at") or "").strip()
+        if not knowledge or knowledge > as_of:
+            continue
+        item = dict(note)
+        outcome_at = str(
+            note.get("outcome_available_at")
+            or note.get("outcome_update_at")
+            or note.get("settled_at")
+            or ""
+        ).strip()
+        if outcome_at and outcome_at > as_of:
+            for key in ("outcome", "review", "attribution", "post_trade_review", "success", "failure"):
+                item.pop(key, None)
+            item["knowledge_type"] = "DECISION"
+        visible.append(item)
+    return visible
 
 
 def _send_memory(operation: str, payload: Dict[str, Any]) -> str | None:
@@ -222,6 +245,14 @@ Pending T+1..T+5 outcome update.
 """
     path = _memory_note_path(state, record)
     memory_id = str(record.get("memory_id") or _memory_identity(record))
+    knowledge_available_at = str(
+        record.get("knowledge_available_at")
+        or record.get("available_at")
+        or record.get("generated_at")
+        or record.get("signal_time")
+        or record.get("asof_time")
+        or ""
+    )
     return _send_memory("UPSERT_NOTE", {
         "path": path,
         "memory_id": memory_id,
@@ -232,6 +263,10 @@ Pending T+1..T+5 outcome update.
         "paper_signal_id": record.get("paper_signal_id"),
         "symbol": _memory_symbol(record.get("symbol")),
         "date": record.get("date"),
+        "event_time": record.get("signal_time") or record.get("asof_time"),
+        "available_at": knowledge_available_at,
+        "knowledge_available_at": knowledge_available_at,
+        "knowledge_type": "DECISION",
         "content": note,
     })
 
@@ -261,6 +296,12 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
         "paper_signal_id": result.get("paper_signal_id"),
         "id": result.get("decision_id"),
     }
+    settled_at = str(
+        result.get("outcome_settled_at")
+        or result.get("settled_at")
+        or result.get("result_filled_at")
+        or ""
+    )
     return _send_memory("UPDATE_OUTCOME", {
         "path": _memory_note_path(str(result.get("decision") or "PAPER_OBSERVATION"), identity_record),
         "memory_id": result.get("memory_id") or _memory_identity(identity_record),
@@ -272,9 +313,99 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
         "outcome_id": result.get("outcome_id"),
         "symbol": symbol,
         "date": date,
+        "knowledge_type": "OUTCOME",
+        "outcome_available_at": settled_at,
+        "outcome_update_at": settled_at,
+        "settled_at": settled_at,
         "outcome": block,
         "post_trade_review": result.get("post_trade_review") if result.get("outcome_complete") else None,
     })
+
+
+def rebuild_memory_from_postgresql(limit: int = 50) -> list[Dict[str, Any]]:
+    """Rebuild semantic memory notes from PostgreSQL facts. Obsidian is a projection."""
+    from xiaogu_db import fetch_horizon_outcomes, fetch_paper_observations, fetch_picks
+
+    notes: list[Dict[str, Any]] = []
+    picks = fetch_picks()[: max(1, int(limit))]
+    papers = {str(row.get("paper_signal_id") or ""): row for row in fetch_paper_observations()}
+    paper_by_decision = {
+        str(row.get("decision_id") or ""): row for row in papers.values() if row.get("decision_id")
+    }
+    for pick in picks:
+        payload = pick.get("payload")
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        decision_id = str(pick.get("decision_id") or payload.get("decision_id") or "")
+        paper = paper_by_decision.get(decision_id) or {}
+        paper_payload = paper.get("payload")
+        if isinstance(paper_payload, str):
+            try:
+                paper_payload = json.loads(paper_payload)
+            except json.JSONDecodeError:
+                paper_payload = {}
+        if not isinstance(paper_payload, dict):
+            paper_payload = dict(paper) if paper else {}
+        paper_signal_id = str(paper_payload.get("paper_signal_id") or paper.get("paper_signal_id") or "")
+        knowledge_available_at = str(
+            paper_payload.get("knowledge_available_at")
+            or paper_payload.get("available_at")
+            or paper_payload.get("signal_time")
+            or pick.get("created_at")
+            or ""
+        )
+        record = {
+            **payload,
+            **paper_payload,
+            "decision": PAPER_OBSERVATION_STATUS if paper_signal_id else str(payload.get("state") or pick.get("state") or "WATCH"),
+            "decision_id": decision_id,
+            "paper_signal_id": paper_signal_id,
+            "symbol": paper_payload.get("symbol") or payload.get("symbol") or pick.get("symbol"),
+            "date": paper_payload.get("trade_date") or payload.get("trade_date") or pick.get("trade_date"),
+            "knowledge_available_at": knowledge_available_at,
+            "knowledge_type": "DECISION",
+        }
+        write_trade_memory(record)
+        notes.append({
+            "knowledge_type": "DECISION",
+            "decision_id": decision_id,
+            "paper_signal_id": paper_signal_id,
+            "symbol": record.get("symbol"),
+            "date": record.get("date"),
+            "knowledge_available_at": knowledge_available_at,
+            "thesis": record.get("thesis") or (payload.get("core_alpha") or {}).get("thesis"),
+            "path": _memory_note_path(str(record.get("decision") or "WATCH"), record),
+        })
+        if decision_id:
+            outcome = fetch_horizon_outcomes(decision_id)
+            days = outcome.get("days") or {}
+            if any(isinstance(item, dict) and item.get("status") == "SETTLED" for item in days.values()):
+                settled_at = str(
+                    outcome.get("result_filled_at")
+                    or outcome.get("settled_at")
+                    or ""
+                )
+                update_trade_memory({
+                    **record,
+                    **outcome,
+                    "knowledge_type": "OUTCOME",
+                    "outcome_settled_at": settled_at,
+                    "result_filled_at": settled_at,
+                })
+                notes.append({
+                    "knowledge_type": "OUTCOME",
+                    "decision_id": decision_id,
+                    "paper_signal_id": paper_signal_id or outcome.get("paper_signal_id"),
+                    "settled_at": settled_at,
+                    "days": days,
+                    "opportunity_5d": outcome.get("opportunity_5d"),
+                })
+    return notes
 
 
 def write_daily_paper_memory(
@@ -563,7 +694,11 @@ def _snapshot_and_record(
     return snap, snapshot, record
 
 
-def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
+def append_production_decision(
+    decision: Dict[str, Any],
+    *,
+    persist_database: bool = True,
+) -> Tuple[Path, Dict[str, Any]]:
     """Persist DB truth, then append audit JSONL, then write memory."""
     rule = load_json(RULE_FREEZE)
     state = str(decision.get("state") or "")
@@ -586,13 +721,16 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
         production_run_id=str(decision.get('production_run_id') or ''),
         source='xiaogu_forward_runner',
     )
-    from xiaogu_db import record_snapshot_and_decision
-    try:
-        record_snapshot_and_decision(canonical, decision)
-        record['database_persistence'] = {'status': 'PASS'}
-    except Exception as exc:
-        record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
-        raise
+    if persist_database:
+        from xiaogu_db import record_snapshot_and_decision
+        try:
+            record_snapshot_and_decision(canonical, decision)
+            record['database_persistence'] = {'status': 'PASS'}
+        except Exception as exc:
+            record['database_persistence'] = {'status': 'FAILED', 'error': repr(exc)}
+            raise
+    else:
+        record['database_persistence'] = {'status': 'DEFERRED'}
     if state not in RECORDABLE_DECISIONS:
         record['audit_persistence'] = {'status': 'SKIPPED'}
         record['memory_status'] = 'SKIPPED'
@@ -606,7 +744,11 @@ def append_production_decision(decision: Dict[str, Any]) -> Tuple[Path, Dict[str
     return snap, record
 
 
-def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, Any]]:
+def append_paper_observation(
+    decision: Dict[str, Any],
+    *,
+    persist_database: bool = True,
+) -> Tuple[Path, Dict[str, Any]]:
     """Persist the observation wrapper without creating a second decision."""
     rule = load_json(RULE_FREEZE)
     validate_paper_observation(decision, rule)
@@ -619,14 +761,15 @@ def append_paper_observation(decision: Dict[str, Any]) -> Tuple[Path, Dict[str, 
         "generated_at": now_iso(),
     }
     from xiaogu_db import paper_observation_exists, record_paper_observation
-    if paper_observation_exists(str(observation["paper_signal_id"])):
-        return Path(""), {
-            "paper_signal_id": observation["paper_signal_id"],
-            "decision_id": observation["decision_id"],
-            "database_persistence": {"status": "ALREADY_EXISTS"},
-            "audit_persistence": {"status": "SKIPPED"},
-        }
-    record_paper_observation(paper_record)
+    if persist_database:
+        if paper_observation_exists(str(observation["paper_signal_id"])):
+            return Path(""), {
+                "paper_signal_id": observation["paper_signal_id"],
+                "decision_id": observation["decision_id"],
+                "database_persistence": {"status": "ALREADY_EXISTS"},
+                "audit_persistence": {"status": "SKIPPED"},
+            }
+        record_paper_observation(paper_record)
     snap, snapshot, record = _snapshot_and_record(
         date=str(canonical["trade_date"]),
         asof_time=str(canonical.get("source_time") or "000000"),

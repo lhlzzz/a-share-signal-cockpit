@@ -221,6 +221,11 @@ def test_parallel_decision_keeps_input_order_and_isolates_rows(monkeypatch):
     assert decisions[1]["reason"].startswith("WORKER_ERROR")
     assert accounting["error_count"] == 1
     assert accounting["success_count"] == 2
+    assert accounting["selection_status"] == "ABSTAIN"
+    assert accounting["publishable"] is False
+    assert accounting["top1"] is None
+    assert accounting["top3"] == []
+    assert all(item.get("paper_observation") is None for item in decisions)
     assert rows[0] == originals[0]
     assert "_mutated" not in rows[0]
 

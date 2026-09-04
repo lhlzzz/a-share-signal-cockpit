@@ -1303,19 +1303,34 @@ def evaluate_price_gate_ablation(rows: Sequence[Dict[str, Any]]) -> Dict[str, An
         if not labels:
             return None
         return sum(labels) / len(labels)
+    gated_daily = _daily_grouped_hit_rates(gated)
+    ungated_daily = _daily_grouped_hit_rates(all_rows)
+    gated_rate = _rate(gated)
+    ungated_rate = _rate(all_rows)
     return {
         "status": "RESEARCH_ONLY",
         "production_frozen": False,
         "WITH_GATE": {
             "samples": len(gated),
-            "opportunity_rate": _rate(gated),
-            "daily": _daily_grouped_hit_rates(gated),
+            "coverage": gated_daily.get("coverage"),
+            "top1_hit_rate": gated_daily.get("top1_hit_rate"),
+            "top3_hit_rate": gated_daily.get("top3_hit_rate"),
+            "opportunity_rate": gated_rate,
+            "stability": gated_daily.get("days"),
+            "daily": gated_daily,
         },
         "WITHOUT_GATE": {
             "samples": len(all_rows),
-            "opportunity_rate": _rate(all_rows),
-            "daily": _daily_grouped_hit_rates(all_rows),
+            "coverage": ungated_daily.get("coverage"),
+            "top1_hit_rate": ungated_daily.get("top1_hit_rate"),
+            "top3_hit_rate": ungated_daily.get("top3_hit_rate"),
+            "opportunity_rate": ungated_rate,
+            "stability": ungated_daily.get("days"),
+            "daily": ungated_daily,
         },
+        "baseline_delta": (
+            None if gated_rate is None or ungated_rate is None else gated_rate - ungated_rate
+        ),
     }
 
 
