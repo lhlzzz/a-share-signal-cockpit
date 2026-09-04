@@ -1165,6 +1165,29 @@ def test_completed_outcome_is_immutable():
             connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
 
 
+def _official_synthetic_row(*, trade_date: str, symbol: str, rank: int, **extra) -> dict:
+    paper_signal_id = extra.pop("paper_signal_id", f"paper-{trade_date}-{symbol}")
+    decision_id = extra.pop("decision_id", f"decision-{trade_date}-{symbol}")
+    row = {
+        "paper_signal_id": paper_signal_id,
+        "decision_id": decision_id,
+        "production_run_id": extra.pop("production_run_id", f"run-{trade_date}"),
+        "snapshot_id": extra.pop("snapshot_id", f"snap-{trade_date}-{symbol}"),
+        "lineage_id": extra.pop("lineage_id", f"lineage-{trade_date}"),
+        "production_alpha": "profit_window_alpha_5d_v4",
+        "production_target": "opportunity_5d",
+        "trade_date": trade_date,
+        "symbol": symbol,
+        "rank": rank,
+        "top1_flag": rank == 1,
+        "top3_flag": rank in {1, 2, 3},
+        "paper_only": True,
+        "live_order": False,
+    }
+    row.update(extra)
+    return row
+
+
 def test_official_observation_oos_and_dashboard_do_not_select():
     from xiaogu_alpha_truth import build_observation_truth_report
     from xiaogu_horizon_evaluation import evaluate_official_observations
@@ -1179,48 +1202,43 @@ def test_official_observation_oos_and_dashboard_do_not_select():
 
     rows = []
     for day in range(1, 8):
-        rows.append({
-            "trade_date": f"2026-08-{day:02d}",
-            "symbol": "600001",
-            "rank": 1,
-            "top1_flag": True,
-            "top3_flag": True,
-            "opportunity_5d": day % 2 == 0,
-            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03 if day % 2 == 0 else 0.0} for horizon in range(1, 6)},
-            "max_mae_5d": -0.01,
-            "future_5d_mfe": 0.04,
-            "realized_return": 0.01,
-            "market_baseline": 0.002,
-            "selection_score": 0.7,
-        })
-        rows.append({
-            "trade_date": f"2026-08-{day:02d}",
-            "symbol": "600002",
-            "rank": 2,
-            "top1_flag": False,
-            "top3_flag": True,
-            "opportunity_5d": False,
-            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.0} for horizon in range(1, 6)},
-            "max_mae_5d": -0.02,
-            "future_5d_mfe": 0.01,
-            "realized_return": -0.01,
-            "market_baseline": 0.002,
-            "selection_score": 0.4,
-        })
-        rows.append({
-            "trade_date": f"2026-08-{day:02d}",
-            "symbol": "600003",
-            "rank": 3,
-            "top1_flag": False,
-            "top3_flag": True,
-            "opportunity_5d": True,
-            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
-            "max_mae_5d": -0.015,
-            "future_5d_mfe": 0.05,
-            "realized_return": 0.02,
-            "market_baseline": 0.002,
-            "selection_score": 0.5,
-        })
+        trade_date = f"2026-08-{day:02d}"
+        rows.append(_official_synthetic_row(
+            trade_date=trade_date,
+            symbol="600001",
+            rank=1,
+            opportunity_5d=day % 2 == 0,
+            days={str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03 if day % 2 == 0 else 0.0} for horizon in range(1, 6)},
+            max_mae_5d=-0.01,
+            future_5d_mfe=0.04,
+            realized_return=0.01,
+            market_baseline=0.002,
+            selection_score=0.7,
+        ))
+        rows.append(_official_synthetic_row(
+            trade_date=trade_date,
+            symbol="600002",
+            rank=2,
+            opportunity_5d=False,
+            days={str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.0} for horizon in range(1, 6)},
+            max_mae_5d=-0.02,
+            future_5d_mfe=0.01,
+            realized_return=-0.01,
+            market_baseline=0.002,
+            selection_score=0.4,
+        ))
+        rows.append(_official_synthetic_row(
+            trade_date=trade_date,
+            symbol="600003",
+            rank=3,
+            opportunity_5d=True,
+            days={str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
+            max_mae_5d=-0.015,
+            future_5d_mfe=0.05,
+            realized_return=0.02,
+            market_baseline=0.002,
+            selection_score=0.5,
+        ))
     stats = evaluate_official_observations(rows)
     assert stats["status"] == "DATA_INSUFFICIENT"
     assert stats["top1"]["sample_count"] == 7
@@ -1236,17 +1254,16 @@ def test_official_observation_oos_and_dashboard_do_not_select():
     for index in range(40):
         month = 6 if index < 30 else 7
         day = (index % 30) + 1 if month == 6 else (index - 29)
-        many.append({
-            "trade_date": f"2026-{month:02d}-{day:02d}",
-            "symbol": "600001",
-            "rank": 1,
-            "top1_flag": True,
-            "top3_flag": True,
-            "opportunity_5d": True,
-            "days": {str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
-            "max_daily_bar_profit_opportunity_5d": 0.03,
-            "selection_score": 0.6,
-        })
+        trade_date = f"2026-{month:02d}-{day:02d}"
+        many.append(_official_synthetic_row(
+            trade_date=trade_date,
+            symbol="600001",
+            rank=1,
+            opportunity_5d=True,
+            days={str(horizon): {"status": "SETTLED", "horizon": horizon, "daily_bar_profit_opportunity": 0.03} for horizon in range(1, 6)},
+            max_daily_bar_profit_opportunity_5d=0.03,
+            selection_score=0.6,
+        ))
     experimental = evaluate_official_observations(many)
     assert experimental["status"] == "EXPERIMENTAL"
     assert experimental["status"] != "QUALIFIED"
@@ -1274,3 +1291,230 @@ def test_postgres_is_observation_source_of_truth(monkeypatch):
     report = build_observation_truth_report(rows)
     assert report["no_real_oos_evidence_yet"] is True
     assert report["sample_size"] == 0
+
+
+def test_coverage_merge_preserves_existing_scoring_snapshot():
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603881", 3.0, lineage_id="phase21-coverage-merge")
+    )
+    scan_dir = "data/test/phase21_coverage_merge"
+    run_id = db.insert_scan_session(
+        trade_date=snapshot["trade_date"],
+        scan_time=snapshot["source_time"],
+        source_id="phase21_coverage_merge",
+        quotes_count=3,
+        captured_count=3,
+        scan_dir=scan_dir,
+        lineage_id=snapshot["lineage_id"],
+    )
+    existing = {
+        "model": "profit_window_alpha_5d_v4",
+        "alpha_version": "profit_window_alpha_5d_v4",
+        "target": "opportunity_5d",
+        "target_version": "opportunity_5d",
+        "provenance": {"source": "eastmoney_api_scan_v2"},
+        "scoring_metadata": {"owner": "xiaogu_core_alpha.build_core_alpha"},
+    }
+    try:
+        with db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE production_runs SET scoring_config_snapshot = CAST(:payload AS jsonb) "
+                    "WHERE production_run_id = :run_id"
+                ),
+                {"payload": json.dumps(existing, ensure_ascii=False), "run_id": run_id},
+            )
+        db.record_production_run_coverage(
+            run_id,
+            {
+                "scan_count": 3,
+                "execution_universe_count": 1,
+                "research_count": 1,
+                "alpha_count": 1,
+                "decision_count": 1,
+                "top3_count": 1,
+                "top1_count": 1,
+                "paper_count": 1,
+                "system_fault": False,
+                "publishable": True,
+            },
+        )
+        with db.engine.connect() as connection:
+            stored = connection.execute(
+                text(
+                    "SELECT scoring_config_snapshot FROM production_runs "
+                    "WHERE production_run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            ).scalar()
+        stored = stored if isinstance(stored, dict) else json.loads(stored)
+        assert stored["model"] == "profit_window_alpha_5d_v4"
+        assert stored["alpha_version"] == "profit_window_alpha_5d_v4"
+        assert stored["target"] == "opportunity_5d"
+        assert stored["target_version"] == "opportunity_5d"
+        assert stored["provenance"]["source"] == "eastmoney_api_scan_v2"
+        assert stored["scoring_metadata"]["owner"] == "xiaogu_core_alpha.build_core_alpha"
+        assert stored["observation_layer"] is True
+        assert stored["influences_selection"] is False
+        assert stored["influences_alpha"] is False
+        assert stored["influences_buy"] is False
+        assert stored["observation_coverage"]["scan_count"] == 3
+        fetched = db.fetch_production_run_coverage(run_id)
+        assert fetched["scan_count"] == 3
+        assert fetched["influences_selection"] is False
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
+
+
+def test_official_observation_requires_production_provenance():
+    import xiaogu_db as db
+
+    unranked = {
+        "paper_signal_id": "dump-1",
+        "decision_id": "dump-decision",
+        "symbol": "600000",
+        "rank": None,
+        "production_alpha": "price_strength",
+    }
+    fixture = {
+        "paper_signal_id": "fixture-1",
+        "decision_id": "fixture-decision",
+        "snapshot_id": "fixture-snap",
+        "lineage_id": "fixture-lineage",
+        "rank": 1,
+        "top1_flag": True,
+        "top3_flag": True,
+        "production_alpha": "profit_window_alpha_5d_v4",
+        "production_target": "opportunity_5d",
+    }
+    official = {
+        "paper_signal_id": "official-paper",
+        "decision_id": "official-decision",
+        "production_run_id": "official-run",
+        "snapshot_id": "official-snap",
+        "lineage_id": "official-lineage",
+        "rank": 1,
+        "top1_flag": True,
+        "top3_flag": True,
+        "production_alpha": "profit_window_alpha_5d_v4",
+        "production_target": "opportunity_5d",
+        "paper_only": True,
+        "live_order": False,
+    }
+    assert db.has_official_observation_provenance(unranked) is False
+    assert db.has_official_observation_provenance(fixture) is False
+    assert db.has_official_observation_provenance(official) is True
+    assert db.has_official_observation_provenance(
+        official, require_persisted_run=True, run_status="SNAPSHOT_CAPTURED"
+    ) is False
+    assert db.has_official_observation_provenance(
+        official, require_persisted_run=True, run_status="DECISIONS_PERSISTED"
+    ) is True
+    live_official = db.fetch_official_paper_observations()
+    assert all(db.has_official_observation_provenance(row, require_persisted_run=False) for row in live_official)
+    assert all(row.get("production_run_id") for row in live_official)
+    assert all(row.get("paper_signal_id") != row.get("decision_id") for row in live_official)
+
+
+def test_first_official_observation_production_path():
+    import xiaogu_db as db
+    from sqlalchemy import text
+
+    db.ensure_production_schema()
+    lineage_id = "phase21-first-official-lineage"
+    scan_dir = "data/test/phase21_first_official"
+    clock = datetime(2026, 8, 26, 7, 0, tzinfo=timezone.utc)
+    snapshots = [
+        validate_and_build_canonical_snapshot(
+            _snapshot(symbol, pct, lineage_id=lineage_id)
+        )
+        for symbol, pct in (("603871", 1.0), ("603872", 5.0), ("603873", 3.0), ("603874", 4.0))
+    ]
+    run_id = db.insert_scan_session(
+        trade_date="2026-08-26",
+        scan_time="2026-08-26T14:50:00+08:00",
+        source_id="phase21_first_official",
+        quotes_count=len(snapshots),
+        captured_count=len(snapshots),
+        scan_dir=scan_dir,
+        lineage_id=lineage_id,
+    )
+    paper_ids = []
+    decision_ids = []
+    snapshot_ids = [item["snapshot_id"] for item in snapshots]
+    try:
+        for snapshot in snapshots:
+            db.record_snapshot(snapshot)
+        decisions, accounting = evaluate_candidate_rows(
+            snapshots,
+            portfolio_state="WATCH",
+            mode="PRODUCTION",
+            trade_date="2026-08-26",
+            workers=1,
+            decision_clock=clock,
+        )
+        assert accounting["system_fault"] is False
+        assert accounting["publishable"] is True
+        for decision in decisions:
+            decision["production_run_id"] = run_id
+            observation = decision.get("paper_observation")
+            if isinstance(observation, dict):
+                observation["production_run_id"] = run_id
+                decision["paper_observation"] = observation
+                paper_ids.append(observation["paper_signal_id"])
+                decision_ids.append(decision["decision_id"])
+        ranked = [
+            decision["paper_observation"]
+            for decision in decisions
+            if decision.get("paper_observation")
+        ]
+        assert len(ranked) >= 1
+        assert any(item.get("top1_flag") is True and item.get("rank") == 1 for item in ranked)
+        assert all(item.get("top3_flag") is True for item in ranked)
+        assert all(item.get("rank") in {1, 2, 3} for item in ranked)
+        db.persist_production_facts(
+            decisions,
+            production_run_id=run_id,
+            coverage={
+                "scan_count": len(snapshots),
+                "execution_universe_count": len(snapshots),
+                "research_count": len(decisions),
+                "alpha_count": len(decisions),
+                "decision_count": len(decisions),
+                "top3_count": sum(1 for item in ranked if item.get("top3_flag")),
+                "top1_count": sum(1 for item in ranked if item.get("top1_flag")),
+                "paper_count": len(ranked),
+                "system_fault": False,
+                "publishable": True,
+                "selection_status": "SELECTED",
+            },
+        )
+        run = db.fetch_production_run(run_id)
+        assert run is not None
+        assert run["status"] == "DECISIONS_PERSISTED"
+        official = [
+            row for row in db.fetch_official_paper_observations()
+            if row.get("production_run_id") == run_id
+        ]
+        assert official
+        assert all(row["paper_signal_id"] != row["decision_id"] for row in official)
+        assert any(row.get("top1_flag") is True for row in official)
+        assert all(row.get("production_alpha") == "profit_window_alpha_5d_v4" for row in official)
+        assert all(row.get("production_target") == "opportunity_5d" for row in official)
+        assert all(row.get("rank") in {1, 2, 3} for row in official)
+    finally:
+        with db.engine.begin() as connection:
+            for paper_id in paper_ids:
+                connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper_id})
+            for decision_id in decision_ids:
+                connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            for snapshot_id in snapshot_ids:
+                connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot_id})
+            connection.execute(text("DELETE FROM production_runs WHERE production_run_id = :run_id"), {"run_id": run_id})
+            connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
