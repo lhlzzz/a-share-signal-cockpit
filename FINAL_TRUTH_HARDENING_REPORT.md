@@ -170,11 +170,15 @@ There is no `ace319d` hardening SHA in this tree.
 
 Baseline: `9ac06ed1c3eb6bd75b9868af085bcba104280c66`
 
-This micro-hardening commit SHA is recorded after git commit. It does not change production owners.
+Micro-hardening: `81ab00252a6149fcd1c6112219344a2006cc7675`
+
+`fix: fail-closed PIT, usable evidence, and outcome identity`
+
+This does not change production owners.
 
 ## 14. git status
 
-Working tree is dirty until the micro-hardening commit. After that commit, `main` is ahead of `origin/main`. Not pushed unless requested.
+`main` is ahead of `origin/main`. Working tree is clean after this report SHA update. Not pushed unless requested.
 
 ## 15. Remaining risks
 
