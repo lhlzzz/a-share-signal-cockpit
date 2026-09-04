@@ -556,6 +556,37 @@ def _research_summary(decisions: list[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "research_used_downstream_count": used_downstream,
         "research_provenance": list(provenance.values()),
+        "research_count": sum(
+            1 for decision in decisions if isinstance(decision.get("research_context"), dict)
+        ),
+    }
+
+
+def _observation_coverage(
+    *,
+    input_count: int,
+    universe: Dict[str, Any],
+    decisions: list[Dict[str, Any]],
+    decision_accounting: Dict[str, Any],
+    research_summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    papers = [decision for decision in decisions if isinstance(decision.get("paper_observation"), dict)]
+    return {
+        "scan_count": input_count,
+        "execution_universe_count": universe.get("execution_universe_count", 0),
+        "research_count": research_summary.get("research_count", 0),
+        "alpha_count": len(decisions),
+        "decision_count": len(decisions),
+        "top3_count": sum(1 for decision in papers if (decision.get("paper_observation") or {}).get("top3_flag")),
+        "top1_count": sum(1 for decision in papers if (decision.get("paper_observation") or {}).get("top1_flag")),
+        "paper_count": len(papers),
+        "system_fault": bool(decision_accounting.get("system_fault", False)),
+        "publishable": decision_accounting.get("publishable"),
+        "selection_status": decision_accounting.get("selection_status"),
+        "l0_count": input_count,
+        "l1_count": universe.get("eligible_count", 0),
+        "l2_count": universe.get("l2_routed_count", 0),
+        "l3_count": universe.get("l3_count", 0),
     }
 
 
@@ -991,10 +1022,22 @@ def main() -> None:
     if observation_run_id:
         for decision in decisions:
             decision["production_run_id"] = observation_run_id
+    research_summary = _research_summary(decisions)
+    coverage = _observation_coverage(
+        input_count=input_count,
+        universe=universe,
+        decisions=decisions,
+        decision_accounting=decision_accounting,
+        research_summary=research_summary,
+    )
     if persist_paper:
         from xiaogu_db import mark_production_run_status, persist_production_facts
         try:
-            persist_production_facts(decisions, production_run_id=observation_run_id)
+            persist_production_facts(
+                decisions,
+                production_run_id=observation_run_id,
+                coverage=coverage,
+            )
         except Exception as exc:
             persist_failures.append({"error": repr(exc), "stage": "PRODUCTION_FACTS"})
             try:
@@ -1007,6 +1050,24 @@ def main() -> None:
             for decision in decisions:
                 decision["paper_observation"] = None
                 decision["selection_status"] = "ABSTAIN"
+            coverage = _observation_coverage(
+                input_count=input_count,
+                universe=universe,
+                decisions=decisions,
+                decision_accounting=decision_accounting,
+                research_summary=research_summary,
+            )
+            try:
+                from xiaogu_db import record_production_run_coverage
+                record_production_run_coverage(observation_run_id, coverage)
+            except Exception:
+                pass
+    elif observation_run_id and mode == "PRODUCTION" and not args.dry_run:
+        try:
+            from xiaogu_db import record_production_run_coverage
+            record_production_run_coverage(observation_run_id, coverage)
+        except Exception:
+            pass
     for decision in decisions:
         if persist_paper and (
             decision.get("state") in RECORDABLE_ACTIONS or decision.get("paper_observation")
@@ -1033,7 +1094,6 @@ def main() -> None:
     qualified_signal_count = sum(
         1 for decision in decisions if (decision.get("core_alpha") or {}).get("signal_qualified") is True
     )
-    research_summary = _research_summary(decisions)
     if not persist_paper:
         paper_observations = [
             record
@@ -1108,6 +1168,9 @@ def main() -> None:
         "selection_status": decision_accounting.get("selection_status"),
         "publishable": decision_accounting.get("publishable"),
         "system_fault": decision_accounting.get("system_fault", False),
+        "scan_count": coverage.get("scan_count", input_count),
+        "research_count": coverage.get("research_count", 0),
+        "observation_coverage": coverage,
         "sample_accounting": {
             "full_universe_count": input_count,
             "l1_count": universe.get("eligible_count", 0),
@@ -1139,6 +1202,13 @@ def main() -> None:
             output["paper_count"] = 0
             output["paper_observation_count"] = 0
             output["paper_observations"] = []
+            coverage["publishable"] = False
+            coverage["selection_status"] = "ABSTAIN"
+            coverage["system_fault"] = True
+            coverage["top1_count"] = 0
+            coverage["top3_count"] = 0
+            coverage["paper_count"] = 0
+            output["observation_coverage"] = coverage
     if mode == "PRODUCTION" and not args.dry_run:
         from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory
         output["daily_memory_path"] = write_daily_paper_memory(

@@ -1903,6 +1903,7 @@ def persist_production_facts(
     decisions: list[Dict[str, Any]],
     *,
     production_run_id: str = "",
+    coverage: Dict[str, Any] | None = None,
 ) -> None:
     """Write production decisions and paper observations in one transaction."""
     ensure_production_schema()
@@ -1927,12 +1928,11 @@ def persist_production_facts(
                         })
             run_id = str(production_run_id or "").strip()
             if run_id and "production_run_id" in _table_columns("production_runs"):
-                db.execute(
-                    text(
-                        "UPDATE production_runs SET status = :status, updated_at = NOW() "
-                        "WHERE production_run_id = :run_id"
-                    ),
-                    {"status": "DECISIONS_PERSISTED", "run_id": run_id},
+                _write_production_run_coverage(
+                    db,
+                    run_id,
+                    coverage,
+                    status="DECISIONS_PERSISTED",
                 )
         finally:
             _ACTIVE_DB_CONNECTION.reset(token)
@@ -1952,6 +1952,53 @@ def mark_production_run_status(production_run_id: str, status: str) -> None:
             ),
             {"status": status, "run_id": run_id},
         )
+
+
+def _observation_coverage_payload(coverage: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    if not isinstance(coverage, dict):
+        return None
+    return {
+        "observation_coverage": coverage,
+        "observation_layer": True,
+        "influences_selection": False,
+        "influences_alpha": False,
+        "influences_buy": False,
+    }
+
+
+def _write_production_run_coverage(
+    db: Any,
+    run_id: str,
+    coverage: Dict[str, Any] | None,
+    *,
+    status: str | None = None,
+) -> None:
+    columns = _table_columns("production_runs")
+    if "production_run_id" not in columns:
+        return
+    payload = _observation_coverage_payload(coverage)
+    assignments = ["updated_at = NOW()"]
+    params: Dict[str, Any] = {"run_id": run_id}
+    if status:
+        assignments.append("status = :status")
+        params["status"] = status
+    if payload is not None and "scoring_config_snapshot" in columns:
+        assignments.append("scoring_config_snapshot = CAST(:coverage AS jsonb)")
+        params["coverage"] = json.dumps(payload, ensure_ascii=False, default=str)
+    db.execute(
+        text(f"UPDATE production_runs SET {', '.join(assignments)} WHERE production_run_id = :run_id"),
+        params,
+    )
+
+
+def record_production_run_coverage(production_run_id: str, coverage: Dict[str, Any]) -> None:
+    """Persist observation-funnel counts on an existing production_runs row. Not a second fact table."""
+    run_id = str(production_run_id or "").strip()
+    if not run_id:
+        return
+    ensure_production_schema()
+    with engine.begin() as db:
+        _write_production_run_coverage(db, run_id, coverage)
 
 
 def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
@@ -2360,6 +2407,171 @@ def fetch_production_run(run_id: str) -> Dict[str, Any] | None:
             {"run_id": run_id},
         ).mappings().first()
     return dict(row) if row else None
+
+
+def _json_payload(value: Any) -> Dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if str(value).strip().lower() in {"true", "1"}:
+        return True
+    if str(value).strip().lower() in {"false", "0"}:
+        return False
+    return None
+
+
+def _coverage_from_run_row(row: Dict[str, Any] | None) -> Dict[str, Any]:
+    row = row or {}
+    snapshot = _json_payload(row.get("scoring_config_snapshot"))
+    coverage = snapshot.get("observation_coverage")
+    coverage = dict(coverage) if isinstance(coverage, dict) else {}
+    run_id = str(row.get("production_run_id") or "")
+    return {
+        "production_run_id": run_id or None,
+        "trade_date": str(row.get("trade_date") or coverage.get("trade_date") or "") or None,
+        "lineage_id": row.get("lineage_id") or coverage.get("lineage_id"),
+        "status": row.get("status"),
+        "run_mode": row.get("run_mode"),
+        "scan_count": _int_or_none(coverage.get("scan_count")),
+        "execution_universe_count": _int_or_none(coverage.get("execution_universe_count")),
+        "research_count": _int_or_none(coverage.get("research_count")),
+        "alpha_count": _int_or_none(coverage.get("alpha_count")),
+        "decision_count": _int_or_none(coverage.get("decision_count")),
+        "top3_count": _int_or_none(coverage.get("top3_count")),
+        "top1_count": _int_or_none(coverage.get("top1_count")),
+        "paper_count": _int_or_none(coverage.get("paper_count")),
+        "system_fault": _bool_or_none(coverage.get("system_fault")),
+        "publishable": _bool_or_none(coverage.get("publishable")),
+        "selection_status": coverage.get("selection_status"),
+        "influences_selection": False,
+        "source": "production_runs.scoring_config_snapshot.observation_coverage",
+    }
+
+
+def fetch_production_run_coverage(production_run_id: str) -> Dict[str, Any]:
+    """Read observation-funnel counts for one production_run. Query-only."""
+    run = fetch_production_run(production_run_id)
+    if not run:
+        return {
+            "production_run_id": str(production_run_id or "") or None,
+            "status": "MISSING",
+            "scan_count": None,
+            "execution_universe_count": None,
+            "research_count": None,
+            "alpha_count": None,
+            "decision_count": None,
+            "top3_count": None,
+            "top1_count": None,
+            "paper_count": None,
+            "system_fault": None,
+            "publishable": None,
+            "influences_selection": False,
+        }
+    return _coverage_from_run_row(run)
+
+
+def fetch_official_paper_observations() -> List[Dict[str, Any]]:
+    """Official Top1/Top3 paper observations only. Unranked dumps are not OOS evidence."""
+    rows = []
+    for row in fetch_paper_observations():
+        payload = _json_payload(row.get("payload"))
+        merged = {**payload, **{key: value for key, value in row.items() if key != "payload"}}
+        rank = merged.get("rank")
+        try:
+            rank = int(rank) if rank is not None and rank != "" else None
+        except (TypeError, ValueError):
+            rank = None
+        if merged.get("top1_flag") is True or merged.get("top3_flag") is True or rank in {1, 2, 3}:
+            rows.append(merged)
+    return rows
+
+
+def fetch_paper_observation_ledger(paper_signal_id: str) -> Dict[str, Any]:
+    """Join one paper_signal_id to decision identity and T+1..T+5 facts."""
+    wanted = str(paper_signal_id or "").strip()
+    if not wanted:
+        raise ValueError("PAPER_SIGNAL_ID_REQUIRED")
+    ensure_production_schema()
+    with engine.connect() as db:
+        row = db.execute(
+            text(
+                "SELECT * FROM paper_observations WHERE paper_signal_id = :paper_signal_id"
+            ),
+            {"paper_signal_id": wanted},
+        ).mappings().first()
+    if not row:
+        return {"paper_signal_id": wanted, "status": "MISSING"}
+    observation = {**_json_payload(row.get("payload")), **{key: value for key, value in dict(row).items() if key != "payload"}}
+    decision_id = str(observation.get("decision_id") or "")
+    horizons = fetch_horizon_outcomes(decision_id) if decision_id else {
+        "decision_id": "",
+        "outcome_id": "",
+        "days": {
+            str(day): {"status": "MISSING", "horizon": day, "horizon_outcome_id": f":{day}"}
+            for day in (1, 2, 3, 4, 5)
+        },
+    }
+    days = horizons.get("days") if isinstance(horizons.get("days"), dict) else {}
+    settled = all(str((days.get(str(day)) or {}).get("status") or "") == "SETTLED" for day in (1, 2, 3, 4, 5))
+    hit = horizons.get("opportunity_5d")
+    return {
+        "paper_signal_id": wanted,
+        "decision_id": decision_id or None,
+        "snapshot_id": observation.get("snapshot_id"),
+        "lineage_id": observation.get("lineage_id"),
+        "production_run_id": observation.get("production_run_id"),
+        "trade_date": str(observation.get("trade_date") or str(observation.get("signal_time") or "")[:10] or "") or None,
+        "symbol": observation.get("symbol"),
+        "alpha_id": observation.get("production_alpha") or observation.get("alpha_version") or "profit_window_alpha_5d_v4",
+        "model_id": observation.get("production_alpha") or "profit_window_alpha_5d_v4",
+        "selection_score": observation.get("selection_score") or observation.get("alpha_score"),
+        "target": observation.get("production_target") or "opportunity_5d",
+        "rank": observation.get("rank"),
+        "top1_flag": bool(observation.get("top1_flag")),
+        "top3_flag": bool(observation.get("top3_flag")),
+        "decision_clock": observation.get("decision_clock"),
+        "knowledge_available_at": observation.get("knowledge_available_at"),
+        "paper_state": observation.get("paper_observation_state"),
+        "T+1": days.get("1") or {"status": "MISSING", "horizon": 1},
+        "T+2": days.get("2") or {"status": "MISSING", "horizon": 2},
+        "T+3": days.get("3") or {"status": "MISSING", "horizon": 3},
+        "T+4": days.get("4") or {"status": "MISSING", "horizon": 4},
+        "T+5": days.get("5") or {"status": "MISSING", "horizon": 5},
+        "outcome_status": horizons.get("status") or ("SETTLED" if settled else "MISSING"),
+        "outcome_settled_at": horizons.get("settled_at"),
+        "hit": hit,
+        "MAE": horizons.get("mae") if horizons.get("mae") is not None else (
+            (days.get("5") or {}).get("mae") if isinstance(days.get("5"), dict) else None
+        ),
+        "MFE": horizons.get("mfe") if horizons.get("mfe") is not None else (
+            (days.get("5") or {}).get("mfe") if isinstance(days.get("5"), dict) else None
+        ),
+        "realized_return": horizons.get("realized_return") if horizons.get("realized_return") is not None else (
+            (days.get("5") or {}).get("net_return") if isinstance(days.get("5"), dict) else None
+        ),
+        "market_baseline": None,
+        "regime": observation.get("regime"),
+        "influences_selection": False,
+    }
 
 
 def upsert_scan_market_data(scan_session_id: int, trade_date: Any, scan_time: Any, results: Dict[str, Any], diagnostics: Dict[str, Any]) -> int:
@@ -3809,6 +4021,9 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
         "status": payload.get("data_status") or "PARTIAL",
         "opportunity_5d": payload.get("opportunity_5d", payload.get("profit_window")),
         "settled_at": payload.get("outcome_settled_at") or payload.get("settled_at"),
+        "mae": payload.get("max_mae_5d"),
+        "mfe": payload.get("future_5d_mfe") or payload.get("max_mfe_5d"),
+        "realized_return": payload.get("realized_return_5d") or payload.get("future_5d_net_return"),
         "days": settled,
     }
 
