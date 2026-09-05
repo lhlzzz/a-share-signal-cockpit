@@ -15,9 +15,14 @@ managed outside this repository.
 Start the query API with `bash start_api.sh`.
 
 ```bash
+bash daily_pipeline.sh
+```
+
+`daily_pipeline.sh` is one trading-day production pipeline: real-market capture → Production Decision → Top1/Top3 paper observation → T+1..T+5 fill. It is not a morning or afternoon ticket. `xiaogu_scheduler.py` only runs post-close horizon fill and position review. There is no fixed production clock; freshness is `source_time` versus `production_now()` within 120 minutes on a trading date.
+
+```bash
 python3 scrapy_scanner/runner_v2.py
 python3 xiaogu_forward_runner.py --date $(date +%Y-%m-%d) --mode PRODUCTION
-python3 xiaogu_scheduler.py
 ```
 
 `--snapshot-json` is blocked in PRODUCTION. Production reads DB-verified trusted canonical snapshots and uses the actual production decision clock from `production_now()`, not `source_time`. Replay may use a historical clock. Position Review evaluates the current trade-date snapshot (`review_snapshot_id`), never the original entry snapshot. `persisted` means PostgreSQL verification, not a local file flag. JSONL is audit only.

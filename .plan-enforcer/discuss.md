@@ -22,7 +22,7 @@
 - HC1: `selection_score` 必须可追溯到唯一 Production Alpha + 合法 tie-breaker（validated probability / confidence / risk / execution / timestamp / symbol）。禁止 `mean(capital, supply, repricing...)`。
 - HC2: Alpha 未 VALIDATED 时 Top1 仍可 Paper，但必须标记 diagnostic / unvalidated，不能装成已校准概率。
 - HC3: Research 每个 provider 要有 requested / available / succeeded / failed / evidence_count / usable_evidence_count / used_by_*。`invoked=true` 不是消费证明。
-- HC4: 同一 symbol 同一日 09:25 与 14:30 是两个 observation；Memory / Daily note 不得覆盖。
+- HC4: 同一交易日最多一个 official production observation batch。SCAN ATTEMPT 不是 official ticket。Memory / Daily note 按 `paper_signal_id` 身份，不得按 symbol+date 覆盖。
 - HC5: Outcome 按 `paper_signal_id → decision_id → snapshot_id → production_run_id` 绑定。禁止 `symbol+date` 作为唯一身份。
 - HC6: Historical / Memory 只进 Research Context 与 OOS；不能直接 BUY 或直接 Top1。
 - HC7: `opportunity_5d` 是唯一生产命中定义。不得再把 close-path / net_close / realizable_trade_return 当作第二生产标准或兼容模式。诊断字段若保留，不得进入 Alpha、Selection、Paper validation、OOS。

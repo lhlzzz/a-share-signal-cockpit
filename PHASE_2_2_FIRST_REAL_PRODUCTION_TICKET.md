@@ -53,12 +53,12 @@ t1_t5_persisted = false
 - MAX_STALENESS: 120 minutes
 - freshness result: **NOT_APPLICABLE** — calendar blocked before a production observation
 
-2026-09-04 morning scan `source_time = 2026-09-04T09:25:00+08:00`. Against the current clock that age is far beyond 120 minutes. Reusing it would be `STALE_DATA`. It was not reused.
+Historical 2026-09-04 09:25 capture `source_time = 2026-09-04T09:25:00+08:00` is a SCAN ATTEMPT, not an official production observation. Against the current clock that age is far beyond 120 minutes. Reusing it would be `STALE_DATA`. It was not reused. 09:25 is a historical event time, not a production clock.
 
 ## 3. Coverage
 
-| Field | 2026-09-04 morning | 2026-09-04 afternoon | 2026-09-05 pipeline |
-|-------|--------------------|----------------------|---------------------|
+| Field | 2026-09-04 09:25 attempt (historical) | 2026-09-04 later capture (missing) | 2026-09-05 pipeline |
+|-------|----------------------------------------|-------------------------------------|---------------------|
 | universe | stock_all_a observed 5909 | empty directory | not captured |
 | production_scan | BLOCKED | no `scan_summary.json` | BLOCKED |
 | block_reason | `CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548` | missing scan | `NON_TRADING_DAY` |
@@ -69,7 +69,7 @@ t1_t5_persisted = false
 | stale count | 0 (never reached workers) | 0 | 0 |
 | run_id | none (persist SKIPPED) | none | none |
 
-`CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548` is still the 2026-09-04 morning fact.
+`CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548` is still the 2026-09-04 09:25 SCAN ATTEMPT fact.
 Fetch itself reported 5909 rows / 60 pages / `status=PASS`, but every ACTIVE_REQUIRED
 row (5548) failed completeness: volume/amount/main_net_inflow were `"-"` at 09:25,
 before the continuous session. Scanner fail-closed. That blocker was **not**
@@ -98,7 +98,7 @@ NO OFFICIAL TICKET. Top1 was not invented.
 - decision_id: none
 - production_run_id: none
 - snapshot_id: none
-- lineage_id: none (2026-09-04 morning lineage `2632e16a...` is a blocked scan, not a production observation)
+- lineage_id: none (2026-09-04 09:25 lineage `2632e16a...` is a blocked SCAN ATTEMPT, not an official production observation)
 - alpha: `profit_window_alpha_5d_v4` (unchanged owner; no live observation used it)
 - target: `opportunity_5d` (unchanged)
 - rank: none
@@ -152,8 +152,8 @@ OOS still needs chronological accumulation after official Top1/Top3 settle throu
 
 ## Blockers (honest)
 
-1. **2026-09-04 morning scan incomplete.** `CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548` at 09:25+08, before continuous quotes. Persist skipped. No `production_run_id`.
-2. **2026-09-04 afternoon scan missing.** `data/live_scan/2026-09-04/eastmoney_scan_afternoon/` is empty. No `scan_summary.json`.
+1. **2026-09-04 09:25 SCAN ATTEMPT incomplete.** `CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548` at 09:25+08, before continuous quotes. Persist skipped. No `production_run_id`. This is not an official ticket.
+2. **2026-09-04 later real-market capture missing.** Historical directory `data/live_scan/2026-09-04/eastmoney_scan_afternoon/` is empty (name is a past artifact). Current pipeline uses `eastmoney_scan`. No `scan_summary.json`.
 3. **Current clock is Saturday 2026-09-05.** Calendar owner returns FALSE. `daily_pipeline.sh` therefore blocks with `NON_TRADING_DAY`.
 4. **Freshness.** Any reuse of the 09:25 9/4 source against `production_now()` is `STALE_DATA`. Freshness policy was not loosened.
 

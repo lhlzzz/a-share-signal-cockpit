@@ -75,7 +75,8 @@ realized return. Missing days stay `MISSING`. `paper_signal_id != decision_id`.
 - ONE GATE: `evaluate_production_gates`
 - ONE SELECTION: `attach_top_paper_observations`
 - ONE PAPER / ONE OUTCOME / ONE PostgreSQL / ONE Obsidian memory
-- ONE CLOCK: `main()` batch `decision_clock`
+- ONE CLOCK: `main()` batch `decision_clock` from `production_now()`; no fixed 14:30 / morning / afternoon strategy clock
+- ONE DAILY SCAN: one official production observation batch per trading date
 - EXECUTION UNIVERSE: MAIN_BOARD_ONLY
 - BUY BLOCKED / LIVE DISABLED
 - Mode remains PAPER_OBSERVATION, not LIVE_TRADING
@@ -106,7 +107,7 @@ Live-owner static scan (`xiaogu_*.py` + scanner):
 
 ## Next real evidence, not next module
 
-Wait for a normal trading day that:
+Wait for a normal trading-day real-market scan (not a 14:30 ticket) that:
 
 1. Captures a trusted scan
 2. Persists `DECISIONS_PERSISTED` with official Top1/Top3

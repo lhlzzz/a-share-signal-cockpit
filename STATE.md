@@ -2,7 +2,7 @@
 
 Date: 2026-09-05
 
-Phase 2.2 ran the current production command on the real clock. 2026-09-04 did not produce an official paper observation: **NO_OFFICIAL_PRODUCTION_TICKET**. Saturday 2026-09-05 is `NON_TRADING_DAY`. See `PHASE_2_2_FIRST_REAL_PRODUCTION_TICKET.md`. Alpha status remains DATA_INSUFFICIENT. **NO_REAL_OOS_EVIDENCE_YET**.
+Phase 2.3 locked the production contract: one trading day has one real-market scan, one Production Decision, and at most one official Top1/Top3 paper observation. There is no fixed clock. Time rules are trading calendar plus `source_time` freshness ≤ 120 minutes versus `production_now()`. 2026-09-04 remains **NO_OFFICIAL_PRODUCTION_TICKET** and was not backfilled. Saturday 2026-09-05 is `NON_TRADING_DAY`. See `PHASE_2_3_PRODUCTION_CONTRACT_CLEANUP.md`. Alpha status remains DATA_INSUFFICIENT. **NO_REAL_OOS_EVIDENCE_YET**.
 
 ## Production permission
 
@@ -22,7 +22,7 @@ Phase 2.2 ran the current production command on the real clock. 2026-09-04 did n
 | Selection | `xiaogu_portfolio_decision.attach_top_paper_observations` |
 | Decision | `xiaogu_portfolio_decision.evaluate_candidate_bundle` |
 | Gates | `xiaogu_portfolio_decision.evaluate_production_gates` |
-| Clock | one batch `decision_clock` from `xiaogu_forward_runner.main()` via `production_now()`; workers do not call `production_now()` |
+| Clock | one batch `decision_clock` from `xiaogu_forward_runner.main()` via `production_now()`; workers do not call `production_now()`. No morning/afternoon/14:30 production clock. |
 | Calendar | `xiaogu_db.py` |
 | Paper | `xiaogu_forward_paper_recorder_v0_1.py` |
 | Outcome | `xiaogu_forward_result_filler_v0_1.py` |
@@ -44,6 +44,8 @@ This is a daily-bar approximation, not a fill simulator.
 
 ## Tests
 
-`python -m pytest tests/ -q --tb=line` → 372 passed.
+`python -m pytest tests/ -q --tb=line` → 378 passed.
 
-Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. Live 2026-09-04 ticket: **NO_OFFICIAL_PRODUCTION_TICKET**. See `PHASE_2_2_FIRST_REAL_PRODUCTION_TICKET.md`.
+Official settled Top1/Top3 `sample_count` = 0. Alpha status remains DATA_INSUFFICIENT. Live 2026-09-04 ticket: **NO_OFFICIAL_PRODUCTION_TICKET**. See `PHASE_2_3_PRODUCTION_CONTRACT_CLEANUP.md`.
+
+Production ticket = T-day investment research observation, not a same-day short-term buy print. Outcome = whether `opportunity_5d` appears on T+1..T+5.

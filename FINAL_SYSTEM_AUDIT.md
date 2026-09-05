@@ -73,9 +73,11 @@ Obsidian PIT: decision notes use `knowledge_type=DECISION`; outcome updates use 
 
 ## Coverage contract
 
-Normal trading days must complete:
+One trading day has one official production observation:
 
-scan → MAIN_BOARD execution universe → L0/L1/L2/L3 → Research → Alpha → Decision → Top3 → Top1 → Paper
+real-market scan → MAIN_BOARD execution universe → L0/L1/L2/L3 → Research → Alpha → Decision → Top3 → Top1 → Paper
+
+There is no morning/afternoon/14:30 production clock. Freshness is `source_time` versus `production_now()` within 120 minutes on a trading date. A blocked or stale scan attempt is not an official ticket.
 
 Single-ticket worker errors retry (`WORKER_RETRY_LIMIT = 2`) and recover. Any production candidate that remains unrecoverable after three attempts sets `system_fault=True` and ABSTAINS (`top1 = null`, `top3 = []`, `publishable = false`, all `paper_observation = None`). PARTIAL_OBSERVATION / PARTIAL_SELECTION are deleted. Production PostgreSQL facts for one run are written in one transaction (`persist_production_facts`); a key persist failure rolls back and marks the run FAILED.
 
@@ -152,7 +154,7 @@ Result: **362 passed** in 94.06s (command: `python -m pytest tests/ -x -q --tb=l
 - shared decision_clock; workers do not call `production_now()`
 - Historical PIT; outcome hidden before settlement
 - Obsidian PIT; outcome hidden before settlement
-- paper_signal_id ≠ decision_id; same-day multiple observations do not overwrite
+- paper_signal_id ≠ decision_id; one trade_date has at most one official production observation batch
 - T+1..T+5 SETTLED/MISSING + horizon identity
 - cost_model_v1 daily-bar approximation
 - atomic persistence

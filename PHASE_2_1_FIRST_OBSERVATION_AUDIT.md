@@ -48,7 +48,7 @@ which runs:
 
 ```bash
 python3 scripts/xiaogu_ensure_database.py
-python3 scrapy_scanner/runner_v2.py --output-dir data/live_scan/${DATE}/eastmoney_scan_afternoon
+python3 scrapy_scanner/runner_v2.py --output-dir data/live_scan/${DATE}/eastmoney_scan
 python3 xiaogu_forward_runner.py --date ${DATE} --scan-dir ${SCAN_DIR}
 python3 xiaogu_forward_result_filler_v0_1.py --due --end-date ${DATE} --timeout-seconds 90
 ```
@@ -142,9 +142,9 @@ No 2026-09-04 `production_runs` row.
 2. Operator production summary: 3191 MAIN_BOARD L3 candidates, **3191
    STALE_DATA**, `paper_observation_count=0`, `recorded=0`, scan_status
    `NO_SIGNAL` / `NO_PAPER_OBSERVATION`.
-3. Source time on the PASS afternoon scan is `2026-09-03T15:24:25+08:00`.
+3. Source time on the PASS 2026-09-03 scan is `2026-09-03T15:24:25+08:00`.
    Production freshness is `MAX_STALENESS = 120 minutes` against
-   `production_now()`. A later operator/intraday run is outside the window.
+   `production_now()`. A later operator run against that source is stale.
 4. `DECISIONS_PERSISTED` did not exist as a live status writer until Phase 2
    (`persist_production_facts`). 2026-09-03 could not have received it.
 5. The 6797 unranked papers are a dump (`price_strength`, no rank). They are
@@ -219,10 +219,12 @@ Code defects found and fixed this round (not Alpha, not Selection math):
 
 Blockers:
 
-- Morning scan `data/live_scan/2026-09-04/eastmoney_scan_morning`:
-  `production_scan=BLOCKED`,
+- Historical 2026-09-04 09:25 capture under `eastmoney_scan_morning` (directory
+  name is a past artifact, not a production clock): `production_scan=BLOCKED`,
   `CRITICAL_SOURCE_INCOMPLETE:stock_all_a:5548`, persist SKIPPED, no run_id.
-- Afternoon scan directory exists and is **empty** (no `scan_summary.json`).
+  That is a SCAN ATTEMPT, not an official production observation.
+- Historical `eastmoney_scan_afternoon` directory exists and is **empty**
+  (no `scan_summary.json`). Current pipeline uses `eastmoney_scan`.
 - Reusing 2026-09-03 snapshots against the current clock would be STALE.
 - No missing PostgreSQL, no missing calendar year, no invented credential
   blocker. The missing piece is a complete, fresh, trusted T-day scan inside
@@ -308,7 +310,7 @@ Full `tests/` suite is recorded in STATE.md after the run completes.
 
 ## Next real evidence
 
-Wait for a normal trading-day afternoon scan that:
+Wait for a normal trading-day real-market scan that:
 
 1. Completes `stock_all_a` and other critical sources
 2. Persists trusted snapshots with `production_scan=PASS`
