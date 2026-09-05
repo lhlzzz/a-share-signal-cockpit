@@ -1425,6 +1425,9 @@ def test_daily_pipeline_persists_canonical_snapshots_before_production_runner():
     assert pipeline.index("scrapy_scanner/runner_v2.py") < pipeline.index("--scan-dir")
     assert "--due" in pipeline
     assert "fill_pending" not in pipeline
+    assert "eastmoney_scan_afternoon" not in pipeline
+    assert "eastmoney_scan_morning" not in pipeline
+    assert 'SCAN_DIR="data/live_scan/${DATE}/eastmoney_scan"' in pipeline
 
 
 def test_canonical_future_prices_are_immutable_facts():

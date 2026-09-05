@@ -315,30 +315,30 @@ def test_production_never_uses_latest_snapshot_fallback():
         assert "max(matched" not in source
 
 
-def test_intraday_observation_does_not_reuse_stale_same_day_lineage():
+def test_stale_same_day_lineage_is_not_current_production_input():
     from xiaogu_forward_snapshot import select_production_observation_snapshots
 
-    overnight = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-am", source_time="2026-09-03T02:11:41+08:00")
-    afternoon = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-pm", source_time="2026-09-03T14:40:00+08:00")
+    stale = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-stale", source_time="2026-09-03T02:11:41+08:00")
+    fresh = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-fresh", source_time="2026-09-03T14:40:00+08:00")
     clock = datetime.fromisoformat("2026-09-03T14:50:00+08:00")
     selected = select_production_observation_snapshots(
-        [overnight, afternoon], trade_date="2026-09-03", decision_clock=clock,
+        [stale, fresh], trade_date="2026-09-03", decision_clock=clock,
     )
     assert len(selected) == 1
-    assert selected[0]["lineage_id"] == "lin-pm"
+    assert selected[0]["lineage_id"] == "lin-fresh"
     assert selected[0]["source_time"] != "2026-09-03T02:11:41+08:00"
 
 
 def test_stale_only_observation_is_not_current_production_input():
     from xiaogu_forward_snapshot import select_production_observation_snapshots
 
-    overnight = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-am", source_time="2026-09-03T02:11:41+08:00")
+    stale = _snapshot(symbol="600001", trade_date="2026-09-03", lineage_id="lin-stale-only", source_time="2026-09-03T02:11:41+08:00")
     clock = datetime.fromisoformat("2026-09-03T14:50:00+08:00")
     with pytest.raises(ValueError, match="CANONICAL_SNAPSHOT_NOT_FOUND"):
-        select_production_observation_snapshots([overnight], trade_date="2026-09-03", decision_clock=clock)
+        select_production_observation_snapshots([stale], trade_date="2026-09-03", decision_clock=clock)
     with pytest.raises(ValueError, match="STALE_DATA"):
         select_production_observation_snapshots(
-            [overnight], trade_date="2026-09-03", lineage_id="lin-am", decision_clock=clock,
+            [stale], trade_date="2026-09-03", lineage_id="lin-stale-only", decision_clock=clock,
         )
 
 
@@ -361,69 +361,69 @@ def test_same_day_production_observations_persist_separately():
     import xiaogu_db as db
 
     db.ensure_production_schema()
-    overnight = _snapshot(
+    first = _snapshot(
         symbol="601234",
         trade_date="2026-07-02",
-        lineage_id="test-p0-lin-am",
+        lineage_id="test-p0-lin-first",
         source_time="2026-07-02T02:11:41+08:00",
     )
-    afternoon = _snapshot(
+    second = _snapshot(
         symbol="601234",
         trade_date="2026-07-02",
-        lineage_id="test-p0-lin-pm",
+        lineage_id="test-p0-lin-second",
         source_time="2026-07-02T15:24:25+08:00",
     )
-    overnight_decision = {
-        "decision_id": "test-p0-am-ready-601234",
+    first_decision = {
+        "decision_id": "test-p0-first-ready-601234",
         "symbol": "601234",
         "trade_date": "2026-07-02",
         "state": "READY",
         "position_state": "FLAT",
-        "snapshot_id": overnight["snapshot_id"],
-        "lineage_id": overnight["lineage_id"],
-        "canonical_snapshot": overnight,
+        "snapshot_id": first["snapshot_id"],
+        "lineage_id": first["lineage_id"],
+        "canonical_snapshot": first,
     }
-    afternoon_decision = {
-        "decision_id": "test-p0-pm-ready-601234",
+    second_decision = {
+        "decision_id": "test-p0-second-ready-601234",
         "symbol": "601234",
         "trade_date": "2026-07-02",
         "state": "READY",
         "position_state": "FLAT",
-        "snapshot_id": afternoon["snapshot_id"],
-        "lineage_id": afternoon["lineage_id"],
-        "production_run_id": "test-p0-run-pm",
-        "canonical_snapshot": afternoon,
+        "snapshot_id": second["snapshot_id"],
+        "lineage_id": second["lineage_id"],
+        "production_run_id": "test-p0-run-second",
+        "canonical_snapshot": second,
     }
     with db.engine.begin() as connection:
         connection.execute(text(
-            "DELETE FROM picks WHERE decision_id IN ('test-p0-am-ready-601234', 'test-p0-pm-ready-601234')"
+            "DELETE FROM picks WHERE decision_id IN ('test-p0-first-ready-601234', 'test-p0-second-ready-601234')"
         ))
         connection.execute(text(
-            "DELETE FROM snapshots WHERE lineage_id IN ('test-p0-lin-am', 'test-p0-lin-pm')"
+            "DELETE FROM snapshots WHERE lineage_id IN ('test-p0-lin-first', 'test-p0-lin-second')"
         ))
     try:
-        db.record_snapshot(overnight)
-        db.record_snapshot(afternoon)
-        db.record_decision(overnight_decision)
-        db.record_decision(afternoon_decision)
-        db.record_decision(afternoon_decision)
+        db.record_snapshot(first)
+        db.record_snapshot(second)
+        db.record_decision(first_decision)
+        db.record_decision(second_decision)
+        db.record_decision(second_decision)
         with db.engine.connect() as connection:
             rows = connection.execute(text(
                 "SELECT decision_id, production_run_id FROM picks "
-                "WHERE decision_id IN ('test-p0-am-ready-601234', 'test-p0-pm-ready-601234') "
+                "WHERE decision_id IN ('test-p0-first-ready-601234', 'test-p0-second-ready-601234') "
                 "ORDER BY decision_id"
             )).fetchall()
         assert [(row[0], row[1]) for row in rows] == [
-            ("test-p0-am-ready-601234", None),
-            ("test-p0-pm-ready-601234", "test-p0-run-pm"),
+            ("test-p0-first-ready-601234", None),
+            ("test-p0-second-ready-601234", "test-p0-run-second"),
         ]
     finally:
         with db.engine.begin() as connection:
             connection.execute(text(
-                "DELETE FROM picks WHERE decision_id IN ('test-p0-am-ready-601234', 'test-p0-pm-ready-601234')"
+                "DELETE FROM picks WHERE decision_id IN ('test-p0-first-ready-601234', 'test-p0-second-ready-601234')"
             ))
             connection.execute(text(
-                "DELETE FROM snapshots WHERE lineage_id IN ('test-p0-lin-am', 'test-p0-lin-pm')"
+                "DELETE FROM snapshots WHERE lineage_id IN ('test-p0-lin-first', 'test-p0-lin-second')"
             ))
 
 
