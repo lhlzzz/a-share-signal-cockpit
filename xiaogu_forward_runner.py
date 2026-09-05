@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Production orchestration: canonical snapshot to one portfolio decision."""
+"""Production orchestration: one T-day real-market observation to one decision batch."""
 from __future__ import annotations
 
 import argparse
@@ -615,6 +615,7 @@ def _emit_json(payload: Dict[str, Any]) -> None:
 def _empty_observation_output(trade_date: str, reason: str, *, scan_status: str = "SCAN_BLOCKED") -> Dict[str, Any]:
     output = {"date": trade_date, "mode": "PRODUCTION", "count": 0, "recorded": 0,
               "scan_status": scan_status, "scan_reason": reason,
+              "observation_kind": "SCAN_ATTEMPT",
               "l0_count": None, "l1_count": None, "l2_count": None, "l3_count": None,
               "canonical_count": None, "feature_count": None, "alpha_count": None,
               "decision_count": None, "paper_observation_count": None, "paper_observations": [],
@@ -1123,6 +1124,13 @@ def main() -> None:
         "recorded": recorded,
         "scan_status": scan_status,
         "scan_reason": scan_reason,
+        "observation_kind": (
+            "SCAN_ATTEMPT"
+            if scan_status in {"SCAN_BLOCKED", "STALE_DATA"}
+            else "OFFICIAL_PRODUCTION_OBSERVATION"
+            if persist_paper and paper_count > 0
+            else "NO_OFFICIAL_PRODUCTION_OBSERVATION"
+        ),
         "production_run_id": observation_run_id or None,
         "lineage_id": observation_lineage_id or (canonical_rows[0].get("lineage_id") if canonical_rows else None),
         "source_time": source_time or None,

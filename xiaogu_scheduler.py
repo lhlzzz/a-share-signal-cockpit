@@ -1,4 +1,8 @@
-"""Scheduler for scanner, portfolio decision, and horizon evaluation."""
+"""Post-close calendar-gated horizon fill and position review.
+
+Production capture is `bash daily_pipeline.sh`. This module does not define a
+scan clock, morning window, or afternoon ticket.
+"""
 from __future__ import annotations
 
 import subprocess
@@ -28,16 +32,6 @@ def _run(*args: str) -> None:
     subprocess.run([sys.executable, *args], cwd=BASE, check=True)
 
 
-def job_morning_scan() -> None:
-    if is_trading_day():
-        _run("scrapy_scanner/runner_v2.py", "--output-dir", f"data/live_scan/{datetime.now(TZ):%F}/eastmoney_scan_morning")
-
-
-def job_afternoon_scan_and_pick() -> None:
-    if is_trading_day():
-        subprocess.run(["bash", "daily_pipeline.sh", f"{datetime.now(TZ):%F}"], cwd=BASE, check=True)
-
-
 def job_horizon_evaluation() -> None:
     if not is_trading_day():
         return
@@ -48,8 +42,6 @@ def job_horizon_evaluation() -> None:
 def main() -> None:
     is_trading_day()
     scheduler = BlockingScheduler(timezone=TZ)
-    scheduler.add_job(job_morning_scan, CronTrigger(hour=9, minute=25, timezone=TZ))
-    scheduler.add_job(job_afternoon_scan_and_pick, CronTrigger(hour=14, minute=30, timezone=TZ))
     scheduler.add_job(job_horizon_evaluation, CronTrigger(hour=20, minute=0, timezone=TZ))
     scheduler.start()
 

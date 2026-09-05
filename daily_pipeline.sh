@@ -5,8 +5,9 @@ WORKSPACE="${XIAOGU_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 cd "$WORKSPACE"
 export PYTHONPATH="$WORKSPACE${PYTHONPATH:+:$PYTHONPATH}"
 export XIAOGU_PERSIST_DB=1
+# One trading-day production pipeline. Directory name is capture identity, not a clock.
 DATE="${1:-$(date +%F)}"
-SCAN_DIR="data/live_scan/${DATE}/eastmoney_scan_afternoon"
+SCAN_DIR="data/live_scan/${DATE}/eastmoney_scan"
 
 python3 scripts/xiaogu_ensure_database.py
 python3 scrapy_scanner/runner_v2.py --output-dir "$SCAN_DIR"

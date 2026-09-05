@@ -43,6 +43,8 @@ CALENDAR_DATASET_DIR = Path(__file__).resolve().parent / "data" / "trading_calen
 CALENDAR_DATASET_PATH: Path | None = None
 SCHEMA_VERSION = "xiaogu_production_schema_v6"
 PRODUCTION_SCAN_BLOCKED = "PRODUCTION_SCAN_BLOCKED"
+OFFICIAL_PRODUCTION_OBSERVATION_EXISTS = "OFFICIAL_PRODUCTION_OBSERVATION_EXISTS"
+OFFICIAL_PRODUCTION_OBSERVATION_AMBIGUOUS = "OFFICIAL_PRODUCTION_OBSERVATION_AMBIGUOUS"
 MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
 MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
 HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
@@ -1911,6 +1913,8 @@ def persist_production_facts(
         token = _ACTIVE_DB_CONNECTION.set(db)
         try:
             run_id = str(production_run_id or "").strip()
+            if run_id and _incoming_official_observation(decisions):
+                _assert_one_official_production_observation(run_id, decisions)
             for decision in decisions:
                 canonical = decision.get("canonical_snapshot")
                 observation = decision.get("paper_observation")
@@ -2506,6 +2510,70 @@ def fetch_production_run_coverage(production_run_id: str) -> Dict[str, Any]:
 OFFICIAL_PRODUCTION_ALPHA = "profit_window_alpha_5d_v4"
 OFFICIAL_PRODUCTION_TARGET = "opportunity_5d"
 OFFICIAL_PRODUCTION_RUN_STATUS = "DECISIONS_PERSISTED"
+
+
+def _trade_date_from_run_or_decisions(
+    production_run_id: str,
+    decisions: Iterable[Dict[str, Any]] | None = None,
+) -> str:
+    run = fetch_production_run(production_run_id) or {}
+    value = str(run.get("trade_date") or "")[:10]
+    if value:
+        return value
+    for decision in decisions or ():
+        value = str(decision.get("trade_date") or "")[:10]
+        if value:
+            return value
+        canonical = decision.get("canonical_snapshot") or {}
+        if isinstance(canonical, dict):
+            value = str(canonical.get("trade_date") or "")[:10]
+            if value:
+                return value
+    return ""
+
+
+def fetch_official_production_run_id(trade_date: str) -> str | None:
+    """Return the unique official production_run_id for one trade_date, if any.
+
+    Official identity is DECISIONS_PERSISTED plus official Top1/Top3 provenance.
+    SNAPSHOT_CAPTURED, SCAN_BLOCKED, and STALE_DATA attempts are not official.
+    """
+    wanted = str(trade_date or "")[:10]
+    if not wanted:
+        return None
+    run_ids = sorted({
+        str(row.get("production_run_id") or "").strip()
+        for row in fetch_official_paper_observations()
+        if str(row.get("trade_date") or "")[:10] == wanted
+    })
+    run_ids = [item for item in run_ids if item]
+    if not run_ids:
+        return None
+    if len(run_ids) > 1:
+        raise RuntimeError(f"{OFFICIAL_PRODUCTION_OBSERVATION_AMBIGUOUS}:{wanted}")
+    return run_ids[0]
+
+
+def _incoming_official_observation(decisions: Iterable[Dict[str, Any]] | None) -> bool:
+    """True when this persist would mint an official Top1/Top3 paper observation."""
+    for decision in decisions or ():
+        observation = decision.get("paper_observation") if isinstance(decision, dict) else None
+        if isinstance(observation, dict) and has_official_observation_provenance(observation):
+            return True
+    return False
+
+
+def _assert_one_official_production_observation(
+    production_run_id: str,
+    decisions: Iterable[Dict[str, Any]] | None = None,
+) -> None:
+    run_id = str(production_run_id or "").strip()
+    trade_date = _trade_date_from_run_or_decisions(run_id, decisions)
+    if not run_id or not trade_date:
+        return
+    existing = fetch_official_production_run_id(trade_date)
+    if existing and existing != run_id:
+        raise RuntimeError(f"{OFFICIAL_PRODUCTION_OBSERVATION_EXISTS}:{trade_date}:{existing}")
 
 
 def _official_observation_rank(observation: Dict[str, Any]) -> int | None:

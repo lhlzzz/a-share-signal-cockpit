@@ -1294,7 +1294,7 @@ def _collect(
 
 
 def main() -> Dict[str, Any]:
-    parser = argparse.ArgumentParser(description="Eastmoney raw market-reality scanner")
+    parser = argparse.ArgumentParser(description="Eastmoney real-market capture. Not a morning or afternoon scanner.")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--date", default="", help="Rejected: live capture always uses its actual source timestamp.")
     args = parser.parse_args()

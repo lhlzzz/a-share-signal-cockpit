@@ -21,6 +21,7 @@ FUTURE_FIELD_PATTERNS = (
 REGISTERED_PRODUCTION_SOURCES = frozenset({"eastmoney_api_scan_v2"})
 SCHEMA_VERSION = "canonical_snapshot_trusted_v1"
 SOURCE_VERSION = "canonical_snapshot_v2"
+# Production time contract is calendar + this freshness bound. No fixed clock.
 MAX_STALENESS = timedelta(minutes=120)
 STALE_DATA = "STALE_DATA"
 SOURCE_TIMESTAMP_CONTRACTS = {
