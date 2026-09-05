@@ -1,6 +1,7 @@
 # Xiaogu STATE
 
 Date: 2026-09-05
+HEAD: `main` after Phase 2.3 (`53d28de` / `0bd2b67` / `3e36ac3` plus this report).
 
 Phase 2.3 locked the production contract: one trading day has one real-market scan, one Production Decision, and at most one official Top1/Top3 paper observation. There is no fixed clock. Time rules are trading calendar plus `source_time` freshness ≤ 120 minutes versus `production_now()`. 2026-09-04 remains **NO_OFFICIAL_PRODUCTION_TICKET** and was not backfilled. Saturday 2026-09-05 is `NON_TRADING_DAY`. See `PHASE_2_3_PRODUCTION_CONTRACT_CLEANUP.md`. Alpha status remains DATA_INSUFFICIENT. **NO_REAL_OOS_EVIDENCE_YET**.
 

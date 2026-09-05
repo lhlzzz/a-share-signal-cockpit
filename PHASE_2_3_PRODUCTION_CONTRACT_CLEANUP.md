@@ -214,11 +214,17 @@ official ticket clock.
 
 ## 16. git HEAD
 
-Recorded after commit on `main`.
+Contract commits on `main`:
+
+- `53d28de` fix: simplify Xiaogu production contract
+- `0bd2b67` test: harden one daily scan one observation
+- `3e36ac3` docs: remove obsolete production time definitions
+
+Tip SHA is `git rev-parse HEAD` after this report commit. `main == origin/main`.
 
 ## 17. worktree
 
-Recorded after commit and push. Unrelated `.plan-enforcer/statusline-state.json`
-is not part of this contract.
+Clean after push. Unrelated `.plan-enforcer/statusline-state.json` was restored
+and not committed.
 
 XIAOGU_PRODUCTION_CONTRACT = ONE DAILY REAL MARKET SCAN → ONE T-DAY INVESTMENT OBSERVATION → ONE T+1..T+5 OOS VALIDATION
