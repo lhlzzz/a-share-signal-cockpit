@@ -1,107 +1,138 @@
-# Xiaogu Final Single-System Convergence
+# Research Skill Into Existing Production Chain
 
 ## Source Ask
-> 这是一次最终收敛级重构，不是 patch 集合。每个交易日，从完整 A 股市场中，严格限定 MAIN_BOARD，输出最多 3 个正式 Paper Observation，其中 1 个 Top1。ONE SYSTEM / ONE PIPELINE / ONE ALPHA / ONE DECISION OWNER / ONE SELECTION OWNER。Formal Signal ≠ Live BUY。PostgreSQL = authoritative；Obsidian = rebuildable semantic asset。Memory 永远没有最终决策权。
+> 全A市场现实扫描
+>         ↓
+> 硬过滤
+>         ↓
+> 宽候选路由
+>         ↓
+> 真正投研 Skill 深度研究
+>         ↓
+> 判断“未来5日为什么可能赚钱”
+>         ↓
+> 反证 / 风险 / 资金 / 供给 / 需求 / 估值 / 催化
+>         ↓
+> 形成候选研究结论
+>         ↓
+> Production Alpha
+>         ↓
+> Top3 / Top1 Paper Observation
+>         ↓
+> T+1 ~ T+5 真正验证
 
 ## Normalized Goal
-今天的生产链已经有唯一 Owner 文件，但行为上仍是多套真相：Selection 用 `repricing_evidence_score` 当隐藏第二 Alpha；Research 用 `research_consumed=any(...)` 假装消费；每个 worker 自己打 `production_now()`；worker 失败后仍用剩余股票出 Top1；Obsidian 按 `date_symbol.md` 覆盖；Outcome / Memory / OOS 无法按统一 identity 回答“为什么选、五天后是否错、过去为什么错”。要收敛成一条可解释、失败诚实、可重建记忆的单一生产真相链。
+用户的系统图是：Xiaogu 负责扫全 A 市场数据；仓库里已有的投研 Skill 负责真正研究（Serenity 看产业链卡点，UZI/Buffett 看公司基本面，UZI/龙虎榜看资金和情绪）；研究完再判断未来 5 个交易日为什么可能赚钱；最后仍由现有唯一 5 日模型给出 Top3/Top1，并用真实 T+1..T+5 验证。缺口不是缺 Skill，而是生产链里的 Research 没有调用这些 Skill，只是把行情特征换了个 Serenity/Buffett/UZI 的名字。用户不需要、也不想面对 L1/L2 术语；那些只是内部实现细节。
 
 ## Non-Negotiables
-- NN1: 不新建第二套 Scanner / Alpha / Decision / Selection / Paper / Memory / DB。现有 Owner 原地收敛；重复路径删除或标 `RESEARCH_ARTIFACT_ONLY`。
-- NN2: `MODEL_ID = profit_window_alpha_5d_v4` 直到正式 OOS 升级。`evaluate_candidate_bundle()` 仍是唯一 Decision Owner。Selection 不得再定义 Alpha。
-- NN3: BUY 保持 BLOCKED；Live Trading 保持 DISABLED。Paper Observation 可以产生。
-- NN4: Execution Universe = MAIN_BOARD ∩ L1。STAR / CHINEXT / BSE / UNKNOWN / OTHER 不得进入生产 Paper。
-- NN5: 一个 production run 只有一个 `decision_clock` / `as_of`。Calendar Owner 仍是 `xiaogu_db.py`。
-- NN6: PostgreSQL 是权威事实；Obsidian 可重建、无决策权。Memory 失败不得污染 production fact，必须进 retry。
-- NN7: JSONL = audit only。Understand / codebase-memory 不得进入 Alpha / Decision。
-- NN8: 完整市场覆盖是生产契约。正常日必须出一套正式 Top3+Top1。单个候选失败必须重试/恢复，不得让整天失败。只有系统级故障才 ABSTAIN：`publishable=false`，`top1=null`，`top3=[]`。禁止 PARTIAL_OBSERVATION，禁止用部分候选生成正式 Top1/Top3。
-- NN9: 唯一生产目标是 `opportunity_5d`：未来 5 个有效交易日中任意一日 daily high 相对 T 日基准价达到净 +2%（扣除统一成本）。Alpha / Paper / Selection / OOS 全部只用这一个目标。不保留第二套 5D 生产标准。
-- NN10: Research providers 是增强层。单个 provider 失败、超时、Obsidian 不可用、Historical 失败都不阻断正式 Selection。只有市场数据 / PIT / Canonical / 核心计算 / 数据库一致性失败才 ABSTAIN。
+- NN1: 不新建第二套 Scanner / Alpha / Decision / Selection / Paper / Memory / DB。
+- NN2: 唯一 Production Alpha 仍是 `profit_window_alpha_5d_v4`；唯一目标仍是 `opportunity_5d`。
+- NN3: BUY 保持 BLOCKED；Live Trading 保持 DISABLED。Paper 只记 `OBSERVED + PAPER_FLAT`。
+- NN4: Research / Skill 不得发出 BUY、SELL、RANK、PICK，也不得成为第二 Alpha。
+- NN5: 硬过滤 = L1 operational + MAIN_BOARD execution universe。不得用涨幅/主题/评分当硬过滤。
+- NN6: 宽候选路由 = L2 resource router（`detect_capital_candidates`）。0.5%–9.5% 仍是 ablation，不是冻结 Alpha 规则。
+- NN7: PostgreSQL 是权威事实；Skill 输出只进 Research Context。Memory / Obsidian / Graph 不得决定 Top1。
+- NN8: Research provider 失败不得阻断正式 Selection。完整市场覆盖仍是契约。
 
 ## Hidden Contract Candidates
-- HC1: `selection_score` 必须可追溯到唯一 Production Alpha + 合法 tie-breaker（validated probability / confidence / risk / execution / timestamp / symbol）。禁止 `mean(capital, supply, repricing...)`。
-- HC2: Alpha 未 VALIDATED 时 Top1 仍可 Paper，但必须标记 diagnostic / unvalidated，不能装成已校准概率。
-- HC3: Research 每个 provider 要有 requested / available / succeeded / failed / evidence_count / usable_evidence_count / used_by_*。`invoked=true` 不是消费证明。
-- HC4: 同一交易日最多一个 official production observation batch。SCAN ATTEMPT 不是 official ticket。Memory / Daily note 按 `paper_signal_id` 身份，不得按 symbol+date 覆盖。
-- HC5: Outcome 按 `paper_signal_id → decision_id → snapshot_id → production_run_id` 绑定。禁止 `symbol+date` 作为唯一身份。
-- HC6: Historical / Memory 只进 Research Context 与 OOS；不能直接 BUY 或直接 Top1。
-- HC7: `opportunity_5d` 是唯一生产命中定义。不得再把 close-path / net_close / realizable_trade_return 当作第二生产标准或兼容模式。诊断字段若保留，不得进入 Alpha、Selection、Paper validation、OOS。
-- HC8: ABSTAIN 是故障保护，不是降级模式。覆盖失败不得设计成正常分支。可靠性靠重试、超时恢复和结果一致性，不靠部分出票。
+- HC1: “真正投研 Skill”必须可证明被消费：requested / available / succeeded / failed / usable_evidence_count / used_by_alpha。适配器重打包不算深度研究。
+- HC2: 研究结论回答的是 `opportunity_5d`：未来 5 个交易日任意一日净 +2%。不是长期基本面故事，也不是当天涨幅叙事。
+- HC3: 反证 / 风险 / 资金 / 供给 / 需求 / 估值 / 催化 是 Research 维度，不是新的 ranking axes。
+- HC4: 昂贵研究预算只决定“谁被深度研究”，不决定“谁进 Top3”。用户语言里不要再把这层叫成选股。
+- HC5: 没被深度研究的可交易主板股票仍须进入唯一 5 日模型；不得用“只研究了几只”冒充全市场结论。
+- HC6: 候选研究结论 ≠ Paper Observation。结论进入 Research Context 后，仍由 `build_core_alpha` + `attach_top_paper_observations` 出票。
+- HC7: Buffett Skill 来源是 `https://github.com/agi-now/buffett-skills`，仓库尚未 vendoring。UZI deep-analysis 里的 Buffett persona / 65 评委不是这份 Skill。
+- HC8: 65 评委对 Xiaogu 唯一生产链没有作用。`xiaogu_*.py` 没有任何调用。用户要求删除，不得接入 Research，不得参与出票。
+- HC9: PostgreSQL、前端、Obsidian 第二大脑是已有资产，不是要删的东西。Skill 真正被吃进唯一链路并出票之后，用数据库历史出票和 Obsidian 笔记对照，找研究缺漏。对照是诊断，不能决定 Top1。
 
 ## Plausible Interpretations
-- PI1: 在现有 Owner 上做最终收敛：删隐藏第二 Alpha、升 Research 消费、统一 clock / identity / Memory / Outcome / OOS，并清理重复路径。
-- PI2: 当成 Xiaogu 3.0 重定价重写，再扩一套 Feature / Alpha / Decision 契约。
-- PI3: 用新 selector / cost_model_v2 文件 / 新 ranker 完成需求，旧文件留 compat。
+- PI1: 对照诊断。把用户管线映射到现有 Owner，指出缺口，不改代码。
+- PI2: 在现有 `xiaogu_research_context.py` 上接入真实 Skill，让 routed 候选先形成 5D 研究结论，再进唯一 Alpha / Top3 / Outcome。
+- PI3: 今天就对全 A 跑这条链，产出当日 Top3/Top1。
+- PI4: 用 Skill 研究替代 Alpha / Selection，让研究结论直接出票。
 
 ## Chosen Interpretation
-PI1。这是收敛，不是平行重建。修改现有 Owner；Selection 留在 `attach_top_paper_observations`（或同文件内唯一函数），不新建 selector。`cost_model_v1` 原地升级为唯一 cost model，不另开生产费用路径。L2 的 0.5%–9.5% 先当未证明 routing，必须走 OOS ablation 后再决定保留或删除。仓库清理只删能证明不在唯一生产链上的重复物。
+PI2，并用用户自己的话说清：Xiaogu 扫市场；已有 Serenity / UZI（含 Buffett 基本面与资金情绪）做真正研究；唯一 5 日模型仍负责从研究结论里判断 Top3/Top1。用户不需要理解或操作 L1/L2。PI3 今日实跑不在本轮。PI4 禁止：Skill 研究不能自己“找出并排名”Top3。
 
 ## Rejected / Forbidden Narrowings
-- FN1: 把 `repricing_evidence_score` 改名为 `selection_score` 继续当 ranker。
-- FN2: 保留 `research_consumed=True` 作为 Research 真实性证明。
-- FN3: 用剩余成功股票伪装完整市场 Top1，或把覆盖失败设计成 PARTIAL_OBSERVATION 正常分支。
-- FN9: 因单个 Research provider 失败而让正常交易日没有 Top1/Top3。
-- FN10: 同时维护 opportunity 与 execution 两套生产目标 / 标签 / 验证 / 选择逻辑。
-- FN4: 新建 `legacy_` / `v2_` / `compat_` / `shadow_` 生产路径。
-- FN5: 用 Obsidian 或 Historical 直接决定 Top1 / BUY。
-- FN6: 把 5 日最高价 +2% 继续叫 realizable_trade_return。
-- FN7: 把本次降成文档/审计，不改生产行为。
-- FN8: 用 weekday / future price / scanner 有数据来当 Calendar。
+- FN1: 新建 research_v2 / skill_ranker / thesis_selector。
+- FN2: 让 Serenity / UZI / deep-analysis 直接 RANK 或出 Top1。
+- FN3: 把 0.5%–9.5% 写成永久生产硬门。
+- FN4: 只对 routed 子集评估 Alpha，然后宣称这是全市场 Top1。
+- FN5: 把 Feature 适配器改个名字，假装已经是“真正投研 Skill”。
+- FN6: 打开 Production BUY 或把研究结论当成 LIVE 信号。
+- FN7: 用 Memory / Obsidian 笔记当 5D 赚钱理由或直接出票。
+- FN8: 把 65 评委、panel.json、评委打分嵌进 Xiaogu Research / Alpha / Top3。
+- FN9: 因为不用 65 评委，就把前端、HTML 研报资产、数据库历史出票或 Obsidian 第二大脑一并删掉。
 
 ## In Scope
-- 删除隐藏第二 Alpha；正式 `selection_score` 契约；Top1==1 且 Top3<=3；未校准 Alpha 诚实 Paper。
-- Research provider 真实消费与失败状态；失败只记账/重试/降级，不阻断 Selection。共享 `decision_clock`；完整覆盖是契约；系统级故障才 ABSTAIN。
-- Production run manifest 与 ID 事实层：run / lineage / snapshot / decision / paper / outcome / review / memory。
-- 唯一 `opportunity_5d` 生产目标；删除第二套 5D target 路径；唯一 cost model；T+1..T+5 按 identity 落库，缺则 MISSING。
-- Obsidian second brain：identity 路径、daily 不覆盖、可查询回忆、可从 PostgreSQL rebuild、sync retry。
-- Daily cross-sectional OOS + rolling walk-forward + embargo；L2 价格门 ablation。
-- 系统性质测试、mutation tests、仓库重复路径清理、`FINAL_SYSTEM_AUDIT.md`。
+- 在现有 `xiaogu_research_context.py` 上接入真实投研 Skill。
+- 研究结论必须回答 `opportunity_5d`：这只股票未来 5 个交易日为什么可能赚钱，以及什么情况证明它错。
+- 反证 / 风险 / 资金 / 供给 / 需求 / 估值 / 催化 作为 Research 维度进入 Context，供唯一 Alpha 消费。
+- 证明 Skill 被真实调用且可记账：requested / available / succeeded / failed / usable_evidence_count / used_by_alpha。
+- 未研究或 Skill 失败的可交易主板仍走唯一 5 日模型；不得用“只研究了几只”冒充全市场结论。
+- 从 Xiaogu 唯一链路中删除 65 评委：不调用、不消费、不作为研究证据。
+- Skill 被吃进唯一链路并出票之后，对照 PostgreSQL 历史出票和 Obsidian 第二大脑资产，找出研究缺漏。对照结果只回 Research / 笔记，不改 Top1。
 
 ## Out of Scope
-- 打开 Production BUY 或 Live Trading。
+- 重写 Scanner / Alpha / Decision / Selection。
 - 训练并宣称新 Alpha 已 VALIDATED。
-- 真实券商、第二数据库、UI 重写。
+- 今日无确认地全市场实跑（除非用户明确要 PI3）。
+- 打开 BUY / Live Trading。
 - 把 Understand-Anything / AgentMemory 当市场证据。
-- 改写历史 UNKNOWN 行的语义。
+- 删除前端、数据库历史出票或 Obsidian 第二大脑。
+- 把 UZI 的 HTML 研报能力从仓库资产里清掉。HTML 可以继续作为研究产物/前端资产；65 评委不能进生产出票。
 
 ## Constraints
-- 现有 Owner 文件保持唯一职责。文件名带 `_v0_1` 的 Recorder / Filler 是当前 Owner，不借机再造一套。
-- Paper-only。复杂度不得用新层解决。
-- Calendar / Snapshot immutability / Position identity / REDUCE≠FLAT 现有契约保持。
+- 现有 Owner 文件保持唯一职责。
+- Calendar / Snapshot immutability / Position identity 不变。
+- L2 价格窗 ablation 未完成前不得冻结为策略。
+- 真实 Skill 调用昂贵；只能作为 routed 研究预算，不能替代全市场 Feature/Alpha。
 
 ## Success Signals
-- 架构审计能对 Scanner / Snapshot / Eligibility / Feature / Research / Alpha / Decision / Selection / Paper / Outcome / Calendar / Memory 各给出一个答案。
-- Top1/Top3 不依赖 `repricing_evidence_score`；改变唯一 Alpha 输入会改变 Top1；Research 不可用不能再 `research_consumed=True`。
-- 共享 clock；单个候选失败可恢复；系统级故障 ABSTAIN 且 top1/top3 为空；MAIN_BOARD-only Paper。
-- PostgreSQL 能按 `decision_id` 查 T+1..T+5；Obsidian note 含 `production_run_id` 且同日双观察不覆盖；删除 Obsidian 后可 rebuild。
-- `pytest tests/ -q`、`compileall`、`xiaogu_daily_health_check.py`、dry-run / replay / PIT / dual-observation / provider+worker failure / memory rebuild / OOS rolling 有证据。
-- BUY BLOCKED，LIVE DISABLED。
+- 用户管线的每一步都能指到唯一 Owner，或被明确标成未接入。
+- 被深度研究的票能产出 PIT 研究结论；Alpha 能标记 used_by_alpha；Skill 失败不阻断 Top3。
+- Top1 仍随唯一 5 日模型变化，不随 Skill 文案或 65 评委分数直接改票。
+- Paper 仍是 Top3<=3 / Top1==1；T+1..T+5 按 `paper_signal_id` 验证 `opportunity_5d`。
+- 生产 Research 证据链里找不到 65 评委 / panel 打分。
+- 出票后能用 PostgreSQL 历史出票和 Obsidian 笔记对照，列出缺漏；对照不改正式 Top1。
 
 ## Drift Risks
-- DR1: draft 把 Selection 抽成新文件，变成第二 Owner。
-- DR2: 为 Memory / OOS / cost 各新建平行模块。
-- DR3: ablation 未完成却把 0.5% 写成永久生产策略。
-- DR4: 把 diagnostic `price_strength` 继续包装成 validated probability。
-- DR5: 清理阶段误删唯一生产链或只改文档。
-- DR6: 把 close/net_close 再次写成生产目标，或留下双目标兼容字段。
-- DR7: 把 Research provider 失败重新设计成阻断条件。
-- DR8: 把 ABSTAIN / PARTIAL 写成日常降级，而不是修并行、重试和覆盖。
+- DR1: 把 Skill 研究做成第二 ranking。
+- DR2: 把宽路由做成第二候选池/选股器。
+- DR3: 用适配器包装冒充深度研究。
+- DR4: 只研究 routed 子集却对外声称全 A 扫描结论。
+- DR5: discuss 后直接改 Alpha / Selection。
+- DR6: 把 65 评委重新接回 Research。
+- DR7: 用 PostgreSQL / Obsidian 对照结果直接改 Top1。
+- DR8: 因为删除 65 评委而清掉前端、HTML 资产或第二大脑。
 
 ## Proof Requirements
-- PR1: Owner 调用链（codebase-memory + source）证明单一路径。
-- PR2: 删除/降级重复模块清单写入 `FINAL_SYSTEM_AUDIT.md`。
-- PR3: mutation tests：Research 删除/修改、Obsidian 删除、PG history 删除、worker fail、Top1 输入变化。
-- PR4: 同一 `production_run_id` 下所有候选同一 `decision_clock`。
-- PR5: 系统级 ABSTAIN 时 JSON 中 `publishable=false` 且 top1/top3 为空；正常覆盖完整时必须有正式 Top3+Top1。
-- PR7: 证明不存在第二套 5D production target，也不存在 PARTIAL_OBSERVATION 出票路径。
-- PR8: 证明单个 Research provider 失败不会阻断正式 Selection。
-- PR6: Memory rebuild 与 Outcome identity 绑定的运行证据。
-
-## Draft Handoff
-- phase shape hint: 先锁 Owner 与删除隐藏第二 Alpha / 共享 clock / fail-closed coverage；再升 Research 消费与 run identity；再 Fact+Memory+Outcome；再 Target/Cost/OOS/ablation；最后清理、系统测试、审计。
-- planning red lines: 不新建第二 Alpha/Selection/Decision；不打开 BUY；不把 ablation 结果预设为保留 0.5%；不把 Memory 写成决策权；不保留双 5D 目标；不设计 PARTIAL_OBSERVATION；不因 Research 层失败停掉正常出票。
+- PR1: Owner 对照表：用户步骤 ↔ 现有函数。
+- PR2: 接入后证明 Serenity/Buffett/UZI context 调用了 `.agents/skills` 下的可复现 Skill 产出，而不只是重打包 Feature。
+- PR3: mutation 证明删除 Skill 证据不会让 `research_consumed=True`，也不会改第二套分数出票。
+- PR4: Top1 仍来自 `attach_top_paper_observations` + 唯一 Alpha `selection_score`，除非用户明确批准本轮改 Alpha 排序。
+- PR5: 研究结论字段能回答 `opportunity_5d` why/falsify；T+1..T+5 仍按 `paper_signal_id` 验证。
+- PR6: 生产路径和 Research 消费证明不含 65 评委。
+- PR7: 出票后对照 PostgreSQL 历史出票 + Obsidian 资产，产出缺漏清单；对照不得写入 Decision / Selection。
 
 ## Resolved Forks
-1. Production target = `opportunity_5d` only. Net +2% on any valid T+1..T+5 daily high vs T-day reference after the single cost model. Delete the second 5D production target and its labels, calculators, validators, selectors, and schema paths. No dual-target compatibility mode.
-2. Coverage: complete MAIN_BOARD evaluation is the production contract. Normal days emit one formal Top3+Top1. Single-candidate failures retry/recover. Only system-level faults (incomplete market data, DB corruption, core component down, PIT/consistency failure) ABSTAIN with empty top1/top3. Delete PARTIAL_OBSERVATION.
-3. Research providers never block Selection by themselves. Retry/degrade and continue. Only market data / PIT / Canonical / core compute / DB consistency failures ABSTAIN.
+1. 本轮目标 = PI2：让已有投研 Skill 真正进入唯一生产 Research。不对照-only，不今日全 A 实跑，不用 Skill 替代唯一 5 日模型。
+2. 用户心智模型：Xiaogu = 扫全 A 市场数据；Skill = 产业链 / 公司基本面 / 资金情绪研究；输出 = 未来 5 日为什么可能赚钱。内部路由术语对用户不可见。
+3. Buffett Skill 来源 = `https://github.com/agi-now/buffett-skills`。仓库当前未 vendoring。它是方法论 Skill（`SKILL.md` + 8 份 references），没有可复现脚本，标准输出含买入/不买/持有/卖出。生产不得执行其买卖结论。
+4. 全市场扫描；完整 Skill 只研究值得花时间的票。其余可交易主板仍进唯一 5 日模型，不做深度研究，也不从候选里消失。
+5. 生产接可复现研究脚本，产出“未来 5 日为什么可能赚钱 / 什么会证伪”。
+6. Skill 只给研究结论。Top3 / Top1 仍由现有唯一 5 日模型拍板。Skill 不得自己挑 3 只。
+7. 三个研究槽的生产接入：
+   - Serenity：现有 `.agents/skills/serenity-skill` 的卡点/需求证据。
+   - Buffett：vendor `agi-now/buffett-skills` 作为基本面方法论；用财报/护城河/估值证据填 8 问检查清单与财务快照，映射到现有 CompanyContext。丢弃买入/卖出/建议买入价。
+   - UZI：龙虎榜 / 资金流 / 情绪 / 公告事件，映射到资金与情绪槽。
+8. 65 评委删除。它对 Xiaogu 唯一链路没有作用，生产从未调用。不得接入 Research，不得作为出票证据。
+9. 前端、数据库、Obsidian 第二大脑、HTML 研报资产保留。Skill 被唯一链路吃进并出票之后，对照 PostgreSQL 历史出票和 Obsidian 笔记找缺漏。对照是诊断，不是第二套选股。
+
+## Open Forks
+无。剩余实现细节交给 draft，不再改变本轮目标。
+
+## Draft Handoff
+- phase shape hint: vendor Buffett skill；只改 Research Context，让 Serenity/Buffett/UZI 可复现研究填进现有槽；去掉 65 评委；研究结论必须含 5 日 why / falsify；出票后再用 PostgreSQL + Obsidian 对照缺漏。
+- planning red lines: 不教用户内部路由术语；不新建选股 owner；不让 Skill 直接排名或发出买卖；不把 65 评委嵌进生产；不删除前端 / 数据库 / 第二大脑；不对全市场每只股票跑完整深度研究；不把 Buffett 的买入价/买卖结论写进 Alpha；对照缺漏不得改正式 Top1。

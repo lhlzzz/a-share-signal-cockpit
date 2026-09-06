@@ -434,6 +434,7 @@ def _paper_observation(
     price_strength = market.get("price_strength")
     capital = features.get("CAPITAL") or {}
     research_capital = alpha.get("capital_convergence") or {}
+    research = research or {}
     research_overlay = {
         "research_only": True,
         "capital_flow_ratio": capital.get("capital_flow_ratio"),
@@ -448,9 +449,10 @@ def _paper_observation(
         "research_used_downstream": bool(alpha.get("research_used_downstream")),
         "selection_score": alpha.get("selection_score"),
         "signal_evidence": list(alpha.get("signal_evidence") or []),
+        "why_5d": list((research.get("opportunity_5d_thesis") or {}).get("why_5d") or []),
+        "falsify": list((research.get("opportunity_5d_thesis") or {}).get("falsify") or []),
     }
     board_info = classify_execution_board(snapshot)
-    research = research or {}
     return {
         "status": "PAPER_OBSERVATION",
         "paper_signal_id": _paper_signal_id(decision_id),

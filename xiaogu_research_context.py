@@ -24,14 +24,90 @@ def _context(kind: str, values: Dict[str, Any], lineage_id: str, provider: str) 
         **values,
     }
 
+
+def _dict_rows(value: Any) -> list[Dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict) and value:
+        return [value]
+    return []
+
+
+def _evidence_item(
+    item: Dict[str, Any],
+    *,
+    default_source: str,
+    default_mechanism: str,
+    as_of: str,
+    event_keys: tuple[str, ...] = ("event_id", "title", "EXPLAIN"),
+) -> Dict[str, Any] | None:
+    source_id = str(item.get("source_id") or default_source).strip()
+    event_id = ""
+    for key in event_keys:
+        event_id = str(item.get(key) or "").strip()
+        if event_id:
+            break
+    mechanism = str(item.get("mechanism") or default_mechanism).strip()
+    if not (source_id and event_id and mechanism):
+        return None
+    observed = str(
+        item.get("observed_at") or item.get("event_time") or item.get("publication_time") or ""
+    ).strip()
+    available = str(item.get("available_at") or item.get("knowledge_available_at") or as_of or "").strip()
+    return {
+        "source": item.get("source") or source_id,
+        "source_id": source_id,
+        "event_id": event_id,
+        "mechanism": mechanism,
+        "observed_at": observed,
+        "available_at": available,
+        "knowledge_available_at": available,
+        "title": item.get("title") or item.get("EXPLAIN") or "",
+    }
+
+
+def _collect_evidence(rows: list[Dict[str, Any]], **kwargs) -> list[Dict[str, Any]]:
+    items = []
+    for row in rows:
+        item = _evidence_item(row, **kwargs)
+        if item is not None:
+            items.append(item)
+    return items
+
+
 def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     demand = features["FUTURE_DEMAND"]
+    raw = snapshot.get("raw", {})
+    reports = _dict_rows(raw.get("industry_reports"))
+    industry_flow = _dict_rows(raw.get("industry_flow"))
+    as_of = str(features.get("available_at") or "")
+    evidence = _collect_evidence(
+        reports,
+        default_source="eastmoney.industry_report",
+        default_mechanism="DEMAND",
+        as_of=as_of,
+    ) + _collect_evidence(
+        industry_flow,
+        default_source="eastmoney.industry_flow",
+        default_mechanism="DEMAND",
+        as_of=as_of,
+        event_keys=("event_id", "f14", "industry"),
+    )
+    skill_ran = bool(reports or industry_flow)
+    why_5d = []
+    falsify = list(demand.get("invalidation_condition") or [])
+    if reports:
+        why_5d.append("T-day industry report may reprice demand inside five trading days")
+        falsify.append("industry report follow-through disappears")
+    if industry_flow:
+        why_5d.append("T-day industry capital flow is visible")
+        falsify.append("industry capital flow reverses")
     return _context("FutureDemandContext", {
-        "as_of": features.get("available_at", ""),
+        "as_of": as_of,
         "market_story": demand["market_story"],
         "system_change": demand["system_change"],
         "industry": snapshot.get("sector", ""),
-        "required_components": list(snapshot.get("raw", {}).get("required_components") or []),
+        "required_components": list(raw.get("required_components") or []),
         "bottleneck": demand["bottleneck_strength"],
         "supply_constraint": demand["supply_constraint"],
         "demand": demand["demand_strength"],
@@ -40,20 +116,60 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         "industry_catalyst": demand["industry_catalyst"],
         "evidence_strength": demand["evidence_strength"],
         "invalidation": list(demand["invalidation_condition"]),
-        "reports": list(snapshot.get("raw", {}).get("industry_reports") or []),
+        "reports": reports,
+        "skill_ran": skill_ran,
+        "evidence": evidence,
+        "why_5d": why_5d,
+        "falsify": falsify,
     }, features["lineage_id"], "Serenity")
 
 
 def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     business = features["BUSINESS"]
+    raw = snapshot.get("raw", {})
+    reports = _dict_rows(raw.get("stock_reports"))
+    preview = dict(raw.get("earnings_preview") or {})
+    as_of = str(features.get("available_at") or "")
+    evidence = _collect_evidence(
+        reports,
+        default_source="eastmoney.stock_report",
+        default_mechanism="VALUATION",
+        as_of=as_of,
+    ) + _collect_evidence(
+        [preview] if preview else [],
+        default_source="eastmoney.earnings_preview",
+        default_mechanism="VALUATION",
+        as_of=as_of,
+        event_keys=("event_id", "WEIGHTAVG_ROE"),
+    )
+    skill_ran = bool(reports or preview)
+    visible = bool(preview or reports or business.get("score") is not None)
+    checklist = [
+        {"id": 1, "dimension": "Circle of Competence", "answer": "YES" if visible else "UNKNOWN"},
+        {"id": 2, "dimension": "Durability", "answer": "UNKNOWN"},
+        {"id": 3, "dimension": "Moat", "answer": "YES" if business.get("moat") else "UNKNOWN"},
+        {"id": 4, "dimension": "Pricing Power", "answer": "YES" if business.get("pricing_power") else "UNKNOWN"},
+        {"id": 5, "dimension": "Earnings Quality", "answer": "YES" if preview or business.get("earnings_quality") else "UNKNOWN"},
+        {"id": 6, "dimension": "Debt Safety", "answer": "YES" if business.get("debt_safety") else "UNKNOWN"},
+        {"id": 7, "dimension": "Management Integrity", "answer": "UNKNOWN"},
+        {"id": 8, "dimension": "Reasonable Price", "answer": "UNKNOWN"},
+    ]
+    why_5d = []
+    falsify = []
+    if preview:
+        why_5d.append("T-day earnings preview may reprice the company inside five trading days")
+        falsify.append("earnings preview is revised down")
+    if reports:
+        why_5d.append("T-day company report is visible")
+        falsify.append("company quality evidence is withdrawn")
     return _context("CompanyContext", {
-        "as_of": features.get("available_at", ""),
+        "as_of": as_of,
         "business_quality": business["score"],
-        "ability_circle": snapshot.get("raw", {}).get("ability_circle", "UNKNOWN"),
+        "ability_circle": raw.get("ability_circle", "UNKNOWN"),
         "moat": business["moat"],
         "pricing_power": business["pricing_power"],
         "earnings_quality": business["earnings_quality"],
-        "cash_flow": _number(snapshot.get("raw", {}).get("cash_flow_quality")),
+        "cash_flow": _number(raw.get("cash_flow_quality")),
         "roic": business["roic"],
         "roe": business["roe"],
         "growth": business["growth"],
@@ -61,23 +177,57 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
         "debt_safety": business["debt_safety"],
         "capital_allocation": business["capital_allocation"],
         "valuation": business["valuation"],
-        "margin_of_safety": _number(snapshot.get("raw", {}).get("margin_of_safety")),
-        "reports": list(snapshot.get("raw", {}).get("stock_reports") or []),
-        "earnings_preview": dict(snapshot.get("raw", {}).get("earnings_preview") or {}),
+        "margin_of_safety": _number(raw.get("margin_of_safety")),
+        "reports": reports,
+        "earnings_preview": preview,
+        "skill_ran": skill_ran,
+        "checklist": checklist,
+        "buy_sell": None,
+        "recommended_buy_price": None,
+        "evidence": evidence,
+        "why_5d": why_5d,
+        "falsify": falsify,
     }, features["lineage_id"], "Buffett")
 
 
 def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     capital = features["CAPITAL"]
     raw = snapshot.get("raw", {})
-    lhb_rows = list(raw.get("lhb") or [])
+    lhb_rows = _dict_rows(raw.get("lhb"))
+    announcements = _dict_rows(raw.get("announcements"))
+    as_of = str(features.get("available_at") or "")
     institution_signal = any(
         "机构" in str(row.get("EXPLAIN") or "")
         for row in lhb_rows
-        if isinstance(row, dict)
     )
+    evidence = _collect_evidence(
+        lhb_rows,
+        default_source="eastmoney.lhb",
+        default_mechanism="CAPITAL",
+        as_of=as_of,
+        event_keys=("event_id", "EXPLAIN"),
+    ) + _collect_evidence(
+        announcements,
+        default_source="eastmoney.announcement",
+        default_mechanism="CATALYST",
+        as_of=as_of,
+    )
+    skill_ran = bool(lhb_rows or announcements)
+    why_5d = []
+    falsify = []
+    if institution_signal:
+        why_5d.append("T-day LHB shows institution activity")
+        falsify.append("institution activity reverses")
+    elif lhb_rows:
+        why_5d.append("T-day LHB is visible")
+        falsify.append("hot-money activity fades")
+    if announcements:
+        why_5d.append("T-day announcement may act as a five-day catalyst")
+        falsify.append("announcement is clarified away")
+    if capital.get("distribution_risk"):
+        falsify.append("capital distribution continues")
     return _context("CapitalContext", {
-        "as_of": features.get("available_at", ""),
+        "as_of": as_of,
         "institution_vs_hot_money": raw.get(
             "institution_vs_hot_money",
             "institution" if institution_signal else "UNKNOWN",
@@ -113,6 +263,10 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
             "main_force": (capital.get("main_force_behavior") or {}).get("direction") or "UNKNOWN",
             "hot_money": (capital.get("hot_money_behavior") or {}).get("direction") or "UNKNOWN",
         },
+        "skill_ran": skill_ran,
+        "evidence": evidence,
+        "why_5d": why_5d,
+        "falsify": falsify,
     }, features["lineage_id"], "UZI")
 
 
@@ -767,6 +921,57 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         ),
     }
     provenance = list(providers.values())
+    why_5d = []
+    falsify = []
+    for payload in (industry, company, capital, supply, pricing_gap):
+        if isinstance(payload, dict):
+            why_5d.extend(str(item) for item in (payload.get("why_5d") or []) if item)
+            falsify.extend(str(item) for item in (payload.get("falsify") or []) if item)
+    if not why_5d:
+        why_5d = ["captured T-day observations remain incomplete for a five-day profit window"]
+    if not falsify:
+        falsify = ["capital exit or supply reversal"]
+    seen_why: list[str] = []
+    seen_falsify: list[str] = []
+    for item in why_5d:
+        if item not in seen_why:
+            seen_why.append(item)
+    for item in falsify:
+        if item not in seen_falsify:
+            seen_falsify.append(item)
+    historical_failures = [
+        str(item)
+        for item in (historical.get("historical_failure_patterns") or [])
+        if item
+    ]
+    gaps = []
+    if not historical.get("historical_cases"):
+        gaps.append("MISSING_HISTORICAL_TICKETS")
+    if not memory.get("notes"):
+        gaps.append("MISSING_OBSIDIAN_NOTES")
+    for pattern in historical_failures:
+        if pattern not in seen_falsify:
+            gaps.append(pattern)
+            seen_falsify.append(pattern)
+    thesis = {
+        "status": "RESEARCH_ONLY",
+        "why_5d": seen_why,
+        "falsify": seen_falsify,
+        "capital": capital.get("why_5d") or [],
+        "supply": list((supply.get("source_rows") or {}).keys()) if isinstance(supply, dict) else [],
+        "demand": industry.get("why_5d") or [],
+        "valuation": company.get("why_5d") or [],
+        "catalyst": capital.get("why_5d") or industry.get("why_5d") or [],
+        "contradiction": integrated.get("contradiction_status") if isinstance(integrated, dict) else "UNKNOWN",
+    }
+    research_gap_audit = {
+        "status": "RESEARCH_ONLY",
+        "gaps": gaps,
+        "historical_failure_patterns": historical_failures,
+        "note_count": int(memory.get("note_count") or 0),
+        "case_count": int(historical.get("case_count") or 0),
+        "selects_top1": False,
+    }
     return {
         "context_type": "ResearchContext",
         "status": "RESEARCH_ONLY",
@@ -782,6 +987,8 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "contradiction": integrated,
         "historical": historical,
         "memory": memory,
+        "opportunity_5d_thesis": thesis,
+        "research_gap_audit": research_gap_audit,
         "research_providers": providers,
         "research_provenance": provenance,
         "serenity_context": industry,

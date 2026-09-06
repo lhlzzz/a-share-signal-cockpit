@@ -35,6 +35,12 @@
 | I22 | 不允许 PARTIAL_OBSERVATION，不允许用部分候选生成正式 Top1/Top3。 | manual | 2026-09-04 |
 | I23 | 正常每天稳定地产生一套正式 Top3 + Top1；异常时严格不出票。 | manual | 2026-09-04 |
 | I24 | 单个 Research provider 失败：不阻断；核心市场数据、PIT、Canonical、生产计算或数据库一致性失败：阻断。 | manual | 2026-09-04 |
+| I25 | 全A市场现实扫描         ↓ 硬过滤         ↓ 宽候选路由         ↓ 真正投研 Skill 深度研究         ↓ 判断“未来5日为什么可能赚钱”         ↓ 反证 / 风险 / 资金 / 供给 / 需求 / 估值 / 催化         ↓ 形成候选研究结论         ↓ Production Alpha         ↓ Top3 / Top1 Paper Observation         ↓ T+1 ~ T+5 真正验证 | manual | 2026-09-06 |
+| I26 | 把现有唯一生产链中的 Research，从“Feature 适配器”变成真正的投研 Skill，让 Xiaogu 不再只寻找“已经涨起来的股票”，而是从全市场中认真研究“这只股票未来 5 个交易日到底为什么可能赚钱”，再交给现有唯一 Alpha 判断 Top3 / Top1，并用真实 T+1～T+5 结果验证。 | manual | 2026-09-06 |
+| I27 | 仓库里面不是已经 有uzi buffeft serentiy 这类投研的skill嘛 研究产业链的 研究公司基本面的 情绪面的 那 本身的xiaogu就是扫描市场数据 然后经过这些skill去找出哪些标的是在未来5日可以去获利的 当然 你得l1l2什么的我不知道是什么东西 | manual | 2026-09-06 |
+| I28 | https://github.com/agi-now/buffett-skills   这是buffett的skill  我要a• A. 全市场扫描，完整 Skill 只研究值得花时间的票（推荐）  • A. 接上这些可复现的研究脚本，产出“未来 5 日为什么赚钱 / 什么会证伪”（推荐） 这个也是a | manual | 2026-09-06 |
+| I29 | 每日生产不会跑 65 个评委，也不会出 HTML 研报。  这个删除 不在我的意图里面 xiaogu依旧是保持唯一一条链路 我的数据库 和前端 和第二大脑 里面也有很多资产当你真的吃上了 这些skill 产出了票  就可以开始对照数据库里面的历史出票 和obisidian里面的 只是资产 看看有没有什么地方是有缺漏的 | manual | 2026-09-06 |
+| I30 | 65评委是要删除的 啊 他有什么作用吗 | manual | 2026-09-06 |
 
 ## Restate rows
 

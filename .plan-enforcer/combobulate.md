@@ -1,12 +1,15 @@
-# Xiaogu Final Single-System Convergence — Compatibility Packet
+# Research Skill Into Existing Production Chain — Compatibility Packet
 
 Canonical intent packet: `.plan-enforcer/discuss.md`.
 
-Production target: one Xiaogu pipeline from full A-share L0 through MAIN_BOARD execution, Feature, Research, unique Production Alpha, cross-sectional Selection, Top3/Top1 Paper Observation, T+1..T+5 Outcome, OOS, then PostgreSQL facts + rebuildable Obsidian memory.
+User model: Xiaogu scans the full A-share market; existing research skills do the real work; the unique 5-day model still emits Top3/Top1; T+1..T+5 verifies. One pipeline only.
 
-Forbidden: second alpha/ranker/decision/selector/paper/memory/db; hidden `repricing_evidence_score` ranking; `research_consumed` as proof; per-worker clocks; PARTIAL_OBSERVATION; dual 5D production targets; Research-provider failure blocking a normal day; symbol+date as sole identity; Memory deciding BUY/Top1; live trading.
+Resolved:
+1. Implement Skill ingest into existing Research.
+2. Full-market scan; complete Skill research only on names worth the research budget.
+3. Production emits 5-day why / falsify. Skills research; unique 5-day model picks Top3/Top1.
+4. Buffett source is https://github.com/agi-now/buffett-skills. Vendor it. Drop buy/sell/buy-price.
+5. Delete the 65-judge panel from Xiaogu's unique chain. It has no production callers and no role.
+6. Keep PostgreSQL, frontend, Obsidian second brain, and HTML research assets. After skills are actually consumed and tickets are emitted, compare historical DB tickets and Obsidian notes to find research gaps. Gap-finding is diagnostic only and must not pick Top1.
 
-Resolved forks:
-1. Unique production target = `opportunity_5d` (net +2% on any T+1..T+5 daily high after the single cost model).
-2. Complete-market coverage is the contract; ABSTAIN only on system-level faults; no partial official Top1/Top3.
-3. Research providers are enhancement-only and do not block Selection.
+Forbidden: skills ranking or picking Top3; Buffett buy/sell as production action; 65-judge scores in Research/Alpha; deleting frontend/DB/Obsidian because judges were removed; live BUY.
