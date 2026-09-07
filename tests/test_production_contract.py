@@ -167,6 +167,14 @@ def _ready_snapshot(**extra):
         "f12": "600001", "f13": 1, "f1": 2, "market": "SH",
     }
     payload.update(extra)
+    payload.setdefault("industry_flow", {
+        "f3": 5,
+        "observed_at": "2026-08-26T14:49:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "source_id": "eastmoney.industry_flow",
+        "event_id": "industry-flow",
+        "mechanism": "DEMAND",
+    })
     return payload
 
 

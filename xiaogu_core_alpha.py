@@ -80,16 +80,42 @@ COST_MODEL_COMPONENT_SEMANTICS = {
 EXECUTION_REALISM_LEVEL = "DAILY_BAR_APPROXIMATION"
 
 
+def _research_skill_coverage(research: Dict[str, Any] | None) -> float:
+    if not isinstance(research, dict):
+        return 0.0
+    flags = [
+        1.0 if bool((research.get(key) or {}).get("skill_ran")) else 0.0
+        for key in ("industry", "company", "capital")
+    ]
+    return sum(flags) / 3.0
+
+
+def _research_thesis_ready(research: Dict[str, Any] | None) -> float:
+    if not isinstance(research, dict):
+        return 0.0
+    thesis = research.get("opportunity_5d_thesis") or {}
+    why = [
+        item for item in (thesis.get("why_5d") or [])
+        if str(item).strip() and "incomplete" not in str(item).lower()
+    ]
+    falsify = [item for item in (thesis.get("falsify") or []) if str(item).strip()]
+    return 1.0 if why and falsify else 0.0
+
+
 def _selection_score(
     *,
     model_status: Any,
     profit_window_probability: Any,
-    price_strength: Any,
+    research: Dict[str, Any] | None = None,
 ) -> float | None:
     """Sole production ranking score. Never averages diagnostic axes."""
     if model_status == "VALIDATED" and profit_window_probability is not None:
         return _round_or_none(profit_window_probability)
-    return _round_or_none(price_strength)
+    coverage = _research_skill_coverage(research)
+    thesis_ready = _research_thesis_ready(research)
+    if coverage <= 0.0 and thesis_ready <= 0.0:
+        return None
+    return _round_or_none(0.60 * coverage + 0.40 * thesis_ready)
 
 
 def _signal_qualification(
@@ -125,6 +151,15 @@ def _signal_qualification(
             "signal_status": SIGNAL_STATUS_ELIMINATED,
             "signal_qualified": False,
             "signal_reason": "PRICE_STRENGTH_UNOBSERVED",
+            "signal_score": None,
+            "selection_score": None,
+            "signal_evidence": evidence,
+        }
+    if score is None:
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "RESEARCH_THESIS_UNOBSERVED",
             "signal_score": None,
             "selection_score": None,
             "signal_evidence": evidence,
@@ -646,7 +681,7 @@ def build_core_alpha(
     selection_score = _selection_score(
         model_status=model_status,
         profit_window_probability=profit_window_probability,
-        price_strength=market.get("price_strength"),
+        research=research,
     )
     qualification = _signal_qualification(
         market=market,
@@ -771,7 +806,7 @@ def build_core_alpha(
         "selection_score": qualification["selection_score"],
         "selection_score_source": (
             "profit_window_probability" if model_status == "VALIDATED" and profit_window_probability is not None
-            else "price_strength"
+            else "research_thesis"
         ),
         "signal_evidence": list(qualification["signal_evidence"]),
         "research_used_downstream": research_used_downstream,

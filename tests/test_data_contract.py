@@ -214,8 +214,8 @@ def test_candidate_universe_is_cheap_and_has_no_alpha_fields():
     assert audit["alpha"] is False
 
 
-def _paper_observation_snapshot():
-    return {
+def _paper_observation_snapshot(**extra):
+    payload = {
         "symbol": "600001", "price": 10, "open": 9.9, "high": 10.3, "low": 9.7,
         "amount": 1_000, "volume": 100, "pct_chg": 3,
         "buyable": True, "liquidity_score": 1, "execution_quality": 1,
@@ -223,6 +223,18 @@ def _paper_observation_snapshot():
         "trade_date": "2026-08-26", "source_time": "2026-08-26T14:50:00+08:00",
         "f12": "600001", "f13": 1, "f1": 2, "market": "SH",
     }
+    payload.update(extra)
+    return attach_research_observations(
+        payload,
+        industry_flow={
+            "f3": 5,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.industry_flow",
+            "event_id": "industry-flow",
+            "mechanism": "DEMAND",
+        },
+    )
 
 
 def test_paper_observation_identity():
@@ -236,7 +248,7 @@ def test_paper_observation_identity():
     assert paper["decision_id"] == decision["decision_id"]
     assert paper["paper_signal_id"] != paper["decision_id"]
     assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
-    assert paper["alpha_name"] == "price_strength"
+    assert paper["alpha_name"] in {"research_thesis", "profit_window_probability", "profit_window_alpha_5d_v4"}
     assert paper["alpha_status"] == "DATA_INSUFFICIENT"
     assert decision["state"] != "BUY"
     assert decision["buy_status"] == "BUY_BLOCKED"
@@ -1648,6 +1660,31 @@ def test_scanner_daily_task_is_idempotent(tmp_path, monkeypatch):
     assert result["lineage"]["lineage_id"] == "lin-daily-task"
     assert result["database_persistence"]["run_id"] == "run-daily-task"
     assert "stock_all_a" not in result
+
+
+def test_scanner_force_recapture_skips_idempotent_return(tmp_path, monkeypatch):
+    summary = {
+        "production_scan": "PASS",
+        "lineage": {"lineage_id": "lin-daily-task"},
+        "database_persistence": {"status": "PASS", "run_id": "run-daily-task"},
+        "scan_reason": "SCANNER_SUCCESS_AWAITING_DECISION",
+    }
+    (tmp_path / "scan_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["runner_v2.py", "--output-dir", str(tmp_path), "--force-recapture"])
+    from scrapy_scanner.runner_v2 import main as scanner_main
+    result = scanner_main()
+    assert result.get("daily_task_status") != "ALREADY_CAPTURED"
+    assert result.get("scan_reason") != "DAILY_TASK_IDEMPOTENT"
+
+
+def test_canonical_snapshots_can_stamp_previous_trading_date():
+    snapshots = build_canonical_snapshots({
+        "stock_all_a": [{"f12": "600001", "f14": "示例公司", "f2": 10, "f3": 1, "f5": 100, "f6": 1_000, "f13": 1, "f100": "示例行业"}],
+        "stock_capital_flow": [], "earnings_preview": [], "stock_reports": [],
+        "lhb": [], "announcements": [], "flow_industry": [], "industry_reports": [],
+    }, "2026-09-06T17:00:00+08:00", symbols=[], trade_date="2026-09-04")
+    assert snapshots[0]["trade_date"] == "2026-09-04"
+    assert snapshots[0]["source_time"].startswith("2026-09-06")
 
 
 def test_historical_research_cases_exclude_future_evidence(monkeypatch):

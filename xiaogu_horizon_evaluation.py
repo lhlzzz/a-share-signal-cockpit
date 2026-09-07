@@ -34,7 +34,15 @@ def resolve_horizon_dates(trade_date: Any, horizons: Iterable[int] = HORIZONS) -
     return {day: resolve_t_plus_n(trade_date, day).isoformat() for day in validated}
 
 MINIMAL_ALPHA_FEATURES = ("price_strength",)
-CORE_ALPHA_FEATURES = MINIMAL_ALPHA_FEATURES
+CORE_ALPHA_FEATURES = (
+    "price_strength",
+    "capital_flow_ratio",
+    "capital_persistence",
+    "capital_acceleration",
+    "supply_absorption",
+    "real_pricing_gap",
+    "repricing_state",
+)
 
 PRODUCTION_FEATURES = (
     "price_strength", "turnover", "capital_flow_ratio", "capital_price_impact",

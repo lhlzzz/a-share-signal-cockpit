@@ -45,6 +45,7 @@ SCHEMA_VERSION = "xiaogu_production_schema_v6"
 PRODUCTION_SCAN_BLOCKED = "PRODUCTION_SCAN_BLOCKED"
 OFFICIAL_PRODUCTION_OBSERVATION_EXISTS = "OFFICIAL_PRODUCTION_OBSERVATION_EXISTS"
 OFFICIAL_PRODUCTION_OBSERVATION_AMBIGUOUS = "OFFICIAL_PRODUCTION_OBSERVATION_AMBIGUOUS"
+OFFICIAL_PRODUCTION_RUN_SUPERSEDED = "SUPERSEDED"
 MIGRATION_TYPE_SCHEMA = "PRODUCTION_SCHEMA_MIGRATION"
 MIGRATION_TYPE_HISTORICAL = "HISTORICAL_DATA_REPAIR"
 HISTORICAL_SNAPSHOT_MIGRATION_ID = "historical-snapshot-identity"
@@ -1906,13 +1907,18 @@ def persist_production_facts(
     *,
     production_run_id: str = "",
     coverage: Dict[str, Any] | None = None,
+    replace_official: bool = False,
 ) -> None:
     """Write production decisions and paper observations in one transaction."""
+    run_id = str(production_run_id or "").strip()
+    if replace_official and run_id and _incoming_official_observation(decisions):
+        replace_official_production_observation(
+            _trade_date_from_run_or_decisions(run_id, decisions)
+        )
     ensure_production_schema()
     with engine.begin() as db:
         token = _ACTIVE_DB_CONNECTION.set(db)
         try:
-            run_id = str(production_run_id or "").strip()
             if run_id and _incoming_official_observation(decisions):
                 _assert_one_official_production_observation(run_id, decisions)
             for decision in decisions:
@@ -2576,6 +2582,37 @@ def _assert_one_official_production_observation(
         raise RuntimeError(f"{OFFICIAL_PRODUCTION_OBSERVATION_EXISTS}:{trade_date}:{existing}")
 
 
+def replace_official_production_observation(trade_date: str) -> str | None:
+    """Retire the current official batch for one trade_date. New persist becomes truth."""
+    wanted = str(trade_date or "")[:10]
+    if not wanted:
+        return None
+    existing = fetch_official_production_run_id(wanted)
+    if not existing:
+        return None
+    official_ids = [
+        str(row.get("paper_signal_id") or "").strip()
+        for row in fetch_official_paper_observations()
+        if str(row.get("trade_date") or "")[:10] == wanted
+    ]
+    official_ids = [item for item in official_ids if item]
+    with get_db() as db:
+        for paper_id in official_ids:
+            db.execute(
+                text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"),
+                {"paper_signal_id": paper_id},
+            )
+        if "production_run_id" in _table_columns("production_runs"):
+            db.execute(
+                text(
+                    "UPDATE production_runs SET status = :status, updated_at = NOW() "
+                    "WHERE production_run_id = :run_id"
+                ),
+                {"status": OFFICIAL_PRODUCTION_RUN_SUPERSEDED, "run_id": existing},
+            )
+    return existing
+
+
 def _official_observation_rank(observation: Dict[str, Any]) -> int | None:
     rank = observation.get("rank")
     try:
@@ -3004,6 +3041,86 @@ def fetch_production_model(model_id: str) -> Dict[str, Any] | None:
     return {**summary, **artifact, "model_id": artifact.get("model_id") or row["model_id"]}
 
 
+def record_production_model(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist the sole production alpha artifact. Research JSON is not enough."""
+    if not isinstance(model, dict):
+        raise ValueError("PRODUCTION_MODEL_REQUIRED")
+    model_id = str(model.get("model_id") or "").strip()
+    if not model_id:
+        raise ValueError("PRODUCTION_MODEL_ID_REQUIRED")
+    ensure_production_schema()
+    columns = _table_columns("model_registry")
+    if not columns:
+        raise RuntimeError("MODEL_REGISTRY_UNAVAILABLE")
+    artifact = json.dumps(model, ensure_ascii=False, default=str)
+    summary = json.dumps({
+        "status": model.get("status"),
+        "production_permission": model.get("production_permission"),
+        "production_gates": model.get("production_gates") or {},
+        "oos": model.get("oos") or {},
+        "feature_names": model.get("feature_names") or [],
+        "target_version": model.get("target_version"),
+        "model_version": model.get("model_version"),
+        "feature_version": model.get("feature_version"),
+        "dataset_hash": model.get("dataset_hash"),
+    }, ensure_ascii=False, default=str)
+    train = model.get("train_window") if isinstance(model.get("train_window"), dict) else {}
+    validation = model.get("validation_window") if isinstance(model.get("validation_window"), dict) else {}
+    oos = model.get("oos_window") if isinstance(model.get("oos_window"), dict) else {}
+    values = {
+        "model_id": model_id,
+        "status": str(model.get("status") or "DATA_INSUFFICIENT"),
+        "acceptance_artifact": artifact,
+        "performance_summary": summary,
+        "feature_version": str(model.get("feature_version") or ""),
+        "label_version": str(model.get("target_version") or ""),
+        "training_start": str(train.get("start") or "") or None,
+        "training_end": str(train.get("end") or "") or None,
+        "validation_start": str(validation.get("start") or "") or None,
+        "validation_end": str(validation.get("end") or "") or None,
+        "oos_start": str(oos.get("start") or "") or None,
+        "oos_end": str(oos.get("end") or "") or None,
+        "universe_definition": "MAIN_BOARD_ONLY_V1",
+        "model_type": "profit_window_logistic_v4",
+        "feature_hash": str(model.get("dataset_hash") or ""),
+        "parameters_hash": str(model.get("dataset_hash") or ""),
+    }
+    assignments = []
+    params = {"model_id": model_id}
+    for column, value in values.items():
+        if column == "model_id" or column not in columns:
+            continue
+        assignments.append(f"{column} = :{column}")
+        params[column] = value
+    if "acceptance_artifact" not in columns and "performance_summary" not in columns:
+        raise RuntimeError("MODEL_REGISTRY_CONTRACT_INVALID")
+    with get_db() as db:
+        existing = db.execute(
+            text("SELECT model_id FROM model_registry WHERE model_id = :model_id"),
+            {"model_id": model_id},
+        ).mappings().first()
+        if existing:
+            if assignments:
+                db.execute(
+                    text(f"UPDATE model_registry SET {', '.join(assignments)} WHERE model_id = :model_id"),
+                    params,
+                )
+        else:
+            insert_cols = [column for column in values if column in columns]
+            db.execute(
+                text(
+                    "INSERT INTO model_registry ("
+                    + ", ".join(insert_cols)
+                    + ") VALUES ("
+                    + ", ".join(f":{column}" for column in insert_cols)
+                    + ")"
+                ),
+                {column: values[column] for column in insert_cols},
+            )
+    persisted = fetch_production_model(model_id)
+    if not persisted:
+        raise RuntimeError("PRODUCTION_MODEL_PERSISTENCE_FAILED")
+    return persisted
 
 
 def _table_columns(table_name: str) -> set[str]:
@@ -4514,6 +4631,26 @@ def fetch_historical_replay_assets(
                       AND "return_row"."symbol" = "source_row"."symbol"
                 )"""
             )
+        if table == "picks" and "id" in columns:
+            pick_clauses = []
+            if "id" in columns:
+                pick_clauses.append('"return_row"."pick_id" = "source_row"."id"')
+            if {"production_run_id", "symbol", "trade_date"} <= columns:
+                pick_clauses.append(
+                    """(
+                        "return_row"."production_run_id" = "source_row"."production_run_id"
+                        AND "return_row"."symbol" = "source_row"."symbol"
+                        AND "return_row"."trade_date" = "source_row"."trade_date"
+                    )"""
+                )
+            if pick_clauses:
+                clauses.append(
+                    """EXISTS (
+                        SELECT 1
+                        FROM "returns" AS "return_row"
+                        WHERE """ + " OR ".join(pick_clauses) + """
+                    )"""
+                )
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         order = (
             ' ORDER BY "source_row"."trade_date", "source_row"."id"'

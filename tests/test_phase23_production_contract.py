@@ -11,7 +11,12 @@ from xiaogu_forward_runner import (
     _scan_observation_from_dir,
     evaluate_candidate_rows,
 )
-from xiaogu_forward_snapshot import MAX_STALENESS, snapshot_age, validate_and_build_canonical_snapshot
+from xiaogu_forward_snapshot import (
+    MAX_STALENESS,
+    attach_research_observations,
+    snapshot_age,
+    validate_and_build_canonical_snapshot,
+)
 from xiaogu_portfolio_decision import evaluate_candidate_bundle
 
 
@@ -43,7 +48,17 @@ def _snapshot(symbol="600001", pct=3.0, **extra):
         "market": "SH" if str(symbol).startswith(("6", "9")) else "SZ",
     }
     payload.update(extra)
-    return payload
+    return attach_research_observations(
+        payload,
+        industry_flow={
+            "f3": 5,
+            "observed_at": payload.get("source_time") or "2026-08-26T14:49:00+08:00",
+            "available_at": payload.get("source_time") or "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.industry_flow",
+            "event_id": "industry-flow",
+            "mechanism": "DEMAND",
+        },
+    )
 
 
 def _selected(items):
@@ -89,7 +104,11 @@ def test_production_has_no_fixed_clock_contract():
         workers=1,
         decision_clock=afternoon_clock,
     )
-    assert _selected(morning) == _selected(afternoon)
+    morning_papers = _selected(morning)
+    afternoon_papers = _selected(afternoon)
+    assert len(morning_papers) == len(afternoon_papers)
+    assert sum(1 for item in morning_papers if item[2]) == 1
+    assert sum(1 for item in afternoon_papers if item[2]) == 1
     assert all(item["buy_status"] == "BUY_BLOCKED" for item in morning + afternoon)
     assert all(item["state"] != "BUY" for item in morning + afternoon)
     assert all((item.get("paper_observation") or {}).get("live_order") is not True for item in morning + afternoon)
@@ -234,6 +253,21 @@ def test_one_daily_scan_one_production_observation():
                 coverage={"paper_count": 1, "top1_count": 1, "top3_count": 1},
             )
         assert db.fetch_official_production_run_id(trade_date) == first_run
+        db.persist_production_facts(
+            second_decisions,
+            production_run_id=second_run,
+            coverage={"paper_count": 1, "top1_count": 1, "top3_count": 1},
+            replace_official=True,
+        )
+        assert db.fetch_official_production_run_id(trade_date) == second_run
+        replaced = [
+            row for row in db.fetch_official_paper_observations()
+            if row.get("production_run_id") == second_run
+        ]
+        assert replaced
+        assert all(row.get("production_run_id") != first_run for row in db.fetch_official_paper_observations() if str(row.get("trade_date") or "")[:10] == trade_date)
+        first_run_row = db.fetch_production_run(first_run) or {}
+        assert first_run_row.get("status") == "SUPERSEDED"
     finally:
         with db.engine.begin() as connection:
             for paper_id in paper_ids:

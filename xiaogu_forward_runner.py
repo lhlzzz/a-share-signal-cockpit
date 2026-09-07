@@ -856,6 +856,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--position-review", action="store_true")
     parser.add_argument("--decision-workers", type=int, default=None)
+    parser.add_argument(
+        "--replace-official",
+        action="store_true",
+        help="Retire this trade_date's official paper batch, then persist this run as truth.",
+    )
     args = parser.parse_args()
     mode = "DRY_RUN" if args.dry_run and args.mode == "PRODUCTION" else args.mode
     if mode == "PRODUCTION":
@@ -1042,6 +1047,7 @@ def main() -> None:
                 decisions,
                 production_run_id=observation_run_id,
                 coverage=coverage,
+                replace_official=args.replace_official,
             )
         except Exception as exc:
             persist_failures.append({"error": repr(exc), "stage": "PRODUCTION_FACTS"})

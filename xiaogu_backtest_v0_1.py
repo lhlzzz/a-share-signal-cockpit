@@ -264,13 +264,25 @@ def _historical_decision_identity(
     }
 
 
+def _trade_date_key(value: Any) -> str:
+    return str(value or "").strip()[:10]
+
+
+def _symbol_date_key(row: Dict[str, Any]) -> tuple[str, str] | None:
+    symbol = str(row.get("symbol") or "").zfill(6)
+    trade_date = _trade_date_key(row.get("trade_date"))
+    if not symbol or symbol == "000000" or not trade_date:
+        return None
+    return (symbol, trade_date)
+
+
 def _relation_key(row: Dict[str, Any]) -> tuple[Any, ...] | None:
     run = row.get("production_run_id")
     snapshot = row.get("candidate_snapshot_id")
     if run and snapshot:
         return (
             str(run), str(snapshot), str(row.get("symbol") or "").zfill(6),
-            str(row.get("trade_date") or ""),
+            _trade_date_key(row.get("trade_date")),
         )
     return None
 
@@ -337,14 +349,17 @@ def _entry_audit(
     return_rows: Sequence[Dict[str, Any]],
     *,
     source_rows: Sequence[Dict[str, Any]] = (),
+    tday_close: float | None = None,
 ) -> Dict[str, Any]:
     candidates: list[tuple[str, Any]] = []
+    fallback_candidates: list[tuple[str, Any]] = []
     derived_candidates: list[tuple[str, Any]] = []
     records = [*source_rows, *return_rows]
     for row in records:
         evidence = _json_row(row, "settlement_evidence")
         contract = _json_row(evidence, "execution_contract")
         payload = _as_dict(row.get("payload"))
+        snapshot = _as_dict(payload.get("canonical_snapshot")) if payload else {}
         candidates.extend((name, value) for name, value in (
             ("returns.entry_price", row.get("entry_price")),
             ("settlement_evidence.entry_price", evidence.get("entry_price")),
@@ -352,11 +367,20 @@ def _entry_audit(
             ("execution_contract.signal_price", contract.get("signal_price")),
             ("payload.entry_price", payload.get("entry_price")),
         ) if _number(value) is not None and _number(value) > 0)
+        fallback_candidates.extend((name, value) for name, value in (
+            ("canonical_snapshot.price", snapshot.get("price") or snapshot.get("close") or snapshot.get("close_price")),
+            ("candidate.close_price", row.get("close_price")),
+            ("candidate.open_price", row.get("open_price")),
+        ) if _number(value) is not None and _number(value) > 0)
         execution_model = _json_row(evidence, "execution_model")
         derived_candidates.extend((name, value) for name, value in (
             ("execution_model.entry_reference_price", execution_model.get("entry_reference_price")),
             ("execution_model.entry_execution_price", execution_model.get("entry_execution_price")),
         ) if _number(value) is not None and _number(value) > 0)
+    if not candidates:
+        candidates = list(fallback_candidates)
+        if not candidates and _number(tday_close) is not None and _number(tday_close) > 0:
+            candidates.append(("tday_close", tday_close))
     values = [value for _, value in candidates]
     first = return_rows[0] if return_rows else (source_rows[0] if source_rows else {})
     metadata = {
@@ -389,30 +413,58 @@ def _entry_audit(
         metadata["issues"].append("ENTRY_PRICE_CONFLICT")
         return metadata
     # The first available field follows the production contract priority.
+    selected_source = next(
+        (
+            source
+            for source in (
+                "returns.entry_price",
+                "settlement_evidence.entry_price",
+                "execution_contract.execution_price",
+                "execution_contract.signal_price",
+                "payload.entry_price",
+                "canonical_snapshot.price",
+                "candidate.close_price",
+                "candidate.open_price",
+                "tday_close",
+            )
+            for name, value in candidates
+            if name == source
+        ),
+        None,
+    )
     selected = next(
-        _number(value) for source in (
-            "returns.entry_price",
-            "settlement_evidence.entry_price",
-            "execution_contract.execution_price",
-            "execution_contract.signal_price",
-            "payload.entry_price",
-        ) for name, value in candidates if name == source
-    ) if candidates else None
+        (_number(value) for name, value in candidates if name == selected_source),
+        None,
+    ) if selected_source else None
     evidence = _json_row(records[0], "settlement_evidence") if records else {}
     contract = _json_row(evidence, "execution_contract")
     execution_price = next(
         (_number(value) for name, value in candidates if name == "execution_contract.execution_price"),
         selected,
     )
+    fallback_source = (
+        "BACKFILL_T_DAY_CLOSE"
+        if selected_source == "tday_close"
+        else ("canonical_snapshot.price" if selected is not None else None)
+    )
     metadata.update({
         "entry_price": selected,
         "execution_price": execution_price,
-        "price_basis": _first_value(first.get("entry_price_basis"), evidence.get("price_basis")),
-        "source": _first_value(first.get("entry_price_source"), evidence.get("price_source")),
-        "signal_time": _first_value(contract.get("signal_time"), first.get("entry_time")),
+        "price_basis": _first_value(first.get("entry_price_basis"), evidence.get("price_basis"), PRICE_BASIS),
+        "source": _first_value(
+            first.get("entry_price_source"),
+            evidence.get("price_source"),
+            fallback_source,
+        ),
+        "signal_time": _first_value(
+            contract.get("signal_time"),
+            first.get("entry_time"),
+            "15:00:00" if selected is not None else None,
+        ),
         "entry_time": _first_value(
             first.get("entry_time"),
             contract.get("execution_time"),
+            "15:00:00" if selected is not None else None,
         ),
         "execution_time": _first_value(
             contract.get("execution_time"),
@@ -828,7 +880,26 @@ def _bars_cover_five_days(
         for bar in bars
         if all(_number(bar.get(field)) is not None for field in ("open", "high", "low", "close"))
     }
-    return len([value for value in dates if value > trade_date]) >= 5
+    return trade_date in dates and len([value for value in dates if value > trade_date]) >= 5
+
+
+def _main_board_symbol(symbol: str) -> bool:
+    code = str(symbol or "").zfill(6)
+    return code.startswith(("600", "601", "603", "605", "000", "001", "002", "003"))
+
+
+def _database_linked_decision_dates(
+    assets: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, set[str]]:
+    dates: Dict[str, set[str]] = defaultdict(set)
+    for group in ("picks", "daily_candidates", "returns"):
+        for row in _materialized_asset_rows(assets.get(group) or []):
+            symbol = str(row.get("symbol") or "").zfill(6)
+            trade_date = str(row.get("trade_date") or "").strip()[:10]
+            if not symbol or symbol == "000000" or not trade_date:
+                continue
+            dates[symbol].add(trade_date)
+    return dates
 
 
 def _future_request_end(trade_date: str, requested_end: str) -> str:
@@ -838,6 +909,15 @@ def _future_request_end(trade_date: str, requested_end: str) -> str:
         return min(str(requested_end), bounded.isoformat())
     except ValueError:
         return str(requested_end)
+
+
+def _future_request_span(needed_dates: Sequence[str], requested_end: str) -> tuple[str, str]:
+    days = sorted(str(day)[:10] for day in needed_dates if str(day or "")[:10])
+    if not days:
+        return str(requested_end), str(requested_end)
+    start = days[0]
+    end = _future_request_end(days[-1], requested_end)
+    return start, max(end, days[-1])
 
 
 def supplement_database_future_prices(
@@ -875,7 +955,8 @@ def supplement_database_future_prices(
 
     ranges = _database_linked_decision_ranges(assets)
     windows = _database_linked_decision_windows(assets)
-    symbols = sorted(ranges)
+    decision_dates = _database_linked_decision_dates(assets)
+    symbols = sorted(code for code in ranges if _main_board_symbol(code))
     selected_symbols = symbols[max(0, symbol_offset):]
     if max_symbols is not None:
         selected_symbols = selected_symbols[:max(0, max_symbols)]
@@ -918,19 +999,18 @@ def supplement_database_future_prices(
     for processed, symbol in enumerate(selected_symbols, 1):
         earliest = ranges[symbol]
         latest = windows[symbol][1]
-        if (
-            _bars_cover_five_days(existing_by_symbol.get(symbol, []), earliest)
-            and _bars_cover_five_days(existing_by_symbol.get(symbol, []), latest)
-        ):
+        needed_dates = sorted(decision_dates.get(symbol) or {earliest, latest})
+        existing_bars = existing_by_symbol.get(symbol, [])
+        if all(_bars_cover_five_days(existing_bars, day) for day in needed_dates):
             continue
         cached = cache["symbols"].get(symbol) or {}
         cached_bars = cached.get("bars") if isinstance(cached, dict) else None
-        symbol_end = _future_request_end(windows[symbol][1], requested_end)
+        earliest, symbol_end = _future_request_span(needed_dates, requested_end)
         if (
             isinstance(cached_bars, list)
             and str(cached.get("start_date") or "") <= earliest
             and str(cached.get("end_date") or "") >= symbol_end
-            and _bars_cover_five_days(cached_bars, earliest)
+            and all(_bars_cover_five_days(cached_bars, day) for day in needed_dates)
         ):
             fetched_bars.extend(cached_bars)
             for bar in cached_bars:
@@ -1302,7 +1382,7 @@ def build_historical_5d_profit_window_dataset(
         symbol = str(bar.get("symbol") or "").zfill(6)
         if symbol:
             future_by_symbol[symbol].append({
-                "trade_date": bar.get("date") or bar.get("trade_date"),
+                "trade_date": _trade_date_key(bar.get("date") or bar.get("trade_date")),
                 "open": bar.get("open"),
                 "high": bar.get("high"),
                 "low": bar.get("low"),
@@ -1346,6 +1426,31 @@ def build_historical_5d_profit_window_dataset(
             source_decisions.append((None, candidate, remaining))
             resolved_return_ids.update(row.get("id") for row in remaining)
             linked_candidate_ids.add(candidate.get("id"))
+    candidate_by_symbol_date: Dict[tuple[str, str], Dict[str, Any]] = {}
+    ambiguous_symbol_dates: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        key = _symbol_date_key(candidate)
+        if key is None or candidate.get("id") in linked_candidate_ids:
+            continue
+        if key in candidate_by_symbol_date or key in ambiguous_symbol_dates:
+            ambiguous_symbol_dates.add(key)
+            candidate_by_symbol_date.pop(key, None)
+            continue
+        candidate_by_symbol_date[key] = candidate
+    remaining_by_symbol_date: Dict[tuple[str, str], list[Dict[str, Any]]] = defaultdict(list)
+    for row in returns:
+        if row.get("id") in resolved_return_ids:
+            continue
+        key = _symbol_date_key(row)
+        if key:
+            remaining_by_symbol_date[key].append(row)
+    for key, linked in remaining_by_symbol_date.items():
+        candidate = candidate_by_symbol_date.get(key)
+        if not candidate or candidate.get("id") in linked_candidate_ids:
+            continue
+        source_decisions.append((None, candidate, linked))
+        resolved_return_ids.update(row.get("id") for row in linked)
+        linked_candidate_ids.add(candidate.get("id"))
 
     dataset = []
     canonical_snapshots: list[Dict[str, Any]] = []
@@ -1453,9 +1558,17 @@ def build_historical_5d_profit_window_dataset(
             audit["entry_audits"].append({"historical_decision_id": None, **entry, "quality": "INVALID", "issues": categories})
             audit["unresolved_decisions"].append(identity.get("source") or "UNRESOLVED")
             continue
-        entry = _entry_audit(linked, source_rows=source_rows)
         symbol = str((pick or candidate).get("symbol") or "").zfill(6)
-        trade_date = str((pick or candidate).get("trade_date") or "")
+        trade_date = _trade_date_key((pick or candidate).get("trade_date"))
+        tday_close = next(
+            (
+                _number(bar.get("close"))
+                for bar in future_by_symbol.get(symbol, [])
+                if _trade_date_key(bar.get("trade_date")) == trade_date and _number(bar.get("close"))
+            ),
+            None,
+        )
+        entry = _entry_audit(linked, source_rows=source_rows, tday_close=tday_close)
         persisted_future = [
             bar for bar in future_by_symbol.get(symbol, [])
             if str(bar.get("trade_date") or "") > trade_date
@@ -1483,6 +1596,8 @@ def build_historical_5d_profit_window_dataset(
         )
         if not snapshot_source.get("source_time"):
             snapshot_source["source_time"] = f"{snapshot_source.get('trade_date')}T15:00:00+08:00"
+        if snapshot_source.get("price") in (None, "") and tday_close:
+            snapshot_source["price"] = tday_close
         snapshot = None
         current = None
         replay_error = None
@@ -1684,7 +1799,9 @@ def build_historical_5d_profit_window_dataset(
         "counts": {"historical_decisions": len(source_decisions), "dataset": len(dataset), "canonical": len(canonical), "partial": len(partial), "conflict": len(conflict), "invalid": len(invalid), "unresolved": len(unresolved), "quality_categories": category_counts, "primary_quality_categories": primary_category_counts},
         "target_quality_gate": gate,
         "alpha_report": report,
-        "core_alpha_status": "VALIDATED" if gate.get("status") == "PASS" else ("DATA_INSUFFICIENT" if len(canonical) < 1 or gate.get("status") != "PASS" else "EXPERIMENTAL"),
+        "core_alpha_status": report.get("core_alpha_status") or report.get("status") or (
+            "DATA_INSUFFICIENT" if gate.get("status") != "PASS" or len(canonical) < 1 else "EXPERIMENTAL"
+        ),
         "outcome_boundary": "CURRENT_DECISION_FROZEN_BEFORE_HISTORICAL_RETURN_READ",
     }
 
@@ -2006,8 +2123,19 @@ def persist_historical_replay(result: Dict[str, Any]) -> Dict[str, Any]:
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact_result = dict(result)
     artifact_result.pop("canonical_historical_snapshots", None)
+
+    def jsonable(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {
+                "|".join(str(item) for item in key) if isinstance(key, tuple) else key: jsonable(value)
+                for key, value in obj.items()
+            }
+        if isinstance(obj, list):
+            return [jsonable(item) for item in obj]
+        return obj
+
     artifact.write_text(
-        json.dumps(artifact_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+        json.dumps(jsonable(artifact_result), ensure_ascii=False, indent=2, default=str), encoding="utf-8"
     )
     result["database_persistence"] = {
         "status": "PASS",
@@ -2200,6 +2328,19 @@ def main() -> int:
         json.dumps(calibration, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+    registry = {"status": "SKIPPED", "reason": "NOT_VALIDATED"}
+    model_status = str(report.get("core_alpha_status") or calibration.get("status") or "")
+    if model_status == "VALIDATED" and bool((calibration.get("oos") or {}).get("passed")):
+        from xiaogu_db import record_production_model
+        artifact = dict(calibration)
+        artifact["status"] = "VALIDATED"
+        artifact["production_permission"] = report.get("production_permission") or calibration.get("production_permission")
+        artifact["production_gates"] = report.get("production_gates") or calibration.get("production_gates") or {}
+        artifact["production_alpha_permissions"] = (
+            report.get("production_alpha_permissions") or calibration.get("production_alpha_permissions") or {}
+        )
+        persisted = record_production_model(artifact)
+        registry = {"status": "PASS", "model_id": persisted.get("model_id"), "model_status": persisted.get("status")}
     print(json.dumps({
         "status": "PASS",
         "dataset_path": args.dataset_path,
@@ -2208,6 +2349,7 @@ def main() -> int:
         "counts": result.get("counts"),
         "target_quality_gate": result.get("target_quality_gate"),
         "core_alpha_status": result.get("core_alpha_status"),
+        "model_registry": registry,
     }, ensure_ascii=False))
     return 0
 

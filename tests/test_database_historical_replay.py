@@ -70,6 +70,38 @@ def test_entry_conflict_and_missing_metadata_are_explicit():
     assert "MISSING_ENTRY_METADATA" in missing["issues"]
 
 
+def test_entry_can_use_tday_close_when_returns_lack_price():
+    audit = _entry_audit(
+        [_return_row(
+            entry_price=None,
+            settlement_evidence={},
+            entry_time=None,
+            entry_price_source=None,
+            entry_price_basis=None,
+        )],
+        tday_close=10.5,
+    )
+    assert audit["entry_price"] == pytest.approx(10.5)
+    assert audit["source"] == "BACKFILL_T_DAY_CLOSE"
+    assert audit["signal_time"] == "15:00:00"
+    assert "MISSING_ENTRY_METADATA" not in audit["issues"]
+
+
+def test_tday_close_does_not_conflict_with_existing_entry():
+    audit = _entry_audit([_return_row()], tday_close=10.5)
+    assert audit["entry_price"] == pytest.approx(10.0)
+    assert "ENTRY_PRICE_CONFLICT" not in audit["issues"]
+
+
+def test_candidate_close_does_not_conflict_with_existing_entry():
+    audit = _entry_audit(
+        [_return_row()],
+        source_rows=[{"close_price": 11.2, "open_price": 10.8, "trade_date": "2026-08-01"}],
+    )
+    assert audit["entry_price"] == pytest.approx(10.0)
+    assert "ENTRY_PRICE_CONFLICT" not in audit["issues"]
+
+
 def test_duplicate_targets_merge_when_equal_and_conflict_when_not():
     same = _return_targets([_return_row(), _return_row(id=2)], 10.0)
     assert same["conflicts"] == []
@@ -334,6 +366,23 @@ def test_gate_requires_day_by_day_ohlc_not_only_returns():
     assert gate["status"] == "BLOCKED"
     assert gate["horizon_coverage"]["1"]["return"] == 1.0
     assert gate["horizon_coverage"]["1"]["ohlc"] == 0.0
+
+
+def test_unique_symbol_date_recovers_unlinked_return():
+    result = build_historical_5d_profit_window_dataset({
+        "picks": [],
+        "returns": [_return_row(pick_id=None, production_run_id=None, candidate_snapshot_id=None)],
+        "daily_candidates": [{
+            "id": 9,
+            "trade_date": "2026-08-01",
+            "symbol": "600001",
+            "close_price": 10.0,
+            "source_time": "2026-08-01T15:00:00+08:00",
+        }],
+    })
+    assert result["counts"]["dataset"] == 1
+    assert result["rows"][0]["entry_price"] == 10.0
+    assert result["audit"]["unresolved_returns"] == []
 
 
 def test_database_builder_requires_explicit_linked_snapshot():

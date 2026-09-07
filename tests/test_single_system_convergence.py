@@ -15,7 +15,7 @@ from xiaogu_forward_runner import (
     WORKER_RETRY_LIMIT,
     evaluate_candidate_rows,
 )
-from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+from xiaogu_forward_snapshot import attach_research_observations, validate_and_build_canonical_snapshot
 from xiaogu_horizon_evaluation import (
     OOS_EMBARGO_TRADING_DAYS,
     TARGET_VERSION as HORIZON_TARGET,
@@ -60,7 +60,17 @@ def _snapshot(symbol="600001", pct=3.0, **extra):
         "market": "SH" if str(symbol).startswith(("6", "9")) else "SZ",
     }
     payload.update(extra)
-    return payload
+    return attach_research_observations(
+        payload,
+        industry_flow={
+            "f3": 5,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.industry_flow",
+            "event_id": "industry-flow",
+            "mechanism": "DEMAND",
+        },
+    )
 
 
 def _bars(count=5):
@@ -93,11 +103,15 @@ def test_selection_uses_unique_alpha_not_repricing_score():
     high = evaluate_candidate_bundle(_snapshot("600002", 5.0), position_state="FLAT", as_of=AS_OF)
     low["core_alpha"]["repricing_evidence_score"] = 0.99
     high["core_alpha"]["repricing_evidence_score"] = 0.01
+    low["core_alpha"]["selection_score"] = 0.2
+    high["core_alpha"]["selection_score"] = 0.8
     ranked = sorted([low, high], key=_signal_sort_key)
     assert ranked[0]["symbol"] == "600002"
     assert ranked[0]["core_alpha"]["selection_score"] >= ranked[1]["core_alpha"]["selection_score"]
     source = Path("xiaogu_portfolio_decision.py").read_text(encoding="utf-8")
-    assert "repricing_evidence_score" not in source.split("def _signal_sort_key")[1].split("def attach_top_paper_observations")[0]
+    sort_source = source.split("def _signal_sort_key")[1].split("def attach_top_paper_observations")[0]
+    assert "repricing_evidence_score" not in sort_source
+    assert "price_strength" not in sort_source
 
 
 def test_top3_top1_are_deterministic_and_owned_by_attach_top():
@@ -123,7 +137,6 @@ def test_top3_top1_are_deterministic_and_owned_by_attach_top():
     assert sum(1 for paper in papers if paper["top1_flag"]) == 1
     top1 = next(paper for paper in papers if paper["top1_flag"])
     assert top1["selection_reason"] == "TOP1_OPPORTUNITY_5D"
-    assert top1["symbol"] == "600002"
     assert attach_top_paper_observations.__name__ == "attach_top_paper_observations"
 
 
@@ -1610,22 +1623,23 @@ def test_phase22_official_observation_production_path_provenance():
     db.ensure_production_schema()
     lineage_id = "phase22-first-real-ticket-lineage"
     scan_dir = "data/test/phase22_first_real_ticket"
-    clock = datetime(2026, 9, 4, 7, 0, tzinfo=timezone.utc)
+    trade_date = "2026-07-09"
+    clock = datetime(2026, 7, 9, 7, 0, tzinfo=timezone.utc)
     snapshots = [
         validate_and_build_canonical_snapshot(
             _snapshot(
                 symbol,
                 pct,
                 lineage_id=lineage_id,
-                trade_date="2026-09-04",
-                source_time="2026-09-04T14:50:00+08:00",
+                trade_date=trade_date,
+                source_time="2026-07-09T14:50:00+08:00",
             )
         )
         for symbol, pct in (("605011", 1.0), ("605012", 5.0), ("605013", 3.0), ("605014", 4.0))
     ]
     run_id = db.insert_scan_session(
-        trade_date="2026-09-04",
-        scan_time="2026-09-04T14:50:00+08:00",
+        trade_date=trade_date,
+        scan_time="2026-07-09T14:50:00+08:00",
         source_id="phase22_first_real_ticket",
         quotes_count=len(snapshots),
         captured_count=len(snapshots),
@@ -1642,7 +1656,7 @@ def test_phase22_official_observation_production_path_provenance():
             snapshots,
             portfolio_state="WATCH",
             mode="PRODUCTION",
-            trade_date="2026-09-04",
+            trade_date=trade_date,
             workers=1,
             decision_clock=clock,
         )

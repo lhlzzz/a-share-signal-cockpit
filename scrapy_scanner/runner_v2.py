@@ -442,6 +442,11 @@ def fetch_paginated(
     return rows
 
 
+def _sort_types_for(sort_column: str) -> str:
+    parts = [item.strip() for item in str(sort_column or "").split(",") if item.strip()]
+    return ",".join("-1" for _ in parts) if parts else "-1"
+
+
 def fetch_datacenter(
     report_name: str,
     sort_column: str,
@@ -470,7 +475,7 @@ def fetch_datacenter(
             extra["filter"] = _code_filter(batch, extra.get("filter") or "")
         base = {
             "reportName": report_name, "columns": "ALL", "pageSize": page_size,
-            "sortTypes": -1, "sortColumns": sort_column, "source": "WEB",
+            "sortTypes": _sort_types_for(sort_column), "sortColumns": sort_column, "source": "WEB",
             "client": "WEB", **extra,
         }
         batch_rows = []
@@ -512,6 +517,96 @@ def fetch_datacenter(
         requested_symbols=wanted, returned_symbols=sorted(set(returned)),
         unrelated_symbols=sorted(set(unrelated_symbols)),
         unrelated_rows=unrelated, request_count=requests, response_count=len(rows),
+        status="PASS" if kept else "EMPTY",
+    )
+    return kept
+
+
+def _lhb_trade_date(value: Any) -> str:
+    return str(value or "")[:10]
+
+
+def _normalize_lhb_row(row: Dict[str, Any], *, fetched_at: str) -> Dict[str, Any]:
+    payload = dict(row)
+    code = normalize_stock_code(payload.get("SECURITY_CODE") or payload.get("SECUCODE"))
+    trade_date = _lhb_trade_date(payload.get("TRADE_DATE"))
+    explain = str(payload.get("EXPLAIN") or payload.get("EXPLANATION") or "").strip()
+    seat = str(payload.get("OPERATEDEPT_NAME") or "").strip()
+    if seat and seat not in explain:
+        explain = f"{seat} {explain}".strip()
+    payload["EXPLAIN"] = explain
+    payload["symbol"] = code
+    payload["source_id"] = "eastmoney.lhb"
+    payload["event_id"] = "|".join(
+        part for part in (
+            code or "",
+            trade_date,
+            str(payload.get("OPERATEDEPT_CODE") or ""),
+            str(payload.get("TRADE_ID") or ""),
+            explain[:40],
+        ) if part
+    )
+    payload["mechanism"] = "CAPITAL"
+    payload["event_time"] = f"{trade_date}T15:00:00+08:00" if trade_date else fetched_at
+    payload["observed_at"] = payload["event_time"]
+    payload["available_at"] = fetched_at
+    if payload.get("NET_BS_AMT") in (None, "", "-"):
+        payload["NET_BS_AMT"] = payload.get("BILLBOARD_NET_AMT")
+        if payload["NET_BS_AMT"] in (None, "", "-"):
+            payload["NET_BS_AMT"] = payload.get("NET")
+    return payload
+
+
+def fetch_lhb_for_uzi(
+    trade_date: str,
+    *,
+    candidate_codes: Iterable[str] | None = None,
+    diagnostics: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    """Capture T-day LHB board and seat rows. Filter to candidates after fetch."""
+    _start_diagnostic(diagnostics)
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, pages=0, reported_total=0, row_count=0, requested_symbols=[],
+            returned_symbols=[], unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
+    day = str(trade_date or "")[:10]
+    extra = {"filter": f"(TRADE_DATE>='{day}')"} if day else None
+    board = fetch_datacenter(
+        "RPT_DAILYBILLBOARD_DETAILSNEW",
+        "TRADE_DATE,DEAL_AMOUNT_RATIO",
+        extra_params=extra,
+    )
+    seats: list[Dict[str, Any]] = []
+    for report in ("RPT_BILLBOARD_DAILYDETAILSBUY", "RPT_BILLBOARD_DAILYDETAILSSELL"):
+        seats.extend(fetch_datacenter(report, "TRADE_DATE", extra_params=extra))
+    fetched_at = _iso_now()
+    wanted_set = set(wanted)
+    kept = []
+    seen = set()
+    unrelated = 0
+    returned = []
+    for raw in (*board, *seats):
+        if not isinstance(raw, dict):
+            continue
+        codes = stock_codes_from_row(raw)
+        if wanted_set and not any(code in wanted_set for code in codes):
+            unrelated += 1
+            continue
+        item = _normalize_lhb_row(raw, fetched_at=fetched_at)
+        key = str(item.get("event_id") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(item)
+        returned.extend(codes)
+    _store_diagnostic(
+        diagnostics, row_count=len(kept), requested_symbols=wanted,
+        returned_symbols=sorted(set(returned)), unrelated_rows=unrelated,
+        request_count=3, response_count=len(board) + len(seats),
         status="PASS" if kept else "EMPTY",
     )
     return kept
@@ -587,10 +682,19 @@ def fetch_report_list(
     return kept
 
 
+def _announcement_day(row: Dict[str, Any]) -> str:
+    for key in ("display_time", "eiTime", "sort_date", "notice_date"):
+        day = str(row.get(key) or "")[:10]
+        if day:
+            return day
+    return ""
+
+
 def fetch_announcements(
     page_size: int = 100,
     diagnostics: Dict[str, Any] | None = None,
     candidate_codes: Iterable[str] | None = None,
+    begin_date: str = "",
 ) -> list[Dict[str, Any]]:
     _start_diagnostic(diagnostics)
     wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
@@ -601,33 +705,47 @@ def fetch_announcements(
             unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
         )
         return []
+    lookback = str(begin_date or "")[:10] or (
+        datetime.now(MARKET_TIMEZONE) - timedelta(days=RECENT_NEWS_LOOKBACK_DAYS)
+    ).strftime("%Y-%m-%d")
     rows = []
     seen = set()
     requests = 0
-    codes = wanted or [None]
-    for code in codes:
-        for page in range(1, MAX_PAGES + 1):
-            params = {
-                "ann_type": "A", "client_source": "WEB", "f_node": 0,
-                "page_index": page, "page_size": page_size, "s_node": 0,
-            }
-            if code:
-                params["stock"] = code
-            payload = api_get("https://np-anotice-stock.eastmoney.com/api/security/ann?" + urlencode(params))
-            requests += 1
-            data = payload.get("data") or {}
-            batch = data.get("list") if isinstance(data, dict) else []
-            if not isinstance(batch, list) or not batch:
-                break
-            for row in batch:
-                if not isinstance(row, dict):
-                    continue
-                key = row.get("art_code") or row.get("title") or json.dumps(row, sort_keys=True, default=str)
-                if key not in seen:
-                    seen.add(key)
-                    rows.append(row)
-            if len(batch) < page_size:
-                break
+    fetched_at = _iso_now()
+    for page in range(1, MAX_PAGES + 1):
+        payload = api_get("https://np-anotice-stock.eastmoney.com/api/security/ann?" + urlencode({
+            "ann_type": "A", "client_source": "WEB", "f_node": 0,
+            "page_index": page, "page_size": page_size, "s_node": 0,
+        }))
+        requests += 1
+        data = payload.get("data") or {}
+        batch = data.get("list") if isinstance(data, dict) else []
+        if not isinstance(batch, list) or not batch:
+            break
+        page_days = []
+        for row in batch:
+            if not isinstance(row, dict):
+                continue
+            day = _announcement_day(row)
+            if day:
+                page_days.append(day)
+            if lookback and day and day < lookback:
+                continue
+            key = row.get("art_code") or row.get("title") or json.dumps(row, sort_keys=True, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+            item = dict(row)
+            item["source_id"] = "eastmoney.announcement"
+            item["event_id"] = str(item.get("art_code") or item.get("title") or "")
+            item["mechanism"] = "CATALYST"
+            item["publication_time"] = str(item.get("display_time") or item.get("notice_date") or fetched_at)
+            item["available_at"] = fetched_at
+            rows.append(item)
+        if len(batch) < page_size:
+            break
+        if lookback and page_days and max(page_days) < lookback:
+            break
     returned = []
     unrelated = 0
     unrelated_symbols = []
@@ -994,15 +1112,17 @@ def build_canonical_snapshots(
     symbols: Iterable[str] | None = None,
     market: Dict[str, Any] | None = None,
     available_at: str = "",
+    trade_date: str = "",
 ) -> list[Dict[str, Any]]:
     """Create canonical rows; deep observations are attached only for symbols."""
     stocks = [row for row in results.get("stock_all_a", []) if isinstance(row, dict)]
     selected_symbols = {normalize_stock_code(value) for value in (symbols or [])}
+    observation_trade_date = str(trade_date or source_time[:10])
     lineage_id = lineage_id or build_scan_lineage_id(
         source="eastmoney_api_scan_v2",
         source_time=source_time,
         producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
-        trade_date=source_time[:10],
+        trade_date=observation_trade_date,
         scan_nonce=uuid.uuid4().hex,
     )
     capital = _by_symbol(results.get("stock_capital_flow", []))
@@ -1076,7 +1196,7 @@ def build_canonical_snapshots(
             ]
         snapshots.append(validate_and_build_canonical_snapshot(
             visible,
-            trade_date=source_time[:10],
+            trade_date=observation_trade_date,
             source="eastmoney_api_scan_v2",
             source_time=source_time,
             producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
@@ -1297,6 +1417,16 @@ def main() -> Dict[str, Any]:
     parser = argparse.ArgumentParser(description="Eastmoney real-market capture. Not a morning or afternoon scanner.")
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--date", default="", help="Rejected: live capture always uses its actual source timestamp.")
+    parser.add_argument(
+        "--as-previous-trading-date",
+        action="store_true",
+        help="Stamp live Eastmoney quotes onto the previous trading date after a session close.",
+    )
+    parser.add_argument(
+        "--force-recapture",
+        action="store_true",
+        help="Ignore ALREADY_CAPTURED and recapture into this output directory.",
+    )
     args = parser.parse_args()
     if args.date:
         parser.error("--date is unsupported for live capture; use stored canonical snapshots for historical replay")
@@ -1304,10 +1434,14 @@ def main() -> Dict[str, Any]:
     market_now = datetime.now(MARKET_TIMEZONE)
     scan_started_at = market_now.isoformat(timespec="seconds")
     source_time = scan_started_at
-    output_dir = Path(args.output_dir) if args.output_dir else BASE / "data" / "live_scan" / source_time[:10] / "eastmoney_scan"
+    observation_trade_date = source_time[:10]
+    if args.as_previous_trading_date:
+        from xiaogu_db import previous_trading_date
+        observation_trade_date = previous_trading_date(market_now.date()).isoformat()
+    output_dir = Path(args.output_dir) if args.output_dir else BASE / "data" / "live_scan" / observation_trade_date / "eastmoney_scan"
     output_dir.mkdir(parents=True, exist_ok=True)
     existing_summary_path = output_dir / "scan_summary.json"
-    if existing_summary_path.exists():
+    if existing_summary_path.exists() and not args.force_recapture:
         try:
             existing_summary = json.loads(existing_summary_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -1337,7 +1471,7 @@ def main() -> Dict[str, Any]:
 
     try:
         from xiaogu_db import CALENDAR_UNKNOWN, TRADING_DAY, is_trading_date
-        calendar_status = is_trading_date(source_time[:10])
+        calendar_status = is_trading_date(observation_trade_date)
         if calendar_status == CALENDAR_UNKNOWN:
             production_scan = "BLOCKED"
             block_reason = "CALENDAR_BLOCKED:CALENDAR_DATA_UNAVAILABLE"
@@ -1402,7 +1536,11 @@ def main() -> Dict[str, Any]:
             )
             results["lhb"] = _collect(
                 "lhb", timings,
-                lambda: fetch_datacenter("RPT_DAILYBILLBOARD_DETAILSNEW", "TRADE_DATE,DEAL_AMOUNT_RATIO", diagnostics=diagnostics.setdefault("lhb", {}), candidate_codes=candidate_codes),
+                lambda: fetch_lhb_for_uzi(
+                    observation_trade_date,
+                    candidate_codes=candidate_codes,
+                    diagnostics=diagnostics.setdefault("lhb", {}),
+                ),
                 [],
             )
             results["earnings_preview"] = _collect(
@@ -1447,7 +1585,11 @@ def main() -> Dict[str, Any]:
             )
             results["announcements"] = _collect(
                 "announcements", timings,
-                lambda: fetch_announcements(diagnostics=diagnostics.setdefault("announcements", {}), candidate_codes=candidate_codes),
+                lambda: fetch_announcements(
+                    diagnostics=diagnostics.setdefault("announcements", {}),
+                    candidate_codes=candidate_codes,
+                    begin_date=recent,
+                ),
                 [],
             )
             results["news_kuaixun"] = _collect(
@@ -1483,7 +1625,7 @@ def main() -> Dict[str, Any]:
         source="eastmoney_api_scan_v2",
         source_time=source_time,
         producer="scrapy_scanner.runner_v2.build_canonical_snapshots",
-        trade_date=source_time[:10],
+        trade_date=observation_trade_date,
         scan_nonce=uuid.uuid4().hex,
     )
     if production_scan != "BLOCKED":
@@ -1494,6 +1636,7 @@ def main() -> Dict[str, Any]:
             symbols=candidate_codes,
             market=market,
             available_at=(timings.get("stock_all_a") or {}).get("available_at") or source_time,
+            trade_date=observation_trade_date,
         )
     files["canonical_snapshots"] = _write_jsonl(output_dir / "canonical_snapshots.jsonl", snapshots)
     market_path = output_dir / "canonical_market_snapshot.json"
@@ -1520,7 +1663,7 @@ def main() -> Dict[str, Any]:
                             yield json.loads(line)
 
             persistence = persist_scan_capture(
-                trade_date=source_time[:10],
+                trade_date=observation_trade_date,
                 scan_time=source_time,
                 source_id="eastmoney_api_scan_v2",
                 quotes_count=l0_count,

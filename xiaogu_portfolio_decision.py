@@ -469,7 +469,7 @@ def _paper_observation(
         "reference_price": snapshot.get("price"),
         "paper_observation_state": PAPER_OBSERVATION_STATE,
         "signal_reason": alpha.get("signal_reason") or "FORMAL_5D_PROFIT_WINDOW_SIGNAL",
-        "alpha_name": "price_strength",
+        "alpha_name": alpha.get("selection_score_source") or alpha.get("model_id") or "profit_window_alpha_5d_v4",
         "production_alpha": alpha.get("model_id") or "profit_window_alpha_5d_v4",
         "production_target": alpha.get("target_version") or "opportunity_5d",
         "alpha_version": alpha.get("alpha_version"),
@@ -517,12 +517,9 @@ def _numeric_or_neg_inf(value: Any) -> float:
 def _signal_sort_key(decision: Dict[str, Any]) -> tuple:
     """Rank by unique Production Alpha, then stable non-model tie-breakers."""
     alpha = decision.get("core_alpha") or {}
-    features = decision.get("feature_vector") or {}
     score = alpha.get("selection_score")
-    if score is None:
-        score = alpha.get("profit_window_probability") if alpha.get("model_status") == "VALIDATED" else None
-    if score is None:
-        score = ((features.get("MARKET") or {}).get("price_strength"))
+    if score is None and alpha.get("model_status") == "VALIDATED":
+        score = alpha.get("profit_window_probability")
     clock = str(decision.get("decision_clock") or decision.get("signal_time") or "")
     snapshot_id = str(decision.get("snapshot_id") or "")
     return (

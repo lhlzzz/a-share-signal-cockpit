@@ -10,6 +10,7 @@ from scrapy_scanner.runner_v2 import (
     fetch_announcements,
     fetch_capital_history,
     fetch_datacenter,
+    fetch_lhb_for_uzi,
     fetch_news,
     fetch_report_list,
     fetch_ulist,
@@ -57,8 +58,90 @@ def test_scanner_l3_filters_before_fetch(monkeypatch):
     fetch_announcements(candidate_codes=["600001"])
     fetch_news(candidate_codes=["600001"])
     assert seen
-    assert all("600001" in url for url in seen)
+    announcement_urls = [url for url in seen if "np-anotice-stock" in url]
+    other_urls = [url for url in seen if "np-anotice-stock" not in url]
+    assert other_urls
+    assert all("600001" in url for url in other_urls)
+    assert announcement_urls
     assert not any("m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23" in url and "secids" not in url for url in seen)
+
+
+def test_lhb_sort_types_match_sort_columns():
+    from scrapy_scanner.runner_v2 import _sort_types_for
+
+    assert _sort_types_for("TRADE_DATE,DEAL_AMOUNT_RATIO") == "-1,-1"
+    assert _sort_types_for("TRADE_DATE") == "-1"
+
+
+def test_scanner_captures_uzi_lhb_and_announcements(monkeypatch):
+    from xiaogu_forward_snapshot import attach_research_observations, validate_and_build_canonical_snapshot
+    from xiaogu_forward_features import build_feature_vector
+    from xiaogu_research_context import build_integrated_research_context
+
+    def fake_api(url, timeout=30):
+        if "RPT_DAILYBILLBOARD_DETAILSNEW" in url:
+            assert "sortTypes=-1%2C-1" in url or "sortTypes=-1,-1" in url
+            assert "TRADE_DATE" in url
+            return {"success": True, "result": {"count": 1, "data": [{
+                "SECURITY_CODE": "600001",
+                "TRADE_DATE": "2026-09-04 00:00:00",
+                "EXPLAIN": "1家机构买入",
+                "EXPLANATION": "日涨幅偏离值达到7%的前5只证券",
+                "TRADE_ID": "board-1",
+                "BILLBOARD_NET_AMT": 120,
+            }]}}
+        if "RPT_BILLBOARD_DAILYDETAILSBUY" in url:
+            return {"success": True, "result": {"count": 1, "data": [{
+                "SECURITY_CODE": "600001",
+                "TRADE_DATE": "2026-09-04 00:00:00",
+                "OPERATEDEPT_NAME": "机构专用",
+                "OPERATEDEPT_CODE": "inst-1",
+                "EXPLANATION": "日涨幅偏离值达到7%的前5只证券",
+                "NET": 80,
+                "TRADE_ID": "seat-buy-1",
+            }]}}
+        if "RPT_BILLBOARD_DAILYDETAILSSELL" in url:
+            return {"success": True, "result": {"count": 0, "data": []}}
+        if "np-anotice-stock" in url:
+            assert "stock=" not in url
+            return {"success": True, "data": {"list": [
+                {
+                    "art_code": "ANN-600001",
+                    "title": "产能公告",
+                    "display_time": "2026-09-04 16:00:00:000",
+                    "notice_date": "2026-09-04 00:00:00",
+                    "codes": [{"stock_code": "600001"}],
+                },
+                {
+                    "art_code": "ANN-600999",
+                    "title": "无关公告",
+                    "display_time": "2026-09-04 16:00:00:000",
+                    "notice_date": "2026-09-04 00:00:00",
+                    "codes": [{"stock_code": "600999"}],
+                },
+            ]}}
+        return {"success": True, "result": {"data": [], "count": 0}, "data": {"list": []}}
+
+    monkeypatch.setattr("scrapy_scanner.runner_v2.api_get", fake_api)
+    lhb = fetch_lhb_for_uzi("2026-09-04", candidate_codes=["600001"])
+    announcements = fetch_announcements(candidate_codes=["600001"], begin_date="2026-09-01")
+    assert lhb
+    assert any("机构" in str(row.get("EXPLAIN") or "") for row in lhb)
+    assert all(row.get("source_id") == "eastmoney.lhb" for row in lhb)
+    assert [row.get("event_id") for row in announcements] == ["ANN-600001"]
+    assert announcements[0]["title"] == "产能公告"
+    snapshot = validate_and_build_canonical_snapshot(attach_research_observations(
+        {
+            "f12": "600001", "f14": "示例", "f2": 10, "f3": 1, "f5": 100, "f6": 1000,
+            "source_time": "2026-09-04T15:00:00+08:00", "trade_date": "2026-09-04",
+            "f13": 1, "f1": 2, "market": "SH",
+        },
+        lhb=lhb,
+        announcements=announcements,
+    ))
+    capital = build_integrated_research_context(snapshot, build_feature_vector(snapshot))["capital"]
+    assert capital["skill_ran"] is True
+    assert capital["why_5d"]
 
 
 def test_news_audit_does_not_fabricate_candidate_symbols(monkeypatch):

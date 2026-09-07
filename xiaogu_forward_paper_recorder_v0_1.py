@@ -525,7 +525,12 @@ def validate_paper_observation(decision: Dict[str, Any], rule: Dict[str, Any]) -
     canonical = decision.get("canonical_snapshot") or {}
     if canonical.get("trusted_snapshot") is not True:
         raise ValueError("TRUSTED_CANONICAL_REQUIRED")
-    if observation.get("alpha_name") != "price_strength":
+    if observation.get("alpha_name") not in {
+        "profit_window_alpha_5d_v4",
+        "profit_window_probability",
+        "research_thesis",
+        "price_strength",
+    }:
         raise ValueError("PAPER_OBSERVATION_ALPHA_CONTRACT_INVALID")
     if observation.get("live_order") is not False or observation.get("paper_only") is not True:
         raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")

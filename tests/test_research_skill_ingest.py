@@ -47,9 +47,9 @@ def _base_row(**extra):
     return payload
 
 
-def _deep_snapshot():
+def _deep_snapshot(**extra):
     return validate_and_build_canonical_snapshot(attach_research_observations(
-        _base_row(),
+        _base_row(**extra),
         stock_capital_flow={
             "f62": 400,
             "observed_at": "2026-08-26T14:49:00+08:00",
@@ -191,6 +191,32 @@ def test_uzi_interprets_captured_lhb_without_judges():
     light = validate_and_build_canonical_snapshot(_base_row())
     light_capital = build_integrated_research_context(light, build_feature_vector(light))["capital"]
     assert light_capital["skill_ran"] is False
+
+
+def test_uncalibrated_ranking_uses_research_not_price_strength():
+    from xiaogu_portfolio_decision import attach_top_paper_observations
+
+    hot = evaluate_candidate_bundle(_base_row(f12="600001", f3=9.0), position_state="FLAT", as_of=AS_OF)
+    researched = evaluate_candidate_bundle(
+        _deep_snapshot(f12="600002", symbol="600002", f3=1.0),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    assert hot["core_alpha"]["model_status"] != "VALIDATED"
+    assert researched["core_alpha"]["model_status"] != "VALIDATED"
+    assert hot["core_alpha"]["selection_score_source"] == "research_thesis"
+    assert researched["core_alpha"]["selection_score_source"] == "research_thesis"
+    assert hot["core_alpha"]["signal_qualified"] is False
+    assert researched["core_alpha"]["signal_qualified"] is True
+    assert researched["core_alpha"]["selection_score"] is not None
+    ranked = attach_top_paper_observations([hot, researched])
+    papers = [item["paper_observation"] for item in ranked if item.get("paper_observation")]
+    assert [paper["symbol"] for paper in papers] == ["600002"]
+    assert papers[0]["top1_flag"] is True
+    assert papers[0]["alpha_name"] == "research_thesis"
+    source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
+    body = source.split("def _selection_score")[1].split("def _signal_qualification")[0]
+    assert "price_strength" not in body
 
 
 def test_five_day_thesis_does_not_become_a_second_score():
