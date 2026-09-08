@@ -11,6 +11,15 @@ SCAN_DIR="data/live_scan/${DATE}/eastmoney_scan"
 REPLACE_OFFICIAL="${REPLACE_OFFICIAL:-0}"
 AS_PREVIOUS="${AS_PREVIOUS_TRADING_DATE:-0}"
 
+python3 -c "
+from pathlib import Path
+import os
+vault = Path(os.environ.get('XIAOGU_OBSIDIAN_VAULT') or '/mnt/d/obisidian/Obsidian/Project/A股')
+daily = vault / 'xiaogu_memory' / 'daily'
+if not vault.exists() or not daily.exists():
+    raise SystemExit(f'OBSIDIAN_VAULT_UNAVAILABLE vault={vault} daily={daily}')
+print('Obsidian vaults OK', vault)
+"
 python3 scripts/xiaogu_ensure_database.py
 SCANNER_ARGS=(--output-dir "$SCAN_DIR")
 if [[ "$AS_PREVIOUS" == "1" ]]; then

@@ -81,7 +81,21 @@ def check_pipeline_chain():
         "XIAOGU_PERSIST_DB=1",
         "scrapy_scanner/runner_v2.py",
         "xiaogu_forward_runner.py",
+        "OBSIDIAN_VAULT_UNAVAILABLE",
+        "xiaogu_memory",
     )
+
+
+def check_obsidian_vault():
+    from pathlib import Path
+
+    vault = Path(os.environ.get("XIAOGU_OBSIDIAN_VAULT") or "/mnt/d/obisidian/Obsidian/Project/A股")
+    daily = vault / "xiaogu_memory" / "daily"
+    if not vault.exists():
+        return False, f"missing vault {vault}"
+    if not daily.exists():
+        return False, f"missing daily folder {daily}"
+    return True, str(daily)
 
 
 def check_rule_freeze():
@@ -851,6 +865,7 @@ CHECKS = [
     ("horizon_outcomes", check_horizon_outcomes),
     ("scheduler_outcome_job", check_scheduler_outcome_job),
     ("pipeline_chain", check_pipeline_chain),
+    ("obsidian_vault", check_obsidian_vault),
     ("rule_freeze", check_rule_freeze),
     ("ledger_readable", check_ledger_readable),
     ("database_truth_boundaries", check_database_truth_boundaries),

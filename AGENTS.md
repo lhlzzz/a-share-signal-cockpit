@@ -29,12 +29,12 @@ Never optimize for speed over correctness. Never add a second alpha, decision ow
 - Canonical snapshot = T-day decision input
 - Git = version
 - Understand / codebase-memory = navigation only
-- Obsidian = knowledge / memory layer only
+- Obsidian = production knowledge / memory store (`A股/xiaogu_memory/daily`)
 - JSONL = audit artifact only
 
 Forbidden:
 
-- Obsidian → production logic
+- Obsidian → production logic / Alpha
 - Memory → Alpha
 - Graph → automatic production edits
 - JSONL → position state
