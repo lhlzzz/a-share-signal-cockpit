@@ -4,6 +4,7 @@ from xiaogu_forward_result_filler_v0_1 import (
     append_result,
     calculate_horizon_outcomes,
     calculate_horizon_returns,
+    calendar_future_bars,
     eastmoney_future_close_prices,
 )
 
@@ -38,6 +39,74 @@ def test_missing_five_day_data_is_explicitly_insufficient():
     assert outcomes["days"]["5"]["status"] == "MISSING"
     assert outcomes["partial_status"] == "PARTIAL"
     assert outcomes["realizability_level"] == "DAILY_BAR_APPROXIMATION"
+
+
+def test_due_prefix_persists_t1_without_waiting_for_t5(monkeypatch):
+    import xiaogu_forward_result_filler_v0_1 as filler
+
+    monkeypatch.setattr(
+        filler,
+        "resolve_horizon_dates",
+        lambda _entry_date, horizons=(1, 2, 3, 4, 5): {
+            day: f"2026-09-{day:02d}" for day in horizons
+        },
+    )
+    selected = calendar_future_bars(
+        "2026-08-31",
+        _bars(1),
+        as_of="2026-09-01",
+        require_complete=False,
+    )
+    assert [bar["date"] for bar in selected] == ["2026-09-01"]
+    result = append_result({
+        "id": "paper-t1", "date": "2026-08-31", "symbol": "600001",
+        "paper_observation_status": "PAPER_OBSERVATION", "paper_observation_state": "OBSERVED",
+        "paper_position_state": "PAPER_FLAT",
+        "features_used": {"canonical_snapshot": {"price": 10, "source_time": "2026-08-31T14:50:00+08:00"}},
+        "reference_price": 10,
+        "signal_time": "2026-08-31T14:50:00+00:00",
+    }, future_bars=selected)
+    assert result["available_days"] == 1
+    assert result["data_status"] == "PARTIAL"
+    assert result["days"]["1"]["status"] == "SETTLED"
+    assert result["days"]["1"]["close"] == 10.2
+    assert result["days"]["5"]["status"] == "MISSING"
+    assert result["outcome_complete"] is False
+    assert result["result_status"] == "PENDING"
+
+
+def test_record_returns_projects_due_t1_scalar():
+    from xiaogu_db import _return_scalar_params
+
+    payload = {
+        "available_days": 1,
+        "data_status": "PARTIAL",
+        "outcome_complete": False,
+        "future_1d_return": 0.00387,
+        "future_1d_net_return": 0.00087,
+        "future_5d_return": None,
+        "days": {
+            "1": {
+                "status": "SETTLED", "horizon": 1, "date": "2026-09-07",
+                "open": 18.05, "high": 18.20, "low": 18.00, "close": 18.16,
+                "return": 0.00387, "net_return": 0.00087, "mfe": 0.006, "mae": -0.005,
+                "source": "tencent_unadjusted_daily_kline",
+            },
+            "5": {"status": "MISSING"},
+        },
+        "production_run_id": "run-1",
+        "price_basis": "UNADJUSTED",
+        "result_filled_at": "2026-09-07T16:13:53",
+    }
+    scalars = _return_scalar_params(payload, {
+        "t1_return", "t5_return", "t1_close_price", "t1_net_return", "return_status",
+        "t1_open_price", "t1_high_price", "t1_low_price", "production_run_id",
+    })
+    assert scalars["t1_return"] == pytest.approx(0.00387)
+    assert scalars["t1_close_price"] == pytest.approx(18.16)
+    assert scalars["t1_net_return"] == pytest.approx(0.00087)
+    assert scalars["t5_return"] is None
+    assert scalars["return_status"] == "PARTIAL"
 
 
 def test_eastmoney_loader_counts_only_five_future_trading_days(monkeypatch):
@@ -157,7 +226,7 @@ def test_pending_filler_appends_only_newly_available_outcomes(tmp_path, monkeypa
     )
     monkeypatch.setattr(filler, "FORWARD_LEDGER", ledger)
     monkeypatch.setattr(filler, "eastmoney_future_bars", lambda *_args, **_kwargs: _bars())
-    monkeypatch.setattr(filler, "calendar_future_bars", lambda _entry_date, bars: bars[:5])
+    monkeypatch.setattr(filler, "calendar_future_bars", lambda _entry_date, bars, **_kwargs: bars[:5])
     monkeypatch.setattr(xiaogu_db, "fetch_canonical_future_bars", lambda *_args, **_kwargs: _bars())
     monkeypatch.setattr(xiaogu_db, "record_canonical_future_prices", lambda _bars: None)
     stored_returns = []

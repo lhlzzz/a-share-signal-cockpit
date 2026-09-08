@@ -83,11 +83,17 @@ EXECUTION_REALISM_LEVEL = "DAILY_BAR_APPROXIMATION"
 def _research_skill_coverage(research: Dict[str, Any] | None) -> float:
     if not isinstance(research, dict):
         return 0.0
-    flags = [
-        1.0 if bool((research.get(key) or {}).get("skill_ran")) else 0.0
-        for key in ("industry", "company", "capital")
-    ]
-    return sum(flags) / 3.0
+    scores = []
+    for key in ("industry", "company", "capital"):
+        payload = research.get(key) if isinstance(research.get(key), dict) else {}
+        quality = _clip(payload.get("path_b_quality"))
+        if quality is not None:
+            scores.append(quality)
+        elif bool(payload.get("skill_ran")):
+            scores.append(1.0)
+        else:
+            scores.append(0.0)
+    return sum(scores) / 3.0
 
 
 def _research_thesis_ready(research: Dict[str, Any] | None) -> float:

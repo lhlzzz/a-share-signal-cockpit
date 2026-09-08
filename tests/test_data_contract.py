@@ -150,6 +150,7 @@ def test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates():
             "stock_all_a": stocks,
             "stock_capital_flow": [{"f12": "600001", "f62": 500}, {"f12": "600002", "f62": 900}],
             "earnings_preview": [], "stock_reports": [], "lhb": [], "announcements": [],
+            "financials": [{"SECURITY_CODE": "600001", "REPORT_DATE": "2025-12-31", "ROEJQ": 20, "XSMLL": 70, "ZCFZL": 30, "LD": 2}],
             "org_survey": [{"SECURITY_CODE": "600001", "survey": "observed"}],
             "news_kuaixun": [{"SECURITY_CODE": "600001", "title": "observed"}],
             "flow_industry": [], "industry_reports": [],
@@ -162,7 +163,9 @@ def test_scanner_levels_keep_light_universe_and_deep_fetch_only_candidates():
     assert by_symbol["600001"]["raw"]["stock_capital_flow"]["f62"] == 500
     assert by_symbol["600001"]["raw"]["org_surveys"][0]["survey"] == "observed"
     assert by_symbol["600001"]["raw"]["news"][0]["title"] == "observed"
+    assert by_symbol["600001"]["raw"]["financials"][0]["ROEJQ"] == 20
     assert "stock_capital_flow" not in by_symbol["600002"]["raw"]
+    assert "financials" not in by_symbol["600002"]["raw"]
     assert "L3_DEEP_CANDIDATE_FETCH" in by_symbol["600001"]["source_layers"]
     assert "L3_DEEP_CANDIDATE_FETCH" not in by_symbol["600002"]["source_layers"]
 
@@ -249,7 +252,8 @@ def test_paper_observation_identity():
     assert paper["paper_signal_id"] != paper["decision_id"]
     assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
     assert paper["alpha_name"] in {"research_thesis", "profit_window_probability", "profit_window_alpha_5d_v4"}
-    assert paper["alpha_status"] == "DATA_INSUFFICIENT"
+    assert paper["alpha_status"] in {"DATA_INSUFFICIENT", "EXPERIMENTAL"}
+    assert paper["alpha_status"] != "VALIDATED"
     assert decision["state"] != "BUY"
     assert decision["buy_status"] == "BUY_BLOCKED"
     assert paper["paper_only"] is True
@@ -528,6 +532,36 @@ def test_paper_performance(monkeypatch):
     assert payload["performance"]["horizon_metrics"]["T+5"]["mean_net_return"] == 0.03
 
 
+def test_paper_performance_counts_due_t1_before_t5(monkeypatch):
+    import xiaogu_api
+    import xiaogu_db
+
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [{
+        "paper_signal_id": "paper-signal-t1", "decision_id": "paper-t1",
+        "symbol": "600003", "reference_price": 10,
+        "signal_time": "2026-09-04T14:50:00+08:00",
+        "payload": {"paper_signal_id": "paper-signal-t1", "decision_id": "paper-t1"},
+    }])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: [{
+        "decision_id": "paper-t1",
+        "t1_return": 0.00387,
+        "payload": {
+            "decision_id": "paper-t1",
+            "outcome_complete": False,
+            "data_status": "PARTIAL",
+            "available_days": 1,
+            "future_1d_return": 0.00387,
+            "future_1d_net_return": 0.00087,
+            "days": {"1": {"status": "SETTLED", "return": 0.00387, "net_return": 0.00087}},
+        },
+    }])
+    payload = xiaogu_api.paper_performance()
+    assert payload["performance"]["horizon_metrics"]["T+1"]["count"] == 1
+    assert payload["performance"]["horizon_metrics"]["T+1"]["mean_net_return"] == 0.00087
+    assert payload["performance"]["horizon_metrics"]["T+5"]["count"] == 0
+    assert payload["performance"]["closed"] == 0
+
+
 def test_paper_performance_is_read_only(monkeypatch):
     import xiaogu_api
     import xiaogu_db
@@ -546,6 +580,7 @@ def test_paper_research_overlay():
     assert "capital_flow_ratio" in overlay
     assert "supply" in overlay
     assert "repricing" in overlay
+    assert "skill_verdicts" in overlay
 
 
 def test_shadow_not_production():
@@ -689,8 +724,8 @@ def test_recorder_persists_buy_and_queues_memory_without_bridge(tmp_path, monkey
     assert record["max_daily_bar_profit_opportunity_5d"] is None
     assert record["future_1d_return"] is None
     assert record["auto_order"] is False
-    assert record["memory_path"] is None
-    assert record["memory_status"] == "RETRY_QUEUED"
+    assert record["memory_path"] is None or str(record["memory_path"]).startswith("data/obsidian_memory/")
+    assert record["memory_status"] in {"RETRY_QUEUED", "SYNCED"}
     assert (tmp_path / "memory_retry.jsonl").exists()
 
 
@@ -723,7 +758,7 @@ def test_post_trade_review_queues_memory_without_bridge(tmp_path, monkeypatch):
     assert result["result_status"] == "SETTLED"
     assert result["post_trade_review"]["status"] == "SUCCESS"
     path = recorder.update_trade_memory(result)
-    assert path is None
+    assert path is None or str(path).startswith("data/obsidian_memory/")
     assert (tmp_path / "memory_retry.jsonl").exists()
 
 

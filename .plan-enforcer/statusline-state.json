@@ -1,10 +1,10 @@
 {
-  "stage": "execute",
-  "label": "4-EXECUTE",
-  "done": null,
-  "verified": 13,
+  "stage": "tasks",
+  "label": "8/8",
+  "done": 8,
+  "verified": 8,
   "doneUnverified": 0,
-  "total": null,
+  "total": 8,
   "scope": null,
   "taskId": null,
   "taskName": null,
@@ -12,7 +12,7 @@
   "projectRoot": "/workspace/hermes-workspaces/xiaogu",
   "sessionId": null,
   "transcriptPath": null,
-  "updatedAt": "2026-09-06T08:14:55.136Z",
+  "updatedAt": "2026-09-07T07:27:54.459Z",
   "title": null,
   "source": "statusline-stage-cli"
 }

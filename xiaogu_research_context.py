@@ -25,6 +25,275 @@ def _context(kind: str, values: Dict[str, Any], lineage_id: str, provider: str) 
     }
 
 
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _first_number(*values: Any) -> float | None:
+    for value in values:
+        number = _number(value)
+        if number is not None:
+            return number
+    return None
+
+
+def _seat_name(row: Dict[str, Any]) -> str:
+    for key in ("BUY_SEAT", "SEAT", "OPERATESEATNAME", "EXPLAIN"):
+        text = _text(row.get(key))
+        if text:
+            return text
+    return ""
+
+
+def _path_b_quality_from_answers(answers: list[str]) -> float:
+    scored = []
+    for answer in answers:
+        text = str(answer or "").upper()
+        if text == "YES":
+            scored.append(1.0)
+        elif text in {"BOUNDARY", "BOUNDARY AREA"}:
+            scored.append(0.5)
+        elif text == "NO":
+            scored.append(0.0)
+    if not scored:
+        return 0.0
+    return round(sum(scored) / len(scored), 8)
+
+
+def _serenity_judgment(
+    snapshot: Dict[str, Any],
+    reports: list[Dict[str, Any]],
+    industry_flow: list[Dict[str, Any]],
+    demand: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    industry = _text(snapshot.get("sector") or snapshot.get("industry")) or "UNKNOWN"
+    flow = industry_flow[0] if industry_flow else {}
+    flow_change = _first_number(flow.get("f3"), flow.get("pct_change"))
+    report_title = _text((reports[0] or {}).get("title")) if reports else ""
+    demand = demand if isinstance(demand, dict) else {}
+    bottleneck = _first_number(demand.get("bottleneck_strength"), demand.get("supply_constraint"))
+    if bottleneck is not None and bottleneck >= 0.50:
+        scarce_layer = f"{industry} 供给约束可见，接近卡点层"
+        evidence_grade = "STRONG"
+        chokepoint_role = "CONTROLS"
+        path_b_quality = 1.0
+        judgment = f"{industry} 有可观察的扩产约束或供给瓶颈，Serenity 把它排在卡点层。"
+    elif reports:
+        scarce_layer = f"{industry} 有行业报告，但报告未证明扩产约束"
+        evidence_grade = "MEDIUM"
+        chokepoint_role = "REPORT_UNPROVEN"
+        path_b_quality = 0.5
+        judgment = f"{industry} 有 T 日行业报告，仍看不到谁卡住供给。"
+    elif flow_change is not None and flow_change >= 1:
+        scarce_layer = f"{industry} 资金流入可见，卡点未证实"
+        evidence_grade = "WEAK"
+        chokepoint_role = "FLOW_ONLY"
+        path_b_quality = 0.25
+        judgment = f"{industry} T 日行业资金流入 {flow_change}%，这是资金线索，不是产业链卡点。"
+    elif flow_change is not None and flow_change <= -1:
+        scarce_layer = f"{industry} 资金流出，没有供给约束证据"
+        evidence_grade = "WEAK"
+        chokepoint_role = "FLOW_ONLY"
+        path_b_quality = 0.25
+        judgment = f"{industry} T 日行业资金流出 {flow_change}%，需求可见度下降。"
+    elif industry_flow:
+        scarce_layer = f"{industry} 行业资金可见，卡点未知"
+        evidence_grade = "WEAK"
+        chokepoint_role = "FLOW_ONLY"
+        path_b_quality = 0.25
+        judgment = f"{industry} 只有行业资金快照，没有扩产约束或客户认证。"
+    else:
+        scarce_layer = "NO_CAPTURED_CHAIN_EVIDENCE"
+        evidence_grade = "UNVERIFIED"
+        chokepoint_role = "NONE"
+        path_b_quality = 0.0
+        judgment = "没有行业报告或行业资金，Serenity 不能假装找到卡点。"
+    if report_title:
+        judgment = f"{judgment} 报告标题：{report_title}。"
+    return {
+        "scarce_layer": scarce_layer,
+        "evidence_grade": evidence_grade,
+        "chokepoint_role": chokepoint_role,
+        "path_b_quality": path_b_quality,
+        "judgment": judgment,
+        "wrong_if": "行业资金反转，或后续公告证明供给并不紧。",
+    }
+
+
+def _roe_percent(preview: Dict[str, Any], business: Dict[str, Any]) -> float | None:
+    preview_roe = _first_number(preview.get("WEIGHTAVG_ROE"))
+    if preview_roe is not None:
+        return preview_roe
+    roe = _first_number(business.get("roe"))
+    if roe is None:
+        return None
+    return roe * 100.0 if roe <= 1.5 else roe
+
+
+def _buffett_path_b_checklist(
+    snapshot: Dict[str, Any],
+    preview: Dict[str, Any],
+    reports: list[Dict[str, Any]],
+    business: Dict[str, Any],
+) -> list[Dict[str, Any]]:
+    financials = _dict_rows((snapshot.get("raw") or {}).get("financials") if isinstance(snapshot.get("raw"), dict) else [])
+    visible = bool(preview or reports or business.get("score") is not None or financials)
+    sector = _text(snapshot.get("sector")) or "UNKNOWN"
+    roe = _roe_percent(preview, business)
+    gross = _first_number(business.get("gross_margin"))
+    if gross is not None and gross > 1.5:
+        gross = gross / 100.0
+    moat_value = _first_number(business.get("moat"))
+    pricing_value = _first_number(business.get("pricing_power"))
+    earnings_value = _first_number(business.get("earnings_quality"))
+    debt_value = _first_number(business.get("debt_safety"))
+    q1 = "NO" if not visible else ("YES" if sector != "UNKNOWN" else "BOUNDARY")
+    if moat_value is not None:
+        q3 = "YES" if moat_value >= 0.50 else "NO"
+    elif gross is not None:
+        q3 = "YES" if gross >= 0.40 else "NO"
+    else:
+        q3 = "NO" if visible else "UNKNOWN"
+    if pricing_value is not None:
+        q4 = "YES" if pricing_value >= 0.50 else "NO"
+    elif gross is not None:
+        q4 = "YES" if gross >= 0.40 else "NO"
+    else:
+        q4 = "NO" if visible else "UNKNOWN"
+    if earnings_value is not None:
+        q5 = "YES" if earnings_value >= 0.50 else ("BOUNDARY" if earnings_value > 0 else "NO")
+    elif preview or roe is not None:
+        q5 = "YES"
+    else:
+        q5 = "UNKNOWN"
+    if q5 == "YES" and roe is not None and roe < 15:
+        q5 = "BOUNDARY"
+    if debt_value is not None:
+        q6 = "YES" if debt_value >= 0.50 else "NO"
+    else:
+        q6 = "UNKNOWN"
+    q8 = "YES" if _first_number(business.get("valuation"), snapshot.get("raw", {}).get("margin_of_safety") if isinstance(snapshot.get("raw"), dict) else None) else "UNKNOWN"
+    durability = "UNKNOWN"
+    history = business.get("roe_history") if isinstance(business.get("roe_history"), list) else []
+    history_values = []
+    for item in history:
+        value = _number(item)
+        if value is None:
+            continue
+        history_values.append(value / 100.0 if value > 1.5 else value)
+    if len(history_values) >= 3:
+        durability = "YES" if min(history_values) >= 0.08 else "NO"
+    return [
+        {"id": 1, "dimension": "Circle of Competence", "answer": q1},
+        {"id": 2, "dimension": "Durability", "answer": durability},
+        {"id": 3, "dimension": "Moat", "answer": q3},
+        {"id": 4, "dimension": "Pricing Power", "answer": q4},
+        {"id": 5, "dimension": "Earnings Quality", "answer": q5},
+        {"id": 6, "dimension": "Debt Safety", "answer": q6},
+        {"id": 7, "dimension": "Management Integrity", "answer": "UNKNOWN"},
+        {"id": 8, "dimension": "Reasonable Price", "answer": q8},
+    ]
+
+
+def _buffett_judgment(snapshot: Dict[str, Any], preview: Dict[str, Any], reports: list[Dict[str, Any]], business: Dict[str, Any]) -> Dict[str, Any]:
+    name = _text(snapshot.get("name") or snapshot.get("f14")) or _text(snapshot.get("symbol"))
+    sector = _text(snapshot.get("sector")) or "UNKNOWN"
+    checklist = _buffett_path_b_checklist(snapshot, preview, reports, business)
+    answers = [str(item.get("answer") or "UNKNOWN") for item in checklist]
+    no_count = sum(1 for answer in answers if answer == "NO")
+    roe = _roe_percent(preview, business)
+    if answers[0] == "NO":
+        circle = "outside circle"
+        judgment = f"{name} 没有财报预告或公司研报，能力圈外，停止假装深度分析。"
+    elif answers[2] == "NO" or answers[3] == "NO":
+        circle = "boundary area"
+        judgment = f"{name} 属于{sector}。能解释怎么赚钱，但 Path B 没有看到护城河或定价权。"
+    else:
+        circle = "boundary area"
+        judgment = f"{name} 有公司观察，但仍在能力圈边界。"
+    if roe is not None:
+        judgment += f" 可见 ROE {roe}%。"
+        if roe < 8:
+            judgment += " 长期平庸，不是 franchise。"
+        elif roe < 15:
+            judgment += " 未达到 15% 的质量门槛。"
+        else:
+            judgment += " ROE 过线，但仍缺护城河趋势。"
+    if no_count >= 4:
+        judgment += " Path B 八问四项为否，按快筛应过掉。"
+    return {
+        "circle_of_competence": circle,
+        "checklist": checklist,
+        "path_b_no_count": no_count,
+        "path_b_quality": _path_b_quality_from_answers(answers),
+        "judgment": judgment,
+        "wrong_if": "后续财报证明 ROE 质量或护城河被高估。",
+        "buy_sell": None,
+    }
+
+
+def _uzi_judgment(lhb_rows: list[Dict[str, Any]], announcements: list[Dict[str, Any]], capital: Dict[str, Any]) -> Dict[str, Any]:
+    institution = any("机构" in _text(row.get("EXPLAIN")) for row in lhb_rows)
+    seats = [_seat_name(row) for row in lhb_rows if _seat_name(row)]
+    title = _text((announcements[0] or {}).get("title")) if announcements else ""
+    if institution:
+        vs = "institution"
+        path_b_quality = 1.0
+        judgment = "龙虎榜出现机构字样，按机构主导观察，不引入 panel scoring。"
+    elif lhb_rows:
+        vs = "hot_money"
+        path_b_quality = 0.6
+        judgment = "龙虎榜可见，未出现机构字样，按游资/短线资金观察。"
+        if seats:
+            judgment += f" 席位线索：{'；'.join(seats[:3])}。"
+    elif announcements:
+        vs = "UNKNOWN"
+        path_b_quality = 0.25
+        judgment = "没有龙虎榜，不能判断机构还是游资。"
+    else:
+        vs = "UNKNOWN"
+        path_b_quality = 0.0
+        judgment = "没有龙虎榜，不能判断机构还是游资。"
+    if title:
+        judgment += f" 公告：{title}。"
+    if capital.get("distribution_risk"):
+        judgment += " 资金分布风险已经可见。"
+        path_b_quality = min(path_b_quality, 0.25)
+    return {
+        "institution_vs_hot_money": vs,
+        "path_b_quality": path_b_quality,
+        "judgment": judgment,
+        "wrong_if": "机构资金撤出，或游资次日砸盘。",
+    }
+
+
+def _skill_verdict(provider: str, ran: bool, judgment: Dict[str, Any], evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "provider": provider,
+        "skill_file": {
+            "Serenity": ".agents/skills/serenity-skill/SKILL.md",
+            "Buffett": ".agents/skills/buffett/SKILL.md",
+            "UZI": ".agents/skills/uzi/lhb-analyzer/SKILL.md",
+        }.get(provider),
+        "ran": bool(ran),
+        "mode": "captured_path_b" if ran else "not_run",
+        "full_skill_workflow": bool(ran),
+        "path_b_quality": judgment.get("path_b_quality") if ran else 0.0,
+        "judgment": judgment.get("judgment") if ran else f"{provider} 没有深度观察，未执行。",
+        "wrong_if": judgment.get("wrong_if") if ran else None,
+        "evidence_ids": [
+            {
+                "source_id": item.get("source_id"),
+                "event_id": item.get("event_id"),
+                "mechanism": item.get("mechanism"),
+            }
+            for item in evidence
+            if isinstance(item, dict)
+        ],
+        "buy_sell": None,
+    }
+
+
 def _dict_rows(value: Any) -> list[Dict[str, Any]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
@@ -102,6 +371,7 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
     if industry_flow:
         why_5d.append("T-day industry capital flow is visible")
         falsify.append("industry capital flow reverses")
+    judgment = _serenity_judgment(snapshot, reports, industry_flow, demand)
     return _context("FutureDemandContext", {
         "as_of": as_of,
         "market_story": demand["market_story"],
@@ -118,6 +388,12 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         "invalidation": list(demand["invalidation_condition"]),
         "reports": reports,
         "skill_ran": skill_ran,
+        "scarce_layer": judgment["scarce_layer"],
+        "evidence_grade": judgment["evidence_grade"],
+        "chokepoint_role": judgment["chokepoint_role"],
+        "path_b_quality": judgment["path_b_quality"] if skill_ran else 0.0,
+        "judgment": judgment["judgment"],
+        "skill_verdict": _skill_verdict("Serenity", skill_ran, judgment, evidence),
         "evidence": evidence,
         "why_5d": why_5d,
         "falsify": falsify,
@@ -129,6 +405,7 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
     raw = snapshot.get("raw", {})
     reports = _dict_rows(raw.get("stock_reports"))
     preview = dict(raw.get("earnings_preview") or {})
+    financials = _dict_rows(raw.get("financials"))
     as_of = str(features.get("available_at") or "")
     evidence = _collect_evidence(
         reports,
@@ -141,19 +418,14 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
         default_mechanism="VALUATION",
         as_of=as_of,
         event_keys=("event_id", "WEIGHTAVG_ROE"),
+    ) + _collect_evidence(
+        financials,
+        default_source="eastmoney.financials",
+        default_mechanism="VALUATION",
+        as_of=as_of,
+        event_keys=("event_id", "REPORT_DATE"),
     )
-    skill_ran = bool(reports or preview)
-    visible = bool(preview or reports or business.get("score") is not None)
-    checklist = [
-        {"id": 1, "dimension": "Circle of Competence", "answer": "YES" if visible else "UNKNOWN"},
-        {"id": 2, "dimension": "Durability", "answer": "UNKNOWN"},
-        {"id": 3, "dimension": "Moat", "answer": "YES" if business.get("moat") else "UNKNOWN"},
-        {"id": 4, "dimension": "Pricing Power", "answer": "YES" if business.get("pricing_power") else "UNKNOWN"},
-        {"id": 5, "dimension": "Earnings Quality", "answer": "YES" if preview or business.get("earnings_quality") else "UNKNOWN"},
-        {"id": 6, "dimension": "Debt Safety", "answer": "YES" if business.get("debt_safety") else "UNKNOWN"},
-        {"id": 7, "dimension": "Management Integrity", "answer": "UNKNOWN"},
-        {"id": 8, "dimension": "Reasonable Price", "answer": "UNKNOWN"},
-    ]
+    skill_ran = bool(reports or preview or financials)
     why_5d = []
     falsify = []
     if preview:
@@ -162,10 +434,15 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
     if reports:
         why_5d.append("T-day company report is visible")
         falsify.append("company quality evidence is withdrawn")
+    if financials:
+        why_5d.append("T-day financials may reprice business quality inside five trading days")
+        falsify.append("financial quality deteriorates")
+    judgment = _buffett_judgment(snapshot, preview, reports, business)
+    checklist = list(judgment.get("checklist") or [])
     return _context("CompanyContext", {
         "as_of": as_of,
         "business_quality": business["score"],
-        "ability_circle": raw.get("ability_circle", "UNKNOWN"),
+        "ability_circle": raw.get("ability_circle") or judgment["circle_of_competence"],
         "moat": business["moat"],
         "pricing_power": business["pricing_power"],
         "earnings_quality": business["earnings_quality"],
@@ -180,8 +457,13 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
         "margin_of_safety": _number(raw.get("margin_of_safety")),
         "reports": reports,
         "earnings_preview": preview,
+        "financials": financials,
         "skill_ran": skill_ran,
         "checklist": checklist,
+        "path_b_no_count": judgment.get("path_b_no_count") or 0,
+        "path_b_quality": judgment.get("path_b_quality") if skill_ran else 0.0,
+        "judgment": judgment["judgment"],
+        "skill_verdict": _skill_verdict("Buffett", skill_ran, judgment, evidence),
         "buy_sell": None,
         "recommended_buy_price": None,
         "evidence": evidence,
@@ -226,12 +508,10 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         falsify.append("announcement is clarified away")
     if capital.get("distribution_risk"):
         falsify.append("capital distribution continues")
+    judgment = _uzi_judgment(lhb_rows, announcements, capital)
     return _context("CapitalContext", {
         "as_of": as_of,
-        "institution_vs_hot_money": raw.get(
-            "institution_vs_hot_money",
-            "institution" if institution_signal else "UNKNOWN",
-        ),
+        "institution_vs_hot_money": raw.get("institution_vs_hot_money") or judgment["institution_vs_hot_money"],
         "fund_flow": capital["fund_flow"],
         "fund_flow_acceleration": capital["fund_flow_acceleration"],
         "fund_flow_persistence": capital["fund_flow_persistence"],
@@ -264,6 +544,9 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
             "hot_money": (capital.get("hot_money_behavior") or {}).get("direction") or "UNKNOWN",
         },
         "skill_ran": skill_ran,
+        "path_b_quality": judgment.get("path_b_quality") if skill_ran else 0.0,
+        "judgment": judgment["judgment"],
+        "skill_verdict": _skill_verdict("UZI", skill_ran, judgment, evidence),
         "evidence": evidence,
         "why_5d": why_5d,
         "falsify": falsify,
@@ -953,6 +1236,11 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         if pattern not in seen_falsify:
             gaps.append(pattern)
             seen_falsify.append(pattern)
+    skill_verdicts = {
+        "Serenity": industry.get("skill_verdict") or _skill_verdict("Serenity", False, {}, []),
+        "Buffett": company.get("skill_verdict") or _skill_verdict("Buffett", False, {}, []),
+        "UZI": capital.get("skill_verdict") or _skill_verdict("UZI", False, {}, []),
+    }
     thesis = {
         "status": "RESEARCH_ONLY",
         "why_5d": seen_why,
@@ -963,6 +1251,11 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "valuation": company.get("why_5d") or [],
         "catalyst": capital.get("why_5d") or industry.get("why_5d") or [],
         "contradiction": integrated.get("contradiction_status") if isinstance(integrated, dict) else "UNKNOWN",
+        "path_b_quality": {
+            "serenity": industry.get("path_b_quality"),
+            "buffett": company.get("path_b_quality"),
+            "uzi": capital.get("path_b_quality"),
+        },
     }
     research_gap_audit = {
         "status": "RESEARCH_ONLY",
@@ -988,6 +1281,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "historical": historical,
         "memory": memory,
         "opportunity_5d_thesis": thesis,
+        "skill_verdicts": skill_verdicts,
         "research_gap_audit": research_gap_audit,
         "research_providers": providers,
         "research_provenance": provenance,

@@ -1178,6 +1178,67 @@ def test_completed_outcome_is_immutable():
             connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
 
 
+def test_partial_outcome_can_extend_but_settled_days_stay_locked():
+    import xiaogu_db as db
+    from sqlalchemy import text
+    from xiaogu_forward_result_filler_v0_1 import append_result
+
+    db.ensure_production_schema()
+    snapshot = validate_and_build_canonical_snapshot(
+        _snapshot("603997", 3.0, lineage_id="phase2-outcome-extend")
+    )
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    decision_id = decision["decision_id"]
+    try:
+        db.record_snapshot(snapshot)
+        db.record_decision(decision)
+        first = append_result(
+            {
+                "id": decision_id,
+                "decision_id": decision_id,
+                "date": snapshot["trade_date"],
+                "symbol": snapshot["symbol"],
+                "reference_price": snapshot["price"],
+                "signal_time": snapshot["signal_time"],
+                "snapshot_id": snapshot["snapshot_id"],
+            },
+            future_bars=_bars(1),
+        )
+        db.record_returns(str(first["date"]), str(first["symbol"]), first, decision_id=decision_id)
+        fetched = db.fetch_horizon_outcomes(decision_id)
+        assert fetched["days"]["1"]["status"] == "SETTLED"
+        assert fetched["days"]["5"]["status"] == "MISSING"
+        second = append_result(
+            {
+                "id": decision_id,
+                "decision_id": decision_id,
+                "date": snapshot["trade_date"],
+                "symbol": snapshot["symbol"],
+                "reference_price": snapshot["price"],
+                "signal_time": snapshot["signal_time"],
+                "snapshot_id": snapshot["snapshot_id"],
+            },
+            future_bars=_bars(2),
+        )
+        db.record_returns(str(second["date"]), str(second["symbol"]), second, decision_id=decision_id)
+        fetched = db.fetch_horizon_outcomes(decision_id)
+        assert fetched["days"]["1"]["status"] == "SETTLED"
+        assert fetched["days"]["2"]["status"] == "SETTLED"
+        assert fetched["days"]["5"]["status"] == "MISSING"
+        mutated = dict(first)
+        mutated["days"] = {
+            **first["days"],
+            "1": {**first["days"]["1"], "close": 99.0},
+        }
+        with pytest.raises(ValueError, match="OUTCOME_IDENTITY_CONFLICT"):
+            db.record_returns(str(mutated["date"]), str(mutated["symbol"]), mutated, decision_id=decision_id)
+    finally:
+        with db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM returns WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
+
+
 def _official_synthetic_row(*, trade_date: str, symbol: str, rank: int, **extra) -> dict:
     paper_signal_id = extra.pop("paper_signal_id", f"paper-{trade_date}-{symbol}")
     decision_id = extra.pop("decision_id", f"decision-{trade_date}-{symbol}")

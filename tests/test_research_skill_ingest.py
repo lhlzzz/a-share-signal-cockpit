@@ -47,7 +47,27 @@ def _base_row(**extra):
     return payload
 
 
+def _financial_row(code: str, *, roe: float, gross_margin: float, debt_ratio: float, current_ratio: float) -> dict:
+    return {
+        "SECURITY_CODE": code,
+        "REPORT_DATE": "2025-12-31 00:00:00",
+        "REPORT_TYPE": "年报",
+        "ROEJQ": roe,
+        "XSMLL": gross_margin,
+        "XSJLL": roe,
+        "ZCFZL": debt_ratio,
+        "LD": current_ratio,
+        "source_id": "eastmoney.financials",
+        "event_id": f"{code}|2025-12-31|年报",
+        "mechanism": "VALUATION",
+        "observed_at": "2026-08-26T14:40:00+08:00",
+        "available_at": "2026-08-26T14:50:00+08:00",
+        "publication_time": "2026-08-26T14:40:00+08:00",
+    }
+
+
 def _deep_snapshot(**extra):
+    financials = extra.pop("financials", None)
     return validate_and_build_canonical_snapshot(attach_research_observations(
         _base_row(**extra),
         stock_capital_flow={
@@ -108,6 +128,7 @@ def _deep_snapshot(**extra):
             "event_id": "ann-1",
             "mechanism": "CATALYST",
         }],
+        financials=financials,
     ))
 
 
@@ -217,6 +238,134 @@ def test_uncalibrated_ranking_uses_research_not_price_strength():
     source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
     body = source.split("def _selection_score")[1].split("def _signal_qualification")[0]
     assert "price_strength" not in body
+
+
+def test_path_b_quality_ranks_above_wrapper_only_observations():
+    weak = evaluate_candidate_bundle(
+        _deep_snapshot(f12="600002", symbol="600002", f3=1.0),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    strong = evaluate_candidate_bundle(
+        _deep_snapshot(
+            f12="600003",
+            symbol="600003",
+            f3=1.0,
+            moat=1,
+            pricing_power=1,
+            debt_safety=1,
+            valuation=1,
+            bottleneck_strength=1,
+        ),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    assert weak["core_alpha"]["model_status"] != "VALIDATED"
+    assert strong["core_alpha"]["model_status"] != "VALIDATED"
+    assert strong["core_alpha"]["selection_score"] > weak["core_alpha"]["selection_score"]
+    assert strong["buy_status"] != "BUY_ALLOWED"
+    assert weak["buy_status"] != "BUY_ALLOWED"
+    ranked = attach_top_paper_observations([weak, strong])
+    papers = [item["paper_observation"] for item in ranked if item.get("paper_observation")]
+    papers.sort(key=lambda paper: int(paper.get("rank") or 99))
+    assert papers
+    assert papers[0]["symbol"] == "600003"
+    assert papers[0]["top1_flag"] is True
+    assert papers[0]["selection_score"] == strong["core_alpha"]["selection_score"]
+    company = strong["research_context"]["company"]
+    assert company["buy_sell"] is None
+    assert company["path_b_quality"] > weak["research_context"]["company"]["path_b_quality"]
+    assert strong["research_context"]["industry"]["chokepoint_role"] == "CONTROLS"
+    gates = strong["gate_result"]
+    assert "PATH_B_EIGHT_QUESTION_FAIL" not in (gates.get("blockers") or [])
+
+
+def test_captured_financials_enter_buffett_path_b_and_ranking():
+    commodity = evaluate_candidate_bundle(
+        _deep_snapshot(
+            f12="600010",
+            symbol="600010",
+            financials=[_financial_row("600010", roe=-16.48, gross_margin=4.11, debt_ratio=45.07, current_ratio=1.79)],
+        ),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    franchise = evaluate_candidate_bundle(
+        _deep_snapshot(
+            f12="600011",
+            symbol="600011",
+            financials=[_financial_row("600011", roe=21.66, gross_margin=69.18, debt_ratio=42.27, current_ratio=1.53)],
+        ),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    commodity_company = commodity["research_context"]["company"]
+    franchise_company = franchise["research_context"]["company"]
+    assert commodity_company["skill_ran"] is True
+    assert franchise_company["skill_ran"] is True
+    assert commodity["feature_vector"]["BUSINESS"]["moat"] == 0.0
+    assert franchise["feature_vector"]["BUSINESS"]["moat"] == 1.0
+    assert franchise_company["path_b_quality"] > commodity_company["path_b_quality"]
+    assert franchise["core_alpha"]["selection_score"] > commodity["core_alpha"]["selection_score"]
+    assert franchise["buy_status"] != "BUY_ALLOWED"
+    answers = {item["dimension"]: item["answer"] for item in franchise_company["checklist"]}
+    assert answers["Moat"] == "YES"
+    assert answers["Pricing Power"] == "YES"
+    assert answers["Debt Safety"] == "YES"
+
+
+def test_skill_verdicts_are_persisted_for_replay():
+    snapshot = _deep_snapshot()
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    overlay = (decision.get("paper_observation") or {}).get("research_overlay") or {}
+    verdicts = overlay.get("skill_verdicts") or {}
+    assert overlay["serenity"]
+    assert overlay["buffett"]
+    assert overlay["uzi"]
+    assert verdicts["Serenity"]["ran"] is True
+    assert verdicts["Buffett"]["buy_sell"] is None
+    assert verdicts["UZI"]["full_skill_workflow"] is True
+    assert verdicts["Serenity"]["mode"] == "captured_path_b"
+    assert "BUY" not in str(verdicts)
+
+
+def test_daily_and_trade_memory_include_skill_research_reports(tmp_path, monkeypatch):
+    from xiaogu_forward_paper_recorder_v0_1 import write_daily_paper_memory, write_trade_memory
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    monkeypatch.setattr(recorder, "BASE", tmp_path)
+    monkeypatch.setattr(recorder, "MEMORY_RETRY_QUEUE", tmp_path / "retry.jsonl")
+    monkeypatch.delenv("XIAOGU_OBSIDIAN_BRIDGE_URL", raising=False)
+    monkeypatch.setenv("XIAOGU_OBSIDIAN_VAULT", str(tmp_path / "vault"))
+    snapshot = _deep_snapshot()
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
+    paper = decision["paper_observation"]
+    daily = write_daily_paper_memory("2026-08-26", [paper], scan_status="BUY_BLOCKED", scan_reason="PAPER_OBSERVATION_RECORDED")
+    daily_text = (tmp_path / "data" / "obsidian_memory" / "xiaogu_memory" / "daily" / "2026-08-26.md").read_text(encoding="utf-8")
+    assert "NOT_RUN" not in daily_text
+    assert paper["research_overlay"]["serenity"] in daily_text
+    record = {
+        "decision": "PAPER_OBSERVATION",
+        "date": "2026-08-26",
+        "symbol": paper["symbol"],
+        "decision_id": paper["decision_id"],
+        "paper_signal_id": paper["paper_signal_id"],
+        "reference_price": paper["reference_price"],
+        "knowledge_available_at": paper["knowledge_available_at"],
+        "features_used": decision,
+        "paper_observation_state": "OBSERVED",
+        "paper_position_state": "PAPER_FLAT",
+    }
+    path = write_trade_memory(record)
+    assert path
+    text = (tmp_path / path).read_text(encoding="utf-8")
+    assert "## Research Reports" in text
+    assert "### Serenity" in text
+    assert "### Buffett" in text
+    assert "### UZI" in text
+    assert paper["research_overlay"]["uzi"] in text
+    vault_copy = tmp_path / "vault" / Path(path).relative_to("data/obsidian_memory")
+    assert vault_copy.exists()
 
 
 def test_five_day_thesis_does_not_become_a_second_score():

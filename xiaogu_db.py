@@ -2025,6 +2025,118 @@ def record_production_run_coverage(production_run_id: str, coverage: Dict[str, A
         _write_production_run_coverage(db, run_id, coverage)
 
 
+def _outcome_day_item(payload: Dict[str, Any], day: int) -> Dict[str, Any]:
+    days = payload.get("days") if isinstance(payload.get("days"), dict) else {}
+    item = days.get(str(day), days.get(day))
+    return item if isinstance(item, dict) else {}
+
+
+def _settled_bar_identity(item: Dict[str, Any], day: int) -> tuple[Any, ...]:
+    def _price(value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        return round(float(value), 8)
+
+    return (
+        int(item.get("horizon") or day),
+        str(item.get("horizon_trade_date") or item.get("date") or "")[:10],
+        _price(item.get("open")),
+        _price(item.get("high")),
+        _price(item.get("low")),
+        _price(item.get("close")),
+    )
+
+
+def _outcome_window_fingerprint(payload: Dict[str, Any]) -> tuple[tuple[Any, ...], int, bool]:
+    fingerprint = []
+    available = 0
+    for day in (1, 2, 3, 4, 5):
+        item = _outcome_day_item(payload, day)
+        status = str(item.get("status") or "MISSING")
+        if status == "SETTLED":
+            available += 1
+            fingerprint.append((day, "SETTLED", *_settled_bar_identity(item, day)))
+        else:
+            fingerprint.append((day, "MISSING"))
+    stored_available = int(payload.get("available_days") or available)
+    complete = bool(payload.get("outcome_complete")) or (
+        str(payload.get("data_status") or "") == "COMPLETE" and stored_available >= 5
+    )
+    return tuple(fingerprint), stored_available, complete
+
+
+def _is_monotonic_outcome_extension(stored: Dict[str, Any], incoming: Dict[str, Any]) -> bool:
+    stored_fp, stored_available, stored_complete = _outcome_window_fingerprint(stored)
+    incoming_fp, incoming_available, _incoming_complete = _outcome_window_fingerprint(incoming)
+    if stored_complete:
+        return False
+    if incoming_available <= stored_available:
+        return False
+    for stored_day, incoming_day in zip(stored_fp, incoming_fp):
+        if stored_day[1] != "SETTLED":
+            continue
+        if incoming_day != stored_day:
+            return False
+    return True
+
+
+def _numeric_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _return_scalar_params(payload: Dict[str, Any], columns: Iterable[str]) -> Dict[str, Any]:
+    """Project due-day OHLC facts onto returns scalar columns. Payload remains truth."""
+    day1 = _outcome_day_item(payload, 1)
+    complete = bool(payload.get("outcome_complete")) or str(payload.get("data_status") or "") == "COMPLETE"
+    available = int(payload.get("available_days") or 0)
+    status = "SETTLED" if complete else ("PARTIAL" if available else "PENDING")
+    wanted: Dict[str, Any] = {
+        "t1_return": payload.get("future_1d_return") if str(day1.get("status") or "") == "SETTLED" else None,
+        "t2_return": payload.get("future_2d_return") if str(_outcome_day_item(payload, 2).get("status") or "") == "SETTLED" else None,
+        "t3_return": payload.get("future_3d_return") if str(_outcome_day_item(payload, 3).get("status") or "") == "SETTLED" else None,
+        "t5_return": payload.get("future_5d_return") if complete else None,
+        "t1_open_price": day1.get("open"),
+        "t1_high_price": day1.get("high"),
+        "t1_low_price": day1.get("low"),
+        "t1_close_price": day1.get("close"),
+        "t1_open_return": None,
+        "t1_high_return": day1.get("mfe"),
+        "t1_low_return": day1.get("mae"),
+        "t1_close_return": day1.get("return"),
+        "t1_return_close": day1.get("return"),
+        "t1_return_high": day1.get("mfe"),
+        "t1_mfe": day1.get("mfe"),
+        "t1_mae": day1.get("mae"),
+        "t1_net_return": day1.get("net_return") or payload.get("future_1d_net_return"),
+        "return_status": status,
+        "production_run_id": payload.get("production_run_id"),
+        "market_data_source": day1.get("source") or payload.get("market_data_source"),
+        "price_adjustment_mode": payload.get("price_basis"),
+        "trading_calendar_source": payload.get("calendar_source") or payload.get("trading_calendar_source"),
+    }
+    if str(day1.get("status") or "") != "SETTLED":
+        for key in (
+            "t1_open_price", "t1_high_price", "t1_low_price", "t1_close_price",
+            "t1_high_return", "t1_low_return", "t1_close_return", "t1_return_close",
+            "t1_return_high", "t1_mfe", "t1_mae", "t1_net_return",
+        ):
+            wanted[key] = None
+    params: Dict[str, Any] = {}
+    for key, value in wanted.items():
+        if key not in columns:
+            continue
+        params[key] = _numeric_or_none(value) if key not in {
+            "return_status", "production_run_id", "market_data_source",
+            "price_adjustment_mode", "trading_calendar_source",
+        } else value
+    return params
+
+
 def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decision_id: str = "") -> None:
     ensure_production_schema()
     decision_id = decision_id or payload.get("decision_id") or payload.get("id") or ""
@@ -2035,22 +2147,70 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decisi
     payload = {**payload, **calendar}
     fields = ["trade_date", "symbol", "payload"]
     serialized_payload = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    scalar_params = _return_scalar_params(payload, columns)
     params = {
         "trade_date": trade_date,
         "symbol": symbol,
         "payload": serialized_payload,
         "decision_id": decision_id,
         **calendar,
+        **scalar_params,
     }
     if "decision_id" in columns:
         fields.append("decision_id")
-    for field in ("calendar_version", "calendar_content_hash"):
-        if field in columns:
+    for field in ("calendar_version", "calendar_content_hash", *scalar_params):
+        if field in columns and field not in fields:
             fields.append(field)
     conflict_clause = (
         " ON CONFLICT (decision_id, trade_date) WHERE decision_id IS NOT NULL DO NOTHING"
         if "decision_id" in columns else ""
     )
+    scalar_assignments = [
+        f"{field} = :{field}"
+        for field in scalar_params
+        if field in columns
+    ]
+    update_sql = (
+        "UPDATE returns SET payload = CAST(:payload AS jsonb)"
+        + (", calendar_version = :calendar_version" if "calendar_version" in columns else "")
+        + (", calendar_content_hash = :calendar_content_hash" if "calendar_content_hash" in columns else "")
+        + ("" if not scalar_assignments else ", " + ", ".join(scalar_assignments))
+        + " WHERE decision_id = :decision_id AND trade_date = CAST(:trade_date AS date)"
+    )
+
+    def _existing_row(db):
+        if "decision_id" not in columns:
+            return None
+        return db.execute(
+            text(
+                "SELECT payload FROM returns "
+                "WHERE decision_id = :decision_id "
+                "AND trade_date = CAST(:trade_date AS date) LIMIT 1"
+            ),
+            {"decision_id": decision_id, "trade_date": trade_date},
+        ).mappings().first()
+
+    def _apply_existing(db, existing) -> None:
+        stored = existing.get("payload")
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        if not isinstance(stored, dict):
+            stored = {}
+        stored_payload = json.dumps(stored, ensure_ascii=False, sort_keys=True, default=str)
+        if stored_payload == serialized_payload:
+            db.execute(text(update_sql), params)
+            return
+        stored_fp, stored_available, stored_complete = _outcome_window_fingerprint(stored)
+        incoming_fp, incoming_available, _incoming_complete = _outcome_window_fingerprint(payload)
+        if stored_fp == incoming_fp and stored_available == incoming_available:
+            if stored_complete:
+                raise ValueError("OUTCOME_IDENTITY_CONFLICT")
+            db.execute(text(update_sql), params)
+            return
+        if stored_complete or not _is_monotonic_outcome_extension(stored, payload):
+            raise ValueError("OUTCOME_IDENTITY_CONFLICT")
+        db.execute(text(update_sql), params)
+
     with get_db() as db:
         decision = db.execute(
             text("SELECT 1 FROM picks WHERE decision_id = :decision_id"),
@@ -2058,24 +2218,11 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decisi
         ).first()
         if not decision:
             raise ValueError("DECISION_ID_NOT_FOUND")
-        if "decision_id" in columns:
-            existing = db.execute(
-                text(
-                    "SELECT payload FROM returns "
-                    "WHERE decision_id = :decision_id "
-                    "AND trade_date = CAST(:trade_date AS date) LIMIT 1"
-                ),
-                {"decision_id": decision_id, "trade_date": trade_date},
-            ).mappings().first()
-            if existing:
-                stored = existing.get("payload")
-                if isinstance(stored, str):
-                    stored = json.loads(stored)
-                stored_payload = json.dumps(stored, ensure_ascii=False, sort_keys=True, default=str)
-                if stored_payload == serialized_payload:
-                    return
-                raise ValueError("OUTCOME_IDENTITY_CONFLICT")
-        db.execute(
+        existing = _existing_row(db)
+        if existing:
+            _apply_existing(db, existing)
+            return
+        result = db.execute(
             text(
                 f"INSERT INTO returns ({', '.join(fields)}) VALUES ("
                 + ", ".join("CAST(:payload AS jsonb)" if field == "payload" else f":{field}" for field in fields)
@@ -2083,6 +2230,13 @@ def record_returns(trade_date: str, symbol: str, payload: Dict[str, Any], decisi
             ),
             params,
         )
+        if result.rowcount:
+            return
+        existing = _existing_row(db)
+        if existing:
+            _apply_existing(db, existing)
+            return
+        raise ValueError("OUTCOME_IDENTITY_CONFLICT")
 
 
 def record_canonical_historical_snapshot(snapshot: Dict[str, Any]) -> None:
@@ -2816,7 +2970,25 @@ def record_paper_observation(observation: Dict[str, Any]) -> None:
                 "feature_version", "decision_version", "cost_model_version",
                 "paper_observation_contract_version", "paper_only", "live_order",
             )
-            if any((stored or {}).get(field) != observation.get(field) for field in identity_fields):
+            stored_overlay = stored.get("research_overlay") if isinstance(stored.get("research_overlay"), dict) else {}
+            incoming_overlay = observation.get("research_overlay") if isinstance(observation.get("research_overlay"), dict) else {}
+            identity_changed = any((stored or {}).get(field) != observation.get(field) for field in identity_fields)
+            if identity_changed and not incoming_overlay.get("skill_verdicts"):
+                raise ValueError("PAPER_OBSERVATION_IDENTITY_CONFLICT")
+            if incoming_overlay.get("skill_verdicts") and stored_overlay.get("skill_verdicts") != incoming_overlay.get("skill_verdicts"):
+                stored["research_overlay"] = {**stored_overlay, **incoming_overlay}
+                db.execute(
+                    text(
+                        "UPDATE paper_observations SET payload = CAST(:payload AS jsonb) "
+                        "WHERE paper_signal_id = :paper_signal_id"
+                    ),
+                    {
+                        "paper_signal_id": stored.get("paper_signal_id") or observation["paper_signal_id"],
+                        "payload": json.dumps(stored, ensure_ascii=False, default=str),
+                    },
+                )
+                return
+            if identity_changed:
                 raise ValueError("PAPER_OBSERVATION_IDENTITY_CONFLICT")
             return
         db.execute(
@@ -4264,6 +4436,7 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
                 "horizon_trade_date": item.get("horizon_trade_date") or item.get("date"),
             }
             settled[str(day)].pop("outcome_id", None)
+    available = sum(1 for item in settled.values() if str(item.get("status") or "") == "SETTLED")
     return {
         "decision_id": decision_id,
         "paper_signal_id": payload.get("paper_signal_id"),
@@ -4273,7 +4446,20 @@ def fetch_horizon_outcomes(decision_id: str) -> Dict[str, Any]:
         "horizon_identity": {
             str(day): f"{decision_id}:{day}" for day in (1, 2, 3, 4, 5)
         },
-        "status": payload.get("data_status") or "PARTIAL",
+        "status": payload.get("data_status") or ("COMPLETE" if available >= 5 else "PARTIAL" if available else "MISSING"),
+        "data_status": payload.get("data_status") or ("COMPLETE" if available >= 5 else "PARTIAL" if available else "MISSING"),
+        "available_days": payload.get("available_days") if payload.get("available_days") is not None else available,
+        "outcome_complete": payload.get("outcome_complete") if payload.get("outcome_complete") is not None else available >= 5,
+        "profit_window": payload.get("profit_window"),
+        "first_profit_day": payload.get("first_profit_day"),
+        "max_daily_bar_profit_opportunity_5d": payload.get("max_daily_bar_profit_opportunity_5d"),
+        "max_mae_5d": payload.get("max_mae_5d"),
+        "daily_outcomes": payload.get("daily_outcomes") or [],
+        "future_1d_return": payload.get("future_1d_return"),
+        "future_1d_net_return": payload.get("future_1d_net_return"),
+        "future_5d_return": payload.get("future_5d_return"),
+        "future_5d_net_return": payload.get("future_5d_net_return"),
+        "result_filled_at": payload.get("result_filled_at"),
         "opportunity_5d": payload.get("opportunity_5d", payload.get("profit_window")),
         "settled_at": payload.get("outcome_settled_at") or payload.get("settled_at"),
         "mae": payload.get("max_mae_5d"),

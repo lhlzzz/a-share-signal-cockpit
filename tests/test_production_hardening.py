@@ -844,11 +844,24 @@ def test_source_universe_keeps_non_production_quote_state_without_blocking():
 def test_active_required_missing_price_still_blocks():
     from scrapy_scanner.runner_v2 import CriticalSourceError, _collect
 
-    rows = [_active_row("600001"), _active_row("600002", **_non_quote())]
+    rows = [_active_row("600001"), _active_row("600002", f2="-")]
     timings = {}
     with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_INCOMPLETE:stock_all_a:1"):
         _collect("stock_all_a", timings, lambda: rows, [], critical=True)
     assert timings["stock_all_a"]["universe_audit"]["active_required_incomplete"] == 1
+
+
+def test_listed_status_zero_without_session_quote_is_halted():
+    from scrapy_scanner.runner_v2 import classify_universe_row, _collect
+
+    row = _quote_row("600825", f14="新华传媒", **_non_quote(), f1=2, f125=0, f148=65, f26=20060508, f18=7.12)
+    classified = classify_universe_row(row)
+    assert classified["universe_state"] == "HALTED"
+    assert classified["production_required"] is False
+    accepted = _collect("stock_all_a", {}, lambda: [_active_row("600001"), row], [], critical=True)
+    halted = next(item for item in accepted if item["f12"] == "600825")
+    assert halted["universe_state"] == "HALTED"
+    assert halted["production_required"] is False
 
 
 def test_halted_missing_price_is_observed_and_l1_halted():

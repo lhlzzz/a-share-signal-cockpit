@@ -825,10 +825,11 @@ def test_same_lineage_scan_session_is_idempotent():
             connection.execute(text("DELETE FROM scan_sessions WHERE scan_dir = :scan_dir"), {"scan_dir": scan_dir})
 
 
-def test_due_horizon_report_does_not_claim_t1_t5_fill():
+def test_due_horizon_report_persists_due_prefix():
     from xiaogu_forward_result_filler_v0_1 import fill_due_horizon_results
 
     source = inspect.getsource(fill_due_horizon_results)
     assert "t1_t5_persisted" in source
     assert "persist_horizon" in source
-    assert "Only persist when the full T+1..T+5 window is due" in source
+    assert "require_complete=False" in source
+    assert "Only persist when the full T+1..T+5 window is due" not in source

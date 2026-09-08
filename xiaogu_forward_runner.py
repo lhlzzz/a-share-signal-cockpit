@@ -374,19 +374,18 @@ def _write_ledger_record(decision: Dict[str, Any], *, persist_database: bool = T
 def _write_paper_observation(decision: Dict[str, Any], *, persist_database: bool = True) -> Dict[str, Any]:
     from xiaogu_forward_paper_recorder_v0_1 import append_paper_observation
     _path, record = append_paper_observation(decision, persist_database=persist_database)
-    return {
-        "paper_signal_id": record.get("paper_signal_id") or (decision.get("paper_observation") or {}).get("paper_signal_id"),
-        "decision_id": record.get("decision_id") or (decision.get("paper_observation") or {}).get("decision_id"),
+    observation = decision.get("paper_observation") or {}
+    compact = _compact_paper_observation(decision) or {}
+    compact.update({
+        "paper_signal_id": record.get("paper_signal_id") or observation.get("paper_signal_id"),
+        "decision_id": record.get("decision_id") or observation.get("decision_id"),
         "symbol": record.get("symbol") or decision.get("symbol"),
-        "rank": (decision.get("paper_observation") or {}).get("rank"),
-        "top1_flag": (decision.get("paper_observation") or {}).get("top1_flag"),
-        "top3_flag": (decision.get("paper_observation") or {}).get("top3_flag"),
-        "selection_reason": (decision.get("paper_observation") or {}).get("selection_reason"),
-        "signal_reason": (decision.get("paper_observation") or {}).get("signal_reason"),
         "database_persistence": record.get("database_persistence"),
         "audit_persistence": record.get("audit_persistence"),
         "memory_status": record.get("memory_status"),
-    }
+        "memory_path": record.get("memory_path"),
+    })
+    return compact
 
 
 def _scan_observation_from_dir(scan_dir: str) -> Dict[str, Any]:
@@ -605,6 +604,14 @@ def _compact_paper_observation(decision: Dict[str, Any]) -> Dict[str, Any] | Non
         "signal_reason": observation.get("signal_reason"),
         "alpha_score": observation.get("alpha_score"),
         "production_buy": observation.get("production_buy"),
+        "production_run_id": observation.get("production_run_id") or decision.get("production_run_id"),
+        "snapshot_id": observation.get("snapshot_id") or observation.get("original_snapshot_id"),
+        "original_snapshot_id": observation.get("original_snapshot_id") or observation.get("snapshot_id"),
+        "review_snapshot_id": observation.get("review_snapshot_id"),
+        "reference_price": observation.get("reference_price"),
+        "price_strength": observation.get("price_strength"),
+        "paper_observation_state": observation.get("paper_observation_state"),
+        "research_overlay": observation.get("research_overlay") or {},
     }
 
 

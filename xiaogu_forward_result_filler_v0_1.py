@@ -181,9 +181,12 @@ def canonical_future_prices(
             continue
         if require_volume and bar.get("volume") in (None, ""):
             continue
-        bar_date = str(bar.get("trade_date") or bar.get("date") or "")
+        bar_date = str(bar.get("trade_date") or bar.get("date") or "")[:10]
         if not bar_date:
             continue
+        source_timestamp = source_timestamp or bar.get("source_timestamp") or ""
+        if hasattr(source_timestamp, "isoformat"):
+            source_timestamp = source_timestamp.isoformat()
         normalized.append({
             "symbol": str(symbol).zfill(6) if symbol else str(bar.get("symbol") or "").zfill(6),
             "date": bar_date,
@@ -194,7 +197,7 @@ def canonical_future_prices(
             "volume": None if bar.get("volume") in (None, "") else float(bar["volume"]),
             "amount": None if bar.get("amount") in (None, "") else float(bar["amount"]),
             "source": str(bar.get("source") or "eastmoney_api_daily_kline"),
-            "source_timestamp": source_timestamp or bar.get("source_timestamp") or "",
+            "source_timestamp": str(source_timestamp or ""),
             "price_basis": price_basis,
         })
     return normalized
@@ -478,24 +481,45 @@ def eastmoney_future_bars(
     entry_date: str,
     end_date: str | None = None,
 ) -> list[Dict[str, Any]]:
-    return [
-        bar
-        for bar in fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date)
-        if bar["trade_date"] > entry_date
-    ]
+    try:
+        bars = fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date)
+    except Exception:
+        bars = fetch_baostock_daily_bars(symbol, start_date=entry_date, end_date=end_date)
+    return [bar for bar in bars if bar["trade_date"] > entry_date]
 
 
-def calendar_future_bars(entry_date: str, bars: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
-    """Select exactly T+1..T+5 using the persisted Calendar Owner."""
+def calendar_future_bars(
+    entry_date: str,
+    bars: list[Dict[str, Any]],
+    *,
+    as_of: str | None = None,
+    require_complete: bool = True,
+) -> list[Dict[str, Any]]:
+    """Select T+1..T+5 using the persisted Calendar Owner.
+
+    Historical replay still requires the full window. Daily production fill
+    may persist the due prefix as PARTIAL when later horizons have not arrived.
+    """
     dates = list(resolve_horizon_dates(entry_date, EVALUATION_DAYS).values())
     by_date = {
         str(bar.get("trade_date") or bar.get("date"))[:10]: bar
         for bar in bars or []
         if isinstance(bar, dict)
     }
-    selected = [by_date[trade_date] for trade_date in dates if trade_date in by_date]
-    if len(selected) != len(dates):
-        raise RuntimeError("SOURCE_UNAVAILABLE:CALENDAR_HORIZON_PRICE_MISSING")
+    if require_complete:
+        selected = [by_date[trade_date] for trade_date in dates if trade_date in by_date]
+        if len(selected) != len(dates):
+            raise RuntimeError("SOURCE_UNAVAILABLE:CALENDAR_HORIZON_PRICE_MISSING")
+        return selected
+    due_until = str(as_of or date.today().isoformat())[:10]
+    selected = []
+    for trade_date in dates:
+        if trade_date > due_until:
+            break
+        bar = by_date.get(trade_date)
+        if bar is None:
+            raise RuntimeError("SOURCE_UNAVAILABLE:CALENDAR_HORIZON_PRICE_MISSING")
+        selected.append(bar)
     return selected
 
 
@@ -631,9 +655,9 @@ def build_post_trade_review(record: Dict[str, Any], outcomes: Dict[str, Any]) ->
 
 
 def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    from xiaogu_db import record_returns, update_paper_observation_state
+    import xiaogu_db
     try:
-        record_returns(
+        xiaogu_db.record_returns(
             str(result["date"]),
             str(result["symbol"]),
             result,
@@ -644,7 +668,7 @@ def _persist_and_append_result(result: Dict[str, Any]) -> Dict[str, Any]:
             and result.get("paper_observation_state") == "CLOSED"
             and result.get("paper_position_state") == "PAPER_FLAT"
         ):
-            update_paper_observation_state(
+            xiaogu_db.update_paper_observation_state(
                 str(result["paper_signal_id"]),
                 state="CLOSED",
                 paper_position_state="PAPER_FLAT",
@@ -741,6 +765,14 @@ def refresh_paper_dataset(path: Path | None = None) -> Dict[str, Any]:
     return {"path": str(output_path), "row_count": len(rows), "status": "PAPER_OBSERVATION_ONLY"}
 
 
+def _record_fetched_future_bars(symbol: str, fetched: list[Dict[str, Any]]) -> None:
+    import xiaogu_db
+
+    normalized = canonical_future_prices(fetched, symbol=str(symbol or ""))
+    if normalized:
+        xiaogu_db.record_canonical_future_prices(normalized)
+
+
 def _has_new_outcome(result: Dict[str, Any], prior: Dict[str, Any] | None) -> bool:
     prior = prior or {}
     result_days = result.get("available_days")
@@ -768,7 +800,7 @@ def fill_due_horizon_results(
         "results": [],
         "errors": [],
         "exit_reason": None,
-        "persist_horizon": 5,
+        "persist_horizon": "DUE_PREFIX",
         "intermediate_horizons_checked": [1, 2, 3, 4],
         "t1_t5_persisted": False,
     }
@@ -813,19 +845,32 @@ def fill_due_horizon_results(
                         ),
                         {"d": trade_date},
                     ).mappings())
-                    existing_ids = {
-                        str(row["decision_id"] or "")
-                        for row in db.execute(
-                            sql_text(
-                                """
-                                SELECT decision_id FROM returns
-                                WHERE trade_date = CAST(:d AS date) AND decision_id IS NOT NULL
-                                """
-                            ),
-                            {"d": trade_date},
-                        ).mappings()
-                        if row.get("decision_id")
-                    }
+                    existing_complete = set()
+                    existing_available: dict[str, int] = {}
+                    for row in db.execute(
+                        sql_text(
+                            """
+                            SELECT decision_id, payload FROM returns
+                            WHERE trade_date = CAST(:d AS date) AND decision_id IS NOT NULL
+                            """
+                        ),
+                        {"d": trade_date},
+                    ).mappings():
+                        decision_id = str(row.get("decision_id") or "")
+                        if not decision_id:
+                            continue
+                        payload = row.get("payload")
+                        if isinstance(payload, str):
+                            try:
+                                payload = json.loads(payload)
+                            except json.JSONDecodeError:
+                                payload = {}
+                        if not isinstance(payload, dict):
+                            payload = {}
+                        available_days = int(payload.get("available_days") or 0)
+                        existing_available[decision_id] = available_days
+                        if bool(payload.get("outcome_complete")) or available_days >= 5:
+                            existing_complete.add(decision_id)
                     sources = []
                     for row in papers:
                         rec = _row_payload(dict(row))
@@ -844,44 +889,60 @@ def fill_due_horizon_results(
                         sources.append(rec)
                     for rec in sources:
                         decision_id = str(rec.get("decision_id") or rec.get("id") or "")
-                        if decision_id and decision_id in existing_ids:
+                        horizon = int(rec.get("horizon") or 0)
+                        if decision_id and decision_id in existing_complete:
+                            report["skipped_exists"] += 1
+                            continue
+                        if decision_id and existing_available.get(decision_id, 0) >= horizon:
                             report["skipped_exists"] += 1
                             continue
                         missing.append(rec)
             if not missing:
                 report["exit_reason"] = "NO_DUE_OUTCOME"
                 return report
-            # Only persist when the full T+1..T+5 window is due (horizon == 5)
-            # because returns identity is immutable and cannot be patched.
-            from xiaogu_db import fetch_canonical_future_bars, record_canonical_future_prices
+            import xiaogu_db
+            due_records = {}
             for rec in missing:
-                if int(rec.get("horizon") or 0) != 5:
-                    report["skipped_not_due"] += 1
-                    continue
                 decision_id = str(rec.get("id") or rec.get("decision_id") or "")
+                horizon = int(rec.get("horizon") or 0)
                 if not decision_id:
                     report["errors"].append({"decision_id": "", "error": "DECISION_ID_REQUIRED"})
                     continue
+                current = due_records.get(decision_id)
+                if current is None or horizon > int(current.get("horizon") or 0):
+                    due_records[decision_id] = rec
+            for rec in due_records.values():
+                decision_id = str(rec.get("id") or rec.get("decision_id") or "")
                 try:
-                    bars = fetch_canonical_future_bars(
+                    bars = xiaogu_db.fetch_canonical_future_bars(
                         str(rec["symbol"]), start_date=str(rec["date"]), end_date=as_of_date.isoformat(),
                     )
-                    if len(bars) < 5:
+                    due_horizon = int(rec.get("horizon") or 0)
+                    if len(bars) < due_horizon:
                         fetched = eastmoney_future_bars(
                             str(rec["symbol"]), entry_date=str(rec["date"]), end_date=as_of_date.isoformat(),
                         )
                         if fetched:
-                            record_canonical_future_prices(fetched)
-                            bars = fetch_canonical_future_bars(
+                            _record_fetched_future_bars(str(rec["symbol"]), fetched)
+                            bars = xiaogu_db.fetch_canonical_future_bars(
                                 str(rec["symbol"]), start_date=str(rec["date"]), end_date=as_of_date.isoformat(),
                             )
-                    bars = calendar_future_bars(str(rec["date"]), bars)
+                    bars = calendar_future_bars(
+                        str(rec["date"]),
+                        bars,
+                        as_of=as_of_date.isoformat(),
+                        require_complete=False,
+                    )
+                    if not bars:
+                        report["skipped_not_due"] += 1
+                        continue
                     result = append_result(rec, future_bars=bars)
                     report["results"].append(_persist_and_append_result(result))
                     report["filled"] += 1
+                    if int(result.get("available_days") or 0) >= 5:
+                        report["t1_t5_persisted"] = True
                 except Exception as exc:
                     report["errors"].append({"decision_id": decision_id, "error": repr(exc)})
-            report["t1_t5_persisted"] = False
             report["exit_reason"] = "FILLED" if report["filled"] else "NO_DUE_OUTCOME"
     except TimeoutError:
         report["blocked_timeout"] = 1
@@ -891,7 +952,9 @@ def fill_due_horizon_results(
 
 def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
     """Fill DB decisions; JSONL receives only the resulting audit artifact."""
-    from xiaogu_db import fetch_picks, fetch_returns
+    import xiaogu_db
+    fetch_picks = xiaogu_db.fetch_picks
+    fetch_returns = xiaogu_db.fetch_returns
 
     records = []
     for row in fetch_picks():
@@ -905,8 +968,7 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
         record["id"] = str(record.get("decision_id") or record.get("id") or "")
         record["date"] = str(record.get("date") or record.get("trade_date") or "")
         records.append(record)
-    from xiaogu_db import fetch_paper_observations
-    for row in fetch_paper_observations():
+    for row in xiaogu_db.fetch_paper_observations():
         record = _row_payload(row)
         if record.get("paper_signal_id") and record.get("decision_id"):
             record["record_type"] = "PAPER_OBSERVATION"
@@ -938,11 +1000,7 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
             errors.append({"decision_id": "", "error": "DECISION_ID_REQUIRED"})
             continue
         try:
-            from xiaogu_db import (
-                fetch_canonical_future_bars,
-                record_canonical_future_prices,
-            )
-            bars = fetch_canonical_future_bars(
+            bars = xiaogu_db.fetch_canonical_future_bars(
                 str(record["symbol"]), start_date=str(record["date"]), end_date=end_date or "",
             )
             if len(bars) < 5:
@@ -950,11 +1008,18 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
                     str(record["symbol"]), entry_date=str(record["date"]), end_date=end_date,
                 )
                 if fetched:
-                    record_canonical_future_prices(fetched)
-                    bars = fetch_canonical_future_bars(
+                    _record_fetched_future_bars(str(record["symbol"]), fetched)
+                    bars = xiaogu_db.fetch_canonical_future_bars(
                         str(record["symbol"]), start_date=str(record["date"]), end_date=end_date or "",
                     )
-            bars = calendar_future_bars(str(record["date"]), bars)
+            bars = calendar_future_bars(
+                str(record["date"]),
+                bars,
+                as_of=end_date,
+                require_complete=False,
+            )
+            if not bars:
+                continue
             result = append_result(record, future_bars=bars)
             if _has_new_outcome(result, prior_results.get(decision_id)):
                 filled.append(_persist_and_append_result(result))

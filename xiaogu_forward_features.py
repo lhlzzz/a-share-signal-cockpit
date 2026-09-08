@@ -242,6 +242,69 @@ def _source_records(raw: Dict[str, Any], key: str, source_id: str) -> list[Dict[
 MIN_CAPITAL_HISTORY_OBSERVATIONS = 6
 
 
+def _financial_report_sort_key(row: Dict[str, Any]) -> str:
+    return str(row.get("REPORT_DATE") or row.get("observed_at") or "")
+
+
+def _percent_to_ratio(value: Any) -> float | None:
+    number = _optional_number(value)
+    if number is None:
+        return None
+    return number / 100.0
+
+
+def _financial_business_measurements(rows: list[Dict[str, Any]]) -> Dict[str, Any]:
+    """Measure captured F10 financials. This is not a second alpha."""
+    if not rows:
+        return {}
+    ordered = sorted(rows, key=_financial_report_sort_key, reverse=True)
+    latest = ordered[0]
+    annual = [
+        row for row in ordered
+        if str(row.get("REPORT_TYPE") or "") == "年报" or "-12-31" in str(row.get("REPORT_DATE") or "")
+    ]
+    history_source = list(reversed(annual[:6] or ordered[:6]))
+    roe = _percent_to_ratio(latest.get("ROEJQ") if latest.get("ROEJQ") not in (None, "") else latest.get("WEIGHTAVG_ROE"))
+    gross = _percent_to_ratio(latest.get("XSMLL"))
+    net = _percent_to_ratio(latest.get("XSJLL"))
+    debt = _percent_to_ratio(latest.get("ZCFZL"))
+    current = _optional_number(latest.get("LD"))
+    roe_history = []
+    for row in history_source:
+        value = _percent_to_ratio(row.get("ROEJQ"))
+        if value is not None:
+            roe_history.append(value)
+    moat = None
+    if gross is not None:
+        moat = 1.0 if gross >= 0.40 else (0.5 if gross >= 0.20 else 0.0)
+    pricing_power = moat
+    earnings_quality = None
+    if roe is not None:
+        earnings_quality = 1.0 if roe >= 0.15 else (0.5 if roe >= 0.08 else 0.0)
+    debt_safety = None
+    if debt is not None or current is not None:
+        debt_ok = debt is None or debt <= 0.60
+        current_ok = current is None or current >= 1.20
+        debt_safety = 1.0 if debt_ok and current_ok else 0.0
+    growth = _percent_to_ratio(latest.get("TOTALOPERATEREVETZ") or latest.get("YYZSRGDHBZC"))
+    return {
+        "roe": _optional_clip(roe),
+        "gross_margin": _optional_clip(gross),
+        "net_margin": _optional_clip(net),
+        "debt_ratio": _optional_clip(debt),
+        "current_ratio": current,
+        "roe_history": roe_history,
+        "moat": moat,
+        "pricing_power": pricing_power,
+        "earnings_quality": earnings_quality,
+        "debt_safety": debt_safety,
+        "growth": _optional_clip(growth) if growth is not None and growth >= 0 else growth,
+        "roic": _optional_clip(roe),
+        "report_date": str(latest.get("REPORT_DATE") or "")[:10],
+        "report_type": str(latest.get("REPORT_TYPE") or ""),
+    }
+
+
 def _capital_history_timestamp(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if len(text) == 10:
@@ -508,6 +571,13 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     earnings_raw = raw.get("earnings_preview") if isinstance(raw.get("earnings_preview"), dict) else {}
     earnings_raw = {**earnings_raw, "source_id": earnings_raw.get("source_id") or "research_report"}
     earnings = earnings_raw if assert_point_in_time_evidence(earnings_raw, as_of) else {}
+    financial_kept, financial_excluded = filter_point_in_time_records(
+        _source_records(raw, "financials", "eastmoney.financials"),
+        as_of,
+    )
+    raw = dict(raw)
+    raw["financials"] = financial_kept
+    financials = _financial_business_measurements(financial_kept)
     capital_history_audit = _capital_history_features(raw, snap, str(as_of or ""))
     raw = dict(raw)
     raw["capital_history_audit"] = capital_history_audit
@@ -626,18 +696,27 @@ def build_feature_vector(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     else:
         capital_price_impact_state = "NEUTRAL"
 
+    preview_roe = _optional_number(_first(earnings, "WEIGHTAVG_ROE", "ROEJQ"))
+    captured_roe = _optional_number(_first(raw, "roe", default=preview_roe))
+    if captured_roe is not None and captured_roe > 1.5:
+        captured_roe = captured_roe / 100.0
     business = {
-        "business_quality": _optional_clip(_first(raw, "business_quality", "financial_quality", default=_optional_number(_first(earnings, "WEIGHTAVG_ROE")) / 100.0 if _optional_number(_first(earnings, "WEIGHTAVG_ROE")) is not None else None)),
-        "moat": _optional_clip(_first(raw, "moat", "moat_quality")),
-        "pricing_power": _optional_clip(_first(raw, "pricing_power")),
-        "earnings_quality": _optional_clip(_first(raw, "earnings_quality", "cash_flow_quality")),
-        "roic": _optional_clip(_optional_number(_first(raw, "roic")) / 100.0 if _optional_number(_first(raw, "roic")) is not None else None),
-        "roe": _optional_clip(_optional_number(_first(raw, "roe", default=_first(earnings, "WEIGHTAVG_ROE"))) / 100.0 if _optional_number(_first(raw, "roe", default=_first(earnings, "WEIGHTAVG_ROE"))) is not None else None),
-        "growth": _optional_clip(_optional_number(_first(raw, "growth", "earnings_growth")) / 100.0 if _optional_number(_first(raw, "growth", "earnings_growth")) is not None else None),
+        "business_quality": _optional_clip(_first(raw, "business_quality", "financial_quality", default=captured_roe)),
+        "moat": _optional_clip(_first(raw, "moat", "moat_quality", default=financials.get("moat"))),
+        "pricing_power": _optional_clip(_first(raw, "pricing_power", default=financials.get("pricing_power"))),
+        "earnings_quality": _optional_clip(_first(raw, "earnings_quality", "cash_flow_quality", default=financials.get("earnings_quality"))),
+        "roic": _optional_clip(_optional_number(_first(raw, "roic")) / 100.0 if _optional_number(_first(raw, "roic")) is not None else financials.get("roic")),
+        "roe": _optional_clip(captured_roe if captured_roe is not None else financials.get("roe")),
+        "growth": _optional_clip(_optional_number(_first(raw, "growth", "earnings_growth")) / 100.0 if _optional_number(_first(raw, "growth", "earnings_growth")) is not None else financials.get("growth")),
         "management": _optional_clip(_first(raw, "management", "management_quality")),
-        "debt_safety": _optional_clip(_first(raw, "debt_safety")),
+        "debt_safety": _optional_clip(_first(raw, "debt_safety", default=financials.get("debt_safety"))),
         "capital_allocation": _optional_clip(_first(raw, "capital_allocation")),
         "valuation": _optional_clip(_first(raw, "valuation", "valuation_quality", "valuation_score")),
+        "gross_margin": financials.get("gross_margin"),
+        "net_margin": financials.get("net_margin"),
+        "debt_ratio": financials.get("debt_ratio"),
+        "current_ratio": financials.get("current_ratio"),
+        "roe_history": financials.get("roe_history") or [],
     }
     business["score"] = _observed_mean((1.0, value) for key, value in business.items() if key != "score")
     # Accept the source synonym while keeping BUSINESS as the production axis.

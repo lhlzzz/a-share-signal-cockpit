@@ -58,6 +58,7 @@ CAPITAL_HISTORY_FIELDS = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
 DEEP_DOMAINS = (
     "stock_capital_flow", "earnings_preview", "org_survey", "stock_reports", "lhb",
     "capital_history", "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
+    "financials",
 )
 CRITICAL_SOURCES = frozenset({"stock_all_a"})
 OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
@@ -557,6 +558,58 @@ def _normalize_lhb_row(row: Dict[str, Any], *, fetched_at: str) -> Dict[str, Any
     return payload
 
 
+def _normalize_financial_row(row: Dict[str, Any], *, fetched_at: str) -> Dict[str, Any]:
+    payload = dict(row)
+    code = normalize_stock_code(payload.get("SECURITY_CODE") or payload.get("SECUCODE"))
+    report_date = str(payload.get("REPORT_DATE") or "")[:10]
+    notice_date = str(payload.get("NOTICE_DATE") or payload.get("UPDATE_DATE") or "")[:10]
+    report_type = str(payload.get("REPORT_TYPE") or "").strip()
+    payload["symbol"] = code
+    payload["source_id"] = "eastmoney.financials"
+    payload["event_id"] = "|".join(part for part in (code or "", report_date, report_type) if part)
+    payload["mechanism"] = "VALUATION"
+    knowledge = notice_date or report_date
+    payload["event_time"] = f"{knowledge}T15:00:00+08:00" if knowledge else fetched_at
+    payload["observed_at"] = payload["event_time"]
+    payload["available_at"] = payload["event_time"]
+    payload["publication_time"] = payload["event_time"]
+    return payload
+
+
+def fetch_financials_for_buffett(
+    candidate_codes: Iterable[str] | None = None,
+    *,
+    diagnostics: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    """Capture Eastmoney F10 financials for L3 candidates. Capture only."""
+    _start_diagnostic(diagnostics)
+    wanted = [normalize_stock_code(code) for code in (candidate_codes or [])]
+    wanted = [code for code in wanted if code]
+    if candidate_codes is not None and not wanted:
+        _store_diagnostic(
+            diagnostics, pages=0, reported_total=0, row_count=0, requested_symbols=[],
+            returned_symbols=[], unrelated_rows=0, request_count=0, response_count=0, status="SKIPPED",
+        )
+        return []
+    fetched_at = _iso_now()
+    rows = fetch_datacenter(
+        "RPT_F10_FINANCE_MAINFINADATA",
+        "REPORT_DATE",
+        candidate_codes=wanted,
+    )
+    compacted: list[Dict[str, Any]] = []
+    for code, items in _by_symbol(rows).items():
+        ordered = sorted(items, key=lambda row: str(row.get("REPORT_DATE") or ""), reverse=True)
+        compacted.extend(_normalize_financial_row(row, fetched_at=fetched_at) for row in ordered[:8])
+    returned = sorted({str(row.get("symbol") or "") for row in compacted if row.get("symbol")})
+    _store_diagnostic(
+        diagnostics, pages=0, reported_total=len(rows), row_count=len(compacted),
+        requested_symbols=wanted, returned_symbols=returned, unrelated_rows=0,
+        request_count=0, response_count=len(rows), status="PASS" if compacted else "EMPTY",
+    )
+    return compacted
+
+
 def fetch_lhb_for_uzi(
     trade_date: str,
     *,
@@ -923,7 +976,14 @@ def classify_universe_row(row: Dict[str, Any], trade_date: str = "") -> Dict[str
         state = UNIVERSE_NOT_YET_OPEN
     elif status_code == 1:
         state = UNIVERSE_DELISTED
-    elif status_code == 2:
+    elif status_code == 2 or (
+        status_code == 0
+        and not session_complete
+        and _quote_number(row, "f2", "price") is None
+        and _quote_number(row, "f5", "volume") is None
+        and _quote_number(row, "f6", "amount") is None
+        and _quote_number(row, "f62", "main_net_inflow") is None
+    ):
         state = UNIVERSE_HALTED
     elif status_code == 0 or session_complete:
         state = UNIVERSE_ACTIVE
@@ -1128,6 +1188,7 @@ def build_canonical_snapshots(
     capital = _by_symbol(results.get("stock_capital_flow", []))
     capital_history = _by_symbol(results.get("capital_history", []))
     earnings = _by_symbol(results.get("earnings_preview", []))
+    financials = _by_symbol(results.get("financials", []))
     reports = _by_symbol(results.get("stock_reports", []))
     lhb = _by_symbol(results.get("lhb", []))
     announcements = _by_symbol(results.get("announcements", []))
@@ -1180,6 +1241,7 @@ def build_canonical_snapshots(
                 stock_capital_flow=(capital.get(code) or [{}])[0],
                 capital_history=(capital_history.get(code) or [])[-6:],
                 earnings_preview=(earnings.get(code) or [{}])[0],
+                financials=(financials.get(code) or [])[:8],
                 org_surveys=(org_surveys.get(code) or [])[:5],
                 stock_reports=(reports.get(code) or [])[:5],
                 lhb=(lhb.get(code) or [])[:5],
@@ -1546,6 +1608,14 @@ def main() -> Dict[str, Any]:
             results["earnings_preview"] = _collect(
                 "earnings_preview", timings,
                 lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {}), candidate_codes=candidate_codes),
+                [],
+            )
+            results["financials"] = _collect(
+                "financials", timings,
+                lambda: fetch_financials_for_buffett(
+                    candidate_codes,
+                    diagnostics=diagnostics.setdefault("financials", {}),
+                ),
                 [],
             )
             results["shareholder_changes"] = _collect(

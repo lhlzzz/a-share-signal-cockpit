@@ -156,7 +156,15 @@ def _paper_band_metric(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     horizon_metrics = {}
     for day in range(1, 6):
         field = f"future_{day}d_net_return"
-        values = [float((row.get("outcome") or {}).get(field)) for row in settled if (row.get("outcome") or {}).get(field) is not None]
+        values = []
+        for row in rows:
+            outcome = row.get("outcome") or {}
+            day_item = (outcome.get("days") or {}).get(str(day)) or {}
+            value = outcome.get(field)
+            if value is None:
+                continue
+            if outcome.get("outcome_complete") is True or str(day_item.get("status") or "") == "SETTLED":
+                values.append(float(value))
         horizon_metrics[f"T+{day}"] = {
             "count": len(values),
             "mean_net_return": sum(values) / len(values) if values else None,

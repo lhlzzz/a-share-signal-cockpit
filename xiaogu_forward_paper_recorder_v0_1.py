@@ -68,12 +68,10 @@ def _memory_symbol(value: Any) -> str:
 
 
 def _memory_identity(record: Dict[str, Any]) -> str:
-    return str(
-        record.get("paper_signal_id")
-        or record.get("decision_id")
-        or record.get("id")
-        or "UNKNOWN"
-    )
+    paper_signal_id = str(record.get("paper_signal_id") or "").strip()
+    if paper_signal_id and paper_signal_id.upper() not in {"NONE", "UNKNOWN"}:
+        return paper_signal_id
+    return str(record.get("decision_id") or record.get("id") or "UNKNOWN")
 
 
 def _memory_note_path(state: str, record: Dict[str, Any]) -> str:
@@ -155,11 +153,73 @@ def read_memory_notes(
     return visible
 
 
+def _local_memory_path(payload: Dict[str, Any]) -> Path | None:
+    rel = str(payload.get("path") or "").strip()
+    if not rel:
+        return None
+    return BASE / "data" / "obsidian_memory" / Path(rel)
+
+
+def _obsidian_vault_root() -> Path | None:
+    configured = str(os.environ.get("XIAOGU_OBSIDIAN_VAULT") or "").strip()
+    if configured:
+        return Path(configured)
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+    default = Path("/mnt/d/obisidian/Obsidian/Project/A股")
+    return default if default.exists() else None
+
+
+def _project_vault_note(payload: Dict[str, Any], content: str) -> None:
+    vault = _obsidian_vault_root()
+    rel = str(payload.get("path") or "").strip()
+    if vault is None or not rel:
+        return
+    path = vault / Path(rel)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _merge_outcome_note(path: Path, outcome: str) -> str:
+    block = str(outcome).lstrip("\n")
+    if not path.exists():
+        return block
+    existing = path.read_text(encoding="utf-8")
+    marker = "## T+1..T+5 Outcome"
+    if marker in existing:
+        return existing.split(marker, 1)[0].rstrip() + "\n" + block
+    pending = "## Outcome\nPending T+1..T+5 outcome update."
+    if pending in existing:
+        return existing.replace(pending, block.rstrip() + "\n", 1)
+    return existing.rstrip() + "\n" + block
+
+
+def _write_local_memory(payload: Dict[str, Any], *, operation: str = "") -> str | None:
+    path = _local_memory_path(payload)
+    if path is None:
+        return None
+    content = payload.get("content")
+    if content in (None, "") and operation == "UPDATE_OUTCOME":
+        content = _merge_outcome_note(path, str(payload.get("outcome") or ""))
+    elif content in (None, ""):
+        content = payload.get("outcome")
+    if isinstance(content, (list, tuple)):
+        content = "".join(str(item) for item in content)
+    if content in (None, ""):
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = str(content)
+    path.write_text(text, encoding="utf-8")
+    _project_vault_note(payload, text)
+    return str(path.relative_to(BASE))
+
+
 def _send_memory(operation: str, payload: Dict[str, Any]) -> str | None:
+    local = _write_local_memory(payload, operation=operation)
     bridge = _memory_bridge_url()
     if not bridge:
         _queue_memory_retry(operation, payload, "OBSIDIAN_BRIDGE_UNAVAILABLE")
-        return None
+        return local
     request = Request(
         f"{bridge}/memory",
         data=json.dumps({"operation": operation, **payload}, ensure_ascii=False, default=str).encode("utf-8"),
@@ -171,14 +231,52 @@ def _send_memory(operation: str, payload: Dict[str, Any]) -> str | None:
             response.read()
     except OSError as exc:
         _queue_memory_retry(operation, payload, repr(exc))
-        return None
-    return str(payload.get("path") or "")
+        return local
+    return str(payload.get("path") or local or "")
 
 
 def _markdown(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, indent=2, default=str)
     return str(value if value not in (None, "") else "UNKNOWN")
+
+
+def _skill_report_block(record: Dict[str, Any]) -> str:
+    features = record.get("features_used") or {}
+    observation = features.get("paper_observation") or record.get("paper_observation") or {}
+    overlay = observation.get("research_overlay") if isinstance(observation, dict) else {}
+    overlay = overlay or record.get("research_overlay") or {}
+    research = features.get("research_context") or {}
+    verdicts = overlay.get("skill_verdicts") or research.get("skill_verdicts") or {}
+    lines = ["## Research Reports", ""]
+    for provider, key in (("Serenity", "serenity"), ("Buffett", "buffett"), ("UZI", "uzi")):
+        verdict = verdicts.get(provider) if isinstance(verdicts, dict) else {}
+        if not isinstance(verdict, dict):
+            verdict = {}
+        judgment = overlay.get(key) or verdict.get("judgment") or "NOT_RUN"
+        lines.extend([
+            f"### {provider}",
+            f"- Ran: `{verdict.get('ran')}`",
+            f"- Mode: `{verdict.get('mode') or 'not_run'}`",
+            f"- Full skill workflow: `{verdict.get('full_skill_workflow')}`",
+            f"- Buy/Sell: `{verdict.get('buy_sell')}`",
+            f"- Judgment: {judgment}",
+            f"- Wrong if: {verdict.get('wrong_if') or 'UNKNOWN'}",
+            f"- Evidence ids: {_markdown(verdict.get('evidence_ids') or [])}",
+            "",
+        ])
+    thesis = (research.get("opportunity_5d_thesis") or {}) if isinstance(research, dict) else {}
+    lines.extend([
+        "### Why this paper ticket",
+        f"- Why 5D: {_markdown(overlay.get('why_5d') or thesis.get('why_5d') or [])}",
+        f"- Falsify: {_markdown(overlay.get('falsify') or thesis.get('falsify') or [])}",
+        f"- Scarce layer: {overlay.get('scarce_layer') or 'UNKNOWN'}",
+        f"- Circle: {overlay.get('circle_of_competence') or 'UNKNOWN'}",
+        f"- Institution vs hot money: {overlay.get('institution_vs_hot_money') or 'UNKNOWN'}",
+        "- Production BUY remains BLOCKED. These reports explain the observation; they are not a buy order.",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def write_trade_memory(record: Dict[str, Any]) -> str | None:
@@ -190,6 +288,9 @@ def write_trade_memory(record: Dict[str, Any]) -> str | None:
     alpha = features.get("core_alpha") or {}
     research = features.get("research_context") or {}
     thesis = record.get("thesis") or alpha.get("thesis") or {}
+    observation = features.get("paper_observation") if isinstance(features.get("paper_observation"), dict) else {}
+    if not record.get("paper_signal_id"):
+        record = {**record, "paper_signal_id": (observation or {}).get("paper_signal_id") or record.get("paper_signal_id")}
     note = f"""---
 memory_id: {record.get('memory_id') or _memory_identity(record)}
 production_run_id: {record.get('production_run_id') or 'UNKNOWN'}
@@ -240,6 +341,7 @@ feature_version: {record.get('feature_version') or alpha.get('feature_version')}
 - Maximum holding days: 5
 - Invalidation: {_markdown(thesis.get('invalidation'))}
 
+{_skill_report_block(record)}
 ## Outcome
 Pending T+1..T+5 outcome update.
 """
@@ -276,6 +378,15 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
     date = result.get("date")
     outcome = result.get("daily_outcomes") or []
     review = "SUCCESS" if result.get("profit_window") else "FAILURE" if result.get("outcome_complete") else "PENDING"
+    days = result.get("days") or {}
+    day_lines = []
+    for day in (1, 2, 3, 4, 5):
+        item = days.get(str(day)) or {}
+        day_lines.append(
+            f"- T+{day}: status=`{item.get('status') or 'MISSING'}` date=`{item.get('date') or 'NONE'}` "
+            f"OHLC=`{item.get('open')}/{item.get('high')}/{item.get('low')}/{item.get('close')}` "
+            f"return=`{item.get('return')}` net=`{item.get('net_return')}`"
+        )
     block = f"""
 ## T+1..T+5 Outcome
 - Status: `{result.get('data_status')}`
@@ -285,7 +396,7 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
 - Max daily-bar profit opportunity 5D: `{result.get('max_daily_bar_profit_opportunity_5d') or 'PENDING'}`
 - Max MAE 5D: `{result.get('max_mae_5d') or 'PENDING'}`
 - Review: `{review}`
-- Capital/repricing states: `{_markdown([(item.get('day'), item.get('capital_state'), item.get('repricing_state')) for item in outcome])}`
+{chr(10).join(day_lines)}
 - Daily outcomes: `{_markdown(outcome)}`
 """
     identity_record = {
@@ -293,7 +404,8 @@ def update_trade_memory(result: Dict[str, Any]) -> str | None:
         "symbol": symbol,
         "decision_id": result.get("decision_id"),
         "paper_signal_id": result.get("paper_signal_id"),
-        "id": result.get("decision_id"),
+        "id": result.get("paper_signal_id") or result.get("decision_id"),
+        "decision": result.get("decision") or "PAPER_OBSERVATION",
     }
     settled_at = str(
         result.get("outcome_settled_at")
@@ -448,6 +560,11 @@ def write_daily_paper_memory(
     rows = []
     for signal in signals:
         paper = signal.get("paper_observation") if isinstance(signal.get("paper_observation"), dict) else signal
+        overlay = paper.get("research_overlay") or {}
+        verdicts = overlay.get("skill_verdicts") or {}
+        serenity = overlay.get("serenity") or ((verdicts.get("Serenity") or {}).get("judgment") if isinstance(verdicts.get("Serenity"), dict) else None)
+        buffett = overlay.get("buffett") or ((verdicts.get("Buffett") or {}).get("judgment") if isinstance(verdicts.get("Buffett"), dict) else None)
+        uzi = overlay.get("uzi") or ((verdicts.get("UZI") or {}).get("judgment") if isinstance(verdicts.get("UZI"), dict) else None)
         rows.append(
             f"- `{paper.get('paper_signal_id')}` decision=`{paper.get('decision_id')}` "
             f"`{signal.get('symbol')}` original_snapshot=`{paper.get('original_snapshot_id') or paper.get('snapshot_id')}` "
@@ -455,7 +572,10 @@ def write_daily_paper_memory(
             f"reference={paper.get('reference_price')} "
             f"price_strength={paper.get('price_strength')} "
             f"state={paper.get('paper_observation_state') or 'OBSERVED'} "
-            f"reason={paper.get('signal_reason') or 'CURRENT_PRODUCTION_DECISION'}"
+            f"reason={paper.get('signal_reason') or 'CURRENT_PRODUCTION_DECISION'}\n"
+            f"  Serenity: {serenity or 'NOT_RUN'}\n"
+            f"  Buffett: {buffett or 'NOT_RUN'}\n"
+            f"  UZI: {uzi or 'NOT_RUN'}"
         )
     content = (
         f"# {trade_date}\n\n"
@@ -653,7 +773,9 @@ def _snapshot_and_record(
     snapshot_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
     snapshot['snapshot_sha256'] = snapshot_hash
     record = {
-        'id': features.get('decision_id'),
+        'id': (features.get('paper_observation') or {}).get('paper_signal_id') if decision == PAPER_OBSERVATION_STATUS and isinstance(features.get('paper_observation'), dict) else features.get('decision_id'),
+        'decision_id': features.get('decision_id'),
+        'paper_signal_id': (features.get('paper_observation') or {}).get('paper_signal_id') if isinstance(features.get('paper_observation'), dict) else None,
         'record_type': 'CORRECTION' if correction_of else 'DECISION',
         'correction_of': correction_of or None,
         'date': date,

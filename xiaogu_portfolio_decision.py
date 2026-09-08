@@ -370,6 +370,9 @@ def evaluate_production_gates(
     if negative_evidence:
         failed_gates.append("NEGATIVE_EVIDENCE_CLEAR")
         production_blockers.extend(record["blocker"] for record in negative_evidence)
+    company = research.get("company") if isinstance(research, dict) else {}
+    if isinstance(company, dict) and int(company.get("path_b_no_count") or 0) >= 4:
+        warnings.append("PATH_B_EIGHT_QUESTION_FAIL")
     if alpha.get("reflexivity_break") is not None and alpha["reflexivity_break"] >= 0.70:
         production_blockers.append("REFLEXIVITY_BREAK")
     remaining_operational = [
@@ -451,6 +454,20 @@ def _paper_observation(
         "signal_evidence": list(alpha.get("signal_evidence") or []),
         "why_5d": list((research.get("opportunity_5d_thesis") or {}).get("why_5d") or []),
         "falsify": list((research.get("opportunity_5d_thesis") or {}).get("falsify") or []),
+        "skill_verdicts": dict(research.get("skill_verdicts") or {}),
+        "serenity": (research.get("industry") or {}).get("judgment"),
+        "buffett": (research.get("company") or {}).get("judgment"),
+        "uzi": (research.get("capital") or {}).get("judgment"),
+        "scarce_layer": (research.get("industry") or {}).get("scarce_layer"),
+        "circle_of_competence": (research.get("company") or {}).get("ability_circle"),
+        "institution_vs_hot_money": (research.get("capital") or {}).get("institution_vs_hot_money"),
+        "path_b_quality": {
+            "serenity": (research.get("industry") or {}).get("path_b_quality"),
+            "buffett": (research.get("company") or {}).get("path_b_quality"),
+            "uzi": (research.get("capital") or {}).get("path_b_quality"),
+        },
+        "chokepoint_role": (research.get("industry") or {}).get("chokepoint_role"),
+        "path_b_no_count": (research.get("company") or {}).get("path_b_no_count"),
     }
     board_info = classify_execution_board(snapshot)
     return {
