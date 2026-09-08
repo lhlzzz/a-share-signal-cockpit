@@ -830,7 +830,10 @@ def fill_due_horizon_results(
                             """
                             SELECT paper_signal_id, decision_id, symbol, signal_time, reference_price, payload
                             FROM paper_observations
-                            WHERE CAST(signal_time AS date) = CAST(:d AS date)
+                            WHERE COALESCE(
+                                NULLIF(payload->>'trade_date', ''),
+                                CAST(signal_time AS date)::text
+                            ) = :d
                             """
                         ),
                         {"d": trade_date},

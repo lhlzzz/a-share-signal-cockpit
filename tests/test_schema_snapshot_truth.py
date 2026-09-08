@@ -832,4 +832,5 @@ def test_due_horizon_report_persists_due_prefix():
     assert "t1_t5_persisted" in source
     assert "persist_horizon" in source
     assert "require_complete=False" in source
+    assert "payload->>'trade_date'" in source
     assert "Only persist when the full T+1..T+5 window is due" not in source
