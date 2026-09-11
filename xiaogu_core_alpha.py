@@ -140,12 +140,13 @@ def _selection_score(
     *,
     model_status: Any,
     profit_window_probability: Any,
+    price_strength: Any = None,
     research: Dict[str, Any] | None = None,
 ) -> float | None:
-    """Sole production ranking score. Never averages diagnostic axes."""
+    """Sole production ranking score. Rank by 5D profit measurement, not F10 averages."""
     if model_status == "VALIDATED" and profit_window_probability is not None:
         return _round_or_none(profit_window_probability)
-    return _earnings_profit_score(research)
+    return _round_or_none(price_strength)
 
 
 def _signal_qualification(
@@ -730,6 +731,7 @@ def build_core_alpha(
     selection_score = _selection_score(
         model_status=model_status,
         profit_window_probability=profit_window_probability,
+        price_strength=market.get("price_strength"),
         research=research,
     )
     qualification = _signal_qualification(
@@ -856,7 +858,7 @@ def build_core_alpha(
         "selection_score": qualification["selection_score"],
         "selection_score_source": (
             "profit_window_probability" if model_status == "VALIDATED" and profit_window_probability is not None
-            else "earnings_profit"
+            else "price_strength"
         ),
         "signal_evidence": list(qualification["signal_evidence"]),
         "research_used_downstream": research_used_downstream,

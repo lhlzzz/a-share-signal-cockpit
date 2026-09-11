@@ -568,6 +568,7 @@ def attach_research_observations(
     news: list[Dict[str, Any]] | None = None,
     shareholder_changes: list[Dict[str, Any]] | None = None,
     lockup_expiry: list[Dict[str, Any]] | None = None,
+    limitup: list[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     """Attach same-snapshot raw observations without interpreting them."""
     enriched = RawSnapshot(row or {})
@@ -585,6 +586,7 @@ def attach_research_observations(
         "news": list(news or []),
         "shareholder_changes": list(shareholder_changes or []),
         "lockup_expiry": list(lockup_expiry or []),
+        "limitup": list(limitup or []),
     })
     _assert_visible(enriched, "RESEARCH_OBSERVATIONS")
     return enriched

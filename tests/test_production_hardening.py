@@ -812,6 +812,19 @@ def test_fetch_paginated_uses_stable_sort_and_production_fields(monkeypatch):
     assert "f18" in seen[0]
 
 
+def test_quote_center_limitup_and_index_capture_stays_on_eastmoney():
+    from scrapy_scanner.runner_v2 import fetch_index_quotes, fetch_limitup_pool
+
+    source = open("scrapy_scanner/runner_v2.py", encoding="utf-8").read()
+    assert "getTopicZTPool" in source
+    assert "m:90+t:1" in source
+    assert "RPTA_APP_IPOAPPLY" in source
+    assert "fetch_index_quotes" in source
+    rows = fetch_limitup_pool.__doc__
+    assert "limit-up" in rows
+    assert "SSE/SZSE" in (fetch_index_quotes.__doc__ or "")
+
+
 def test_live_capture_uses_cloak_transport():
     import scrapy_scanner.runner_v2 as scanner
 

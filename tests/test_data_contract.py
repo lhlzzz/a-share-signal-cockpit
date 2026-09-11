@@ -309,7 +309,7 @@ def test_paper_observation_identity():
     assert paper["decision_id"] == decision["decision_id"]
     assert paper["paper_signal_id"] != paper["decision_id"]
     assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
-    assert paper["alpha_name"] in {"earnings_profit", "profit_window_probability", "profit_window_alpha_5d_v4", "research_thesis"}
+    assert paper["alpha_name"] in {"price_strength", "profit_window_probability", "profit_window_alpha_5d_v4", "research_thesis"}
     assert paper["alpha_status"] in {"DATA_INSUFFICIENT", "EXPERIMENTAL"}
     assert paper["alpha_status"] != "VALIDATED"
     assert decision["state"] != "BUY"

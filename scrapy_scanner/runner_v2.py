@@ -75,7 +75,10 @@ QUOTE_COMPLETENESS_SOURCES = frozenset({"stock_all_a", "stock_capital_flow"})
 OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
     "flow_industry", "flow_concept", "hsgt_holdings", "hsgt_deals",
     "industry_reports", "external_market", "indexes", "market_capital_flow",
+    "sector_region", "limitup_pool", "limitup_broken", "limitup_down", "ipo_calendar",
 )) - CRITICAL_SOURCES
+INDEX_SECIDS = "1.000001,0.399001,0.399006,1.000688,1.000300,1.000016"
+INDEX_FIELDS = "f2,f3,f12,f14,f62,f184"
 CANDIDATE_FILTER_BATCH = 40
 RECENT_NEWS_LOOKBACK_DAYS = 7
 CAPITAL_HISTORY_LOOKBACK_DAYS = 12
@@ -312,6 +315,73 @@ def fetch_ulist(
         status="PASS" if kept or not wanted else "EMPTY",
     )
     return kept
+
+
+def fetch_index_quotes(diagnostics: Dict[str, Any] | None = None) -> list[Dict[str, Any]]:
+    """Capture SSE/SZSE/ChiNext/STAR/CSI300/SSE50 quotes from the quote center."""
+    _start_diagnostic(diagnostics)
+    payload = api_get("https://push2delay.eastmoney.com/api/qt/ulist.np/get?" + urlencode({
+        "fltt": 2, "invt": 2, "fields": INDEX_FIELDS, "secids": INDEX_SECIDS,
+    }))
+    data = payload.get("data") or {}
+    rows = [row for row in (data.get("diff") or []) if isinstance(row, dict)]
+    _store_diagnostic(
+        diagnostics, pages=1, reported_total=len(INDEX_SECIDS.split(",")),
+        row_count=len(rows), request_count=1, response_count=len(rows),
+        status="PASS" if rows else "EMPTY",
+    )
+    return rows
+
+
+def fetch_limitup_pool(
+    pool: str,
+    trade_date: str,
+    *,
+    diagnostics: Dict[str, Any] | None = None,
+) -> list[Dict[str, Any]]:
+    """Capture quote-center limit-up / broken / limit-down pools for T-day."""
+    _start_diagnostic(diagnostics)
+    endpoints = {
+        "limitup_pool": "getTopicZTPool",
+        "limitup_broken": "getTopicZBPool",
+        "limitup_down": "getTopicDTPool",
+    }
+    endpoint = endpoints[pool]
+    stamp = str(trade_date or "").replace("-", "")[:8]
+    payload = api_get(
+        f"https://push2ex.eastmoney.com/{endpoint}?" + urlencode({
+            "ut": "7eea3edcaed734bea9cbfc24409ed989",
+            "dpt": "wz.ztzt",
+            "Pageindex": 0,
+            "pagesize": 200,
+            "sort": "fbt:asc",
+            "date": stamp,
+        })
+    )
+    data = payload.get("data") or {}
+    rows = []
+    for item in data.get("pool") or []:
+        if not isinstance(item, dict):
+            continue
+        code = normalize_stock_code(item.get("c") or item.get("code"))
+        if not code:
+            continue
+        rows.append({
+            **item,
+            "symbol": code,
+            "name": item.get("n") or item.get("name"),
+            "pool": pool,
+            "trade_date": trade_date,
+            "source_id": f"eastmoney.{pool}",
+            "event_id": f"{code}|{trade_date}|{pool}",
+            "mechanism": "MARKET",
+        })
+    _store_diagnostic(
+        diagnostics, pages=1, reported_total=data.get("tc"),
+        row_count=len(rows), request_count=1, response_count=len(rows),
+        status="PASS" if rows else "EMPTY",
+    )
+    return rows
 
 
 def fetch_capital_history(
@@ -1264,6 +1334,11 @@ def build_canonical_snapshots(
     news = _by_symbol(results.get("news_kuaixun", []))
     shareholder_changes = _by_symbol(results.get("shareholder_changes", []))
     lockup_expiry = _by_symbol(results.get("lockup_expiry", []))
+    limitup = _by_symbol(
+        list(results.get("limitup_pool") or [])
+        + list(results.get("limitup_broken") or [])
+        + list(results.get("limitup_down") or [])
+    )
     industry_flow = {
         str(row.get("f14") or "").strip(): row
         for row in results.get("flow_industry", []) or []
@@ -1316,6 +1391,7 @@ def build_canonical_snapshots(
                 announcements=(announcements.get(code) or [])[:5],
                 shareholder_changes=(shareholder_changes.get(code) or [])[:5],
                 lockup_expiry=(lockup_expiry.get(code) or [])[:5],
+                limitup=(limitup.get(code) or [])[:5],
                 industry_flow=industry_flow.get(sector, {}),
                 industry_reports=(industry_reports.get(sector) or [])[:5],
                 news=(news.get(code) or [])[:5],
@@ -1642,6 +1718,13 @@ def main() -> Dict[str, Any]:
     if production_scan != "BLOCKED":
         results["flow_industry"] = _collect("flow_industry", timings, lambda: fetch_paginated("m:90+t:2", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_industry", {})), [])
         results["flow_concept"] = _collect("flow_concept", timings, lambda: fetch_paginated("m:90+t:3", 100, "f12,f14,f3,f62,f66,f72,f75,f78,f81,f84,f87", diagnostics.setdefault("flow_concept", {})), [])
+        results["sector_region"] = _collect("sector_region", timings, lambda: fetch_paginated("m:90+t:1", 100, "f12,f14,f3,f62", diagnostics.setdefault("sector_region", {})), [])
+        results["indexes"] = _collect("indexes", timings, lambda: fetch_index_quotes(diagnostics.setdefault("indexes", {})), [])
+        results["market_capital_flow"] = results.get("indexes") or []
+        results["limitup_pool"] = _collect("limitup_pool", timings, lambda: fetch_limitup_pool("limitup_pool", observation_trade_date, diagnostics=diagnostics.setdefault("limitup_pool", {})), [])
+        results["limitup_broken"] = _collect("limitup_broken", timings, lambda: fetch_limitup_pool("limitup_broken", observation_trade_date, diagnostics=diagnostics.setdefault("limitup_broken", {})), [])
+        results["limitup_down"] = _collect("limitup_down", timings, lambda: fetch_limitup_pool("limitup_down", observation_trade_date, diagnostics=diagnostics.setdefault("limitup_down", {})), [])
+        results["ipo_calendar"] = _collect("ipo_calendar", timings, lambda: fetch_datacenter("RPTA_APP_IPOAPPLY", "APPLY_DATE", diagnostics=diagnostics.setdefault("ipo_calendar", {})), [])
         recent = (market_now - timedelta(days=RECENT_NEWS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
         today = market_now.strftime("%Y-%m-%d")
         market = build_market_snapshot(results["stock_all_a"], source_time)
@@ -1763,8 +1846,17 @@ def main() -> Dict[str, Any]:
             results["external_market"] = []
             results["indexes"] = []
             results["market_capital_flow"] = []
+            results["sector_region"] = []
+            results["limitup_pool"] = []
+            results["limitup_broken"] = []
+            results["limitup_down"] = []
+            results["ipo_calendar"] = []
     else:
-        for name in ("flow_industry", "flow_concept", *DEEP_DOMAINS, "external_market", "indexes", "market_capital_flow", "level_2_candidates"):
+        for name in (
+            "flow_industry", "flow_concept", *DEEP_DOMAINS, "external_market", "indexes",
+            "market_capital_flow", "sector_region", "limitup_pool", "limitup_broken",
+            "limitup_down", "ipo_calendar", "level_2_candidates",
+        ):
             results.setdefault(name, [])
         results["level_2_audit"] = {"purpose": "RESOURCE_ROUTER", "selection": False, "ranking": False, "alpha": False}
 

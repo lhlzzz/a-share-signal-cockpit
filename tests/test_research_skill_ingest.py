@@ -218,32 +218,38 @@ def test_uzi_interprets_captured_lhb_without_judges():
     assert light_capital["skill_ran"] is False
 
 
-def test_uncalibrated_ranking_uses_research_not_price_strength():
+def test_uncalibrated_ranking_uses_price_strength_among_complete_skills():
     from xiaogu_portfolio_decision import attach_top_paper_observations
 
     hot = evaluate_candidate_bundle(_base_row(f12="600001", f3=9.0), position_state="FLAT", as_of=AS_OF)
-    researched = evaluate_candidate_bundle(
+    weak = evaluate_candidate_bundle(
         _deep_snapshot(f12="600002", symbol="600002", f3=1.0),
         position_state="FLAT",
         as_of=AS_OF,
     )
+    strong = evaluate_candidate_bundle(
+        _deep_snapshot(f12="600003", symbol="600003", f3=6.0),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
     assert hot["core_alpha"]["model_status"] != "VALIDATED"
-    assert researched["core_alpha"]["model_status"] != "VALIDATED"
-    assert hot["core_alpha"]["selection_score_source"] == "earnings_profit"
-    assert researched["core_alpha"]["selection_score_source"] == "earnings_profit"
+    assert weak["core_alpha"]["selection_score_source"] == "price_strength"
+    assert strong["core_alpha"]["selection_score_source"] == "price_strength"
     assert hot["core_alpha"]["signal_qualified"] is False
-    assert researched["core_alpha"]["signal_qualified"] is True
-    assert researched["core_alpha"]["selection_score"] is not None
-    ranked = attach_top_paper_observations([hot, researched])
+    assert weak["core_alpha"]["signal_qualified"] is True
+    assert strong["core_alpha"]["signal_qualified"] is True
+    assert strong["core_alpha"]["selection_score"] > weak["core_alpha"]["selection_score"]
+    ranked = attach_top_paper_observations([hot, weak, strong])
     papers = [item["paper_observation"] for item in ranked if item.get("paper_observation")]
-    assert [paper["symbol"] for paper in papers] == ["600002"]
+    papers.sort(key=lambda paper: int(paper.get("rank") or 99))
+    assert [paper["symbol"] for paper in papers] == ["600003", "600002"]
     assert papers[0]["top1_flag"] is True
-    assert papers[0]["alpha_name"] == "earnings_profit"
+    assert papers[0]["alpha_name"] == "price_strength"
     source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
     body = source.split("def _selection_score")[1].split("def _signal_qualification")[0]
-    assert "price_strength" not in body
+    assert "price_strength" in body
+    assert "_earnings_profit_score" not in body
     assert "0.60 * coverage" not in source
-    assert "_earnings_profit_score" in body
 
 
 def test_path_b_quality_ranks_above_wrapper_only_observations():
@@ -256,7 +262,7 @@ def test_path_b_quality_ranks_above_wrapper_only_observations():
         _deep_snapshot(
             f12="600003",
             symbol="600003",
-            f3=1.0,
+            f3=4.0,
             moat=1,
             pricing_power=1,
             debt_safety=1,
@@ -312,7 +318,7 @@ def test_captured_financials_enter_buffett_path_b_and_ranking():
     assert commodity["feature_vector"]["BUSINESS"]["moat"] == 0.0
     assert franchise["feature_vector"]["BUSINESS"]["moat"] == 1.0
     assert franchise_company["path_b_quality"] > commodity_company["path_b_quality"]
-    assert franchise["core_alpha"]["selection_score"] > commodity["core_alpha"]["selection_score"]
+    assert franchise["core_alpha"]["selection_score_source"] == "price_strength"
     assert franchise["buy_status"] != "BUY_ALLOWED"
     answers = {item["dimension"]: item["answer"] for item in franchise_company["checklist"]}
     assert answers["Moat"] == "YES"
