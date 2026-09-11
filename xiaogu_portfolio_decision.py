@@ -468,6 +468,9 @@ def _paper_observation(
         },
         "chokepoint_role": (research.get("industry") or {}).get("chokepoint_role"),
         "path_b_no_count": (research.get("company") or {}).get("path_b_no_count"),
+        "skill_complete": bool(research.get("skill_complete")),
+        "bottleneck_table": list((research.get("industry") or {}).get("bottleneck_table") or []),
+        "buffett_checklist": list((research.get("company") or {}).get("checklist") or []),
     }
     board_info = classify_execution_board(snapshot)
     return {

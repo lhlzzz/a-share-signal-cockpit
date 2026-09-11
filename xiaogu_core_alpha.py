@@ -108,6 +108,34 @@ def _research_thesis_ready(research: Dict[str, Any] | None) -> float:
     return 1.0 if why and falsify else 0.0
 
 
+def _earnings_profit_score(research: Dict[str, Any] | None, company: Dict[str, Any] | None = None) -> float | None:
+    """Rank complete names by captured earnings / financial quality, not writeup coverage."""
+    company = company if isinstance(company, dict) else (
+        (research or {}).get("company") if isinstance(research, dict) else {}
+    )
+    if not isinstance(company, dict):
+        return None
+    preview = company.get("earnings_preview") if isinstance(company.get("earnings_preview"), dict) else {}
+    preview_roe = preview.get("WEIGHTAVG_ROE")
+    if isinstance(preview_roe, (int, float)):
+        preview_roe = preview_roe / 100.0 if preview_roe > 1.5 else preview_roe
+    roe = _clip(preview_roe if preview_roe is not None else company.get("roe"))
+    gross = company.get("gross_margin")
+    if isinstance(gross, (int, float)) and gross > 1.5:
+        gross = gross / 100.0
+    scores = [
+        roe,
+        _clip(company.get("moat")),
+        _clip(company.get("earnings_quality")),
+        _clip(gross),
+        _clip(company.get("debt_safety")),
+    ]
+    numbers = [item for item in scores if item is not None]
+    if not numbers:
+        return None
+    return _round_or_none(sum(numbers) / len(numbers))
+
+
 def _selection_score(
     *,
     model_status: Any,
@@ -117,11 +145,7 @@ def _selection_score(
     """Sole production ranking score. Never averages diagnostic axes."""
     if model_status == "VALIDATED" and profit_window_probability is not None:
         return _round_or_none(profit_window_probability)
-    coverage = _research_skill_coverage(research)
-    thesis_ready = _research_thesis_ready(research)
-    if coverage <= 0.0 and thesis_ready <= 0.0:
-        return None
-    return _round_or_none(0.60 * coverage + 0.40 * thesis_ready)
+    return _earnings_profit_score(research)
 
 
 def _signal_qualification(
@@ -135,6 +159,7 @@ def _signal_qualification(
     contradiction_veto: bool,
     selection_score: float | None,
     research_used_downstream: bool,
+    research: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Qualify a formal 5D paper signal. This is not a second alpha and not BUY.
 
@@ -159,6 +184,15 @@ def _signal_qualification(
             "signal_reason": "PRICE_STRENGTH_UNOBSERVED",
             "signal_score": None,
             "selection_score": None,
+            "signal_evidence": evidence,
+        }
+    if not bool((research or {}).get("skill_complete")):
+        return {
+            "signal_status": SIGNAL_STATUS_ELIMINATED,
+            "signal_qualified": False,
+            "signal_reason": "RESEARCH_SKILL_INCOMPLETE",
+            "signal_score": score,
+            "selection_score": score,
             "signal_evidence": evidence,
         }
     if score is None:
@@ -684,6 +718,15 @@ def build_core_alpha(
     contradiction_status = str(contradiction.get("contradiction_status") or contradiction.get("status") or "UNKNOWN").upper()
     contradiction_veto = contradiction_status in {"BEARISH", "VETO"} or bool(contradiction.get("veto"))
     research_used_downstream = _research_used_downstream(research)
+    if isinstance(research, dict) and isinstance(research.get("company"), dict):
+        research["company"] = {
+            **research["company"],
+            "gross_margin": research["company"].get("gross_margin", business.get("gross_margin")),
+            "roe": research["company"].get("roe", business.get("roe")),
+            "moat": research["company"].get("moat", business.get("moat")),
+            "earnings_quality": research["company"].get("earnings_quality", business.get("earnings_quality")),
+            "debt_safety": research["company"].get("debt_safety", business.get("debt_safety")),
+        }
     selection_score = _selection_score(
         model_status=model_status,
         profit_window_probability=profit_window_probability,
@@ -699,6 +742,7 @@ def build_core_alpha(
         contradiction_veto=contradiction_veto,
         selection_score=selection_score,
         research_used_downstream=research_used_downstream,
+        research=research,
     )
     buyers = [
         item for item in ((future_buyer_map or {}).get("potential_next_buyer") or [])
@@ -812,7 +856,7 @@ def build_core_alpha(
         "selection_score": qualification["selection_score"],
         "selection_score_source": (
             "profit_window_probability" if model_status == "VALIDATED" and profit_window_probability is not None
-            else "research_thesis"
+            else "earnings_profit"
         ),
         "signal_evidence": list(qualification["signal_evidence"]),
         "research_used_downstream": research_used_downstream,

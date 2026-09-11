@@ -8,6 +8,7 @@ alpha, and portfolio actions belong to downstream owners.
 from __future__ import annotations
 
 import argparse
+import atexit
 import gc
 import json
 import os
@@ -44,6 +45,9 @@ LIGHT_STOCK_FIELDS = ",".join([
 STOCK_ALL_A_FS = "m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80,m:0+t:81+s:2048"
 CLIST_SORT_FIELD = "f12"
 API_GET_RETRIES = 2
+CLOAK_QUOTE_ORIGIN = "https://quote.eastmoney.com/"
+_CLOAK_BROWSER = None
+_CLOAK_PAGE = None
 MARKET_CODES = {0: "SZ", 1: "SH", 2: "BJ"}
 UNIVERSE_ACTIVE = "ACTIVE"
 UNIVERSE_HALTED = "HALTED"
@@ -60,11 +64,18 @@ DEEP_DOMAINS = (
     "capital_history", "announcements", "shareholder_changes", "lockup_expiry", "industry_reports", "news_kuaixun",
     "financials",
 )
-CRITICAL_SOURCES = frozenset({"stock_all_a"})
+CRITICAL_SOURCES = frozenset({
+    "stock_all_a",
+    "financials",
+    "earnings_preview",
+    "stock_reports",
+    "stock_capital_flow",
+})
+QUOTE_COMPLETENESS_SOURCES = frozenset({"stock_all_a", "stock_capital_flow"})
 OPTIONAL_SOURCES = frozenset(DEEP_DOMAINS + (
     "flow_industry", "flow_concept", "hsgt_holdings", "hsgt_deals",
     "industry_reports", "external_market", "indexes", "market_capital_flow",
-))
+)) - CRITICAL_SOURCES
 CANDIDATE_FILTER_BATCH = 40
 RECENT_NEWS_LOOKBACK_DAYS = 7
 CAPITAL_HISTORY_LOOKBACK_DAYS = 12
@@ -122,19 +133,76 @@ def _json_payload(text: str) -> Any:
         return json.loads(match.group(0))
 
 
+def start_cloak_transport() -> None:
+    """Open one CloakBrowser session for the live Eastmoney capture."""
+    global _CLOAK_BROWSER, _CLOAK_PAGE
+    if _CLOAK_PAGE is not None:
+        return
+    from cloakbrowser import launch
+
+    browser = launch(headless=True)
+    page = browser.new_page()
+    page.set_extra_http_headers(HEADERS)
+    try:
+        page.goto(CLOAK_QUOTE_ORIGIN, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(800)
+    except Exception:
+        pass
+    _CLOAK_BROWSER = browser
+    _CLOAK_PAGE = page
+    atexit.register(stop_cloak_transport)
+
+
+def stop_cloak_transport() -> None:
+    global _CLOAK_BROWSER, _CLOAK_PAGE
+    browser = _CLOAK_BROWSER
+    _CLOAK_PAGE = None
+    _CLOAK_BROWSER = None
+    if browser is None:
+        return
+    try:
+        browser.close()
+    except Exception:
+        pass
+
+
+def _cloak_get(url: str, timeout: int) -> Dict[str, Any]:
+    page = _CLOAK_PAGE
+    if page is None:
+        raise RuntimeError("CLOAK_TRANSPORT_UNAVAILABLE")
+    response = page.request.get(url, timeout=timeout * 1000, headers=HEADERS)
+    status = int(response.status)
+    if status >= 400:
+        raise URLError(f"HTTP {status}")
+    payload = _json_payload(response.text())
+    if not isinstance(payload, dict):
+        raise ValueError("EASTMONEY_RESPONSE_NOT_OBJECT")
+    return payload
+
+
+def _direct_get(url: str, timeout: int) -> Dict[str, Any]:
+    request = Request(url, headers=HEADERS)
+    with urlopen(request, timeout=timeout) as response:
+        payload = _json_payload(response.read().decode("utf-8", "replace"))
+    if not isinstance(payload, dict):
+        raise ValueError("EASTMONEY_RESPONSE_NOT_OBJECT")
+    return payload
+
+
 def api_get(url: str, timeout: int = 30) -> Dict[str, Any]:
-    """Fetch one Eastmoney response through the direct HTTP transport."""
+    """Fetch one Eastmoney response through CloakBrowser, with urllib fallback for tests."""
     last_exc: Exception | None = None
     for attempt in range(API_GET_RETRIES + 1):
-        request = Request(url, headers=HEADERS)
         try:
-            with urlopen(request, timeout=timeout) as response:
-                payload = _json_payload(response.read().decode("utf-8", "replace"))
-            if not isinstance(payload, dict):
-                raise ValueError("EASTMONEY_RESPONSE_NOT_OBJECT")
-            return payload
-        except HTTPError:
-            raise
+            if _CLOAK_PAGE is not None:
+                return _cloak_get(url, timeout)
+            return _direct_get(url, timeout)
+        except HTTPError as exc:
+            last_exc = exc
+            if exc.code not in {500, 502, 503, 504} or attempt >= API_GET_RETRIES:
+                raise
+            time.sleep(0.5 * (attempt + 1))
+            continue
         except (URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
             last_exc = exc
             if attempt >= API_GET_RETRIES:
@@ -1394,7 +1462,7 @@ def _collect(
         item_count = result_item_count(value)
         if critical and item_count == 0:
             raise CriticalSourceError(f"CRITICAL_SOURCE_EMPTY:{name}")
-        if critical:
+        if critical and name in QUOTE_COMPLETENESS_SOURCES:
             trade_date = domain_finished_at[:10]
             if isinstance(value, list):
                 value = [
@@ -1497,6 +1565,7 @@ def main() -> Dict[str, Any]:
     scan_started_at = market_now.isoformat(timespec="seconds")
     source_time = scan_started_at
     observation_trade_date = source_time[:10]
+    cloak_started = False
     if args.as_previous_trading_date:
         from xiaogu_db import previous_trading_date
         observation_trade_date = previous_trading_date(market_now.date()).isoformat()
@@ -1547,6 +1616,11 @@ def main() -> Dict[str, Any]:
     try:
         if production_scan == "BLOCKED":
             raise CriticalSourceError(block_reason)
+        try:
+            start_cloak_transport()
+        except Exception as exc:
+            raise CriticalSourceError(f"CLOAK_TRANSPORT_FAILED:{exc}") from exc
+        cloak_started = True
         results["stock_all_a"] = _collect(
             "stock_all_a",
             timings,
@@ -1581,10 +1655,12 @@ def main() -> Dict[str, Any]:
         results["level_2_candidates"] = level_2_candidates
         results["level_2_audit"] = level_2_audit
         if candidate_codes:
+          try:
             results["stock_capital_flow"] = _collect(
                 "stock_capital_flow", timings,
                 lambda: fetch_ulist(candidate_codes, CAPITAL_FIELDS, diagnostics.setdefault("stock_capital_flow", {})),
                 [],
+                critical=True,
             )
             results["capital_history"] = _collect(
                 "capital_history", timings,
@@ -1609,6 +1685,7 @@ def main() -> Dict[str, Any]:
                 "earnings_preview", timings,
                 lambda: fetch_datacenter("RPT_LICO_FN_CPD", "NOTICE_DATE", diagnostics=diagnostics.setdefault("earnings_preview", {}), candidate_codes=candidate_codes),
                 [],
+                critical=True,
             )
             results["financials"] = _collect(
                 "financials", timings,
@@ -1617,6 +1694,7 @@ def main() -> Dict[str, Any]:
                     diagnostics=diagnostics.setdefault("financials", {}),
                 ),
                 [],
+                critical=True,
             )
             results["shareholder_changes"] = _collect(
                 "shareholder_changes", timings,
@@ -1647,6 +1725,7 @@ def main() -> Dict[str, Any]:
                 "stock_reports", timings,
                 lambda: fetch_report_list("0", recent, today, diagnostics=diagnostics.setdefault("stock_reports", {}), candidate_codes=candidate_codes),
                 [],
+                critical=True,
             )
             results["industry_reports"] = _collect(
                 "industry_reports", timings,
@@ -1667,6 +1746,17 @@ def main() -> Dict[str, Any]:
                 lambda: fetch_news(diagnostics=diagnostics.setdefault("news_kuaixun", {}), candidate_codes=candidate_codes),
                 [],
             )
+            lhb_timing = timings.get("lhb") or {}
+            if not (results.get("lhb") or []) and lhb_timing.get("status") == "EMPTY":
+                lhb_timing["empty_reason"] = "EMPTY_BOARD"
+                lhb_timing["evidence_status"] = "EMPTY_BOARD"
+                timings["lhb"] = lhb_timing
+          except CriticalSourceError as exc:
+            production_scan = "BLOCKED"
+            block_reason = str(exc) or "CRITICAL_SOURCE_FAILURE"
+            audit = getattr(exc, "audit", None)
+            if isinstance(audit, dict):
+                results["_source_completeness_audit"] = audit
         else:
             for name in DEEP_DOMAINS:
                 results[name] = []
@@ -1854,11 +1944,16 @@ def main() -> Dict[str, Any]:
         ),
         "database_persistence": persistence, "files": files,
         "elapsed_seconds": round(time.monotonic() - started, 4),
+        "browser_transport": "cloakbrowser" if cloak_started else "none",
     }
-    for filename in ("scan_summary.json", "xiaogu_scan_summary.json", "xiaogu_scan_summary_runner.json"):
-        (output_dir / filename).write_text(json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    print(json.dumps(summary, ensure_ascii=False, default=str))
-    return summary
+    try:
+        for filename in ("scan_summary.json", "xiaogu_scan_summary.json", "xiaogu_scan_summary_runner.json"):
+            (output_dir / filename).write_text(json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        print(json.dumps(summary, ensure_ascii=False, default=str))
+        return summary
+    finally:
+        if cloak_started:
+            stop_cloak_transport()
 
 
 if __name__ == "__main__":

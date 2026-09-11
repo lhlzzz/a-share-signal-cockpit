@@ -1,15 +1,17 @@
-# Research Skill Into Existing Production Chain — Compatibility Packet
+# Full Skill Research As Ticket Precondition — Compatibility Packet
 
 Canonical intent packet: `.plan-enforcer/discuss.md`.
 
-User model: Xiaogu scans the full A-share market; existing research skills do the real work; the unique 5-day model still emits Top3/Top1; T+1..T+5 verifies. One pipeline only.
+User model: Eastmoney scan data is enough and kline is rejected, so official tickets must first finish full Serenity / Buffett / UZI research. Skills exist to put 5-day profit-window names into the ticket pool. Overlay-after-Top3 is the quality failure.
 
 Resolved:
-1. Implement Skill ingest into existing Research.
-2. Full-market scan; complete Skill research only on names worth the research budget.
-3. Production emits 5-day why / falsify. Skills research; unique 5-day model picks Top3/Top1.
-4. Buffett source is https://github.com/agi-now/buffett-skills. Vendor it. Drop buy/sell/buy-price.
-5. Delete the 65-judge panel from Xiaogu's unique chain. It has no production callers and no role.
-6. Keep PostgreSQL, frontend, Obsidian second brain, and HTML research assets. After skills are actually consumed and tickets are emitted, compare historical DB tickets and Obsidian notes to find research gaps. Gap-finding is diagnostic only and must not pick Top1.
+1. Full three-skill research is a hard precondition for official Paper Observation.
+2. Complete research is necessary, not sufficient. Official Top3 must be the strongest company earnings / 5-day profit-window names inside the complete set.
+3. Unique 5-day alpha still owns `selection_score`. Coverage / `skill_ran` must not be the official sort key. Skills still do not emit rank 1/2/3.
+4. Complete means prescribed outputs: Serenity bottleneck table, Buffett eight questions, UZI institution-vs-hot-money / seats. Overlay flags are not enough.
+5. Eastmoney is treated as complete. Empty 09-10 financials/lhb/earnings jsonl is a current-scanner attach failure, not a missing vendor. No second data chain.
+6. An empty T-day LHB board is a market fact. UZI must still judge from captured capital flow / announcements; `not_run` is forbidden when those fields exist.
+7. Do not restamp locked historical official tickets.
+8. Old contract “research failure must not block selection” is revoked for official paper tickets.
 
-Forbidden: skills ranking or picking Top3; Buffett buy/sell as production action; 65-judge scores in Research/Alpha; deleting frontend/DB/Obsidian because judges were removed; live BUY.
+Forbidden: a second research/selection/data chain; skill RANK/PICK/BUY; ranking by writeup completeness; post-hoc reports on already chosen Top3; kline HTTP; opening BUY/LIVE; treating empty LHB or unattached F10 as “Eastmoney has no data”.

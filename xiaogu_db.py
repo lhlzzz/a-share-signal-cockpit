@@ -54,6 +54,7 @@ SNAPSHOT_IDEMPOTENT = "IDEMPOTENT"
 SNAPSHOT_IDENTITY_CONFLICT = "SNAPSHOT_IDENTITY_CONFLICT"
 SNAPSHOT_PERSISTENCE_FAILED = "SNAPSHOT_PERSISTENCE_FAILED"
 SNAPSHOT_IDENTITY_IMMUTABLE = True
+CANONICAL_FUTURE_PRICE_SOURCE = "eastmoney_api_daily_kline"
 SCHEMA_V2_STATEMENTS = ('ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS snapshot_id TEXT',
  'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source TEXT',
  'ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS source_time TEXT',
@@ -1284,6 +1285,11 @@ def canonical_future_price_fact(bar: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("PRICE_FACT_REQUIRED:" + ",".join(missing))
     if str(bar["price_basis"]) != "UNADJUSTED":
         raise ValueError(f"UNSUPPORTED_PRICE_BASIS:{bar['price_basis']}")
+    source = str(bar["source"])
+    if source not in {"eastmoney_api_daily_kline", "eastmoney_daily_kline"}:
+        raise ValueError(f"UNSUPPORTED_PRICE_SOURCE:{source}")
+    if source == "eastmoney_daily_kline":
+        source = "eastmoney_api_daily_kline"
     normalized = {
         "symbol": str(bar["symbol"]).zfill(6),
         "date": str(bar["date"])[:10],
@@ -1293,7 +1299,7 @@ def canonical_future_price_fact(bar: Dict[str, Any]) -> Dict[str, Any]:
         "close": float(bar["close"]),
         "volume": None if bar.get("volume") in (None, "") else float(bar["volume"]),
         "amount": None if bar.get("amount") in (None, "") else float(bar["amount"]),
-        "source": str(bar["source"]),
+        "source": source,
         "source_timestamp": str(bar.get("source_timestamp") or ""),
         "price_basis": str(bar["price_basis"]),
     }
@@ -1909,7 +1915,7 @@ def persist_production_facts(
     coverage: Dict[str, Any] | None = None,
     replace_official: bool = False,
 ) -> None:
-    """Write production decisions and paper observations in one transaction."""
+    """Write production decisions and official Top3 paper observations in one transaction."""
     run_id = str(production_run_id or "").strip()
     if replace_official and run_id and _incoming_official_observation(decisions):
         replace_official_production_observation(
@@ -1928,20 +1934,28 @@ def persist_production_facts(
                     continue
                 if run_id:
                     decision["production_run_id"] = decision.get("production_run_id") or run_id
-                if decision.get("state") in {"BUY", "HOLD", "REDUCE", "SELL"} or isinstance(observation, dict):
-                    record_snapshot(canonical)
-                    record_decision(decision)
-                if isinstance(observation, dict):
-                    if run_id and not observation.get("production_run_id"):
+                    if isinstance(observation, dict) and not observation.get("production_run_id"):
                         observation = {**observation, "production_run_id": run_id}
                         decision["paper_observation"] = observation
-                    paper_signal_id = str(observation.get("paper_signal_id") or "")
+                persistable_observation = (
+                    observation
+                    if isinstance(observation, dict) and has_official_observation_provenance(observation)
+                    else None
+                )
+                if persistable_observation is None:
+                    observation = None
+                    decision["paper_observation"] = None
+                if decision.get("state") in {"BUY", "HOLD", "REDUCE", "SELL"} or persistable_observation is not None:
+                    record_snapshot(canonical)
+                    record_decision(decision)
+                if persistable_observation is not None:
+                    paper_signal_id = str(persistable_observation.get("paper_signal_id") or "")
                     if paper_signal_id and not paper_observation_exists(paper_signal_id):
                         record_paper_observation({
-                            **observation,
+                            **persistable_observation,
                             "canonical_snapshot": canonical,
-                            "trade_date": canonical.get("trade_date") or observation.get("trade_date"),
-                            "production_run_id": observation.get("production_run_id") or run_id,
+                            "trade_date": canonical.get("trade_date") or persistable_observation.get("trade_date"),
+                            "production_run_id": persistable_observation.get("production_run_id") or run_id,
                         })
             if run_id and "production_run_id" in _table_columns("production_runs"):
                 _write_production_run_coverage(
@@ -2316,12 +2330,14 @@ def record_canonical_historical_snapshots(snapshots: Iterable[Dict[str, Any]]) -
 
 
 def record_canonical_future_prices(bars: Iterable[Dict[str, Any]]) -> None:
-    """Persist immutable OHLC facts; conflicts are production-data failures."""
+    """Persist immutable Eastmoney OHLC facts; conflicts are production-data failures."""
     if _ACTIVE_DB_CONNECTION.get() is None:
         ensure_production_schema()
     with get_db() as db:
         for bar in bars:
             fact = canonical_future_price_fact(bar)
+            if str(fact.get("source") or "") != CANONICAL_FUTURE_PRICE_SOURCE:
+                raise ValueError(f"UNSUPPORTED_PRICE_SOURCE:{fact.get('source')}")
             existing = db.execute(
                 text(
                     "SELECT price_fact_hash FROM canonical_future_prices "
@@ -2939,6 +2955,8 @@ def record_paper_observation(observation: Dict[str, Any]) -> None:
         raise ValueError("PAPER_ENTRY_OWNER_UNAVAILABLE")
     if observation.get("paper_only") is not True or observation.get("live_order") is not False:
         raise ValueError("PAPER_OBSERVATION_LIVE_EXECUTION_DISABLED")
+    if not has_official_observation_provenance(observation):
+        raise ValueError("OFFICIAL_PAPER_OBSERVATION_REQUIRED")
     calendar = _calendar_metadata(observation.get("trade_date") or str(observation["signal_time"])[:10])
     observation_payload = {**observation, **calendar}
     params = {

@@ -9,20 +9,14 @@ import json
 from pathlib import Path
 import signal
 from typing import Any, Dict
-from urllib.parse import urlencode
 
 from xiaogu_core_alpha import CANONICAL_COST_MODEL, DEFAULT_COST_RATE
 from xiaogu_horizon_evaluation import HORIZONS, resolve_horizon_dates
-from scrapy_scanner.runner_v2 import api_get
 from xiaogu_utils import append_jsonl, now_iso
 
 BASE = Path(__file__).resolve().parent
 FORWARD_LEDGER = BASE / "forward_paper_ledger_v0_1.jsonl"  # audit artifact only
 PAPER_DATASET_PATH = BASE / "data" / "research" / "paper_production_5d_dataset.json"
-EASTMONEY_KLINE_ENDPOINT = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-EASTMONEY_KLINE_FIELDS = (
-    "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
-)
 PRICE_BASIS = "UNADJUSTED"
 ENTRY_EXECUTION_MODE = "SIGNAL_TIME_LAST_PRICE"
 DEFAULT_EXECUTION_COST_RATE = DEFAULT_COST_RATE
@@ -63,9 +57,95 @@ def _deadline(seconds: int):
         signal.signal(signal.SIGALRM, previous)
 
 
-def _eastmoney_secid(symbol: str) -> str:
-    code = str(symbol).strip().zfill(6)
-    return f"{'1' if code.startswith(('5', '6', '9')) else '0'}.{code}"
+def fetch_eastmoney_snapshot_daily_bars(
+    symbol: str,
+    *,
+    start_date: str,
+    end_date: str | None = None,
+) -> list[Dict[str, Any]]:
+    """Read T-day Eastmoney scan quote OHLC already persisted as official snapshots.
+
+    Fill uses the same Eastmoney open/high/low/last captured by the official scan.
+    Dates already stored in canonical_future_prices are skipped so a later
+    mid-session quote cannot overwrite a settled fact.
+    """
+    from sqlalchemy import text as sql_text
+    from xiaogu_db import engine
+
+    start = str(start_date or "")[:10]
+    end = str(end_date or date.today().isoformat())[:10]
+    if not start:
+        return []
+    with engine.connect() as db:
+        existing = {
+            str(row[0])
+            for row in db.execute(
+                sql_text(
+                    """
+                    SELECT CAST(date AS text) FROM canonical_future_prices
+                    WHERE symbol = :symbol
+                      AND date > CAST(:start_date AS date)
+                      AND date <= CAST(:end_date AS date)
+                    """
+                ),
+                {"symbol": str(symbol).zfill(6), "start_date": start, "end_date": end},
+            )
+        }
+        rows = db.execute(
+            sql_text(
+                """
+                SELECT DISTINCT ON (s.trade_date)
+                    s.trade_date, s.source_time, s.payload
+                FROM snapshots s
+                JOIN production_runs pr
+                  ON pr.lineage_id = s.lineage_id
+                 AND pr.trade_date = s.trade_date
+                WHERE s.symbol = :symbol
+                  AND s.source = 'eastmoney_api_scan_v2'
+                  AND pr.status = 'DECISIONS_PERSISTED'
+                  AND s.trade_date > CAST(:start_date AS date)
+                  AND s.trade_date <= CAST(:end_date AS date)
+                ORDER BY s.trade_date, s.source_time DESC
+                """
+            ),
+            {"symbol": str(symbol).zfill(6), "start_date": start, "end_date": end},
+        ).mappings().all()
+    bars = []
+    for row in rows:
+        payload = row.get("payload") or {}
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except json.JSONDecodeError:
+                payload = {}
+        raw = payload.get("raw") if isinstance(payload, dict) else {}
+        if not isinstance(raw, dict):
+            raw = {}
+        trade_date = str(row.get("trade_date") or payload.get("trade_date") or "")[:10]
+        if trade_date in existing:
+            continue
+        try:
+            open_px = float(payload.get("open") if payload.get("open") not in (None, "") else raw.get("f17"))
+            high_px = float(payload.get("high") if payload.get("high") not in (None, "") else raw.get("f15"))
+            low_px = float(payload.get("low") if payload.get("low") not in (None, "") else raw.get("f16"))
+            close_px = float(payload.get("price") if payload.get("price") not in (None, "") else raw.get("f2"))
+        except (TypeError, ValueError):
+            continue
+        volume = payload.get("volume") if payload.get("volume") not in (None, "") else raw.get("f5")
+        amount = payload.get("amount") if payload.get("amount") not in (None, "") else raw.get("f6")
+        bars.append({
+            "trade_date": trade_date,
+            "open": open_px,
+            "high": high_px,
+            "low": low_px,
+            "close": close_px,
+            "volume": None if volume in (None, "") else float(volume),
+            "amount": None if amount in (None, "") else float(amount),
+            "price_basis": PRICE_BASIS,
+            "source": "eastmoney_api_daily_kline",
+            "source_timestamp": str(row.get("source_time") or payload.get("source_time") or ""),
+        })
+    return bars
 
 
 def fetch_eastmoney_daily_bars(
@@ -75,88 +155,10 @@ def fetch_eastmoney_daily_bars(
     end_date: str | None = None,
     timeout: int = 30,
 ) -> list[Dict[str, Any]]:
-    params = {
-        "secid": _eastmoney_secid(symbol),
-        "klt": "101",
-        "fqt": "0",
-        "beg": start_date.replace("-", ""),
-        "end": (end_date or date.today().isoformat()).replace("-", ""),
-        "fields1": "f1,f2,f3,f4,f5,f6",
-        "fields2": EASTMONEY_KLINE_FIELDS,
-    }
-    payload = api_get(f"{EASTMONEY_KLINE_ENDPOINT}?{urlencode(params)}", timeout=timeout)
-    data = payload.get("data") or {}
-    if payload.get("rc") not in (0, None) or not data.get("klines"):
-        raise RuntimeError(f"EASTMONEY_KLINE_UNAVAILABLE:{symbol}:{payload.get('rc')}")
-    bars = []
-    for line in data["klines"]:
-        parts = str(line).split(",")
-        if len(parts) < 5:
-            continue
-        bars.append({
-            "trade_date": parts[0],
-            "open": float(parts[1]),
-            "close": float(parts[2]),
-            "high": float(parts[3]),
-            "low": float(parts[4]),
-            "volume": float(parts[5]) if len(parts) > 5 and parts[5] not in ("", "-") else None,
-            "amount": float(parts[6]) if len(parts) > 6 and parts[6] not in ("", "-") else None,
-            "price_basis": PRICE_BASIS,
-            "source": "eastmoney_api_daily_kline",
-        })
-    return bars
-
-
-def fetch_baostock_daily_bars(
-    symbol: str,
-    *,
-    start_date: str,
-    end_date: str | None = None,
-    timeout: int = 10,
-) -> list[Dict[str, Any]]:
-    """Fetch unadjusted historical OHLCV from the installed Baostock client.
-
-    This is a historical-label fallback only. It is never used for T-day
-    feature collection or current production scanning.
-    """
-    import baostock as bs
-
-    code = str(symbol).strip().zfill(6)
-    market = "sh" if code.startswith(("5", "6", "9")) else "sz"
-    with _deadline(timeout):
-        login = bs.login()
-        if str(login.error_code) != "0":
-            raise RuntimeError(f"BAOSTOCK_LOGIN_FAILED:{login.error_code}:{login.error_msg}")
-        try:
-            result = bs.query_history_k_data_plus(
-                f"{market}.{code}",
-                "date,open,high,low,close,volume,amount",
-                start_date=start_date,
-                end_date=end_date or date.today().isoformat(),
-                frequency="d",
-                adjustflag="3",
-            )
-            if str(result.error_code) != "0":
-                raise RuntimeError(f"BAOSTOCK_QUERY_FAILED:{code}:{result.error_code}:{result.error_msg}")
-            rows = list(result.data)
-        finally:
-            bs.logout()
-
-    return [
-        {
-            "trade_date": row[0],
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": float(row[5]) if row[5] not in (None, "") else None,
-            "amount": float(row[6]) if row[6] not in (None, "") else None,
-            "price_basis": PRICE_BASIS,
-            "source": "baostock_daily_kline",
-        }
-        for row in rows
-        if len(row) >= 7 and all(row[index] not in (None, "") for index in range(5))
-    ]
+    """Fill prices come only from official Eastmoney scan quotes already in DB."""
+    return fetch_eastmoney_snapshot_daily_bars(
+        symbol, start_date=start_date, end_date=end_date,
+    )
 
 
 def canonical_future_prices(
@@ -481,10 +483,7 @@ def eastmoney_future_bars(
     entry_date: str,
     end_date: str | None = None,
 ) -> list[Dict[str, Any]]:
-    try:
-        bars = fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date)
-    except Exception:
-        bars = fetch_baostock_daily_bars(symbol, start_date=entry_date, end_date=end_date)
+    bars = fetch_eastmoney_daily_bars(symbol, start_date=entry_date, end_date=end_date)
     return [bar for bar in bars if bar["trade_date"] > entry_date]
 
 
@@ -787,7 +786,14 @@ def fill_due_horizon_results(
 ) -> Dict[str, Any]:
     """Fill only (trade_date, horizon) pairs that are due on as_of. One-shot, no polling."""
     from sqlalchemy import text as sql_text
-    from xiaogu_db import engine, previous_trading_date, resolve_t_plus_n, TRADING_DAY, is_trading_date
+    from xiaogu_db import (
+        engine,
+        previous_trading_date,
+        resolve_t_plus_n,
+        TRADING_DAY,
+        has_official_observation_provenance,
+        is_trading_date,
+    )
 
     as_of_date = date.fromisoformat(str(as_of or date.today().isoformat()))
     report: Dict[str, Any] = {
@@ -825,19 +831,23 @@ def fill_due_horizon_results(
             missing = []
             with engine.connect() as db:
                 for trade_date, horizon in due_by_date.items():
-                    papers = list(db.execute(
-                        sql_text(
-                            """
-                            SELECT paper_signal_id, decision_id, symbol, signal_time, reference_price, payload
-                            FROM paper_observations
-                            WHERE COALESCE(
-                                NULLIF(payload->>'trade_date', ''),
-                                CAST(signal_time AS date)::text
-                            ) = :d
-                            """
-                        ),
-                        {"d": trade_date},
-                    ).mappings())
+                    papers = [
+                        row
+                        for row in db.execute(
+                            sql_text(
+                                """
+                                SELECT paper_signal_id, decision_id, symbol, signal_time, reference_price, payload
+                                FROM paper_observations
+                                WHERE COALESCE(
+                                    NULLIF(payload->>'trade_date', ''),
+                                    CAST(signal_time AS date)::text
+                                ) = :d
+                                """
+                            ),
+                            {"d": trade_date},
+                        ).mappings()
+                        if has_official_observation_provenance(_row_payload(dict(row)))
+                    ]
                     picks = list(db.execute(
                         sql_text(
                             """
@@ -971,7 +981,7 @@ def fill_pending_results(*, end_date: str | None = None) -> Dict[str, Any]:
         record["id"] = str(record.get("decision_id") or record.get("id") or "")
         record["date"] = str(record.get("date") or record.get("trade_date") or "")
         records.append(record)
-    for row in xiaogu_db.fetch_paper_observations():
+    for row in xiaogu_db.fetch_official_paper_observations():
         record = _row_payload(row)
         if record.get("paper_signal_id") and record.get("decision_id"):
             record["record_type"] = "PAPER_OBSERVATION"

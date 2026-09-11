@@ -227,8 +227,40 @@ def _paper_observation_snapshot(**extra):
         "f12": "600001", "f13": 1, "f1": 2, "market": "SH",
     }
     payload.update(extra)
+    symbol = str(payload.get("symbol") or payload.get("f12") or "600001")
     return attach_research_observations(
         payload,
+        stock_capital_flow={
+            "f62": 400,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.capital_flow",
+            "event_id": f"{symbol}-flow",
+            "mechanism": "CAPITAL",
+        },
+        earnings_preview={
+            "WEIGHTAVG_ROE": 20,
+            "publication_time": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.earnings_preview",
+            "event_id": f"{symbol}-preview",
+            "mechanism": "VALUATION",
+        },
+        financials=[{
+            "SECURITY_CODE": symbol,
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "ROEJQ": 20,
+            "XSMLL": 50,
+            "XSJLL": 18,
+            "ZCFZL": 40,
+            "LD": 1.5,
+            "source_id": "eastmoney.financials",
+            "event_id": f"{symbol}|2025-12-31|年报",
+            "mechanism": "VALUATION",
+            "observed_at": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+        }],
         industry_flow={
             "f3": 5,
             "observed_at": "2026-08-26T14:49:00+08:00",
@@ -237,6 +269,32 @@ def _paper_observation_snapshot(**extra):
             "event_id": "industry-flow",
             "mechanism": "DEMAND",
         },
+        stock_reports=[{
+            "title": "公司研究",
+            "publication_time": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.stock_report",
+            "event_id": f"{symbol}-report",
+            "mechanism": "VALUATION",
+        }],
+        lhb=[{
+            "EXPLAIN": "1家机构买入",
+            "NET_BS_AMT": -100,
+            "ACCUM_AMOUNT": 100,
+            "event_time": "2026-08-26T14:45:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.lhb",
+            "event_id": f"{symbol}-lhb",
+            "mechanism": "CAPITAL",
+        }],
+        announcements=[{
+            "title": "产能公告",
+            "publication_time": "2026-08-26T14:30:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.announcement",
+            "event_id": f"{symbol}-ann",
+            "mechanism": "CATALYST",
+        }],
     )
 
 
@@ -251,7 +309,7 @@ def test_paper_observation_identity():
     assert paper["decision_id"] == decision["decision_id"]
     assert paper["paper_signal_id"] != paper["decision_id"]
     assert paper["signal_reason"] == "FORMAL_5D_PROFIT_WINDOW_SIGNAL"
-    assert paper["alpha_name"] in {"research_thesis", "profit_window_probability", "profit_window_alpha_5d_v4"}
+    assert paper["alpha_name"] in {"earnings_profit", "profit_window_probability", "profit_window_alpha_5d_v4", "research_thesis"}
     assert paper["alpha_status"] in {"DATA_INSUFFICIENT", "EXPERIMENTAL"}
     assert paper["alpha_status"] != "VALIDATED"
     assert decision["state"] != "BUY"
@@ -387,6 +445,10 @@ def test_paper_observation_no_live_order(tmp_path, monkeypatch):
         _paper_observation_snapshot(), position_state="FLAT",
         as_of=__import__("datetime").datetime.fromisoformat("2026-08-26T15:00:00+08:00"),
     )
+    decision["paper_observation"]["production_run_id"] = "test-official-run"
+    decision["paper_observation"]["rank"] = 1
+    decision["paper_observation"]["top1_flag"] = True
+    decision["paper_observation"]["top3_flag"] = True
     monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "audit.jsonl")
     monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
     monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
@@ -409,6 +471,10 @@ def test_observation_does_not_create_production_decision(tmp_path, monkeypatch):
     import xiaogu_forward_paper_recorder_v0_1 as recorder
 
     decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    decision["paper_observation"]["production_run_id"] = "test-official-run"
+    decision["paper_observation"]["rank"] = 1
+    decision["paper_observation"]["top1_flag"] = True
+    decision["paper_observation"]["top3_flag"] = True
     calls = []
     monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "audit.jsonl")
     monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
@@ -423,8 +489,65 @@ def test_paper_requires_existing_decision():
     import xiaogu_db
 
     paper = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")["paper_observation"]
+    paper["production_run_id"] = "test-official-run"
+    paper["rank"] = 1
+    paper["top1_flag"] = True
+    paper["top3_flag"] = True
     with pytest.raises(ValueError, match="DECISION_ID_NOT_FOUND"):
         xiaogu_db.record_paper_observation(paper)
+
+
+def test_unranked_paper_observation_is_not_persisted():
+    import xiaogu_db
+
+    paper = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")["paper_observation"]
+    with pytest.raises(ValueError, match="OFFICIAL_PAPER_OBSERVATION_REQUIRED"):
+        xiaogu_db.record_paper_observation(paper)
+
+
+def test_append_paper_observation_rejects_unranked(tmp_path, monkeypatch):
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    decision = evaluate_candidate_bundle(_paper_observation_snapshot(), position_state="FLAT")
+    monkeypatch.setattr(recorder, "FORWARD_LEDGER", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(recorder, "SNAPSHOT_ROOT", tmp_path / "snapshots")
+    monkeypatch.setenv("XIAOGU_MEMORY_ROOT", str(tmp_path / "memory"))
+    with pytest.raises(ValueError, match="OFFICIAL_PAPER_OBSERVATION_REQUIRED"):
+        recorder.append_paper_observation(decision)
+
+
+def test_persist_production_facts_drops_non_top3_candidates():
+    import xiaogu_db
+    from sqlalchemy import text
+    from xiaogu_forward_snapshot import validate_and_build_canonical_snapshot
+
+    snapshot = validate_and_build_canonical_snapshot(_paper_observation_snapshot(lineage_id="drop-non-top3"))
+    decision = evaluate_candidate_bundle(snapshot, position_state="FLAT")
+    decision["canonical_snapshot"] = snapshot
+    paper_id = decision["paper_observation"]["paper_signal_id"]
+    decision_id = decision["decision_id"]
+    decision["paper_observation"]["top3_flag"] = False
+    decision["paper_observation"]["top1_flag"] = False
+    decision["paper_observation"]["rank"] = None
+    assert decision["paper_observation"]["top3_flag"] is False
+    try:
+        xiaogu_db.persist_production_facts([decision], production_run_id="")
+        with xiaogu_db.engine.connect() as connection:
+            papers = connection.execute(
+                text("SELECT COUNT(*) FROM paper_observations WHERE paper_signal_id = :paper_signal_id"),
+                {"paper_signal_id": paper_id},
+            ).scalar()
+            picks = connection.execute(
+                text("SELECT COUNT(*) FROM picks WHERE decision_id = :decision_id"),
+                {"decision_id": decision_id},
+            ).scalar()
+        assert papers == 0
+        assert picks == 0
+    finally:
+        with xiaogu_db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM paper_observations WHERE paper_signal_id = :paper_signal_id"), {"paper_signal_id": paper_id})
+            connection.execute(text("DELETE FROM picks WHERE decision_id = :decision_id"), {"decision_id": decision_id})
+            connection.execute(text("DELETE FROM snapshots WHERE snapshot_id = :snapshot_id"), {"snapshot_id": snapshot["snapshot_id"]})
 
 
 def test_paper_fk_to_decision():
@@ -468,6 +591,91 @@ def test_real_paper_entry_only_is_open(monkeypatch):
         },
     ])
     assert [row["paper_signal_id"] for row in xiaogu_db.fetch_open_paper_positions()] == ["entry"]
+
+
+def test_front_data_reads_postgres_and_obsidian(monkeypatch, tmp_path):
+    import xiaogu_api
+    import xiaogu_db
+    import xiaogu_forward_paper_recorder_v0_1 as recorder
+
+    daily = tmp_path / "xiaogu_memory" / "daily"
+    daily.mkdir(parents=True)
+    (daily / "2026-09-11.md").write_text("# 2026-09-11\nTop1 002862\n", encoding="utf-8")
+    note_dir = tmp_path / "xiaogu_memory" / "decisions" / "PAPER_OBSERVATION" / "2026-09-11" / "002862"
+    note_dir.mkdir(parents=True)
+    (note_dir / "paper-1.md").write_text("paper observation 002862", encoding="utf-8")
+
+    monkeypatch.setattr(xiaogu_db, "fetch_paper_observations", lambda: [{
+        "paper_signal_id": "paper-1",
+        "decision_id": "decision-1",
+        "symbol": "002862",
+        "trade_date": "2026-09-11",
+        "signal_time": "2026-09-11T14:15:43+08:00",
+        "reference_price": 15.88,
+        "rank": 1,
+        "top1_flag": True,
+        "top3_flag": True,
+        "alpha_score": 0.71,
+        "selection_score": 0.71,
+        "selection_reason": "TOP1_OPPORTUNITY_5D",
+        "production_run_id": "run-1",
+        "lineage_id": "lineage-1",
+        "snapshot_id": "snap-1",
+        "paper_observation_state": "OBSERVED",
+        "paper_position_state": "PAPER_FLAT",
+        "research_overlay": {"skill_complete": True, "serenity": "卡点表", "buffett": "八问", "uzi": "空榜"},
+        "canonical_snapshot": {
+            "name": "实丰文化",
+            "price": 15.88,
+            "sector": "文娱用品",
+            "raw": {"f3": 0.63, "f62": 1761036.0},
+            "announcements": [{"title": "担保进展公告"}],
+        },
+        "payload": {"paper_signal_id": "paper-1", "decision_id": "decision-1"},
+    }])
+    monkeypatch.setattr(xiaogu_db, "fetch_returns", lambda: [])
+    monkeypatch.setattr(xiaogu_db, "fetch_horizon_outcomes", lambda decision_id: {
+        "days": {"1": {"status": "SETTLED", "net_return": 0.02}}
+    })
+    monkeypatch.setattr(xiaogu_db, "fetch_production_run", lambda run_id: {
+        "production_run_id": run_id,
+        "status": "DECISIONS_PERSISTED",
+        "scan_session_id": 1,
+        "lineage_id": "lineage-1",
+        "updated_at": "2026-09-11T14:22:03+08:00",
+        "scoring_config_snapshot": {"observation_coverage": {"paper_count": 1}},
+    })
+    monkeypatch.setattr(xiaogu_api, "_scan_session", lambda run: {
+        "scan_time": "2026-09-11T14:15:43+08:00",
+        "quotes_count": 5913,
+        "trade_date": "2026-09-11",
+        "market_snapshot": {
+            "quote_count": 5913,
+            "up_count": 726,
+            "down_count": 4781,
+            "breadth_up_pct": 13.08,
+            "limit_up_observation_count": 50,
+            "timestamp": "2026-09-11T14:15:43+08:00",
+        },
+    })
+    monkeypatch.setattr(recorder, "_obsidian_vault_root", lambda: tmp_path)
+
+    payload = xiaogu_api.load_front_data("2026-09-11")
+    assert payload["contract_version"] == "2026-08-13"
+    assert payload["source"] == "postgresql"
+    assert payload["databaseConnected"] is True
+    assert payload["productionChain"]["name"] == "main_force_behavior_chain"
+    assert payload["productionChain"]["rankSource"] == "formal_profit_first"
+    assert payload["productionChain"]["objective"] == "T日出票，T+1收盘获利"
+    assert payload["productionChain"]["returnField"] == "returns.t1_return"
+    assert payload["candidates"][0]["symbol"] == "002862"
+    assert payload["candidates"][0]["stock_name"] == "实丰文化"
+    assert payload["candidates"][0]["t1_return"] == 0.02
+    assert payload["decision"]["paper_pick"]["symbol"] == "002862"
+    assert payload["memory"]["connection"]["obsidian"] == "online"
+    assert payload["memory"]["entries"]
+    assert payload["manualExecution"]["status"] == "BLOCKED"
+    assert payload["production_buy"] == "BLOCKED"
 
 
 def test_paper_observation_db_truth(monkeypatch):
@@ -1498,11 +1706,11 @@ def test_canonical_future_prices_are_immutable_facts():
         assert stored["price_fact_hash"] == canonical_future_price_fact(fact)["price_fact_hash"]
         with pytest.raises(ValueError, match="PRICE_FACT_CONFLICT"):
             record_canonical_future_prices([{**fact, "close": 10.3}])
-        with pytest.raises(ValueError, match="PRICE_FACT_CONFLICT"):
+        with pytest.raises(ValueError, match="UNSUPPORTED_PRICE_SOURCE"):
             record_canonical_future_prices([{**fact, "source": "baostock_daily_kline"}])
         with engine.connect() as db:
             unchanged = dict(db.execute(text("SELECT close, source FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'")).mappings().one())
-        assert unchanged == {"close": 10.2, "source": "eastmoney_daily_kline"}
+        assert unchanged == {"close": 10.2, "source": "eastmoney_api_daily_kline"}
     finally:
         with engine.begin() as db:
             db.execute(text("DELETE FROM canonical_future_prices WHERE symbol = '699991' AND date = '2026-08-26'"))

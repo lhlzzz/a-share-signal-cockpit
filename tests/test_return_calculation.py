@@ -90,7 +90,7 @@ def test_record_returns_projects_due_t1_scalar():
                 "status": "SETTLED", "horizon": 1, "date": "2026-09-07",
                 "open": 18.05, "high": 18.20, "low": 18.00, "close": 18.16,
                 "return": 0.00387, "net_return": 0.00087, "mfe": 0.006, "mae": -0.005,
-                "source": "tencent_unadjusted_daily_kline",
+                "source": "eastmoney_api_daily_kline",
             },
             "5": {"status": "MISSING"},
         },
@@ -110,54 +110,59 @@ def test_record_returns_projects_due_t1_scalar():
 
 
 def test_eastmoney_loader_counts_only_five_future_trading_days(monkeypatch):
-    rows = [f"2026-08-{day:02d},10,{day},10,10,0,0,0,0,0,0" for day in range(1, 12)]
+    bars = [
+        {
+            "trade_date": f"2026-08-{day:02d}",
+            "open": 10, "high": 10, "low": 10, "close": float(day),
+            "volume": 0, "amount": 0,
+            "price_basis": "UNADJUSTED",
+            "source": "eastmoney_api_daily_kline",
+        }
+        for day in range(1, 12)
+    ]
     monkeypatch.setattr(
-        "xiaogu_forward_result_filler_v0_1.api_get",
-        lambda *_args, **_kwargs: {"rc": 0, "data": {"klines": rows}},
+        "xiaogu_forward_result_filler_v0_1.fetch_eastmoney_daily_bars",
+        lambda *_args, **_kwargs: bars,
     )
     monkeypatch.setattr(
         "xiaogu_forward_result_filler_v0_1.calendar_future_bars",
-        lambda entry_date, bars: [bar for bar in bars if bar["trade_date"] > entry_date][:5],
+        lambda entry_date, loaded: [bar for bar in loaded if bar["trade_date"] > entry_date][:5],
     )
     assert eastmoney_future_close_prices("600001", entry_date="2026-08-01", end_date="2026-10-30") == {5: 6.0}
     assert calculate_horizon_returns(10, {5: 11}) == {"future_5d_return": 0.1}
 
 
-def test_baostock_loader_normalizes_unadjusted_ohlcv(monkeypatch):
-    import sys
-    import types
+def test_future_bars_are_eastmoney_only():
+    import inspect
+    import xiaogu_forward_result_filler_v0_1 as filler
 
-    class Login:
-        error_code = "0"
-        error_msg = "success"
+    source = inspect.getsource(filler)
+    assert "fetch_baostock_daily_bars" not in source
+    assert "baostock_daily_kline" not in source
+    assert "tencent_unadjusted_daily_kline" not in source
+    assert "push2his.eastmoney.com" not in source
+    assert "kline/get" not in source
+    assert "EASTMONEY_KLINE_ENDPOINT" not in source
+    assert "fetch_eastmoney_snapshot_daily_bars" in source
+    assert filler.eastmoney_future_bars.__name__ == "eastmoney_future_bars"
 
-    class Result:
-        error_code = "0"
-        error_msg = "success"
-        data = [["2026-08-17", "10", "10.5", "9.8", "10.2", "100", "1000"]]
 
-    fake = types.SimpleNamespace(
-        login=lambda: Login(),
-        query_history_k_data_plus=lambda *args, **kwargs: Result(),
-        logout=lambda: None,
+def test_eastmoney_loader_uses_captured_quote_ohlc_only(monkeypatch):
+    from xiaogu_forward_result_filler_v0_1 import fetch_eastmoney_daily_bars
+
+    monkeypatch.setattr(
+        "xiaogu_forward_result_filler_v0_1.fetch_eastmoney_snapshot_daily_bars",
+        lambda symbol, *, start_date, end_date=None: [{
+            "trade_date": "2026-09-08",
+            "open": 18.3, "high": 18.95, "low": 18.17, "close": 18.36,
+            "volume": 169667.0, "amount": 1.0,
+            "price_basis": "UNADJUSTED",
+            "source": "eastmoney_api_daily_kline",
+        }],
     )
-    monkeypatch.setitem(sys.modules, "baostock", fake)
-    from xiaogu_forward_result_filler_v0_1 import fetch_baostock_daily_bars
-
-    bars = fetch_baostock_daily_bars(
-        "600001", start_date="2026-08-17", end_date="2026-08-17", timeout=1,
-    )
-    assert bars == [{
-        "trade_date": "2026-08-17",
-        "open": 10.0,
-        "high": 10.5,
-        "low": 9.8,
-        "close": 10.2,
-        "volume": 100.0,
-        "amount": 1000.0,
-        "price_basis": "UNADJUSTED",
-        "source": "baostock_daily_kline",
-    }]
+    bars = fetch_eastmoney_daily_bars("002568", start_date="2026-09-07", end_date="2026-09-08")
+    assert bars[0]["source"] == "eastmoney_api_daily_kline"
+    assert bars[0]["close"] == 18.36
 
 
 def test_append_result_exposes_only_profit_window_target():

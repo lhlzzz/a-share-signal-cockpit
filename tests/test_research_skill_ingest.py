@@ -174,6 +174,8 @@ def test_serenity_interprets_captured_industry_evidence():
     features = build_feature_vector(snapshot)
     industry = build_integrated_research_context(snapshot, features)["industry"]
     assert industry["skill_ran"] is True
+    assert industry["skill_complete"] is True
+    assert len(industry.get("bottleneck_table") or []) >= 3
     assert industry["reports"][0]["title"] == "行业研究"
     evidence = industry.get("evidence") or []
     assert evidence
@@ -190,6 +192,7 @@ def test_buffett_checklist_has_no_trade_action():
     features = build_feature_vector(snapshot)
     company = build_integrated_research_context(snapshot, features)["company"]
     assert company["skill_ran"] is True
+    assert company["skill_complete"] is True
     assert company["earnings_preview"]["WEIGHTAVG_ROE"] == 20
     assert company["buy_sell"] is None
     assert isinstance(company.get("checklist"), list)
@@ -204,6 +207,7 @@ def test_uzi_interprets_captured_lhb_without_judges():
     features = build_feature_vector(snapshot)
     capital = build_integrated_research_context(snapshot, features)["capital"]
     assert capital["skill_ran"] is True
+    assert capital["skill_complete"] is True
     assert capital["institution_vs_hot_money"] == "institution"
     source = Path("xiaogu_research_context.py").read_text(encoding="utf-8")
     assert "investor_evaluator" not in source
@@ -225,8 +229,8 @@ def test_uncalibrated_ranking_uses_research_not_price_strength():
     )
     assert hot["core_alpha"]["model_status"] != "VALIDATED"
     assert researched["core_alpha"]["model_status"] != "VALIDATED"
-    assert hot["core_alpha"]["selection_score_source"] == "research_thesis"
-    assert researched["core_alpha"]["selection_score_source"] == "research_thesis"
+    assert hot["core_alpha"]["selection_score_source"] == "earnings_profit"
+    assert researched["core_alpha"]["selection_score_source"] == "earnings_profit"
     assert hot["core_alpha"]["signal_qualified"] is False
     assert researched["core_alpha"]["signal_qualified"] is True
     assert researched["core_alpha"]["selection_score"] is not None
@@ -234,10 +238,12 @@ def test_uncalibrated_ranking_uses_research_not_price_strength():
     papers = [item["paper_observation"] for item in ranked if item.get("paper_observation")]
     assert [paper["symbol"] for paper in papers] == ["600002"]
     assert papers[0]["top1_flag"] is True
-    assert papers[0]["alpha_name"] == "research_thesis"
+    assert papers[0]["alpha_name"] == "earnings_profit"
     source = Path("xiaogu_core_alpha.py").read_text(encoding="utf-8")
     body = source.split("def _selection_score")[1].split("def _signal_qualification")[0]
     assert "price_strength" not in body
+    assert "0.60 * coverage" not in source
+    assert "_earnings_profit_score" in body
 
 
 def test_path_b_quality_ranks_above_wrapper_only_observations():
@@ -314,6 +320,101 @@ def test_captured_financials_enter_buffett_path_b_and_ranking():
     assert answers["Debt Safety"] == "YES"
 
 
+def test_uzi_runs_without_lhb_when_capital_flow_exists():
+    snapshot = validate_and_build_canonical_snapshot(attach_research_observations(
+        _base_row(f12="600020", symbol="600020"),
+        stock_capital_flow={
+            "f62": 200,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.capital_flow",
+            "event_id": "600020-flow",
+            "mechanism": "CAPITAL",
+        },
+        announcements=[{
+            "title": "日常公告",
+            "publication_time": "2026-08-26T14:30:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.announcement",
+            "event_id": "ann-flow",
+            "mechanism": "CATALYST",
+        }],
+        industry_flow={
+            "f3": 2,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.industry_flow",
+            "event_id": "industry-flow",
+            "mechanism": "DEMAND",
+        },
+        earnings_preview={
+            "WEIGHTAVG_ROE": 18,
+            "publication_time": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.earnings_preview",
+            "event_id": "preview-flow",
+            "mechanism": "VALUATION",
+        },
+    ))
+    capital = build_integrated_research_context(snapshot, build_feature_vector(snapshot))["capital"]
+    assert capital["skill_ran"] is True
+    assert capital["skill_verdict"]["mode"] != "not_run"
+    assert capital["institution_vs_hot_money"] == "unknown_no_board"
+
+
+def test_incomplete_skill_cannot_become_official_ticket():
+    from xiaogu_portfolio_decision import attach_top_paper_observations
+
+    complete = evaluate_candidate_bundle(_deep_snapshot(f12="600030", symbol="600030"), position_state="FLAT", as_of=AS_OF)
+    incomplete = evaluate_candidate_bundle(_deep_snapshot(f12="600031", symbol="600031"), position_state="FLAT", as_of=AS_OF)
+    incomplete["research_context"]["skill_complete"] = False
+    incomplete["research_context"]["industry"]["skill_complete"] = False
+    incomplete["research_context"]["industry"]["bottleneck_table"] = []
+    incomplete["core_alpha"]["signal_qualified"] = False
+    incomplete["core_alpha"]["signal_reason"] = "RESEARCH_SKILL_INCOMPLETE"
+    incomplete["paper_observation"] = None
+    ranked = attach_top_paper_observations([complete, incomplete])
+    papers = [item["paper_observation"] for item in ranked if item.get("paper_observation")]
+    assert [paper["symbol"] for paper in papers] == ["600030"]
+    missing_serenity = evaluate_candidate_bundle(_base_row(f12="600032", symbol="600032"), position_state="FLAT", as_of=AS_OF)
+    assert missing_serenity["core_alpha"]["signal_qualified"] is False
+    assert missing_serenity["core_alpha"]["signal_reason"] == "RESEARCH_SKILL_INCOMPLETE"
+    assert missing_serenity.get("paper_observation") is None
+    no_buffett = evaluate_candidate_bundle(
+        validate_and_build_canonical_snapshot(attach_research_observations(
+            _base_row(f12="600033", symbol="600033"),
+            industry_flow={
+                "f3": 4,
+                "observed_at": "2026-08-26T14:49:00+08:00",
+                "available_at": "2026-08-26T14:50:00+08:00",
+                "source_id": "eastmoney.industry_flow",
+                "event_id": "industry-no-buffett",
+                "mechanism": "DEMAND",
+            },
+            stock_capital_flow={
+                "f62": 100,
+                "observed_at": "2026-08-26T14:49:00+08:00",
+                "available_at": "2026-08-26T14:50:00+08:00",
+                "source_id": "eastmoney.capital_flow",
+                "event_id": "flow-no-buffett",
+                "mechanism": "CAPITAL",
+            },
+            announcements=[{
+                "title": "公告",
+                "publication_time": "2026-08-26T14:30:00+08:00",
+                "available_at": "2026-08-26T14:50:00+08:00",
+                "source_id": "eastmoney.announcement",
+                "event_id": "ann-no-buffett",
+                "mechanism": "CATALYST",
+            }],
+        )),
+        position_state="FLAT",
+        as_of=AS_OF,
+    )
+    assert no_buffett["core_alpha"]["signal_reason"] == "RESEARCH_SKILL_INCOMPLETE"
+    assert no_buffett.get("paper_observation") is None
+
+
 def test_skill_verdicts_are_persisted_for_replay():
     snapshot = _deep_snapshot()
     decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
@@ -363,6 +464,9 @@ def test_daily_and_trade_memory_include_skill_research_reports(tmp_path, monkeyp
     assert "### Serenity" in text
     assert "### Buffett" in text
     assert "### UZI" in text
+    assert "Bottleneck table" in text
+    assert "Eight questions" in text
+    assert "Institution vs hot money" in text
     assert paper["research_overlay"]["uzi"] in text
     vault_copy = tmp_path / "vault" / Path(path).relative_to("data/obsidian_memory")
     assert vault_copy.exists()

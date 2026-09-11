@@ -388,6 +388,41 @@ def test_optional_source_failure_returns_unknown_empty_value():
 def test_optional_source_failure_is_unknown():
     assert "lhb" in OPTIONAL_SOURCES
     assert "stock_all_a" not in OPTIONAL_SOURCES
+    assert "financials" in CRITICAL_SOURCES
+    assert "earnings_preview" in CRITICAL_SOURCES
+    assert "stock_reports" in CRITICAL_SOURCES
+    assert "stock_capital_flow" in CRITICAL_SOURCES
+    assert "financials" not in OPTIONAL_SOURCES
+    assert "lhb" not in CRITICAL_SOURCES
+
+
+def test_empty_financials_capture_is_critical():
+    from scrapy_scanner.runner_v2 import CriticalSourceError, _collect
+
+    with pytest.raises(CriticalSourceError, match="CRITICAL_SOURCE_EMPTY:financials"):
+        _collect("financials", {}, lambda: [], [], critical=True)
+
+
+def test_f10_critical_rows_are_not_quote_completeness_gated():
+    from scrapy_scanner.runner_v2 import _collect
+
+    rows = [{"SECURITY_CODE": "600001", "NOTICE_DATE": "2026-09-01", "WEIGHTAVG_ROE": 20}]
+    timings = {}
+    accepted = _collect("earnings_preview", timings, lambda: rows, [], critical=True)
+    assert accepted[0]["SECURITY_CODE"] == "600001"
+    assert accepted[0]["WEIGHTAVG_ROE"] == 20
+    assert accepted[0].get("available_at")
+    assert timings["earnings_preview"]["status"] == "PASS"
+
+
+def test_empty_lhb_board_is_optional_empty():
+    from scrapy_scanner.runner_v2 import _collect
+
+    timings = {}
+    value = _collect("lhb", timings, lambda: [], [])
+    assert value == []
+    assert timings["lhb"]["status"] == "EMPTY"
+    assert timings["lhb"]["critical"] is False
 
 
 def test_record_level_pit():
@@ -777,6 +812,16 @@ def test_fetch_paginated_uses_stable_sort_and_production_fields(monkeypatch):
     assert "f18" in seen[0]
 
 
+def test_live_capture_uses_cloak_transport():
+    import scrapy_scanner.runner_v2 as scanner
+
+    source = open(scanner.__file__, encoding="utf-8").read()
+    assert "def start_cloak_transport" in source
+    assert "from cloakbrowser import launch" in source
+    assert "page.request.get" in source
+    assert "start_cloak_transport()" in source
+
+
 def test_api_get_retries_transport_then_succeeds(monkeypatch):
     from urllib.error import URLError
     import scrapy_scanner.runner_v2 as scanner
@@ -799,6 +844,7 @@ def test_api_get_retries_transport_then_succeeds(monkeypatch):
 
     monkeypatch.setattr(scanner, "urlopen", fake_urlopen)
     monkeypatch.setattr(scanner.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(scanner, "_CLOAK_PAGE", None)
     assert scanner.api_get("https://example.invalid") == {"ok": 1}
     assert calls["n"] == 2
 

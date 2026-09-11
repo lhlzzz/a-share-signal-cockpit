@@ -9,9 +9,10 @@ from typing import Any, Dict, List
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 
 RECORDABLE_DECISIONS = {"BUY", "HOLD", "REDUCE", "SELL"}
+FRONT_DATA_CONTRACT_VERSION = "2026-08-13"
 app = FastAPI(title="Xiaogu")
 
 
@@ -419,3 +420,392 @@ def paper_open() -> Dict[str, Any]:
 def paper_history() -> Dict[str, Any]:
     rows = _paper_views()
     return {"status": "PAPER_OBSERVATION_ONLY", "signals": rows, "count": len(rows)}
+
+
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _front_date(record: Dict[str, Any]) -> str:
+    return _text(record.get("trade_date") or _text(record.get("signal_time"))[:10])
+
+
+def _number(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _scan_session(run: Dict[str, Any] | None) -> Dict[str, Any]:
+    from sqlalchemy import text
+    from xiaogu_db import engine
+
+    session_id = (run or {}).get("scan_session_id")
+    if not session_id:
+        return {}
+    with engine.connect() as db:
+        row = db.execute(
+            text("SELECT * FROM scan_sessions WHERE id = :id"),
+            {"id": session_id},
+        ).mappings().first()
+    return dict(row) if row else {}
+
+
+def _horizon_t1(decision_id: str) -> float | None:
+    from xiaogu_db import fetch_horizon_outcomes
+
+    if not decision_id:
+        return None
+    days = (fetch_horizon_outcomes(decision_id).get("days") or {}).get("1") or {}
+    if _text(days.get("status")).upper() != "SETTLED":
+        return None
+    return _number(days.get("net_return"))
+
+
+def _snapshot(record: Dict[str, Any]) -> Dict[str, Any]:
+    snapshot = record.get("canonical_snapshot")
+    return snapshot if isinstance(snapshot, dict) else {}
+
+
+def _evidence_report(record: Dict[str, Any]) -> Dict[str, Any]:
+    overlay = record.get("research_overlay") if isinstance(record.get("research_overlay"), dict) else {}
+    snapshot = _snapshot(record)
+    raw = snapshot.get("raw") if isinstance(snapshot.get("raw"), dict) else {}
+    announcements = []
+    for item in snapshot.get("announcements") or []:
+        if isinstance(item, dict) and (item.get("title") or item.get("title_ch")):
+            announcements.append({"title": item.get("title") or item.get("title_ch")})
+    inflow = _number(raw.get("f62"))
+    sector = snapshot.get("sector") or overlay.get("scarce_layer")
+    return {
+        "sectors": {
+            "primary": sector,
+            "market_theme_tags": [sector] if sector else [],
+            "sector_news": [],
+        },
+        "catalyst": {"announcements": announcements[:3]},
+        "capital_flow": {
+            "main_force_net_inflow_yi": None if inflow is None else inflow / 1e8,
+        },
+        "risk": {"risk_flags": [], "missing_domains": []},
+        "t1_space": {"score": record.get("price_strength")},
+        "data_coverage": {
+            "status": "READY" if overlay.get("skill_complete") else "PARTIAL",
+            "missing_domains": [],
+        },
+        "skills": {
+            "serenity": overlay.get("serenity"),
+            "buffett": overlay.get("buffett"),
+            "uzi": overlay.get("uzi"),
+            "skill_complete": overlay.get("skill_complete"),
+            "bottleneck_table": overlay.get("bottleneck_table"),
+            "institution_vs_hot_money": overlay.get("institution_vs_hot_money"),
+        },
+    }
+
+
+def _front_candidate(record: Dict[str, Any], t1_return: float | None) -> Dict[str, Any]:
+    snapshot = _snapshot(record)
+    raw = snapshot.get("raw") if isinstance(snapshot.get("raw"), dict) else {}
+    name = snapshot.get("name") or record.get("symbol")
+    score = record.get("selection_score") or record.get("alpha_score")
+    rank = record.get("rank")
+    official = bool(record.get("top3_flag") or rank in {1, 2, 3})
+    return {
+        "symbol": record.get("symbol"),
+        "name": name,
+        "stock_name": name,
+        "rank": rank,
+        "formal_rank": rank,
+        "top1_flag": bool(record.get("top1_flag") or rank == 1),
+        "top3_flag": official,
+        "is_official_pick": official,
+        "decision": "PAPER_OBSERVATION",
+        "score": score,
+        "final_score": score,
+        "production_score": score,
+        "alpha_score": record.get("alpha_score"),
+        "entry_price": record.get("reference_price") or snapshot.get("price"),
+        "close_price": snapshot.get("price") or record.get("reference_price"),
+        "price": snapshot.get("price") or record.get("reference_price"),
+        "pct_chg": raw.get("f3"),
+        "t1_return": t1_return,
+        "selection_reason": record.get("selection_reason") or record.get("signal_reason"),
+        "selectionReason": record.get("selection_reason") or record.get("signal_reason"),
+        "paper_signal_id": record.get("paper_signal_id"),
+        "decision_id": record.get("decision_id"),
+        "production_run_id": record.get("production_run_id"),
+        "snapshot_id": record.get("original_snapshot_id") or record.get("snapshot_id"),
+        "production_buy": "BLOCKED",
+        "paper_observation_state": record.get("paper_observation_state") or "OBSERVED",
+        "paper_position_state": record.get("paper_position_state") or "PAPER_FLAT",
+        "paper_only": True,
+        "live_order": False,
+        "evidenceReport": _evidence_report(record),
+        "research_overlay": record.get("research_overlay") or {},
+    }
+
+
+def _obsidian_connection() -> Dict[str, Any]:
+    from pathlib import Path
+    from xiaogu_forward_paper_recorder_v0_1 import _obsidian_vault_root
+
+    vault = _obsidian_vault_root()
+    daily = vault / "xiaogu_memory" / "daily" if vault is not None else None
+    shenlin = Path("/mnt/d/obisidian/Obsidian/神临")
+    return {
+        "database": "online",
+        "obsidian": "online" if daily is not None and daily.exists() else "offline",
+        "obsidianPath": str(vault) if vault is not None else "",
+        "shenlin": "online" if shenlin.exists() else "offline",
+        "shenlinPath": str(shenlin) if shenlin.exists() else "",
+        "vectorRecords": 0,
+    }
+
+
+def _memory_entries(trade_date: str) -> list[Dict[str, Any]]:
+    from pathlib import Path
+    from xiaogu_forward_paper_recorder_v0_1 import BASE, _obsidian_vault_root
+
+    entries: list[Dict[str, Any]] = []
+    seen: set[str] = set()
+    roots = []
+    vault = _obsidian_vault_root()
+    if vault is not None:
+        roots.append(vault)
+    roots.append(BASE / "data" / "obsidian_memory")
+    for root in roots:
+        daily = root / "xiaogu_memory" / "daily" / f"{trade_date}.md"
+        if daily.exists() and "daily" not in seen:
+            seen.add("daily")
+            entries.append({
+                "id": f"daily-{trade_date}",
+                "title": f"{trade_date} 官方出票日笔记",
+                "type": "daily",
+                "path": str(daily),
+                "content": daily.read_text(encoding="utf-8")[:1200],
+            })
+        decision_root = root / "xiaogu_memory" / "decisions" / "PAPER_OBSERVATION" / trade_date
+        if not decision_root.exists():
+            continue
+        for path in sorted(decision_root.glob("*/*.md")):
+            key = path.stem
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append({
+                "id": key,
+                "title": path.parent.name,
+                "type": "paper_observation",
+                "path": str(path),
+                "content": path.read_text(encoding="utf-8")[:1200],
+            })
+    return entries
+
+
+def load_front_data(trade_date: str = "") -> Dict[str, Any]:
+    from datetime import datetime, timezone
+    from xiaogu_db import fetch_production_run
+
+    records = _paper_observation_records()
+    dates = sorted({_front_date(row) for row in records if _front_date(row)}, reverse=True)
+    requested = _text(trade_date)
+    date = requested if requested in dates or (requested and not dates) else (dates[0] if dates else requested)
+    day_rows = [row for row in records if _front_date(row) == date]
+    day_rows.sort(key=lambda row: (row.get("rank") is None, row.get("rank") or 99, str(row.get("symbol") or "")))
+    t1_by_decision = {str(row.get("decision_id") or ""): _horizon_t1(str(row.get("decision_id") or "")) for row in records}
+    candidates = [_front_candidate(row, t1_by_decision.get(str(row.get("decision_id") or ""))) for row in day_rows]
+    history = []
+    for row in records:
+        item = _front_candidate(row, t1_by_decision.get(str(row.get("decision_id") or "")))
+        item["trade_date"] = _front_date(row)
+        item["date"] = _front_date(row)
+        history.append(item)
+    history.sort(key=lambda row: (str(row.get("trade_date") or ""), int(row.get("rank") or 99), str(row.get("symbol") or "")))
+    top1 = next((row for row in candidates if row.get("top1_flag")), candidates[0] if candidates else {})
+    run_id = _text((day_rows[0] if day_rows else {}).get("production_run_id"))
+    run = fetch_production_run(run_id) if run_id else None
+    session = _scan_session(run)
+    market = session.get("market_snapshot") if isinstance(session.get("market_snapshot"), dict) else {}
+    settled = [row for row in history if row.get("t1_return") is not None]
+    wins = [row for row in settled if float(row["t1_return"]) > 0]
+    losses = [row for row in settled if float(row["t1_return"]) <= 0]
+    avg_t1 = (sum(float(row["t1_return"]) for row in settled) / len(settled)) if settled else None
+    memory_connection = _obsidian_connection()
+    memory_entries = _memory_entries(date) if date else []
+    generated = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    coverage = ((run or {}).get("scoring_config_snapshot") or {})
+    if isinstance(coverage, str):
+        try:
+            coverage = json.loads(coverage)
+        except json.JSONDecodeError:
+            coverage = {}
+    observation_coverage = coverage.get("observation_coverage") if isinstance(coverage, dict) else {}
+    lifecycle_state = _text((run or {}).get("status")) or ("PAPER_OBSERVATION_RECORDED" if candidates else "UNAVAILABLE")
+    return {
+        "contract_version": FRONT_DATA_CONTRACT_VERSION,
+        "source": "postgresql",
+        "workspace": "xiaogu",
+        "date": date,
+        "availableDates": dates,
+        "databaseConnected": True,
+        "generatedAt": generated,
+        "paper_only": True,
+        "production_buy": "BLOCKED",
+        "live_trading": "DISABLED",
+        "productionChain": {
+            "name": "main_force_behavior_chain",
+            "label": "5日获利窗口观察链",
+            "rankSource": "formal_profit_first",
+            "objective": "T日出票，T+1收盘获利",
+            "returnField": "returns.t1_return",
+        },
+        "lifecycle": {
+            "state": lifecycle_state,
+            "production_run_id": run_id or None,
+            "lineage_id": (run or {}).get("lineage_id") or (day_rows[0].get("lineage_id") if day_rows else None),
+            "blockers": ["PRODUCTION_BUY_BLOCKED"],
+            "source_freshness": {
+                "run_updated_at": _text((run or {}).get("updated_at")),
+                "scan_time": _text(session.get("scan_time") or market.get("timestamp")),
+            },
+        },
+        "manualExecution": {
+            "status": "BLOCKED",
+            "symbol": top1.get("symbol"),
+            "blockers": ["PRODUCTION_BUY_BLOCKED"],
+            "risk_state": {
+                "data_gate_status": "PASS" if candidates else "UNAVAILABLE",
+                "market_regime": "UNKNOWN",
+                "market_regime_risk": "OBSERVE_ONLY",
+                "chase_high_risk": "UNKNOWN",
+            },
+            "position_boundary": {"max_risk_fraction": None, "account_snapshot_required": False},
+            "execution_record": {"status": "UNCONFIRMED"},
+            "replay_provenance": {
+                "production_run_id": run_id or None,
+                "candidate_snapshot_id": top1.get("snapshot_id"),
+                "symbol": top1.get("symbol"),
+            },
+        },
+        "decision": {
+            "paper_pick": top1 or None,
+            "status": "PAPER_OBSERVATION_ONLY",
+        },
+        "candidates": candidates,
+        "tradeHistory": history,
+        "latestChainHistory": history,
+        "selectedDateTradeHistory": [_front_candidate(row, t1_by_decision.get(str(row.get("decision_id") or ""))) | {"trade_date": date, "date": date} for row in day_rows],
+        "allOfficialTradeHistory": history,
+        "candidateHistoryTop10": history,
+        "marketState": {
+            "regime": "WEAK" if _number(market.get("breadth_up_pct")) is not None and float(market.get("breadth_up_pct")) < 40 else "NEUTRAL",
+            "quoteCount": market.get("quote_count") or session.get("quotes_count"),
+            "limitUpCount": market.get("limit_up_observation_count"),
+            "brokenLimitups": None,
+            "upPercent": market.get("breadth_up_pct"),
+            "advancing": market.get("up_count"),
+            "declining": market.get("down_count"),
+            "marketMainInflow": None,
+            "marketMainInflowSource": "scan_sessions.market_snapshot",
+        },
+        "aShareMarket": {
+            "snapshotScanTime": _text(session.get("scan_time") or market.get("timestamp")),
+            "quoteCount": market.get("quote_count") or session.get("quotes_count"),
+        },
+        "systemStats": {
+            "winningTrades": len(wins),
+            "losingTrades": len(losses),
+            "officialObservationCount": len(records),
+        },
+        "systemHealth": {
+            "api": "online",
+            "database": "online",
+            "scanner": "online" if session else "offline",
+            "model": "online",
+            "memory": memory_connection.get("obsidian") or "offline",
+            "lastUpdate": _text(session.get("scan_time") or market.get("timestamp") or generated),
+        },
+        "syncState": {
+            "database": "online",
+            "obsidian": memory_connection.get("obsidian"),
+            "obsidianPath": memory_connection.get("obsidianPath"),
+            "historyRecords": len(records),
+            "reviewCases": 0,
+            "generatedAt": generated,
+            "latestUpdate": _text(session.get("updated_at") or session.get("scan_time") or generated),
+        },
+        "memory": {
+            "connection": memory_connection,
+            "entries": memory_entries,
+        },
+        "dataSources": [
+            {"name": "PostgreSQL paper_observations", "status": "online"},
+            {"name": "PostgreSQL production_runs / scan_sessions", "status": "online" if session else "offline"},
+            {"name": "PostgreSQL returns T+1..T+5", "status": "online"},
+            {"name": "Obsidian Project/A股", "status": memory_connection.get("obsidian")},
+        ],
+        "observability": {
+            "scanTradeDate": _text(session.get("trade_date") or date),
+            "scanTime": _text(session.get("scan_time") or market.get("timestamp")),
+            "coverage": observation_coverage or {},
+        },
+        "review": {
+            "cases": [],
+            "fullHistoryAttribution": {
+                "status": "MONITOR_ONLY",
+                "data_range": {
+                    "min_date": dates[-1] if dates else None,
+                    "max_date": dates[0] if dates else None,
+                },
+                "strict_production": {
+                    "status": "PASS" if settled else "UNAVAILABLE",
+                    "sample_count": len(settled),
+                    "minimum_settled_samples": 1,
+                    "paper": {
+                        "count": len(settled),
+                        "avg_t1": avg_t1,
+                        "win_rate": (len(wins) / len(settled)) if settled else None,
+                        "max_drawdown": None,
+                    },
+                    "data_range": {
+                        "min_date": dates[-1] if dates else None,
+                        "max_date": dates[0] if dates else None,
+                    },
+                },
+                "formal_top10_rescore": {
+                    "count": len(settled),
+                    "avg_t1": avg_t1,
+                    "win_rate": (len(wins) / len(settled)) if settled else None,
+                },
+            },
+        },
+        "latestChainReplay": {
+            "window": {"min_date": dates[-1] if dates else None, "max_date": dates[0] if dates else None},
+            "settledSamples": [
+                {
+                    "trade_date": row.get("trade_date"),
+                    "symbol": row.get("symbol"),
+                    "stock_name": row.get("stock_name"),
+                    "final_score": row.get("final_score"),
+                    "entry_price": row.get("entry_price"),
+                    "t1_return": row.get("t1_return"),
+                    "reason_summary": row.get("selection_reason"),
+                }
+                for row in settled
+            ],
+            "max_drawdown_detail": None,
+        },
+    }
+
+
+@app.get("/api/os/front-data")
+def front_data(trade_date: str = Query(default=""), date: str = Query(default="")) -> Dict[str, Any]:
+    """Operator dashboard contract. Query only; PostgreSQL is ticket truth, Obsidian is memory."""
+    try:
+        return load_front_data(trade_date or date)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"error": "Database unavailable", "detail": repr(exc)}) from exc

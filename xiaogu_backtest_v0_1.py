@@ -932,7 +932,6 @@ def supplement_database_future_prices(
     retry_delay: float = 0.25,
     request_timeout: int = 10,
     eastmoney_timeout: int | None = None,
-    baostock_timeout: int | None = None,
     max_errors: int = 3,
 ) -> Dict[str, Any]:
     """Fetch only missing future OHLC for DB-linked decisions.
@@ -940,10 +939,7 @@ def supplement_database_future_prices(
     Database canonical bars are loaded first. External bars are a bounded
     fallback for missing future evidence and are never used as T-day inputs.
     """
-    from xiaogu_forward_result_filler_v0_1 import (
-        fetch_baostock_daily_bars,
-        fetch_eastmoney_daily_bars,
-    )
+    from xiaogu_forward_result_filler_v0_1 import fetch_eastmoney_daily_bars
 
     path = Path(cache_path)
     cache = _cache_read(path)
@@ -962,7 +958,6 @@ def supplement_database_future_prices(
         selected_symbols = selected_symbols[:max(0, max_symbols)]
     requested_end = str(end_date or date.today().isoformat())
     eastmoney_timeout = request_timeout if eastmoney_timeout is None else eastmoney_timeout
-    baostock_timeout = request_timeout if baostock_timeout is None else baostock_timeout
     fetched_bars: list[Dict[str, Any]] = []
     pending_persistence: list[Dict[str, Any]] = []
     errors = []
@@ -1027,7 +1022,6 @@ def supplement_database_future_prices(
         bars: list[Dict[str, Any]] = []
         for fetcher, fetcher_name in (
             (fetch_eastmoney_daily_bars, "eastmoney_api_daily_kline"),
-            (fetch_baostock_daily_bars, "baostock_daily_kline"),
         ):
             for attempt in range(max(1, max_retries)):
                 try:
@@ -1035,11 +1029,7 @@ def supplement_database_future_prices(
                         symbol,
                         start_date=earliest,
                         end_date=symbol_end,
-                        timeout=(
-                            eastmoney_timeout
-                            if fetcher_name == "eastmoney_api_daily_kline"
-                            else baostock_timeout
-                        ),
+                        timeout=eastmoney_timeout,
                     )
                     if bars:
                         last_error = None

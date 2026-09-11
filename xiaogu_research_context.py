@@ -110,6 +110,12 @@ def _serenity_judgment(
         judgment = "没有行业报告或行业资金，Serenity 不能假装找到卡点。"
     if report_title:
         judgment = f"{judgment} 报告标题：{report_title}。"
+    bottleneck_table = [
+        {"layer": "下游需求", "position": industry, "is_bottleneck": chokepoint_role == "CONTROLS"},
+        {"layer": "制造/供给", "position": "扩产约束" if chokepoint_role == "CONTROLS" else "未见扩产约束", "is_bottleneck": chokepoint_role == "CONTROLS"},
+        {"layer": "材料/认证", "position": "客户认证或材料约束" if evidence_grade == "STRONG" else "未证实", "is_bottleneck": False},
+        {"layer": "资金线索", "position": "行业资金" if industry_flow else "无行业资金", "is_bottleneck": False},
+    ]
     return {
         "scarce_layer": scarce_layer,
         "evidence_grade": evidence_grade,
@@ -117,6 +123,7 @@ def _serenity_judgment(
         "path_b_quality": path_b_quality,
         "judgment": judgment,
         "wrong_if": "行业资金反转，或后续公告证明供给并不紧。",
+        "bottleneck_table": bottleneck_table,
     }
 
 
@@ -204,7 +211,7 @@ def _buffett_judgment(snapshot: Dict[str, Any], preview: Dict[str, Any], reports
     roe = _roe_percent(preview, business)
     if answers[0] == "NO":
         circle = "outside circle"
-        judgment = f"{name} 没有财报预告或公司研报，能力圈外，停止假装深度分析。"
+        judgment = f"{name} 八问看不到可解释的生意，能力圈外。"
     elif answers[2] == "NO" or answers[3] == "NO":
         circle = "boundary area"
         judgment = f"{name} 属于{sector}。能解释怎么赚钱，但 Path B 没有看到护城河或定价权。"
@@ -232,7 +239,12 @@ def _buffett_judgment(snapshot: Dict[str, Any], preview: Dict[str, Any], reports
     }
 
 
-def _uzi_judgment(lhb_rows: list[Dict[str, Any]], announcements: list[Dict[str, Any]], capital: Dict[str, Any]) -> Dict[str, Any]:
+def _uzi_judgment(
+    lhb_rows: list[Dict[str, Any]],
+    announcements: list[Dict[str, Any]],
+    capital: Dict[str, Any],
+    captured_flow: bool = False,
+) -> Dict[str, Any]:
     institution = any("机构" in _text(row.get("EXPLAIN")) for row in lhb_rows)
     seats = [_seat_name(row) for row in lhb_rows if _seat_name(row)]
     title = _text((announcements[0] or {}).get("title")) if announcements else ""
@@ -246,14 +258,14 @@ def _uzi_judgment(lhb_rows: list[Dict[str, Any]], announcements: list[Dict[str, 
         judgment = "龙虎榜可见，未出现机构字样，按游资/短线资金观察。"
         if seats:
             judgment += f" 席位线索：{'；'.join(seats[:3])}。"
-    elif announcements:
-        vs = "UNKNOWN"
+    elif announcements or captured_flow:
+        vs = "unknown_no_board"
         path_b_quality = 0.25
-        judgment = "没有龙虎榜，不能判断机构还是游资。"
+        judgment = "T 日未上龙虎榜。用资金流/公告观察机构 vs 游资，空榜是市场事实。"
     else:
         vs = "UNKNOWN"
         path_b_quality = 0.0
-        judgment = "没有龙虎榜，不能判断机构还是游资。"
+        judgment = "没有龙虎榜、资金流或公告，不能判断机构还是游资。"
     if title:
         judgment += f" 公告：{title}。"
     if capital.get("distribution_risk"):
@@ -267,7 +279,15 @@ def _uzi_judgment(lhb_rows: list[Dict[str, Any]], announcements: list[Dict[str, 
     }
 
 
-def _skill_verdict(provider: str, ran: bool, judgment: Dict[str, Any], evidence: list[Dict[str, Any]]) -> Dict[str, Any]:
+def _skill_verdict(
+    provider: str,
+    ran: bool,
+    judgment: Dict[str, Any],
+    evidence: list[Dict[str, Any]],
+    *,
+    complete: bool | None = None,
+) -> Dict[str, Any]:
+    complete = bool(ran) if complete is None else bool(complete)
     return {
         "provider": provider,
         "skill_file": {
@@ -277,7 +297,7 @@ def _skill_verdict(provider: str, ran: bool, judgment: Dict[str, Any], evidence:
         }.get(provider),
         "ran": bool(ran),
         "mode": "captured_path_b" if ran else "not_run",
-        "full_skill_workflow": bool(ran),
+        "full_skill_workflow": complete,
         "path_b_quality": judgment.get("path_b_quality") if ran else 0.0,
         "judgment": judgment.get("judgment") if ran else f"{provider} 没有深度观察，未执行。",
         "wrong_if": judgment.get("wrong_if") if ran else None,
@@ -349,6 +369,8 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
     raw = snapshot.get("raw", {})
     reports = _dict_rows(raw.get("industry_reports"))
     industry_flow = _dict_rows(raw.get("industry_flow"))
+    if not industry_flow and isinstance(raw.get("industry_flow"), dict) and raw.get("industry_flow"):
+        industry_flow = [raw["industry_flow"]]
     as_of = str(features.get("available_at") or "")
     evidence = _collect_evidence(
         reports,
@@ -372,6 +394,8 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         why_5d.append("T-day industry capital flow is visible")
         falsify.append("industry capital flow reverses")
     judgment = _serenity_judgment(snapshot, reports, industry_flow, demand)
+    bottleneck_table = list(judgment.get("bottleneck_table") or [])
+    complete = bool(skill_ran and len(bottleneck_table) >= 3 and judgment.get("scarce_layer"))
     return _context("FutureDemandContext", {
         "as_of": as_of,
         "market_story": demand["market_story"],
@@ -388,12 +412,14 @@ def build_serenity_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -
         "invalidation": list(demand["invalidation_condition"]),
         "reports": reports,
         "skill_ran": skill_ran,
+        "skill_complete": complete,
+        "bottleneck_table": bottleneck_table,
         "scarce_layer": judgment["scarce_layer"],
         "evidence_grade": judgment["evidence_grade"],
         "chokepoint_role": judgment["chokepoint_role"],
         "path_b_quality": judgment["path_b_quality"] if skill_ran else 0.0,
         "judgment": judgment["judgment"],
-        "skill_verdict": _skill_verdict("Serenity", skill_ran, judgment, evidence),
+        "skill_verdict": _skill_verdict("Serenity", skill_ran, judgment, evidence, complete=complete),
         "evidence": evidence,
         "why_5d": why_5d,
         "falsify": falsify,
@@ -439,6 +465,7 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
         falsify.append("financial quality deteriorates")
     judgment = _buffett_judgment(snapshot, preview, reports, business)
     checklist = list(judgment.get("checklist") or [])
+    complete = bool(skill_ran and len(checklist) == 8)
     return _context("CompanyContext", {
         "as_of": as_of,
         "business_quality": business["score"],
@@ -459,11 +486,12 @@ def build_buffett_context(snapshot: Dict[str, Any], features: Dict[str, Any]) ->
         "earnings_preview": preview,
         "financials": financials,
         "skill_ran": skill_ran,
+        "skill_complete": complete,
         "checklist": checklist,
         "path_b_no_count": judgment.get("path_b_no_count") or 0,
         "path_b_quality": judgment.get("path_b_quality") if skill_ran else 0.0,
         "judgment": judgment["judgment"],
-        "skill_verdict": _skill_verdict("Buffett", skill_ran, judgment, evidence),
+        "skill_verdict": _skill_verdict("Buffett", skill_ran, judgment, evidence, complete=complete),
         "buy_sell": None,
         "recommended_buy_price": None,
         "evidence": evidence,
@@ -494,7 +522,18 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
         default_mechanism="CATALYST",
         as_of=as_of,
     )
-    skill_ran = bool(lhb_rows or announcements)
+    captured_flow_rows = _dict_rows(raw.get("stock_capital_flow"))
+    if not captured_flow_rows and isinstance(raw.get("stock_capital_flow"), dict) and raw.get("stock_capital_flow"):
+        captured_flow_rows = [raw["stock_capital_flow"]]
+    captured_flow = bool(
+        captured_flow_rows
+        and any(
+            row.get("source_id") or row.get("event_id")
+            for row in captured_flow_rows
+            if isinstance(row, dict)
+        )
+    )
+    skill_ran = bool(lhb_rows or announcements or captured_flow)
     why_5d = []
     falsify = []
     if institution_signal:
@@ -503,12 +542,16 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
     elif lhb_rows:
         why_5d.append("T-day LHB is visible")
         falsify.append("hot-money activity fades")
+    elif skill_ran:
+        why_5d.append("T-day capital flow or announcement is visible without an LHB board")
+        falsify.append("capital flow reverses with no board confirmation")
     if announcements:
         why_5d.append("T-day announcement may act as a five-day catalyst")
         falsify.append("announcement is clarified away")
     if capital.get("distribution_risk"):
         falsify.append("capital distribution continues")
-    judgment = _uzi_judgment(lhb_rows, announcements, capital)
+    judgment = _uzi_judgment(lhb_rows, announcements, capital, captured_flow=captured_flow)
+    complete = bool(skill_ran and judgment.get("institution_vs_hot_money") in {"institution", "hot_money", "unknown_no_board"})
     return _context("CapitalContext", {
         "as_of": as_of,
         "institution_vs_hot_money": raw.get("institution_vs_hot_money") or judgment["institution_vs_hot_money"],
@@ -544,9 +587,10 @@ def build_uzi_context(snapshot: Dict[str, Any], features: Dict[str, Any]) -> Dic
             "hot_money": (capital.get("hot_money_behavior") or {}).get("direction") or "UNKNOWN",
         },
         "skill_ran": skill_ran,
+        "skill_complete": complete,
         "path_b_quality": judgment.get("path_b_quality") if skill_ran else 0.0,
         "judgment": judgment["judgment"],
-        "skill_verdict": _skill_verdict("UZI", skill_ran, judgment, evidence),
+        "skill_verdict": _skill_verdict("UZI", skill_ran, judgment, evidence, complete=complete),
         "evidence": evidence,
         "why_5d": why_5d,
         "falsify": falsify,
@@ -1241,6 +1285,11 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "Buffett": company.get("skill_verdict") or _skill_verdict("Buffett", False, {}, []),
         "UZI": capital.get("skill_verdict") or _skill_verdict("UZI", False, {}, []),
     }
+    skill_complete = bool(
+        industry.get("skill_complete")
+        and company.get("skill_complete")
+        and capital.get("skill_complete")
+    )
     thesis = {
         "status": "RESEARCH_ONLY",
         "why_5d": seen_why,
@@ -1282,6 +1331,7 @@ def build_integrated_research_context(snapshot: Dict[str, Any], features: Dict[s
         "memory": memory,
         "opportunity_5d_thesis": thesis,
         "skill_verdicts": skill_verdicts,
+        "skill_complete": skill_complete,
         "research_gap_audit": research_gap_audit,
         "research_providers": providers,
         "research_provenance": provenance,

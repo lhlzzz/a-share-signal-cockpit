@@ -62,6 +62,37 @@ def _snapshot(symbol="600001", pct=3.0, **extra):
     payload.update(extra)
     return attach_research_observations(
         payload,
+        stock_capital_flow={
+            "f62": 400,
+            "observed_at": "2026-08-26T14:49:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.capital_flow",
+            "event_id": f"{symbol}-flow",
+            "mechanism": "CAPITAL",
+        },
+        earnings_preview={
+            "WEIGHTAVG_ROE": 18 + (float(pct) or 0),
+            "publication_time": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.earnings_preview",
+            "event_id": f"{symbol}-preview",
+            "mechanism": "VALUATION",
+        },
+        financials=[{
+            "SECURITY_CODE": symbol,
+            "REPORT_DATE": "2025-12-31 00:00:00",
+            "REPORT_TYPE": "年报",
+            "ROEJQ": 18 + (float(pct) or 0),
+            "XSMLL": 50,
+            "XSJLL": 18,
+            "ZCFZL": 40,
+            "LD": 1.5,
+            "source_id": "eastmoney.financials",
+            "event_id": f"{symbol}|2025-12-31|年报",
+            "mechanism": "VALUATION",
+            "observed_at": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+        }],
         industry_flow={
             "f3": 5,
             "observed_at": "2026-08-26T14:49:00+08:00",
@@ -70,6 +101,32 @@ def _snapshot(symbol="600001", pct=3.0, **extra):
             "event_id": "industry-flow",
             "mechanism": "DEMAND",
         },
+        stock_reports=[{
+            "title": "公司研究",
+            "publication_time": "2026-08-26T14:40:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.stock_report",
+            "event_id": f"{symbol}-report",
+            "mechanism": "VALUATION",
+        }],
+        lhb=[{
+            "EXPLAIN": "1家机构买入",
+            "NET_BS_AMT": -100,
+            "ACCUM_AMOUNT": 100,
+            "event_time": "2026-08-26T14:45:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.lhb",
+            "event_id": f"{symbol}-lhb",
+            "mechanism": "CAPITAL",
+        }],
+        announcements=[{
+            "title": "产能公告",
+            "publication_time": "2026-08-26T14:30:00+08:00",
+            "available_at": "2026-08-26T14:50:00+08:00",
+            "source_id": "eastmoney.announcement",
+            "event_id": f"{symbol}-ann",
+            "mechanism": "CATALYST",
+        }],
     )
 
 
@@ -585,6 +642,7 @@ def test_atomic_persistence_rolls_back_on_failure(monkeypatch):
 
     monkeypatch.setattr(db, "record_paper_observation", boom)
     monkeypatch.setattr(db, "paper_observation_exists", lambda _value: False)
+    monkeypatch.setattr(db, "_assert_one_official_production_observation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(db, "_table_columns", lambda _name: {"production_run_id"})
     with pytest.raises(RuntimeError, match="paper failed"):
         db.persist_production_facts([
@@ -607,6 +665,14 @@ def test_atomic_persistence_rolls_back_on_failure(monkeypatch):
                     "paper_observation_contract_version": "v1",
                     "paper_only": True,
                     "live_order": False,
+                    "production_run_id": "run-1",
+                    "snapshot_id": "s",
+                    "lineage_id": "l",
+                    "rank": 1,
+                    "top1_flag": True,
+                    "top3_flag": True,
+                    "production_alpha": "profit_window_alpha_5d_v4",
+                    "production_target": "opportunity_5d",
                 },
             }
         ], production_run_id="run-1")
@@ -960,6 +1026,9 @@ def test_atomic_persistence_rolls_back_all_facts_on_paper_failure(monkeypatch):
     snapshot = validate_and_build_canonical_snapshot(_snapshot("603992", 3.0, lineage_id="atomic-rollback-lineage"))
     decision = evaluate_candidate_bundle(snapshot, position_state="FLAT", as_of=AS_OF)
     paper = dict(decision["paper_observation"])
+    paper["rank"] = 1
+    paper["top1_flag"] = True
+    paper["top3_flag"] = True
     decision["canonical_snapshot"] = snapshot
     decision["paper_observation"] = paper
     lineage_id = snapshot["lineage_id"]
@@ -1097,14 +1166,27 @@ def test_same_paper_signal_id_cannot_overwrite_another_observation():
     )
     first = evaluate_candidate_bundle(first_snapshot, position_state="FLAT", as_of=AS_OF)
     first["canonical_snapshot"] = first_snapshot
+    first["paper_observation"]["production_run_id"] = "phase2-paper-lock-run"
+    first["paper_observation"]["rank"] = 1
+    first["paper_observation"]["top1_flag"] = True
+    first["paper_observation"]["top3_flag"] = True
     second_snapshot = validate_and_build_canonical_snapshot(
         _snapshot("603995", 4.0, lineage_id="phase2-paper-lock-b")
     )
     second = evaluate_candidate_bundle(second_snapshot, position_state="FLAT", as_of=AS_OF)
     second["canonical_snapshot"] = second_snapshot
+    second["paper_observation"]["production_run_id"] = "phase2-paper-lock-run-b"
+    second["paper_observation"]["rank"] = 1
+    second["paper_observation"]["top1_flag"] = True
+    second["paper_observation"]["top3_flag"] = True
     conflict = dict(second["paper_observation"])
     conflict["paper_signal_id"] = first["paper_observation"]["paper_signal_id"]
-    conflict["decision_id"] = second["decision_id"]
+    conflict["decision_id"] = first["decision_id"]
+    conflict["production_run_id"] = first["paper_observation"]["production_run_id"]
+    first_overlay = dict(first["paper_observation"].get("research_overlay") or {})
+    conflict_overlay = dict(conflict.get("research_overlay") or {})
+    conflict_overlay["skill_verdicts"] = first_overlay.get("skill_verdicts")
+    conflict["research_overlay"] = conflict_overlay
     try:
         db.record_snapshot(first_snapshot)
         db.record_decision(first)
@@ -1783,6 +1865,13 @@ def test_phase22_official_observation_production_path_provenance():
         assert sum(1 for row in official if row.get("top1_flag") is True) == 1
         assert all(row.get("paper_only") is not False for row in official)
         assert all(row.get("live_order") is not True for row in official)
+        with db.engine.connect() as connection:
+            persisted_papers = connection.execute(
+                text("SELECT COUNT(*) FROM paper_observations WHERE payload->>'production_run_id' = :run_id"),
+                {"run_id": run_id},
+            ).scalar()
+        assert persisted_papers == len(official)
+        assert persisted_papers <= 3
         rank_only = {
             "paper_signal_id": "phase22-rank-only",
             "decision_id": "phase22-rank-only-decision",

@@ -254,13 +254,22 @@ def _skill_report_block(record: Dict[str, Any]) -> str:
         if not isinstance(verdict, dict):
             verdict = {}
         judgment = overlay.get(key) or verdict.get("judgment") or "NOT_RUN"
+        extra = []
+        if provider == "Serenity":
+            extra.append(f"- Bottleneck table: {_markdown(overlay.get('bottleneck_table') or [])}")
+        if provider == "Buffett":
+            extra.append(f"- Eight questions: {_markdown(overlay.get('buffett_checklist') or [])}")
+        if provider == "UZI":
+            extra.append(f"- Institution vs hot money: {overlay.get('institution_vs_hot_money') or 'UNKNOWN'}")
         lines.extend([
             f"### {provider}",
             f"- Ran: `{verdict.get('ran')}`",
             f"- Mode: `{verdict.get('mode') or 'not_run'}`",
             f"- Full skill workflow: `{verdict.get('full_skill_workflow')}`",
+            f"- Skill complete: `{overlay.get('skill_complete')}`",
             f"- Buy/Sell: `{verdict.get('buy_sell')}`",
             f"- Judgment: {judgment}",
+            *extra,
             f"- Wrong if: {verdict.get('wrong_if') or 'UNKNOWN'}",
             f"- Evidence ids: {_markdown(verdict.get('evidence_ids') or [])}",
             "",
@@ -649,6 +658,7 @@ def validate_paper_observation(decision: Dict[str, Any], rule: Dict[str, Any]) -
         "profit_window_alpha_5d_v4",
         "profit_window_probability",
         "research_thesis",
+        "earnings_profit",
         "price_strength",
     }:
         raise ValueError("PAPER_OBSERVATION_ALPHA_CONTRACT_INVALID")
@@ -919,8 +929,10 @@ def append_paper_observation(
         "trade_date": canonical["trade_date"],
         "generated_at": now_iso(),
     }
-    from xiaogu_db import paper_observation_exists, record_paper_observation
+    from xiaogu_db import has_official_observation_provenance, paper_observation_exists, record_paper_observation
     if persist_database:
+        if not has_official_observation_provenance(observation):
+            raise ValueError("OFFICIAL_PAPER_OBSERVATION_REQUIRED")
         if paper_observation_exists(str(observation["paper_signal_id"])):
             return Path(""), {
                 "paper_signal_id": observation["paper_signal_id"],
